@@ -117,7 +117,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
             "n_symbols" | "sps" | "n_taps" | "sps_out" | "offset" | "passes" | "n" | "b" | "m" | "steps_per_span"
             | "start" | "length" | "max_delay" | "symmetry" | "window" | "n_data" | "oversampling" | "n_cp" | "n_tx"
             | "n_rx" | "coherence" | "k" | "seed" | "blocks" | "skip_start" | "skip_end" | "n_channels"
-            | "max_iterations" | "pols" | "kikuchi" | "sections",
+            | "max_iterations" | "iterations" | "pols" | "kikuchi" | "sections" | "bits",
         ) => json!(2),
         _ => json!(1.0),
     })
@@ -270,6 +270,8 @@ fn the_single_polarisation_blocks_are_declared_so() {
         "bps",
         "viterbi",
         "ddpll",
+        "adc",
+        "dac",
     ];
     expected.sort_unstable();
     assert_eq!(per_pol, expected);

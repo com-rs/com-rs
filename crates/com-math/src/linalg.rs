@@ -38,7 +38,7 @@
 
 use crate::C64;
 use com_core::{Error, Result};
-use ndarray::{Array2, ArrayView2};
+use ndarray::{Array2, ArrayView2, ShapeBuilder};
 
 /// A dense complex matrix.
 pub type CMat = Array2<C64>;
@@ -209,8 +209,12 @@ pub fn svd(a: &ArrayView2<'_, C64>) -> (CMat, Vec<f64>, CMat) {
         let (u, s, v) = svd(&hermitian(a).view());
         return (v, s, u);
     }
-    let mut w = a.to_owned();
-    let mut v = identity(n);
+    // column-major working copies: the sweeps run down the columns (same operations in
+    // the same order as with rows, so the same results, without the strided accesses)
+    let mut w = Array2::<C64>::zeros((m, n).f());
+    w.assign(a);
+    let mut v = Array2::<C64>::zeros((n, n).f());
+    v.assign(&identity(n));
     for _sweep in 0..60 {
         let mut rotated = false;
         for p in 0..n {

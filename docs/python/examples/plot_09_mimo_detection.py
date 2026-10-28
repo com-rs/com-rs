@@ -18,6 +18,8 @@ The ZF curve follows the closed form of maximal-ratio combining with one branch,
 two BPSK).
 """
 
+import time
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -83,3 +85,115 @@ x = c.points[[0, 1, 2, 3]]
 y = h @ x + rng.complex_noise(NR, 0.05)
 print("ML   LLRs:", np.round(comrs.mimo_llr(h, y, c, 0.05, "ml"), 1))
 print("MMSE LLRs:", np.round(comrs.mimo_llr(h, y, c, 0.05, "mmse"), 1))
+
+# %%
+# Computational complexity
+# ------------------------
+#
+# The detectors that reach the full diversity pay for it in computation. Per received
+# vector, with a new channel every time:
+#
+# ================  ==================================  ==========================================
+# Detector          Operations per vector               Behaviour
+# ================  ==================================  ==========================================
+# ZF, MMSE          :math:`O(n_t^3)` (one inversion)    independent of the SNR
+# MMSE-SIC          :math:`O(n_t^4)` (:math:`n_t`       independent of the SNR
+#                   inversions of decreasing size)
+# K-best            :math:`O(K M n_t^2)` and a sort     fixed, set by :math:`K` (8 here)
+#                   of :math:`K M` paths per level
+# Sphere            a QR, then the visited nodes        exact ML; few nodes at high SNR, many
+#                                                       more at low SNR and for large
+#                                                       :math:`M` and :math:`n_t`
+# ML (exhaustive)   :math:`O(M^{n_t} n_r n_t)`          independent of the SNR
+# ================  ==================================  ==========================================
+#
+# The expected number of nodes of the sphere decoder is polynomial in :math:`n_t` over
+# a range of high SNR (Hassibi & Vikalo, *IEEE Trans. Signal Process.* 53(8), 2005), but
+# it grows exponentially with :math:`n_t` at any fixed SNR (Jaldén & Ottersten, *IEEE
+# Trans. Signal Process.* 53(4), 2005). The times below are measured: comrs on one
+# thread, on the machine that built this page, best of three runs on the same vectors.
+# Their ratios carry over to other machines, not their values. The exhaustive search
+# of comrs evaluates :math:`\lVert y - H x \rVert^2` from scratch for every hypothesis,
+# which gives its :math:`M^{n_t} n_r n_t` cost directly.
+
+timed = {
+    "ZF": "zf",
+    "MMSE": "mmse",
+    "MMSE-SIC": "mmse_sic",
+    "K-best (K = 8)": "kbest",
+    "sphere": "sphere",
+    "ML (exhaustive)": "ml",
+}
+markers = ["o", "s", "D", "v", "^", "P"]
+
+
+def time_per_vector(method, const, n_ant, eb_db, n_vectors, seed=3):
+    """Measured time of the detector per received vector (seconds), best of three."""
+    rng = comrs.Rng(seed)
+    m = const.order
+    s2 = 1 / (const.bits_per_symbol * comrs.db2lin(eb_db))
+    h = comrs.mimo_channel(n_ant, n_ant, rng, n=n_vectors)
+    idx = rng.integers(m, n_vectors * n_ant).reshape(n_vectors, n_ant)
+    noise = rng.complex_noise(n_vectors * n_ant, s2).reshape(n_vectors, n_ant)
+    y = np.einsum("nij,nj->ni", h, const.points[idx]) + noise
+    best = np.inf
+    for _ in range(3):
+        t0 = time.perf_counter()
+        comrs.mimo_detect(h, y, const, s2, method)
+        best = min(best, time.perf_counter() - t0)
+    return best / n_vectors
+
+
+snrs = np.arange(0.0, 26.0, 5.0)
+per_snr = {name: [time_per_vector(m, c, 4, e, 2000) for e in snrs] for name, m in timed.items()}
+
+fig, ax = plt.subplots()
+for (name, values), marker in zip(per_snr.items(), markers, strict=True):
+    ax.semilogy(snrs, 1e6 * np.array(values), marker=marker, markeredgecolor="#fcfcfb", label=name)
+ax.set(
+    xlabel="$E_b/N_0$ (dB)",
+    ylabel="measured time per vector (µs)",
+    title=f"QPSK, {NT} × {NR}: time per received vector",
+)
+ax.legend(ncols=2)
+fig.tight_layout()
+
+# %%
+# With QPSK the tree of the sphere decoder has four branches per level: it stays as
+# cheap as a linear detector (ZF and MMSE overlap), and gets cheaper as the SNR
+# rises. Its cost shows with a larger constellation, at low SNR, as the number of
+# antennas grows: 16-QAM at :math:`E_b/N_0` = 0 dB, from 2 × 2 to 8 × 8. The exhaustive
+# search stops at 5 × 5 (:math:`16^5` hypotheses per vector).
+
+q16 = comrs.Constellation("qam", 16).normalized()
+antennas = np.arange(2, 9)
+per_size = {}
+for name, m in timed.items():
+    sizes = antennas[antennas <= 5] if m == "ml" else antennas
+    # fewer vectors where a vector costs more: every point takes about a second at most
+    count = [max(10, 2000 // 16 ** max(n - 3, 0)) if m == "ml" else 2000 for n in sizes]
+    per_size[name] = (
+        sizes,
+        [time_per_vector(m, q16, n, 0.0, v) for n, v in zip(sizes, count, strict=True)],
+    )
+
+fig, ax = plt.subplots()
+for (name, (sizes, values)), marker in zip(per_size.items(), markers, strict=True):
+    ax.semilogy(sizes, 1e6 * np.array(values), marker=marker, markeredgecolor="#fcfcfb", label=name)
+ax.set(
+    xlabel="antennas $n_t = n_r$",
+    ylabel="measured time per vector (µs)",
+    title="16-QAM at $E_b/N_0$ = 0 dB: time per received vector",
+    ylim=(0.2, 1e6),
+)
+ax.legend(ncols=2, loc="upper left")
+fig.tight_layout()
+
+# %%
+# The measured times (µs per received vector):
+
+print(f"{'detector':16s}" + "".join(f"{f'{n} × {n}':>11s}" for n in antennas))
+for name, (sizes, values) in per_size.items():
+    cells = dict(zip(sizes, values, strict=True))
+    row = "".join(f"{1e6 * cells[n]:11.1f}" if n in cells else f"{'—':>11s}" for n in antennas)
+    print(f"{name:16s}{row}")

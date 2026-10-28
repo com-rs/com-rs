@@ -83,9 +83,15 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - MIMO detection
      - A
      - Yang & Hanzo 2015 Table X; MRC closed forms
+   * - Message-passing detection of large MIMO (LAMA, OAMP)
+     - A
+     - Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3
    * - Space-time block codes
      - A
      - Tarokh et al. 1999 eqs. (39)–(40); MRC closed forms
+   * - DAC and ADC
+     - B
+     - Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999
    * - Capacity and precoding
      - B
      - the ergodic capacity of Rayleigh fading

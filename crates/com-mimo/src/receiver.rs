@@ -29,6 +29,7 @@
 //! ```
 
 use crate::detection::{KBest, Linear, MimoDetector, Ml, Sic, Sphere};
+use crate::message_passing::{Amp, Oamp};
 use crate::stbc::Ostbc;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
@@ -54,13 +55,18 @@ pub enum DetectorKind {
     Sphere,
     /// K-best with this number of paths.
     KBest(usize),
+    /// LAMA, the complex Bayesian AMP of large systems, with this number of iterations.
+    Amp(usize),
+    /// OAMP with the LMMSE estimator, with this number of iterations.
+    Oamp(usize),
 }
 
 impl std::str::FromStr for DetectorKind {
     type Err = Error;
 
     /// The detector of a name: `zf`, `mmse`, `sic` (`mmse_sic`), `zf_sic`, `ml`,
-    /// `sphere` or `kbest` (with [`DetectorKind::DEFAULT_PATHS`] paths),
+    /// `sphere`, `kbest` (with [`DetectorKind::DEFAULT_PATHS`] paths), `amp` (`lama`)
+    /// or `oamp` (with [`DetectorKind::DEFAULT_ITERATIONS`] iterations),
     /// case-insensitive.
     ///
     /// # Errors
@@ -74,9 +80,11 @@ impl std::str::FromStr for DetectorKind {
             "ml" => DetectorKind::Ml,
             "sphere" => DetectorKind::Sphere,
             "kbest" => DetectorKind::KBest(DetectorKind::DEFAULT_PATHS),
+            "amp" | "lama" => DetectorKind::Amp(DetectorKind::DEFAULT_ITERATIONS),
+            "oamp" => DetectorKind::Oamp(DetectorKind::DEFAULT_ITERATIONS),
             other => {
                 return Err(Error::Config(format!(
-                    "unknown detector {other:?}: zf, mmse, sic, zf_sic, ml, sphere or kbest"
+                    "unknown detector {other:?}: zf, mmse, sic, zf_sic, ml, sphere, kbest, amp or oamp"
                 )));
             }
         })
@@ -86,6 +94,24 @@ impl std::str::FromStr for DetectorKind {
 impl DetectorKind {
     /// The paths of K-best when its name does not give them.
     pub const DEFAULT_PATHS: usize = 8;
+
+    /// The iterations of AMP and OAMP when their name does not give them.
+    pub const DEFAULT_ITERATIONS: usize = 10;
+
+    /// The same detector with `iterations` iterations, for AMP and OAMP (the others are
+    /// returned unchanged).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for zero iterations of AMP or OAMP.
+    pub fn with_iterations(self, iterations: usize) -> Result<DetectorKind> {
+        let needs = matches!(self, DetectorKind::Amp(_) | DetectorKind::Oamp(_));
+        ensure(!needs || iterations >= 1, || format!("{self:?} needs at least one iteration"))?;
+        Ok(match self {
+            DetectorKind::Amp(_) => DetectorKind::Amp(iterations),
+            DetectorKind::Oamp(_) => DetectorKind::Oamp(iterations),
+            other => other,
+        })
+    }
 
     /// The detector of a name ([`DetectorKind::from_str`](std::str::FromStr::from_str)),
     /// K-best with `k` paths.
@@ -118,6 +144,8 @@ impl DetectorKind {
             DetectorKind::Ml => Box::new(Ml::new(c)),
             DetectorKind::Sphere => Box::new(Sphere::new(c)),
             DetectorKind::KBest(k) => Box::new(KBest::new(c, k)),
+            DetectorKind::Amp(n) => Box::new(Amp::new(c, n)),
+            DetectorKind::Oamp(n) => Box::new(Oamp::new(c, n)),
         }
     }
 }

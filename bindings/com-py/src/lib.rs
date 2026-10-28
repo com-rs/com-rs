@@ -28,6 +28,7 @@ use pyo3::prelude::*;
 mod cdl;
 mod chain;
 mod comm;
+mod converter;
 mod devices;
 mod differential;
 mod dsp;
@@ -251,6 +252,7 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     rng::register(m)?;
     comm::register(m)?;
+    converter::register(m)?;
     dsp::register(m)?;
     fiber::register(m)?;
     gn::register(m)?;

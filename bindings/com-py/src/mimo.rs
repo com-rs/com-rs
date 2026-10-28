@@ -11,6 +11,7 @@ use comrs::channel::fading::Mimo;
 use comrs::channel::spatial::{Kronecker, exponential_correlation as exp_corr};
 use comrs::mimo::capacity;
 use comrs::mimo::detection::{Linear, MimoDetector};
+use comrs::mimo::message_passing::{self as mp, AmpVariance, Field, OampLinear, Prior};
 use comrs::mimo::precoding::{Eigenmode, LinearPrecoder};
 use comrs::mimo::receiver::DetectorKind;
 use comrs::mimo::stbc::Ostbc;
@@ -62,8 +63,13 @@ fn received(y: &Bound<'_, PyAny>) -> PyResult<(Array2<C64>, bool)> {
     }
 }
 
-fn detector(method: &str, c: &comrs::mapping::constellation::Constellation, k: usize) -> PyResult<Detector> {
-    Ok(DetectorKind::from_name(method, k).py()?.detector(c))
+fn detector(
+    method: &str,
+    c: &comrs::mapping::constellation::Constellation,
+    k: usize,
+    iterations: usize,
+) -> PyResult<Detector> {
+    Ok(DetectorKind::from_name(method, k).py()?.with_iterations(iterations).py()?.detector(c))
 }
 
 /// Run `f` on every received vector with its channel; rows of the result.
@@ -169,7 +175,8 @@ fn exponential_correlation<'py>(py: Python<'py>, n: usize, rho: C64) -> Bound<'p
 /// Methods: `"zf"`, `"mmse"` (linear, unbiased), `"zf_sic"`, `"mmse_sic"` (ordered
 /// successive interference cancellation, V-BLAST), `"ml"` (exhaustive search),
 /// `"sphere"` (exact ML by the Schnorr–Euchner sphere decoder), `"kbest"` (K-best tree
-/// search keeping `k` paths).
+/// search keeping `k` paths), `"amp"` (LAMA, the complex Bayesian AMP of Jeon et al.)
+/// and `"oamp"` (OAMP-LMMSE of Ma & Ping), both for large systems.
 ///
 /// Args:
 ///     h (array_like): the channel, `(n_rx, n_tx)` for every vector or `(n, n_rx, n_tx)`.
@@ -178,6 +185,7 @@ fn exponential_correlation<'py>(py: Python<'py>, n: usize, rho: C64) -> Bound<'p
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
 ///     method (str): the detector.
 ///     k (int): paths kept by `"kbest"` (8, as the ``mimo_rx`` block).
+///     iterations (int): iterations of `"amp"` and `"oamp"`.
 ///
 /// Returns:
 ///     numpy.ndarray: the labels of the decided points, `(n, n_tx)` (or `(n_tx,)`).
@@ -190,7 +198,11 @@ fn exponential_correlation<'py>(py: Python<'py>, n: usize, rho: C64) -> Bound<'p
 ///     >>> comrs.mimo_detect(h, h @ x, c, 1e-3, "sphere").tolist()
 ///     [1, 2]
 #[pyfunction]
-#[pyo3(signature = (h, y, constellation, noise_var, method="mmse", *, k=DetectorKind::DEFAULT_PATHS))]
+#[pyo3(signature = (
+    h, y, constellation, noise_var, method="mmse", *, k=DetectorKind::DEFAULT_PATHS,
+    iterations=DetectorKind::DEFAULT_ITERATIONS
+))]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
 fn mimo_detect(
     py: Python<'_>,
     h: &Bound<'_, PyAny>,
@@ -199,9 +211,10 @@ fn mimo_detect(
     noise_var: f64,
     method: &str,
     k: usize,
+    iterations: usize,
 ) -> PyResult<Py<PyAny>> {
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
-    let d = detector(method, &constellation.inner, k)?;
+    let d = detector(method, &constellation.inner, k, iterations)?;
     let rows = py.detach(|| per_vector(&hs, &ys, |h, y| d.detect(h, y, noise_var))).py()?;
     let rows: Vec<Vec<i64>> = rows.into_iter().map(|r| r.into_iter().map(|v| v as i64).collect()).collect();
     rows_to_array(py, rows, single)
@@ -210,21 +223,26 @@ fn mimo_detect(
 /// Bit log-likelihood ratios of a MIMO link (positive for a 0, most significant bit
 /// first, stream after stream): exact per-stream LLRs after the unbiased linear filter
 /// for `"zf"` and `"mmse"`, max-log over all hypotheses for `"ml"`, over the final
-/// list for `"kbest"`.
+/// list for `"kbest"`, exact LLRs of the decoupled channel for `"amp"` and `"oamp"`.
 ///
 /// Args:
 ///     h (array_like): the channel, `(n_rx, n_tx)` for every vector or `(n, n_rx, n_tx)`.
 ///     y (array_like): the received vectors, `(n, n_rx)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
-///     method (str): `"zf"`, `"mmse"`, `"ml"` or `"kbest"` (the SIC and sphere
-///         detectors have no soft output).
+///     method (str): `"zf"`, `"mmse"`, `"ml"`, `"kbest"`, `"amp"` or `"oamp"` (the SIC
+///         and sphere detectors have no soft output).
 ///     k (int): paths kept by `"kbest"`.
+///     iterations (int): iterations of `"amp"` and `"oamp"`.
 ///
 /// Returns:
 ///     numpy.ndarray: `(n, n_tx · log2 M)` (or one row), float64.
 #[pyfunction]
-#[pyo3(signature = (h, y, constellation, noise_var, method="mmse", *, k=DetectorKind::DEFAULT_PATHS))]
+#[pyo3(signature = (
+    h, y, constellation, noise_var, method="mmse", *, k=DetectorKind::DEFAULT_PATHS,
+    iterations=DetectorKind::DEFAULT_ITERATIONS
+))]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
 fn mimo_llr(
     py: Python<'_>,
     h: &Bound<'_, PyAny>,
@@ -233,11 +251,241 @@ fn mimo_llr(
     noise_var: f64,
     method: &str,
     k: usize,
+    iterations: usize,
 ) -> PyResult<Py<PyAny>> {
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
-    let d = detector(method, &constellation.inner, k)?;
+    let d = detector(method, &constellation.inner, k, iterations)?;
     let rows = py.detach(|| per_vector(&hs, &ys, |h, y| d.llr(h, y, noise_var))).py()?;
     rows_to_array(py, rows, single)
+}
+
+fn prior(c: &PyConstellation, px: Option<&Bound<'_, PyAny>>) -> PyResult<Prior> {
+    let px = px.map(crate::fvec).transpose()?;
+    Prior::with_probs(&c.inner, px.as_deref()).py()
+}
+
+fn field(real: bool) -> Field {
+    if real { Field::Real } else { Field::Complex }
+}
+
+fn oamp_linear(name: &str) -> PyResult<OampLinear> {
+    match name.to_ascii_lowercase().as_str() {
+        "lmmse" => Ok(OampLinear::Lmmse),
+        "pinv" => Ok(OampLinear::PseudoInverse),
+        "mf" => Ok(OampLinear::MatchedFilter),
+        other => Err(PyValueError::new_err(format!("unknown linear estimator {other:?}: lmmse, pinv or mf"))),
+    }
+}
+
+fn steps<'py>(py: Python<'py>, se: &[mp::StateEvolutionStep]) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("noise_var", farr(py, se.iter().map(|s| s.noise_var).collect()))?;
+    d.set_item("mse", farr(py, se.iter().map(|s| s.mse).collect()))?;
+    Ok(d)
+}
+
+/// The iterations of LAMA or OAMP on one received vector: the MMSE estimate of every
+/// iteration, and the decoupled channel of the last one (Jeon et al. 2018; Ma & Ping
+/// 2017).
+///
+/// Args:
+///     h (array_like): the channel `(n_rx, n_tx)`.
+///     y (array_like): the received vector `(n_rx,)`.
+///     constellation (Constellation): the alphabet of every stream.
+///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
+///     method (str): `"amp"` (LAMA) or `"oamp"`.
+///     iterations (int): iterations.
+///     linear (str): the linear estimator of OAMP, `"lmmse"`, `"pinv"` or `"mf"`.
+///     variance (str): the variance of LAMA, `"postulated"` (Algorithm 2) or
+///         `"residual"` (eq. 38, better in small systems).
+///     px (array_like, optional): prior probabilities of the points (uniform by default).
+///     real (bool): a real model (real channel, symbols and noise).
+///
+/// Returns:
+///     dict: ``estimates`` (`(iterations, n_tx)`, the MMSE estimate of every iteration),
+///     ``z`` (`(n_tx,)`, the input of the last denoiser: the symbols in Gaussian noise),
+///     ``noise_var`` (its variance) and ``noise_vars`` (the variance of every iteration).
+///
+/// Examples:
+///     >>> import comrs, numpy as np
+///     >>> c = comrs.Constellation("qam", 4).normalized()
+///     >>> rng = comrs.Rng(1)
+///     >>> h = comrs.mimo_channel(64, 32, rng)
+///     >>> x = c.points[rng.integers(4, 32)]
+///     >>> out = comrs.message_passing(h, h @ x, c, 1e-4, "amp", 15)
+///     >>> bool(np.allclose(out["estimates"][-1], x, atol=1e-3))
+///     True
+#[pyfunction]
+#[pyo3(signature = (
+    h, y, constellation, noise_var, method="amp", iterations=DetectorKind::DEFAULT_ITERATIONS, *,
+    linear="lmmse", variance="postulated", px=None, real=false
+))]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
+fn message_passing<'py>(
+    py: Python<'py>,
+    h: &Bound<'py, PyAny>,
+    y: &Bound<'py, PyAny>,
+    constellation: &PyConstellation,
+    noise_var: f64,
+    method: &str,
+    iterations: usize,
+    linear: &str,
+    variance: &str,
+    px: Option<&Bound<'py, PyAny>>,
+    real: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    let Channels::One(h) = channels(h)? else {
+        return Err(PyValueError::new_err("message_passing takes one channel matrix (n_rx, n_tx)"));
+    };
+    let y = crate::cvec(y)?;
+    let prior = prior(constellation, px)?;
+    let f = field(real);
+    let trace = match method.to_ascii_lowercase().as_str() {
+        "amp" | "lama" => {
+            let v = match variance {
+                "postulated" => AmpVariance::Postulated,
+                "residual" => AmpVariance::Residual,
+                other => {
+                    return Err(PyValueError::new_err(format!("unknown variance {other:?}: postulated or residual")));
+                }
+            };
+            py.detach(|| mp::lama(&h.view(), &y, noise_var, &prior, f, iterations, v)).py()?
+        }
+        "oamp" => {
+            let l = oamp_linear(linear)?;
+            py.detach(|| mp::oamp(&h.view(), &y, noise_var, &prior, f, iterations, l)).py()?
+        }
+        other => return Err(PyValueError::new_err(format!("unknown method {other:?}: amp or oamp"))),
+    };
+    let n = h.ncols();
+    let flat: Vec<C64> = trace.estimates.iter().flatten().copied().collect();
+    let est =
+        Array2::from_shape_vec((trace.estimates.len(), n), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("estimates", est.into_pyarray(py))?;
+    d.set_item("z", trace.z.clone().into_pyarray(py))?;
+    d.set_item("noise_var", trace.noise_var)?;
+    d.set_item("noise_vars", farr(py, trace.noise_vars))?;
+    Ok(d)
+}
+
+/// The state evolution of LAMA (Jeon et al. 2018, Corollary 2): the variance of the
+/// decoupled channel and the predicted MSE of every iteration, in the large-system limit
+/// with columns of unit norm.
+///
+/// Args:
+///     constellation (Constellation): the alphabet of every stream.
+///     beta (float): the system ratio `n_tx / n_rx`.
+///     noise_var (float): noise variance per receive antenna, relative to columns of unit
+///         norm (`β Es / SNR`).
+///     iterations (int): iterations.
+///     px (array_like, optional): prior probabilities of the points (uniform by default).
+///     real (bool): a real model.
+///
+/// Returns:
+///     dict: ``noise_var`` and ``mse``, one value per iteration.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> c = comrs.Constellation("qam", 4).normalized()
+///     >>> se = comrs.amp_state_evolution(c, 0.5, 0.05, 20)
+///     >>> bool(se["mse"][-1] < se["mse"][0])
+///     True
+#[pyfunction]
+#[pyo3(signature = (constellation, beta, noise_var, iterations, *, px=None, real=false))]
+fn amp_state_evolution<'py>(
+    py: Python<'py>,
+    constellation: &PyConstellation,
+    beta: f64,
+    noise_var: f64,
+    iterations: usize,
+    px: Option<&Bound<'py, PyAny>>,
+    real: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    let p = prior(constellation, px)?;
+    let se = py.detach(|| mp::amp_state_evolution(&p, beta, noise_var, iterations, field(real)));
+    steps(py, &se)
+}
+
+/// The recovery thresholds of LAMA (Jeon et al. 2018, Table II): below ``beta_min`` LAMA
+/// is optimal at every SNR, below ``beta_max`` it recovers the noiseless signal;
+/// ``n0_min`` and ``n0_max`` are the critical noise variances at those ratios.
+///
+/// Args:
+///     constellation (Constellation): the alphabet.
+///     px (array_like, optional): prior probabilities of the points (uniform by default).
+///     real (bool): a real model.
+///
+/// Returns:
+///     dict: ``beta_min``, ``beta_max``, ``n0_min`` and ``n0_max``.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> t = comrs.amp_thresholds(comrs.Constellation("qam", 16).normalized())
+///     >>> round(t["beta_min"], 3), round(t["beta_max"], 3)
+///     (0.983, 1.363)
+#[pyfunction]
+#[pyo3(signature = (constellation, *, px=None, real=false))]
+fn amp_thresholds<'py>(
+    py: Python<'py>,
+    constellation: &PyConstellation,
+    px: Option<&Bound<'py, PyAny>>,
+    real: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    let p = prior(constellation, px)?;
+    let t = py.detach(|| mp::amp_thresholds(&p, field(real)));
+    let d = PyDict::new(py);
+    for (k, v) in [("beta_min", t.beta_min), ("beta_max", t.beta_max), ("n0_min", t.n0_min), ("n0_max", t.n0_max)] {
+        d.set_item(k, v)?;
+    }
+    Ok(d)
+}
+
+/// The empirical state evolution of OAMP with the optimal denoiser (Ma & Ping 2017,
+/// eqs. 32 and 39) for the singular values of a channel.
+///
+/// Args:
+///     constellation (Constellation): the alphabet of every stream.
+///     singular_values (array_like): the singular values of the channel.
+///     n_tx (int): the number of columns of the channel.
+///     noise_var (float): noise variance per receive antenna.
+///     iterations (int): iterations.
+///     linear (str): the linear estimator, `"lmmse"`, `"pinv"` or `"mf"`.
+///     px (array_like, optional): prior probabilities of the points (uniform by default).
+///     real (bool): a real model.
+///
+/// Returns:
+///     dict: ``noise_var`` (`τ²` of every iteration) and ``mse``.
+///
+/// Examples:
+///     >>> import comrs, numpy as np
+///     >>> c = comrs.Constellation("qam", 4).normalized()
+///     >>> h = comrs.mimo_channel(128, 64, comrs.Rng(1)) / np.sqrt(128)
+///     >>> lam = np.linalg.svd(h, compute_uv=False)
+///     >>> se = comrs.oamp_state_evolution(c, lam, 64, 0.3, 10)
+///     >>> bool(se["mse"][-1] < se["mse"][0])
+///     True
+#[pyfunction]
+#[pyo3(signature = (
+    constellation, singular_values, n_tx, noise_var, iterations, *, linear="lmmse", px=None, real=false
+))]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
+fn oamp_state_evolution<'py>(
+    py: Python<'py>,
+    constellation: &PyConstellation,
+    singular_values: &Bound<'py, PyAny>,
+    n_tx: usize,
+    noise_var: f64,
+    iterations: usize,
+    linear: &str,
+    px: Option<&Bound<'py, PyAny>>,
+    real: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    let p = prior(constellation, px)?;
+    let sv = crate::fvec(singular_values)?;
+    let l = oamp_linear(linear)?;
+    let se = py.detach(|| mp::oamp_state_evolution(&p, &sv, n_tx, noise_var, iterations, l, field(real)));
+    steps(py, &se)
 }
 
 /// The unbiased estimates of a linear detector and their noise variances.
@@ -525,6 +773,10 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mimo_detect, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_llr, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_estimate, m)?)?;
+    m.add_function(wrap_pyfunction!(message_passing, m)?)?;
+    m.add_function(wrap_pyfunction!(amp_state_evolution, m)?)?;
+    m.add_function(wrap_pyfunction!(amp_thresholds, m)?)?;
+    m.add_function(wrap_pyfunction!(oamp_state_evolution, m)?)?;
     m.add_function(wrap_pyfunction!(water_filling, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(eigenmode, m)?)?;

@@ -9,6 +9,7 @@
 //! | Module | Content |
 //! |---|---|
 //! | [`detection`] | ZF, MMSE, ordered SIC (V-BLAST), exhaustive ML, sphere decoder, K-best; hard and soft outputs |
+//! | [`message_passing`] | LAMA (complex Bayesian AMP) and OAMP for large systems, their state evolution and the recovery thresholds of LAMA |
 //! | [`receiver`] | the receiver of a link: a detector of [`detection`] by name, applied channel use after channel use (spatial layers or Alamouti blocks), with soft outputs |
 //! | [`stbc`] | orthogonal space-time block codes: Alamouti, the rate-3/4 codes for 3 and 4 antennas; linear decoding |
 //! | [`precoding`] | SVD (eigenmode) transmission with water-filling, ZF and regularised ZF precoders |
@@ -18,6 +19,7 @@
 
 pub mod capacity;
 pub mod detection;
+pub mod message_passing;
 pub mod precoding;
 pub mod receiver;
 pub mod stbc;

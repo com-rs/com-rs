@@ -46,16 +46,22 @@ PyPI and the command line `comrs`.
   reservation, ACE, companding); constant-envelope OFDM (Thompson et al. 2008);
   continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses) with sequence,
   quadrature and differential detection.
-- MIMO: ZF, MMSE, SIC, ML, sphere and K-best detection with soft outputs, the receiver
-  of a link, orthogonal space-time block codes, eigenmode and zero-forcing precoding,
+- MIMO: ZF, MMSE, SIC, ML, sphere and K-best detection with soft outputs; message
+  passing for large systems, LAMA (Jeon et al. 2018) and OAMP (Ma & Ping 2017), with
+  their state evolution and the recovery thresholds of LAMA (detectors `amp` and
+  `oamp`); the receiver of a link, orthogonal space-time block codes, eigenmode and zero-forcing precoding,
   capacity.
 - Channels: AWGN; flat Rayleigh and Rician fading, SISO and MIMO, with Kronecker
   correlation; tapped delay lines (EPA, EVA, ETU, ITU-R M.1225) with Doppler; the CDL
   profiles of 3GPP TR 38.901 between antenna arrays; optical fibre (linear, split-step
   Fourier in double or single precision, Manakov with PMD), EDFA, distributed Raman
-  amplification and inter-channel stimulated Raman scattering, the GN and EGN models.
+  amplification and inter-channel stimulated Raman scattering, the GN and EGN models
+  (their integration grid follows the width of the band, and the phased-array factor
+  of the coherent accumulation is integrated exactly over every cell).
 - Hardware: power amplifiers (Rapp, Saleh, memory polynomial), Wiener phase noise,
-  frequency offset, IQ imbalance; lasers, phase, Mach–Zehnder and IQ modulators,
+  frequency offset, IQ imbalance; DAC and ADC (uniform quantisation with clipping,
+  effective number of bits, clock jitter, bandwidth, zero-order hold) with the closed
+  forms of their noise; lasers, phase, Mach–Zehnder and IQ modulators,
   photodiodes with shot and thermal noise, the 90° hybrid, the coherent receiver, the
   WDM transmitter.
 - Receiver DSP: pulse shaping and FIR filtering, resampling, chromatic-dispersion

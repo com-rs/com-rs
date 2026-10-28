@@ -1,4 +1,4 @@
-//! Channels and impairments of one or several streams: noise, phase noise, frequency offset, linear channels, IQ imbalance.
+//! Channels and impairments of one or several streams: noise, phase noise, frequency offset, linear channels, IQ imbalance, converters.
 
 use super::schema::ParamType;
 use super::{Block, BlockInfo, BuildContext, Frame, Params};
@@ -8,6 +8,7 @@ use com_core::Result;
 use com_core::ensure;
 use com_core::rng::Rng;
 use com_dsp::filter;
+use com_hardware::converter::{self, Adc, Dac, Quantizer};
 use com_hardware::iq;
 use com_hardware::oscillator::{PhaseOrigin, frequency_offset, increment_sd, wiener_phase};
 use com_math::C64;
@@ -38,6 +39,20 @@ pub(super) fn infos() -> Vec<BlockInfo> {
         block_info!(per_polarization "fir", "Linear channel with complex taps.", FirSpec, needs [Samples], gives []),
         block_info!(per_polarization "rx_iq", "Receiver IQ imbalance [Re y; Im y] = T [Re x; Im x].", RxIq, needs [Samples], gives []),
         block_info!(per_polarization "tx_iq", "Transmitter IQ imbalance y = x + β x*.", TxIq, needs [Samples], gives []),
+        block_info!(
+            per_polarization "adc",
+            "Analogue-to-digital converter: front-end bandwidth, clock jitter, ENOB noise and uniform quantisation with clipping.",
+            AdcSpec,
+            needs[Samples],
+            gives[],
+        ),
+        block_info!(
+            per_polarization "dac",
+            "Digital-to-analogue converter: uniform quantisation with clipping and output bandwidth.",
+            DacSpec,
+            needs[Samples],
+            gives[],
+        ),
     ]
 }
 
@@ -53,6 +68,8 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Opt
             "fir" => Box::new(Fir::new(&FirSpec::parse(k, p)?)?),
             "rx_iq" => Box::new(RxIq::parse(k, p)?),
             "tx_iq" => Box::new(TxIq::parse(k, p)?),
+            "adc" => Box::new(AdcSpec::parse(k, p)?),
+            "dac" => Box::new(DacSpec::parse(k, p)?),
             _ => return Ok(None),
         }))
     };
@@ -310,6 +327,65 @@ block_params! {
 impl Block for TxIq {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         iq::TxIq { beta: C64::new(self.beta[0], self.beta[1]) }.apply(&mut s.samples);
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------- converters
+
+block_params! {
+    struct AdcSpec {
+        bits: u32 [required] "bits" >= 1, "resolution N (1 to 24)";
+        full_scale: Option<f64> [absent "loading × RMS"] > 0, "full scale A of each dimension (levels ±(A - Δ/2), Δ = 2A/2^N)";
+        loading: Option<f64> [absent "optimal for a Gaussian input"] > 0,
+            "full scale in RMS values of one dimension of the samples (an automatic gain control)";
+        enob: Option<f64> [absent "bits"] > 0, "effective number of bits (≤ bits)";
+        jitter_s: f64 [0.0] "s" >= 0, "RMS sampling-clock jitter";
+        bandwidth_hz: Option<f64> [absent "unlimited"] "Hz" > 0, "3 dB bandwidth of the front end (Gaussian)";
+    }
+}
+
+/// The quantiser of a converter block: the full scale, or the loading (optimal for a
+/// Gaussian input by default) times the RMS value of one dimension of the samples.
+fn block_quantizer(
+    name: &str,
+    bits: u32,
+    full_scale: Option<f64>,
+    loading: Option<f64>,
+    samples: &[C64],
+) -> Result<Quantizer> {
+    if let Some(a) = full_scale {
+        return Quantizer::new(bits, a);
+    }
+    let rms = converter::rms_per_dimension(samples);
+    ensure(rms > 0.0, || format!("{name}: the samples are zero, give the full scale"))?;
+    Quantizer::with_loading(bits, rms, loading.unwrap_or_else(|| converter::optimal_loading(bits)))
+}
+
+impl Block for AdcSpec {
+    fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
+        let quantizer = block_quantizer("adc", self.bits, self.full_scale, self.loading, &s.samples)?;
+        let adc = Adc { quantizer, enob: self.enob, jitter_s: self.jitter_s, bandwidth_hz: self.bandwidth_hz };
+        s.samples = adc.convert(&s.samples, s.fs(), rng).map_err(|e| e.context("adc"))?;
+        Ok(())
+    }
+}
+
+block_params! {
+    struct DacSpec {
+        bits: u32 [required] "bits" >= 1, "resolution N (1 to 24)";
+        full_scale: Option<f64> [absent "loading × RMS"] > 0, "full scale A of each dimension";
+        loading: Option<f64> [absent "optimal for a Gaussian input"] > 0,
+            "full scale in RMS values of one dimension of the samples";
+        bandwidth_hz: Option<f64> [absent "unlimited"] "Hz" > 0, "3 dB bandwidth of the output (Gaussian)";
+    }
+}
+
+impl Block for DacSpec {
+    fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
+        let quantizer = block_quantizer("dac", self.bits, self.full_scale, self.loading, &s.samples)?;
+        let dac = Dac { quantizer, hold: 1, bandwidth_hz: self.bandwidth_hz };
+        s.samples = dac.convert(&s.samples, s.fs()).map_err(|e| e.context("dac"))?;
         Ok(())
     }
 }

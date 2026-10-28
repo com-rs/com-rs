@@ -277,6 +277,51 @@ def test_detectors_rank_ml_sic_linear():
     )
 
 
+def large_mimo(n_rx, n_tx, snr_db, rng, n=60, correlation=0.0):
+    """16-QAM vectors over a channel of unit-norm columns at the SNR β Es/N0."""
+    c = comrs.Constellation("qam", 16).normalized()
+    n0 = n_tx / n_rx / comrs.db2lin(snr_db)
+    h = comrs.mimo_channel(
+        n_rx, n_tx, rng, n=n, rx_correlation=correlation, tx_correlation=correlation
+    ) / np.sqrt(n_rx)
+    idx = rng.integers(16, n * n_tx).reshape(n, n_tx)
+    y = np.einsum("nij,nj->ni", h, c.points[idx]) + rng.complex_noise(n * n_rx, n0).reshape(n, n_rx)
+    return c, h, y, idx, n0
+
+
+def test_message_passing_reaches_the_io_bound_of_large_mimo():
+    # 128 x 64 16-QAM at 14 dB (Jeon et al. 2018, Fig. 6(a)): LAMA and OAMP near the
+    # IO bound of the state evolution, ten times below MMSE
+    rng = comrs.Rng(41)
+    c, h, y, idx, n0 = large_mimo(128, 64, 14.0, rng)
+    ser = {
+        m: float((comrs.mimo_detect(h, y, c, n0, m, iterations=8) != idx).mean())
+        for m in ["mmse", "amp", "oamp"]
+    }
+    s2 = comrs.amp_state_evolution(c, 0.5, n0, 300)["noise_var"][-1]
+    io = comrs.theory_ser(16, comrs.lin2db(1 / (4 * s2)), "qam")
+    assert ser["amp"] < 3 * io and ser["oamp"] < 3 * io, (ser, io)
+    assert ser["amp"] < ser["mmse"] / 5 and ser["oamp"] < ser["mmse"] / 5, ser
+    # the signs of the LLRs of the decoupled channel are the decisions (bitwise and
+    # symbolwise MAP may differ in a few ambiguous symbols)
+    llr = comrs.mimo_llr(h[:5], y[:5], c, n0, "oamp", iterations=8)
+    bits = (llr < 0).astype(int).reshape(5, 64, 4)
+    labels = comrs.mimo_detect(h[:5], y[:5], c, n0, "oamp", iterations=8)
+    assert np.mean(bits @ np.array([8, 4, 2, 1]) != labels) < 0.02
+
+
+def test_oamp_survives_a_correlated_channel_where_amp_fails():
+    # antenna correlation 0.7 at both ends (Ma & Ping 2017: OAMP holds for
+    # unitarily-invariant channels, AMP needs i.i.d. entries)
+    rng = comrs.Rng(42)
+    c, h, y, idx, n0 = large_mimo(128, 64, 18.0, rng, n=40, correlation=0.7)
+    ser = {
+        m: float((comrs.mimo_detect(h, y, c, n0, m, iterations=8) != idx).mean())
+        for m in ["mmse", "amp", "oamp"]
+    }
+    assert ser["amp"] > 0.5 and ser["oamp"] < ser["mmse"] / 2, ser
+
+
 def test_ergodic_capacity_of_rayleigh_fading():
     # SISO: E log2(1 + ρ|h|²) = log2(e) e^(1/ρ) E1(1/ρ) (Lee 1990); MIMO grows like
     # min(n_t, n_r) log2 ρ at high SNR (Telatar 1999)
@@ -797,3 +842,60 @@ def test_dvbs2_waterfall_sits_below_the_threshold_of_table_13():
     assert e / n < 0.05, e / n
     e, n = chain_rate(link, "bler", stop, esn0_db=thr - 0.6)
     assert e == n
+
+
+def test_mzm_extinction_ratio_and_field_transfer():
+    # E_out = E [c_I cos θ + j c_Q sin θ], θ = π(u + V_b)/(2V_π), with c_I = √(r/(r+1)) and
+    # c_Q = 1/√(r+1): the ratio of the largest to the smallest power over the bias is r
+    vpi = 2.0
+    biases = np.linspace(-2 * vpi, 0.0, 4001)
+    for er_db in (20.0, 30.0):
+        r = comrs.db2lin(er_db)
+        out = np.array(
+            [comrs.mzm(np.ones(1), np.zeros(1), vpi=vpi, vb=vb, er_db=er_db)[0] for vb in biases]
+        )
+        th = np.pi * biases / (2 * vpi)
+        expected = np.sqrt(r / (r + 1)) * np.cos(th) + 1j * np.sqrt(1 / (r + 1)) * np.sin(th)
+        np.testing.assert_allclose(out, expected, atol=1e-12)
+        p = np.abs(out) ** 2
+        assert abs(10 * np.log10(p.max() / p.min()) - er_db) < 1e-6
+
+
+def test_mzm_harmonics_follow_the_jacobi_anger_expansion():
+    # a sine drive V_m sin x, m = π V_m / V_π: at the quadrature point the power is
+    # (1 + sin(m sin x))/2, of odd harmonics J_k(m); at the null the field is
+    # sin((m/2) sin x), of odd harmonics 2 J_k(m/2)
+    special = pytest.importorskip("scipy.special")
+    vpi, n, cycles = 2.0, 4096, 8
+    x = 2 * np.pi * cycles * np.arange(n) / n
+    for m in (0.5, 1.0, 2.0):
+        u = m * vpi / np.pi * np.sin(x)
+        p = np.abs(comrs.mzm(np.ones(n), u, vpi=vpi, vb=-vpi / 2, er_db=np.inf)) ** 2
+        field = comrs.mzm(np.ones(n), u, vpi=vpi, vb=-vpi, er_db=np.inf).real
+        sp, sf = np.fft.rfft(p) * 2 / n, np.fft.rfft(field) * 2 / n
+        for k in (1, 3, 5):
+            assert abs(abs(sp[k * cycles]) - abs(special.jv(k, m))) < 1e-12
+            assert abs(abs(sf[k * cycles]) - 2 * abs(special.jv(k, m / 2))) < 1e-12
+        for k in (2, 4):
+            assert abs(sp[k * cycles]) < 1e-12 and abs(sf[k * cycles]) < 1e-12
+
+
+def test_iq_modulator_compression_and_arcsine_predistortion():
+    # biased at the null with a 90° phase: (E/√2)[sin(π u_I/(2V_π)) + j sin(π u_Q/(2V_π))]
+    vpi = 2.0
+    levels = np.array([-3.0, -1.0, 1.0, 3.0]) / 3
+    ui, uq = np.meshgrid(levels, levels)
+    s = (ui + 1j * uq).ravel()
+    ideal = dict(vpi=vpi, vb_i=-vpi, vb_q=-vpi, vphi=vpi / 2, er_i_db=np.inf, er_q_db=np.inf)
+    for swing in (0.2, 0.5, 0.8):
+        u = swing * vpi * s
+        e = comrs.iqm(np.ones(s.size), u, **ideal)
+        expected = (
+            np.sin(np.pi * u.real / (2 * vpi)) + 1j * np.sin(np.pi * u.imag / (2 * vpi))
+        ) / np.sqrt(2)
+        np.testing.assert_allclose(e, expected, atol=1e-12)
+        # the arcsine drive makes the field proportional to the target
+        target = 0.9 * swing * s
+        pre = 2 * vpi / np.pi * (np.arcsin(target.real) + 1j * np.arcsin(target.imag))
+        np.testing.assert_allclose(comrs.iqm(np.ones(s.size), pre, **ideal),
+                                   target / np.sqrt(2), atol=1e-12)  # fmt: skip

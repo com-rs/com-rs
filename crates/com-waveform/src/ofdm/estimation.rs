@@ -127,14 +127,17 @@ pub fn estimate_port(
         if ks.is_empty() {
             return Err(Error::Config(format!("OFDM symbol {l} has no pilot of port {port} out of {n_ports}")));
         }
-        let hp: Vec<C64> = ks.iter().map(|&k| rx[l * k_n + k] / grid.pilot(k, l)).collect();
+        let pilots: Vec<C64> = ks.iter().map(|&k| grid.pilot(k, l)).collect();
+        let hp: Vec<C64> = ks.iter().zip(&pilots).map(|(&k, p)| rx[l * k_n + k] / p).collect();
         let full = match method {
             FrequencyInterpolation::Linear => linear_interpolation(&ks, &hp, k_n),
             FrequencyInterpolation::Lmmse(pdp) => {
                 let r_pp =
                     Array2::from_shape_fn((ks.len(), ks.len()), |(i, j)| pdp.correlation(ks[i] as f64 - ks[j] as f64));
                 let r_qp = Array2::from_shape_fn((k_n, ks.len()), |(q, j)| pdp.correlation(q as f64 - ks[j] as f64));
-                lmmse(&r_qp, &r_pp, noise_var, &hp)?
+                // the LS estimate Y / X of a pilot of energy |X|² has the noise variance σ² / |X|²
+                let energy = pilots.iter().map(C64::norm_sqr).sum::<f64>() / pilots.len() as f64;
+                lmmse(&r_qp, &r_pp, noise_var / energy, &hp)?
             }
         };
         per_symbol.push(full);
@@ -199,5 +202,33 @@ mod tests {
         assert!((e_ls / 200.0 / s2 - 1.0).abs() < 0.05);
         // three taps: LMMSE keeps about 3/64 of the noise
         assert!(e_mm / 200.0 < 0.1 * s2, "{}", e_mm / 200.0);
+    }
+
+    #[test]
+    fn boosted_pilots_lower_the_noise_of_the_estimates() {
+        use crate::ofdm::grid::PilotTable;
+        // pilots on every RE, of amplitude 2: the LS estimate Y / X has the variance σ² / 4
+        let boosted = |a: f64| {
+            let t = PilotTable::new(64, 2, (0..2).flat_map(|l| (0..64).map(move |k| ((k, l), C64::new(a, 0.0)))));
+            ResourceGrid::from_table(t.unwrap())
+        };
+        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64);
+        let mut rng = Rng::new(3);
+        let s2 = 0.1;
+        let mut mse = [[0.0; 2]; 2];
+        for (i, a) in [1.0, 2.0].into_iter().enumerate() {
+            let grid = boosted(a);
+            for _ in 0..200 {
+                let (h, rx) = channel(&grid, &pdp, s2, &mut rng);
+                let ls = estimate(&grid, &rx, s2, &FrequencyInterpolation::Linear).unwrap();
+                let mm = estimate(&grid, &rx, s2, &FrequencyInterpolation::Lmmse(pdp.clone())).unwrap();
+                mse[i][0] += ls.iter().zip(&h).map(|(x, y)| (x - y).norm_sqr()).sum::<f64>() / ls.len() as f64 / 200.0;
+                mse[i][1] += mm.iter().zip(&h).map(|(x, y)| (x - y).norm_sqr()).sum::<f64>() / mm.len() as f64 / 200.0;
+            }
+        }
+        assert!((mse[0][0] / s2 - 1.0).abs() < 0.05, "{mse:?}");
+        assert!((mse[1][0] / (s2 / 4.0) - 1.0).abs() < 0.05, "{mse:?}");
+        // LMMSE weighs the boosted estimates with their own noise: about 4 times less error
+        assert!((mse[0][1] / mse[1][1] / 4.0 - 1.0).abs() < 0.15, "{mse:?}");
     }
 }

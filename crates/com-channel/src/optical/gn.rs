@@ -201,10 +201,17 @@ pub struct GnModel {
     /// Coherent accumulation of the NLI over the spans (the phased-array factor);
     /// incoherent ($N_{s}$ times one span) otherwise.
     pub coherent: bool,
-    /// Grid step of the numerical integration (Hz); if `None`, $R_{s}/(256 \max(1,
-    /// N_{s}/10))$ for the coherent accumulation (whose phased-array factor sharpens with
-    /// the number of spans: at 50 spans, $R_{s}/256$ overestimates the NLI of one channel
-    /// by 0.09 dB and its EGN correction by 45 %) and $R_{s}/64$ otherwise.
+    /// Grid step of the numerical integration (Hz); if `None`, the smaller of
+    /// $R_{s}/256$ (coherent accumulation) or $R_{s}/64$ (incoherent) and
+    /// $\alpha / (4\pi^{2} |\beta_{2}| D)$ (with the EGN correction and the coherent
+    /// accumulation, $R_{s}/(256 \max(1, N_{s}/10))$ instead of $R_{s}/256$: the
+    /// correction evaluates its phased-array factor on the nodes), with $D$ the largest distance from the
+    /// frequency of interest to the edges of the band: the link function of a pair of
+    /// frequencies $f_{1}, f_{2}$ depends on $(f_{1} - f)(f_{2} - f)$, so it varies the faster
+    /// along $f_{2}$ the farther $f_{1}$ is from $f$. The phased-array factor of the
+    /// coherent accumulation, whose peaks sharpen with the number of spans, is averaged
+    /// exactly over every cell of the grid (see [`GnModel::nli_psd`]), so that it needs no
+    /// finer grid.
     pub resolution_hz: Option<f64>,
     /// Distributed Raman amplification and ISRS in every span (see the module): the
     /// profiles of the channels replace the exponential decay, and the amplifiers
@@ -294,7 +301,19 @@ impl GnModel {
         let (lo, hi) = spectrum.band();
         let df = self.resolution_hz.unwrap_or_else(|| {
             let rs = spectrum.symbol_rate;
-            if self.coherent { rs / 256.0 / (ns / 10.0).max(1.0) } else { rs / 64.0 }
+            // the EGN correction evaluates its own phased-array factor on the nodes: its
+            // grid keeps sharpening with the number of spans (at 50 spans, R_s/256
+            // overestimates the correction of one channel by 45 %)
+            let egn = matches!(self.egn, Some(fm) if fm != FormatMoments::GAUSSIAN);
+            let base = match (self.coherent, egn) {
+                (true, true) => rs / 256.0 / (ns / 10.0).max(1.0),
+                (true, false) => rs / 256.0,
+                (false, _) => rs / 64.0,
+            };
+            // the link function varies along f2 on the scale α / (4π² |β2| |f1 - f|)
+            let far = (hi - f).abs().max((f - lo).abs());
+            let band = a / (4.0 * PI * PI * b2.abs() * far);
+            if band.is_finite() && band > 0.0 { base.min(band) } else { base }
         });
         ensure(df > 0.0, || format!("the resolution must be positive, got {df}"))?;
         // a grid with f on a node: f1 + f2 - f is then a node too
@@ -346,9 +365,9 @@ impl GnModel {
                     Some(hl) => link_function(&hl[i], &hl[j], &hl[k3 as usize], &hl[m], ph / ls, ls).norm_sqr(),
                 };
                 let chi = if self.coherent {
-                    let x = ph / 2.0;
-                    let s = x.sin();
-                    if s.abs() < 1e-9 { ns * ns } else { (ns * x).sin().powi(2) / (s * s) }
+                    // the phase c u v changes by c v df along u and c u df along v over
+                    // the cell
+                    fejer_cell_average(fib.n_spans, ph, c * (node(j as i64) - f) * df, c * u * df)
                 } else {
                     ns
                 };
@@ -435,6 +454,47 @@ impl GnModel {
         };
         Ok((ase / (2.0 * self.eta(freqs, symbol_rate, rolloff, ch)?)).cbrt())
     }
+}
+
+/// The phased-array factor $\chi(\varphi) = \sin^{2}(N \varphi / 2) / \sin^{2}(\varphi / 2)$
+/// of `n` spans averaged over a cell of the grid where $\varphi$ is linear, of value `phi`
+/// at the node and of total variations `du` and `dv` along the two sides of the cell:
+/// with the Fejér expansion $\chi = N + 2 \sum_{k=1}^{N-1} (N - k) \cos k \varphi$, the
+/// average of $\cos k\varphi$ over the cell is $\cos(k \varphi)\,
+/// \mathrm{sinc}(k\, du/2)\, \mathrm{sinc}(k\, dv/2)$ (a Filon quadrature: the factor
+/// is integrated exactly, the rest of the integrand at the node).
+fn fejer_cell_average(n: usize, phi: f64, du: f64, dv: f64) -> f64 {
+    // sin(k x) and cos(k x) by the recurrences of the Chebyshev polynomials
+    struct Harmonics {
+        two_cos: f64,
+        prev: (f64, f64),
+        cur: (f64, f64),
+    }
+    impl Harmonics {
+        fn new(x: f64) -> Harmonics {
+            Harmonics { two_cos: 2.0 * x.cos(), prev: (0.0, 1.0), cur: (x.sin(), x.cos()) }
+        }
+        /// (sin k x, cos k x) for k = 1, 2, ...
+        fn next(&mut self) -> (f64, f64) {
+            let out = self.cur;
+            let s = self.two_cos * self.cur.0 - self.prev.0;
+            let c = self.two_cos * self.cur.1 - self.prev.1;
+            self.prev = self.cur;
+            self.cur = (s, c);
+            out
+        }
+    }
+    let sinc = |s: f64, x: f64, k: f64| if (k * x).abs() < 1e-12 { 1.0 } else { s / (k * x) };
+    let (mut h_phi, mut h_u, mut h_v) = (Harmonics::new(phi), Harmonics::new(du / 2.0), Harmonics::new(dv / 2.0));
+    let mut sum = n as f64;
+    for k in 1..n {
+        let kf = k as f64;
+        let (_, cos_k) = h_phi.next();
+        let (su, _) = h_u.next();
+        let (sv, _) = h_v.next();
+        sum += 2.0 * (n - k) as f64 * cos_k * sinc(su, du / 2.0, kf) * sinc(sv, dv / 2.0, kf);
+    }
+    sum
 }
 
 /// The EGN correction at `f` (W/Hz): that of the self-channel interference of the
@@ -574,6 +634,47 @@ mod tests {
 
     fn grid(n: usize, spacing: f64) -> Vec<f64> {
         (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing).collect()
+    }
+
+    #[test]
+    fn the_cell_average_of_the_phased_array_factor_is_exact() {
+        // a point cell: the factor itself
+        for (n, phi) in [(1usize, 0.3), (5, 0.7), (20, 2.0)] {
+            let x = phi / 2.0;
+            let chi = ((n as f64 * x).sin() / x.sin()).powi(2);
+            assert!((fejer_cell_average(n, phi, 0.0, 0.0) / chi - 1.0).abs() < 1e-10, "{n} {phi}");
+        }
+        // a cell spanning one period of the phase along a side: the mean N
+        assert!((fejer_cell_average(10, 0.4, 2.0 * PI, 0.3) - 10.0).abs() < 1e-9);
+        // against a fine midpoint rule over the cell
+        let (n, phi, du, dv) = (12usize, 0.25, 1.3, 0.8);
+        let k = 400;
+        let mut mean = 0.0;
+        for i in 0..k {
+            for j in 0..k {
+                let p = phi + du * ((i as f64 + 0.5) / k as f64 - 0.5) + dv * ((j as f64 + 0.5) / k as f64 - 0.5);
+                mean += ((n as f64 * p / 2.0).sin() / (p / 2.0).sin()).powi(2) / (k * k) as f64;
+            }
+        }
+        assert!((fejer_cell_average(n, phi, du, dv) / mean - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_default_grid_is_converged_far_from_the_centre_and_over_many_spans() {
+        // the edge channel of nine: the link function of the far pairs, and the coherent
+        // phased-array factor of 20 spans (its default grid used to miss them by 0.2 to
+        // 1 dB)
+        for (spans, coherent) in [(1usize, false), (20, true)] {
+            let fiber = FiberParams { n_spans: spans, d_ps_nm_km: 16.7, ..FiberParams::default() };
+            let gn = GnModel { coherent, ..GnModel::new(fiber) };
+            let s = WdmSpectrum::uniform(grid(9, 50e9), 1e-3, 32e9, 0.02);
+            let f = s.freqs[0];
+            let default = gn.nli_psd(&s, f).unwrap();
+            let df = 2e8f64.min(32e9 / 256.0);
+            let fine = GnModel { resolution_hz: Some(df / 4.0), ..gn.clone() }.nli_psd(&s, f).unwrap();
+            let db = 10.0 * (default / fine).log10();
+            assert!(db.abs() < 0.02, "{spans} spans: {db} dB");
+        }
     }
 
     #[test]

@@ -360,6 +360,7 @@ quick ones run with `cargo test`, the ignored ones by hand
 | `validation/tests/shaping.rs` (CCDM) | Schulte & Böcherer, IEEE Trans. Inf. Theory 62(1), 2016, Fig. 2 and eqs. (10), (17), (22) | the 50 points of the figure: the CCDM rates k/n exactly (within 6e-7), the normalised divergences within 2e-4 relative, the plotted bound (22) (ignored) |
 | `validation/tests/shaping.rs` (information rates) | Böcherer, Steiner & Schulte, IEEE Trans. Commun. 63(12), 2015, Tables I and III; Liang & Kahn, J. Lightw. Technol. 43(4), 2025, eq. (27) and Fig. 6 | the SNRs of optimised MB, uniform and BMD 4- to 64-ASK within 2e-4 dB of the 4-decimal tables; πe/6 = 1.53 dB; the largest shaping gains of 256- to 65536-QAM 1.08 to 1.48 dB (paper ∼1 to ∼1.4 dB) |
 | `validation/tests/shaping.rs` (PAS, ignored) | Böcherer, Steiner & Schulte, IEEE Trans. Commun. 63(12), 2015, Tables VI–X | PAS on the DVB-S2 LDPC codes (64 800 bits, bit mappers of the tables, 100 sum-product iterations): the SNR at the FER of the table within 0.05 dB of the paper at 6 points (4- to 64-ASK) |
+| `validation/tests/message_passing.rs` | Jeon, Ghods, Maleki & Studer, arXiv:1811.01917, 2018, Table II, Sec. V and Fig. 6(a); Ma & Ping, IEEE Access 5, 2017, eq. (42), Figs. 2 and 3 | the recovery thresholds and critical noise variances of LAMA for BPSK, QPSK, 16- to 256-QAM, 8- and 16-PSK within a unit of the last digit; the state evolution against simulated systems of 1024 streams; OAMP-MF, -PINV and -LMMSE and AMP on i.i.d. and ill-conditioned matrices. Not reproduced from the text of Jeon et al.: 13.5 dB at βmid after 90 iterations (13.17 dB) and the SER floor of 0.08 at βmax (0.208) |
 | `validation/tests/egn.rs` | Carena et al., Opt. Express 22(13), 2014, Fig. 1(a) | the self-channel interference of PM-QPSK by the GN and EGN models at 1, 10, 20 and 50 spans within 0.2 and 0.25 dB of the figure; the EGN correction against a Monte Carlo evaluation of the first-order perturbation (ignored) |
 
 The validation found two problems, both fixed:
@@ -403,8 +404,10 @@ the regimes not covered yet are in
 | Constant-envelope OFDM | B | Thompson et al. 2008 eq. (15) |
 | Continuous-phase modulation | A | Murota & Hirade 1981 Table I; MSK of Proakis & Salehi |
 | MIMO detection | A | Yang & Hanzo 2015 Table X; MRC closed forms |
+| Message-passing detection of large MIMO (LAMA, OAMP) | A | Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3 |
 | Space-time block codes | A | Tarokh et al. 1999 eqs. (39)–(40); MRC closed forms |
 | Capacity and precoding | B | the ergodic capacity of Rayleigh fading |
+| DAC and ADC | B | Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999 |
 | AWGN | B | closed forms of the error rates |
 | Flat fading and antenna correlation | B | BPSK over Rayleigh fading; MRC |
 | Tapped and clustered delay lines (TDL, CDL) | A | ITU-R M.1225 and 3GPP TR 38.901 tables, verbatim |

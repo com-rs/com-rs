@@ -479,10 +479,11 @@ impl Block for OfdmTx {
 
 block_params! {
     struct DetectorSpec {
-        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest"],
-            "zf, mmse, sic (MMSE-SIC), ml, sphere or kbest";
+        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest", "amp", "oamp"],
+            "zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
         k: usize [8] >= 1, "paths of kbest";
-        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest)";
+        iterations: usize [10] >= 1, "iterations of amp and oamp";
+        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp)";
     }
 }
 
@@ -494,7 +495,7 @@ struct Detection {
 
 impl Detection {
     fn new(p: &DetectorSpec) -> Result<Detection> {
-        let kind = DetectorKind::from_name(&p.detector, p.k)?;
+        let kind = DetectorKind::from_name(&p.detector, p.k)?.with_iterations(p.iterations)?;
         ensure(!p.llr || kind.has_soft_output(), || {
             "the sic and sphere detectors have no soft output: use llr: false and a demap block".into()
         })?;
@@ -539,10 +540,11 @@ block_params! {
     struct OfdmRxSpec {
         estimation: Estimation ["perfect"] one_of ["perfect", "ls", "lmmse"],
             "perfect (the channel of the channel block), ls (linear interpolation) or lmmse (uniform delay profile over the prefix)";
-        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest"],
-            "zf, mmse, sic (MMSE-SIC), ml, sphere or kbest";
+        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest", "amp", "oamp"],
+            "zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
         k: usize [8] >= 1, "paths of kbest";
-        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest)";
+        iterations: usize [10] >= 1, "iterations of amp and oamp";
+        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp)";
     }
 }
 
@@ -572,7 +574,12 @@ struct OfdmRx {
 impl OfdmRx {
     fn new(p: &OfdmRxSpec) -> Result<OfdmRx> {
         let estimation = p.estimation;
-        let detection = Detection::new(&DetectorSpec { detector: p.detector.clone(), k: p.k, llr: p.llr })?;
+        let detection = Detection::new(&DetectorSpec {
+            detector: p.detector.clone(),
+            k: p.k,
+            iterations: p.iterations,
+            llr: p.llr,
+        })?;
         Ok(OfdmRx { estimation, detection })
     }
 }
@@ -774,5 +781,43 @@ mod tests {
         assert_eq!(s.coding.llr.len(), 800);
         let hard: Vec<u8> = s.coding.llr.iter().map(|l| u8::from(*l < 0.0)).collect();
         assert_eq!(hard, s.bits);
+    }
+
+    #[test]
+    fn converters_in_a_link() {
+        // 16-QAM through an 8-bit DAC and a 10-bit ADC at a loading of 4: every sample
+        // within half a step of each converter
+        let s = run(
+            &[
+                json!({"type": "source", "constellation": "16-QAM", "n_symbols": 400}),
+                json!({"type": "dac", "bits": 8, "loading": 4.0}),
+                json!({"type": "adc", "bits": 10, "loading": 4.0}),
+            ],
+            7,
+        );
+        let rms = (0.5f64).sqrt();
+        let tol = 4.0 * rms * (1.0 / 256.0 + 1.0 / 1024.0) * 1.01;
+        for (y, x) in s.samples.iter().zip(&s.symbols) {
+            assert!((y.re - x.re).abs() <= tol && (y.im - x.im).abs() <= tol, "{y} vs {x}");
+        }
+    }
+
+    #[test]
+    fn message_passing_detectors_in_a_link() {
+        // 16 streams on 32 antennas, noiseless: LAMA and OAMP recover every bit
+        for detector in ["amp", "oamp"] {
+            let s = run(
+                &[
+                    json!({"type": "source", "constellation": "QPSK", "n_symbols": 640}),
+                    json!({"type": "mimo_tx", "n_tx": 16}),
+                    json!({"type": "rayleigh", "n_rx": 32, "coherence": 1}),
+                    json!({"type": "awgn", "snr_db": 60.0, "reference": "unit"}),
+                    json!({"type": "mimo_rx", "detector": detector, "iterations": 20, "llr": true}),
+                ],
+                6,
+            );
+            let hard: Vec<u8> = s.coding.llr.iter().map(|l| u8::from(*l < 0.0)).collect();
+            assert_eq!(hard, s.bits, "{detector}");
+        }
     }
 }

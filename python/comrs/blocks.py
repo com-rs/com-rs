@@ -283,6 +283,80 @@ class TxIq(Native):
         _init(self, "tx_iq", beta=beta)
 
 
+class Adc(Native):
+    """Analogue-to-digital converter: front-end bandwidth, clock jitter, ENOB noise and uniform quantisation with clipping.
+
+    Needs: samples. Gives: nothing.
+
+    Args:
+        bits (int): resolution N (1 to 24) [bits]; required
+        full_scale (float): full scale A of each dimension (levels ±(A - Δ/2), Δ = 2A/2^N); default loading × RMS
+        loading (float): full scale in RMS values of one dimension of the samples (an automatic gain control); default optimal for a Gaussian input
+        enob (float): effective number of bits (≤ bits); default bits
+        jitter_s (float): RMS sampling-clock jitter [s]; default 0.0
+        bandwidth_hz (float): 3 dB bandwidth of the front end (Gaussian) [Hz]; default unlimited
+    """
+
+    needs = ("samples",)
+    gives = ()
+    param_names = ("bits", "full_scale", "loading", "enob", "jitter_s", "bandwidth_hz")
+
+    def __init__(
+        self,
+        *,
+        bits: int | Var,
+        full_scale: float | Var | None = None,
+        loading: float | Var | None = None,
+        enob: float | Var | None = None,
+        jitter_s: float | Var = 0.0,
+        bandwidth_hz: float | Var | None = None,
+    ) -> None:
+        _init(
+            self,
+            "adc",
+            bits=bits,
+            full_scale=full_scale,
+            loading=loading,
+            enob=enob,
+            jitter_s=jitter_s,
+            bandwidth_hz=bandwidth_hz,
+        )
+
+
+class Dac(Native):
+    """Digital-to-analogue converter: uniform quantisation with clipping and output bandwidth.
+
+    Needs: samples. Gives: nothing.
+
+    Args:
+        bits (int): resolution N (1 to 24) [bits]; required
+        full_scale (float): full scale A of each dimension; default loading × RMS
+        loading (float): full scale in RMS values of one dimension of the samples; default optimal for a Gaussian input
+        bandwidth_hz (float): 3 dB bandwidth of the output (Gaussian) [Hz]; default unlimited
+    """
+
+    needs = ("samples",)
+    gives = ()
+    param_names = ("bits", "full_scale", "loading", "bandwidth_hz")
+
+    def __init__(
+        self,
+        *,
+        bits: int | Var,
+        full_scale: float | Var | None = None,
+        loading: float | Var | None = None,
+        bandwidth_hz: float | Var | None = None,
+    ) -> None:
+        _init(
+            self,
+            "dac",
+            bits=bits,
+            full_scale=full_scale,
+            loading=loading,
+            bandwidth_hz=bandwidth_hz,
+        )
+
+
 class Fiber(Native):
     """Linear fibre (loss and dispersion, OptiCommPy linearFiberChannel).
 
@@ -1287,14 +1361,15 @@ class OfdmRx(Native):
 
     Args:
         estimation (str): perfect (the channel of the channel block), ls (linear interpolation) or lmmse (uniform delay profile over the prefix); one of perfect, ls, lmmse; default perfect
-        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere or kbest; one of zf, mmse, sic, ml, sphere, kbest; default mmse
+        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
-        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest); default false
+        iterations (int): iterations of amp and oamp; default 10
+        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
     """
 
     needs = ("samples", "constellation", "ofdm")
     gives = ("noise", "llr")
-    param_names = ("estimation", "detector", "k", "llr")
+    param_names = ("estimation", "detector", "k", "iterations", "llr")
 
     def __init__(
         self,
@@ -1302,9 +1377,18 @@ class OfdmRx(Native):
         estimation: str | Var = "perfect",
         detector: str | Var = "mmse",
         k: int | Var = 8,
+        iterations: int | Var = 10,
         llr: bool | Var = False,
     ) -> None:
-        _init(self, "ofdm_rx", estimation=estimation, detector=detector, k=k, llr=llr)
+        _init(
+            self,
+            "ofdm_rx",
+            estimation=estimation,
+            detector=detector,
+            k=k,
+            iterations=iterations,
+            llr=llr,
+        )
 
 
 class MimoRx(Native):
@@ -1313,19 +1397,25 @@ class MimoRx(Native):
     Needs: samples, constellation, csi. Gives: noise, llr.
 
     Args:
-        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere or kbest; one of zf, mmse, sic, ml, sphere, kbest; default mmse
+        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
-        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest); default false
+        iterations (int): iterations of amp and oamp; default 10
+        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
     """
 
     needs = ("samples", "constellation", "csi")
     gives = ("noise", "llr")
-    param_names = ("detector", "k", "llr")
+    param_names = ("detector", "k", "iterations", "llr")
 
     def __init__(
-        self, *, detector: str | Var = "mmse", k: int | Var = 8, llr: bool | Var = False
+        self,
+        *,
+        detector: str | Var = "mmse",
+        k: int | Var = 8,
+        iterations: int | Var = 10,
+        llr: bool | Var = False,
     ) -> None:
-        _init(self, "mimo_rx", detector=detector, k=k, llr=llr)
+        _init(self, "mimo_rx", detector=detector, k=k, iterations=iterations, llr=llr)
 
 
 class PasEncode(Native):
@@ -1675,6 +1765,7 @@ _init = _native_init
 
 __all__ = [
     "AdaptiveEqualizer",
+    "Adc",
     "Awgn",
     "AwgnEbn0",
     "Bps",
@@ -1686,6 +1777,7 @@ __all__ = [
     "Cfo",
     "CpmRx",
     "CpmTx",
+    "Dac",
     "Dbp",
     "Ddpll",
     "Decimate",
