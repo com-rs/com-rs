@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/com-rs/com-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/com-rs/com-rs/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/comrs.svg)](https://crates.io/crates/comrs)
+[![Documentation](https://img.shields.io/badge/docs-com--rs.github.io-blue.svg)](https://com-rs.github.io/com-rs/)
 [![docs.rs](https://img.shields.io/docsrs/comrs)](https://docs.rs/comrs)
 [![PyPI](https://img.shields.io/pypi/v/comrs.svg)](https://pypi.org/project/comrs/)
 [![Licence](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/com-rs/com-rs#licence)
@@ -10,6 +11,10 @@ Link-level simulation of digital communication systems, wireless and optical, in
 with Python bindings: the blocks of a link, a parallel Monte Carlo runner whose results
 do not depend on the thread count, and declarative campaigns checked against the
 literature.
+
+**Documentation:** <https://com-rs.github.io/com-rs/> (the Python package: getting
+started, tutorials, a gallery of classical results and of reproduced figures of the
+literature, the API) and <https://docs.rs/comrs> (the Rust API).
 
 ## Install
 
