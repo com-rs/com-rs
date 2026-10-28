@@ -364,7 +364,8 @@ fn inputs_given_to_aff3ct_are_those_of_com_rs() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, text).unwrap();
         }
-        let on_disk = std::fs::read_to_string(path).unwrap_or_default();
+        // a checkout with CRLF line endings (Git on Windows) holds the same file
+        let on_disk = std::fs::read_to_string(path).unwrap_or_default().replace("\r\n", "\n");
         assert!(on_disk == *text, "{} is not the construction of com-rs (COMRS_RECORD_AFF3CT=1)", path.display());
     }
     // the reader gives back the constructions

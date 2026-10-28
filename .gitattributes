@@ -1,0 +1,10 @@
+# Text files keep LF line endings on every system: the tests compare some of them
+# (the LDPC matrices and frozen sets of validation/aff3ct/, the fixtures) byte for byte.
+* text=auto eol=lf
+
+# Binary data
+*.npz binary
+*.npy binary
+*.sigmf-data binary
+*.png binary
+*.pdf binary
