@@ -12,6 +12,7 @@
 //! | [`sync`] | carrier frequency and phase recovery, symbol timing (Gardner), frame synchronisation |
 //! | [`estimation`] | least-squares and linear MMSE channel estimation, linear interpolation |
 //! | [`equalizer`] | the adaptive `n×n` butterfly equaliser (CMA, RDE, NLMS, DD-LMS) |
+//! | [`cyclo`] | cyclic autocorrelation and blind symbol-rate estimation (cyclostationarity) |
 //! | [`compensation`] | chromatic-dispersion compensation, digital back-propagation, digital predistortion |
 //! | [`window`] | Hann window |
 //!
@@ -27,6 +28,7 @@
 //! ```
 
 pub mod compensation;
+pub mod cyclo;
 pub mod equalizer;
 pub mod estimation;
 pub mod filter;

@@ -784,6 +784,32 @@ mod tests {
     }
 
     #[test]
+    fn blind_classification_in_a_link() {
+        // the likelihood at moderate SNR, the cumulants (normalised by the received power)
+        // at high SNR; M2M4 degrades for QAM at high SNR (com_metrics::blind)
+        for (name, snr_db, method) in
+            [("QPSK", 12.0, "ml"), ("16-QAM", 12.0, "ml"), ("QPSK", 20.0, "cumulants"), ("16-QAM", 30.0, "cumulants")]
+        {
+            {
+                let s = run(
+                    &[
+                        json!({"type": "source", "constellation": name, "n_symbols": 2000}),
+                        json!({"type": "awgn", "snr_db": snr_db, "reference": "unit"}),
+                        json!({"type": "classify", "method": method}),
+                    ],
+                    8,
+                );
+                let value = |k: &str| s.values.iter().find(|(n, _)| n == k).map(|(_, v)| *v);
+                assert_eq!(value("classify.correct"), Some(1.0), "{name} by {method}");
+                if snr_db < 20.0 {
+                    let snr = value("classify.snr_m2m4_db").unwrap();
+                    assert!((snr - snr_db).abs() < 1.5, "{name} by {method}: {snr} dB");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn converters_in_a_link() {
         // 16-QAM through an 8-bit DAC and a 10-bit ADC at a loading of 4: every sample
         // within half a step of each converter

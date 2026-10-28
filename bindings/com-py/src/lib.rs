@@ -25,6 +25,7 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods};
 use pyo3::exceptions::{PyArithmeticError, PyOSError, PyValueError};
 use pyo3::prelude::*;
 
+mod blind;
 mod cdl;
 mod chain;
 mod comm;
@@ -252,6 +253,7 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     rng::register(m)?;
     comm::register(m)?;
+    blind::register(m)?;
     converter::register(m)?;
     dsp::register(m)?;
     fiber::register(m)?;

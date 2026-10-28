@@ -58,6 +58,10 @@ PyPI and the command line `comrs`.
   amplification and inter-channel stimulated Raman scattering, the GN and EGN models
   (their integration grid follows the width of the band, and the phased-array factor
   of the coherent accumulation is integrated exactly over every cell).
+- Blind estimation: fourth-order cumulants, modulation classification by cumulants
+  (Swami & Sadler 2000) and by likelihood (Wei & Mendel 2000), the M2M4 SNR (Pauluzzi &
+  Beaulieu 2000), the symbol rate by cyclostationarity (Gardner 1991); the `classify`
+  block.
 - Hardware: power amplifiers (Rapp, Saleh, memory polynomial), Wiener phase noise,
   frequency offset, IQ imbalance; DAC and ADC (uniform quantisation with clipping,
   effective number of bits, clock jitter, bandwidth, zero-order hold) with the closed
@@ -65,7 +69,8 @@ PyPI and the command line `comrs`.
   photodiodes with shot and thermal noise, the 90° hybrid, the coherent receiver, the
   WDM transmitter.
 - Receiver DSP: pulse shaping and FIR filtering, resampling, chromatic-dispersion
-  compensation, digital back-propagation (one and two polarisations), the n×n
+  compensation (exact, frequency sampling, Savory's FIR, the least-squares FIR of Eghbali
+  et al. 2014 over the whole band or the band of the signal), digital back-propagation (one and two polarisations), the n×n
   adaptive equaliser (CMA, RDE, NLMS, DD-LMS, Kikuchi's initialisation), carrier
   recovery (fourth-power FOE, Viterbi–Viterbi, blind phase search, DD-PLL), Gardner
   clock recovery, frame synchronisation, digital predistortion.

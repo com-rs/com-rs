@@ -989,6 +989,24 @@ class NoiseEstimate(Native):
         _init(self, "noise_estimate", mode=mode)
 
 
+class Classify(Native):
+    """Blind modulation classification at one sample per symbol, by fourth-order cumulants or by likelihood; records class (the index of the decided candidate), correct (1 if it is the transmitted alphabet) and snr_m2m4_db (M2M4 for the decided alphabet).
+
+    Needs: samples. Gives: nothing.
+
+    Args:
+        candidates (list): the candidate alphabets; default [BPSK, QPSK, 8-PSK, 16-QAM, 64-QAM]
+        method (str): cumulants (Swami & Sadler 2000, normalised by the received power: for high SNR) or ml (likelihood, the scale and the noise estimated by M2M4 under every candidate); one of cumulants, ml; default ml
+    """
+
+    needs = ("samples",)
+    gives = ()
+    param_names = ("candidates", "method")
+
+    def __init__(self, *, candidates: list | Var | None = None, method: str | Var = "ml") -> None:
+        _init(self, "classify", candidates=candidates, method=method)
+
+
 class WdmTx(Native):
     """WDM transmitter: the channel under test and independently modulated neighbours on the grid of OptiCommPy's simpleWDMTx.
 
@@ -1775,6 +1793,7 @@ __all__ = [
     "CeOfdmRx",
     "CeOfdmTx",
     "Cfo",
+    "Classify",
     "CpmRx",
     "CpmTx",
     "Dac",

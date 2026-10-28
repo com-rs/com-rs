@@ -77,6 +77,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
         (_, "origin") => json!("zero"),
         (_, "alignment") => json!("causal"),
         (_, "amplification") => json!("edfa"),
+        ("classify", "method") => json!("cumulants"),
         (_, "method") => json!("max_variance"),
         ("noise_estimate", "mode") => json!("decisions"),
         (_, "algorithm") => json!("cma"),
@@ -90,6 +91,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
         ("ofdm_rx", "estimation") => json!("ls"),
         (_, "detector") => json!("mmse"),
         ("probe", "metrics") => json!(["power_dbm", "papr_db"]),
+        ("classify", "candidates") => json!(["QPSK", "16-QAM"]),
         ("pas_encode" | "pas_decode", "n") => json!(96),
         ("pas_encode" | "pas_decode", "k") => return None, // n (m-1)/m by default
         ("pas_encode" | "pas_decode", "rule") => json!("sum_product"),

@@ -899,3 +899,37 @@ def test_iq_modulator_compression_and_arcsine_predistortion():
         pre = 2 * vpi / np.pi * (np.arcsin(target.real) + 1j * np.arcsin(target.imag))
         np.testing.assert_allclose(comrs.iqm(np.ones(s.size), pre, **ideal),
                                    target / np.sqrt(2), atol=1e-12)  # fmt: skip
+
+
+def test_blind_classification_and_m2m4():
+    # five alphabets, 512 symbols at 15 dB: the blind likelihood decides right; M2M4
+    # finds the SNR of 8-PSK within half a dB
+    rng = comrs.Rng(51)
+    cands = [
+        comrs.Constellation(k, m).normalized()
+        for k, m in [("psk", 2), ("qam", 4), ("psk", 8), ("qam", 16), ("qam", 64)]
+    ]
+    s2 = 1 / comrs.db2lin(15.0)
+    ok = 0
+    for i, c in enumerate(cands):
+        for _ in range(20):
+            x = c.points[rng.integers(c.order, 512)] + rng.complex_noise(512, s2)
+            ok += comrs.classify_modulation(x, cands)["index"] == i
+    assert ok >= 95, ok
+    x = cands[2].points[rng.integers(8, 20_000)] + rng.complex_noise(20_000, s2)
+    assert abs(comrs.snr_m2m4_db(x, cands[2]) - 15.0) < 0.5
+
+
+def test_least_squares_cd_filters_of_eghbali_2014():
+    # example 1 of Eghbali et al. (JLT 2014): K = 19.9, N = 251; the least-squares filter
+    # beats Savory's at the same length, and 119 band-limited taps fit the band better
+    fib = comrs.FiberParams(d_ps_nm_km=17.0, fc_hz=3e8 / 1553e-9)
+    fs, z = 21.4e9, 4000.0
+    assert abs(comrs.cd_dispersion_factor(fib, z, fs) - 19.92) < 0.02
+    sav = comrs.cd_savory_taps(fib, z, fs)
+    assert sav.size == 251
+    ls = comrs.cd_ls_taps(fib, z, fs, 251)
+    assert comrs.cd_ls_error(ls, fib, z, fs) < 0.5 * comrs.cd_ls_error(sav, fib, z, fs)
+    band = 0.3125 * fs
+    bl = comrs.cd_ls_taps(fib, z, fs, 119, band_hz=band, epsilon=1e-14)
+    assert comrs.cd_ls_error(bl, fib, z, fs, band_hz=band) < 1e-3

@@ -1,0 +1,351 @@
+//! Blind estimates from the received samples alone: higher-order cumulants, automatic
+//! modulation classification and the M2M4 estimator of the SNR.
+//!
+//! # Model
+//!
+//! The samples $r_{n} = x_{n} + w_{n}$ carry symbols $x_{n}$ of an unknown alphabet in
+//! circular complex Gaussian noise of variance $N$, at one sample per symbol, with the
+//! symbol timing and the carrier recovered (a constant phase rotation is allowed by the
+//! cumulant features).
+//!
+//! **Cumulants.** With the moments $M_{pq} = \mathbb{E}[r^{p-q} (r^{*})^{q}]$ of a
+//! zero-mean signal,
+//!
+//! $$
+//! C_{20} = M_{20}, \quad C_{21} = M_{21}, \quad C_{40} = M_{40} - 3 M_{20}^{2}, \quad
+//! C_{41} = M_{41} - 3 M_{20} M_{21}, \quad C_{42} = M_{42} - |M_{20}|^{2} - 2 M_{21}^{2}.
+//! $$
+//!
+//! The cumulants of order four of Gaussian noise vanish, so that $C_{4k}$ is that of the
+//! symbols whatever the SNR, while $C_{21} = S + N$. The normalised features
+//! $\tilde{C}_{4k} = C_{4k}/C_{21}^{2}$ characterise the alphabet (Swami & Sadler 2000:
+//! $-2$ for BPSK, $\tilde{C}_{40} = 1$ and $\tilde{C}_{42} = -1$ for QPSK, $-0.68$ for
+//! 16-QAM); $|\tilde{C}_{40}|$ and $\tilde{C}_{42}$ do not depend on the carrier phase.
+//! [`classify_cumulants`] picks the candidate whose theoretical features are nearest to
+//! the estimated ones; with the noise variance known, $C_{21} - N$ replaces $C_{21}$.
+//! With the noise unknown, $C_{21} = S + N$ shrinks the features by $(1 + 1/\mathrm{SNR})^{-2}$
+//! (12 % at 10 dB: 16-QAM, 0.68, then looks like 64-QAM, 0.62): the classifier is then
+//! for high SNR, and [`classify_ml_blind`] for the others. (Normalising by the power that
+//! [`m2m4`] estimates under each candidate does not help: it makes $\tilde{C}_{42}$ equal
+//! to the value of the candidate whatever the signal.)
+//!
+//! **Likelihood.** With the noise variance known and the phase recovered,
+//! [`classify_ml`] picks the alphabet of largest average log-likelihood
+//! $\sum_{n} \ln \frac{1}{M} \sum_{a} e^{-|r_{n} - a|^{2}/N}$ (Wei & Mendel 2000), the
+//! optimal classifier, at a cost of $M$ exponentials per sample and candidate;
+//! [`classify_ml_blind`] estimates the scale and the noise under every candidate with
+//! [`m2m4`] first.
+//!
+//! **M2M4.** With $M_{2} = \mathbb{E}|r|^{2} = S + N$ and
+//! $M_{4} = \mathbb{E}|r|^{4} = k_{a} S^{2} + 4 S N + 2 N^{2}$, $k_{a} = \mathbb{E}|a|^{4}/(\mathbb{E}|a|^{2})^{2}$
+//! the kurtosis of the alphabet (1 for PSK), the signal power is
+//!
+//! $$
+//! \hat{S} = \sqrt{\frac{2 M_{2}^{2} - M_{4}}{2 - k_{a}}}, \qquad \hat{N} = M_{2} - \hat{S}
+//! $$
+//!
+//! ([`snr_m2m4`]; Pauluzzi & Beaulieu 2000 for PSK, where $\hat{S} = \sqrt{2 M_{2}^{2} - M_{4}}$).
+//! For an alphabet of several amplitudes (QAM) the estimate degrades at high SNR: the
+//! noise is then a small difference of moments that the sample kurtosis of the symbols
+//! themselves makes fluctuate (16-QAM at 20 dB: errors beyond 20 % with 4000 samples,
+//! and an infinite estimate when $\hat{S} \ge M_{2}$); for PSK, of constant modulus, it
+//! does not.
+//!
+//! # Examples
+//! ```
+//! use com_metrics::blind::{classify_cumulants, Cumulants};
+//! use com_mapping::constellation::Constellation;
+//! let qpsk = Constellation::qam(4)?.normalized();
+//! let t = Cumulants::of_constellation(&qpsk, None)?;
+//! assert!((t.c40_normalized().norm() - 1.0).abs() < 1e-12 && (t.c42_normalized() + 1.0).abs() < 1e-12);
+//! // noiseless QPSK symbols among BPSK, QPSK and 16-QAM
+//! let r: Vec<_> = (0..400).map(|i| qpsk.points()[i % 4]).collect();
+//! let candidates = [Constellation::psk(2)?.normalized(), qpsk, Constellation::qam(16)?.normalized()];
+//! assert_eq!(classify_cumulants(&r, &candidates, None)?.index, 1);
+//! # Ok::<(), com_core::Error>(())
+//! ```
+//!
+//! # References
+//!
+//! 1. A. Swami and B. M. Sadler, "Hierarchical digital modulation classification using
+//!    cumulants," *IEEE Trans. Commun.*, 48(3), 416–429, 2000.
+//! 2. W. Wei and J. M. Mendel, "Maximum-likelihood classification for digital
+//!    amplitude-phase modulations," *IEEE Trans. Commun.*, 48(2), 189–193, 2000.
+//! 3. D. R. Pauluzzi and N. C. Beaulieu, "A comparison of SNR estimation techniques for
+//!    the AWGN channel," *IEEE Trans. Commun.*, 48(10), 1681–1691, 2000.
+//! 4. O. A. Dobre, A. Abdi, Y. Bar-Ness and W. Su, "Survey of automatic modulation
+//!    classification techniques: classical approaches and new trends," *IET Commun.*,
+//!    1(2), 137–156, 2007.
+
+use com_core::{Result, ensure};
+use com_mapping::constellation::Constellation;
+use com_math::C64;
+
+/// The cumulants of order two and four of a zero-mean complex signal (see the module).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cumulants {
+    /// $C_{20} = \mathbb{E}[r^{2}]$.
+    pub c20: C64,
+    /// $C_{21} = \mathbb{E}|r|^{2}$.
+    pub c21: f64,
+    /// $C_{40}$.
+    pub c40: C64,
+    /// $C_{41}$.
+    pub c41: C64,
+    /// $C_{42}$ (real).
+    pub c42: f64,
+}
+
+impl Cumulants {
+    /// The sample cumulants of `r` (the moments replaced by sample means).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an empty signal.
+    pub fn estimate(r: &[C64]) -> Result<Cumulants> {
+        ensure(!r.is_empty(), || "the cumulants need at least one sample".into())?;
+        let n = r.len() as f64;
+        let (mut m20, mut m21, mut m40, mut m41, mut m42) =
+            (C64::new(0.0, 0.0), 0.0, C64::new(0.0, 0.0), C64::new(0.0, 0.0), 0.0);
+        for &x in r {
+            let p = x.norm_sqr();
+            let x2 = x * x;
+            m20 += x2;
+            m21 += p;
+            m40 += x2 * x2;
+            m41 += x2 * p;
+            m42 += p * p;
+        }
+        Ok(Cumulants::from_moments(m20 / n, m21 / n, m40 / n, m41 / n, m42 / n))
+    }
+
+    /// The cumulants of the points of `c` with the probabilities `px` (uniform if
+    /// `None`): the theoretical features of the alphabet.
+    ///
+    /// # Errors
+    /// Those of [`Constellation::priors`].
+    pub fn of_constellation(c: &Constellation, px: Option<&[f64]>) -> Result<Cumulants> {
+        let p = c.priors(px)?;
+        let (mut m20, mut m21, mut m40, mut m41, mut m42) =
+            (C64::new(0.0, 0.0), 0.0, C64::new(0.0, 0.0), C64::new(0.0, 0.0), 0.0);
+        for (&x, &w) in c.points().iter().zip(&p) {
+            let a = x.norm_sqr();
+            let x2 = x * x;
+            m20 += x2 * w;
+            m21 += a * w;
+            m40 += x2 * x2 * w;
+            m41 += x2 * a * w;
+            m42 += a * a * w;
+        }
+        Ok(Cumulants::from_moments(m20, m21, m40, m41, m42))
+    }
+
+    fn from_moments(m20: C64, m21: f64, m40: C64, m41: C64, m42: f64) -> Cumulants {
+        Cumulants {
+            c20: m20,
+            c21: m21,
+            c40: m40 - m20 * m20 * 3.0,
+            c41: m41 - m20 * m21 * 3.0,
+            c42: m42 - m20.norm_sqr() - 2.0 * m21 * m21,
+        }
+    }
+
+    /// $\tilde{C}_{40} = C_{40}/C_{21}^{2}$.
+    pub fn c40_normalized(&self) -> C64 {
+        self.c40 / (self.c21 * self.c21)
+    }
+
+    /// $\tilde{C}_{42} = C_{42}/C_{21}^{2}$.
+    pub fn c42_normalized(&self) -> f64 {
+        self.c42 / (self.c21 * self.c21)
+    }
+
+    /// The phase-invariant features $(|\tilde{C}_{40}|, \tilde{C}_{42})$, with the signal
+    /// power $C_{21} - N$ when the noise variance `noise_var` is known.
+    pub fn features(&self, noise_var: Option<f64>) -> (f64, f64) {
+        let s = (self.c21 - noise_var.unwrap_or(0.0)).max(1e-300);
+        (self.c40.norm() / (s * s), self.c42 / (s * s))
+    }
+}
+
+/// The decision of a classifier.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Classification {
+    /// The index of the decided candidate.
+    pub index: usize,
+    /// The score of every candidate: minus the distance of the features
+    /// ([`classify_cumulants`]) or the mean log-likelihood per sample ([`classify_ml`]);
+    /// the largest wins.
+    pub scores: Vec<f64>,
+}
+
+fn decide(scores: Vec<f64>) -> Classification {
+    let index = scores.iter().enumerate().fold(0, |b, (i, s)| if *s > scores[b] { i } else { b });
+    Classification { index, scores }
+}
+
+/// Classify `r` among `candidates` by the nearest fourth-order cumulant features
+/// $(|\tilde{C}_{40}|, \tilde{C}_{42})$ (Swami & Sadler 2000), with the noise variance
+/// `noise_var` subtracted from the power when it is known.
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty signal or no candidate.
+pub fn classify_cumulants(r: &[C64], candidates: &[Constellation], noise_var: Option<f64>) -> Result<Classification> {
+    ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
+    let (a, b) = Cumulants::estimate(r)?.features(noise_var);
+    let scores = candidates
+        .iter()
+        .map(|c| {
+            let (ta, tb) = Cumulants::of_constellation(c, None)?.features(None);
+            Ok(-((a - ta).powi(2) + (b - tb).powi(2)).sqrt())
+        })
+        .collect::<Result<Vec<f64>>>()?;
+    Ok(decide(scores))
+}
+
+/// Classify `r` among `candidates` (each scaled to unit energy, the scale of the
+/// symbols of `r`) by the largest mean log-likelihood in noise of variance `noise_var`
+/// with equally likely points (Wei & Mendel 2000).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty signal, no candidate or a non-positive
+/// noise variance.
+pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> Result<Classification> {
+    ensure(!r.is_empty(), || "the classifier needs at least one sample".into())?;
+    ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
+    ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
+    let scores = candidates
+        .iter()
+        .map(|c| {
+            let pts = c.points();
+            let ln_m = (pts.len() as f64).ln();
+            let mut total = 0.0;
+            let mut d = vec![0.0; pts.len()];
+            for &y in r {
+                let mut best = f64::NEG_INFINITY;
+                for (v, p) in d.iter_mut().zip(pts) {
+                    *v = -(y - p).norm_sqr() / noise_var;
+                    best = best.max(*v);
+                }
+                total += best + d.iter().map(|v| (v - best).exp()).sum::<f64>().ln() - ln_m;
+            }
+            total / r.len() as f64
+        })
+        .collect();
+    Ok(decide(scores))
+}
+
+/// The signal power $\hat{S}$ and the noise power $\hat{N}$ of `r` by M2M4 for the alphabet
+/// `c` (see the module).
+///
+/// # Errors
+/// As [`snr_m2m4`].
+pub fn m2m4(r: &[C64], c: &Constellation) -> Result<(f64, f64)> {
+    ensure(!r.is_empty(), || "the estimator needs at least one sample".into())?;
+    let p = c.priors(None)?;
+    let e2: f64 = c.points().iter().zip(&p).map(|(a, w)| w * a.norm_sqr()).sum();
+    let e4: f64 = c.points().iter().zip(&p).map(|(a, w)| w * a.norm_sqr().powi(2)).sum();
+    let ka = e4 / (e2 * e2);
+    ensure(ka < 2.0, || format!("M2M4 needs an alphabet of kurtosis below 2, got {ka}"))?;
+    let n = r.len() as f64;
+    let m2 = r.iter().map(C64::norm_sqr).sum::<f64>() / n;
+    let m4 = r.iter().map(|x| x.norm_sqr().powi(2)).sum::<f64>() / n;
+    let s = ((2.0 * m2 * m2 - m4) / (2.0 - ka)).max(0.0).sqrt();
+    Ok((s, m2 - s))
+}
+
+/// Classify `r` among `candidates` by the likelihood with the scale of the signal and
+/// the noise variance unknown: under every candidate, $\hat{S}$ comes from [`m2m4`] and
+/// $\hat{N}$ is the larger of the M2M4 estimate and of the mean squared distance to the
+/// nearest points (accurate at high SNR, where M2M4 fails for QAM), and the score is the mean
+/// log-likelihood $\frac{1}{L}\sum_{n} \ln \frac{1}{M} \sum_{a} \frac{1}{\pi \hat{N}}
+/// e^{-|r_{n} - \sqrt{\hat{S}}\, a|^{2}/\hat{N}}$, with the points of unit energy, so
+/// that the scores of the candidates compare.
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty signal or no candidate.
+pub fn classify_ml_blind(r: &[C64], candidates: &[Constellation]) -> Result<Classification> {
+    ensure(!r.is_empty(), || "the classifier needs at least one sample".into())?;
+    ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
+    let scores = candidates
+        .iter()
+        .map(|c| {
+            let unit = c.normalized();
+            let (s, n) = m2m4(r, &unit)?;
+            if s <= 0.0 {
+                return Ok(f64::NEG_INFINITY);
+            }
+            let scaled: Vec<C64> = r.iter().map(|v| v / s.sqrt()).collect();
+            // the noise: the larger of M2M4 and of the residual to the nearest points,
+            // which stays accurate at high SNR where M2M4 fails for several amplitudes
+            let residual = scaled.iter().map(|v| (v - unit.points()[unit.nearest(*v)]).norm_sqr()).sum::<f64>()
+                / scaled.len() as f64;
+            let noise = n.max(residual * s).max(1e-9 * s);
+            let ll = classify_ml(&scaled, std::slice::from_ref(&unit), noise / s)?.scores[0];
+            // back to the density of r: the Gaussian normalisation and the scale
+            Ok(ll - (std::f64::consts::PI * noise / s).ln() - s.ln())
+        })
+        .collect::<Result<Vec<f64>>>()?;
+    Ok(decide(scores))
+}
+
+/// The M2M4 estimate of the SNR $\hat{S}/\hat{N}$ (linear) of `r` for symbols of the
+/// alphabet `c` (see the module); 0 when the moments give no positive signal power,
+/// infinite when they give no noise.
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty signal or an alphabet of kurtosis 2 or more.
+pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
+    let (s, noise) = m2m4(r, c)?;
+    Ok(if noise <= 0.0 { f64::INFINITY } else { s / noise })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use com_core::rng::Rng;
+
+    #[test]
+    fn theoretical_cumulants_of_common_alphabets() {
+        // normalised C40 and C42 (Swami & Sadler 2000, in magnitude for C40)
+        let cases: [(Constellation, f64, f64); 5] = [
+            (Constellation::psk(2).unwrap(), 2.0, -2.0),
+            (Constellation::qam(4).unwrap(), 1.0, -1.0),
+            (Constellation::psk(8).unwrap(), 0.0, -1.0),
+            (Constellation::pam(4).unwrap(), 1.36, -1.36),
+            (Constellation::qam(16).unwrap(), 0.68, -0.68),
+        ];
+        for (c, c40, c42) in cases {
+            let (a, b) = Cumulants::of_constellation(&c, None).unwrap().features(None);
+            assert!((a - c40).abs() < 1e-9 && (b - c42).abs() < 1e-9, "{:?} {}: {a} {b}", c.kind(), c.order());
+        }
+    }
+
+    #[test]
+    fn the_estimators_on_noisy_symbols() {
+        let c = Constellation::qam(16).unwrap().normalized();
+        let mut rng = Rng::new(1);
+        let s2: f64 = 0.05;
+        let r: Vec<C64> =
+            (0..200_000).map(|_| c.points()[rng.below(16)] + rng.complex_gaussian() * s2.sqrt()).collect();
+        // the fourth-order cumulants ignore the Gaussian noise
+        let (a, b) = Cumulants::estimate(&r).unwrap().features(Some(s2));
+        assert!((a - 0.68).abs() < 0.02 && (b + 0.68).abs() < 0.02, "{a} {b}");
+        let snr = snr_m2m4(&r, &c).unwrap();
+        assert!((snr * s2 - 1.0).abs() < 0.02, "{snr}");
+        let cands =
+            [Constellation::qam(4).unwrap().normalized(), c.clone(), Constellation::qam(64).unwrap().normalized()];
+        assert_eq!(classify_ml(&r[..2000], &cands, s2).unwrap().index, 1);
+        assert_eq!(classify_cumulants(&r, &cands, Some(s2)).unwrap().index, 1);
+        assert!(classify_ml(&r, &cands, 0.0).is_err() && snr_m2m4(&[], &c).is_err());
+        // unknown scale and noise: 2.3 times the amplitude
+        let scaled: Vec<C64> = r[..4000].iter().map(|v| v * 2.3).collect();
+        assert_eq!(classify_ml_blind(&scaled, &cands).unwrap().index, 1);
+        let qpsk: Vec<C64> = noisy_qpsk(&mut rng);
+        assert_eq!(classify_ml_blind(&qpsk, &cands).unwrap().index, 0);
+    }
+
+    fn noisy_qpsk(rng: &mut Rng) -> Vec<C64> {
+        let c = Constellation::qam(4).unwrap().normalized();
+        (0..2000).map(|_| (c.points()[rng.below(4)] + rng.complex_gaussian() * 0.2) * 0.7).collect::<Vec<_>>()
+    }
+}

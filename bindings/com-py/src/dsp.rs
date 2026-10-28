@@ -284,6 +284,106 @@ fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n
     carr(py, cd::cd_fir_taps(fiber.to_rust().beta2_s2_km(), length_km, fs, n_taps))
 }
 
+/// The dispersion factor `K = -β₂ L fs²/2` of the digital compensation `e^{jKω²}`
+/// (`ω` in radians per sample; Savory 2008, Eghbali et al. 2014).
+///
+/// Args:
+///     fiber (FiberParams): the fibre.
+///     length_km (float): the length to compensate (km).
+///     fs (float): sampling rate (Hz).
+///
+/// Returns:
+///     float: K.
+#[pyfunction]
+fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
+    cd::cd_dispersion_factor(fiber.to_rust().beta2_s2_km(), length_km, fs)
+}
+
+/// Centred taps of Savory's dispersion-compensating FIR, `√(j/(4Kπ)) e^{-jn²/(4K)}`
+/// (S. J. Savory, *Opt. Express* 16(2), 2008).
+///
+/// Args:
+///     fiber (FiberParams): the fibre.
+///     length_km (float): the length to compensate (km).
+///     fs (float): sampling rate (Hz).
+///     n_taps (int | None): odd number of taps; None: Savory's rule `2⌊2π|K|⌋ + 1`.
+///
+/// Returns:
+///     numpy.ndarray: the taps (complex128).
+#[pyfunction]
+#[pyo3(signature = (fiber, length_km, fs, n_taps = None))]
+fn cd_savory_taps<'py>(
+    py: Python<'py>,
+    fiber: &PyFiber,
+    length_km: f64,
+    fs: f64,
+    n_taps: Option<usize>,
+) -> PyResult<CArr<'py>> {
+    let b2 = fiber.to_rust().beta2_s2_km();
+    let n = n_taps.unwrap_or_else(|| cd::cd_savory_length(b2, length_km, fs));
+    Ok(carr(py, cd::cd_savory_taps(b2, length_km, fs, n).py()?))
+}
+
+/// Centred taps of the least-squares dispersion-compensating FIR over the band
+/// `|f| <= band_hz` (Eghbali, Johansson, Gustafsson & Savory, *J. Lightw. Technol.*
+/// 32(8), 2014).
+///
+/// Over the whole band the taps are closed-form; over the band of the signal
+/// (`fs (1 + rolloff) / (2 sps)`) fewer taps reach the same error, at the price of a
+/// large response outside the band, which the receive filter must reject.
+///
+/// Args:
+///     fiber (FiberParams): the fibre.
+///     length_km (float): the length to compensate (km).
+///     fs (float): sampling rate (Hz).
+///     n_taps (int): odd number of taps.
+///     band_hz (float | None): half the band of the fit (Hz); None: `fs / 2`.
+///     epsilon (float): the penalty on the energy of the taps (the paper uses 1e-14
+///         for a band-limited fit).
+///
+/// Returns:
+///     numpy.ndarray: the taps (complex128).
+#[pyfunction]
+#[pyo3(signature = (fiber, length_km, fs, n_taps, *, band_hz = None, epsilon = 0.0))]
+fn cd_ls_taps<'py>(
+    py: Python<'py>,
+    fiber: &PyFiber,
+    length_km: f64,
+    fs: f64,
+    n_taps: usize,
+    band_hz: Option<f64>,
+    epsilon: f64,
+) -> PyResult<CArr<'py>> {
+    let b2 = fiber.to_rust().beta2_s2_km();
+    Ok(carr(py, cd::cd_ls_taps(b2, length_km, fs, n_taps, band_hz.unwrap_or(fs / 2.0), epsilon).py()?))
+}
+
+/// The energy of the error `E = (1/2π) ∫ |H(e^{jω}) - e^{jKω²}|² dω` of centred
+/// dispersion-compensating taps over the band `|f| <= band_hz` (Eghbali et al. 2014,
+/// eq. 6).
+///
+/// Args:
+///     taps (array_like): the centred taps (odd in number).
+///     fiber (FiberParams): the fibre.
+///     length_km (float): the length to compensate (km).
+///     fs (float): sampling rate (Hz).
+///     band_hz (float | None): half the band (Hz); None: `fs / 2`.
+///
+/// Returns:
+///     float: E.
+#[pyfunction]
+#[pyo3(signature = (taps, fiber, length_km, fs, *, band_hz = None))]
+fn cd_ls_error(
+    taps: &Bound<'_, PyAny>,
+    fiber: &PyFiber,
+    length_km: f64,
+    fs: f64,
+    band_hz: Option<f64>,
+) -> PyResult<f64> {
+    let b2 = fiber.to_rust().beta2_s2_km();
+    cd::cd_ls_error(&cvec(taps)?, b2, length_km, fs, band_hz.unwrap_or(fs / 2.0)).py()
+}
+
 /// The `n×n` butterfly adaptive equaliser (OptiCommPy `mimoAdaptEqualizer`).
 ///
 /// Output symbol `k` of mode `m` is `Σ_N Σ_t h_{m,N}[t] x_N[k·sps + t]` (input padded
@@ -605,6 +705,10 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(cdc, m)?,
         wrap_pyfunction!(cd_taps_needed, m)?,
         wrap_pyfunction!(cd_fir_taps, m)?,
+        wrap_pyfunction!(cd_dispersion_factor, m)?,
+        wrap_pyfunction!(cd_savory_taps, m)?,
+        wrap_pyfunction!(cd_ls_taps, m)?,
+        wrap_pyfunction!(cd_ls_error, m)?,
         wrap_pyfunction!(adaptive_equalizer, m)?,
         wrap_pyfunction!(derotate, m)?,
         wrap_pyfunction!(unwrap, m)?,

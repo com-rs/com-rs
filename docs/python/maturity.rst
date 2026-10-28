@@ -89,6 +89,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - Space-time block codes
      - A
      - Tarokh et al. 1999 eqs. (39)–(40); MRC closed forms
+   * - Blind estimation: modulation recognition, M2M4 SNR, symbol rate
+     - B
+     - exact cumulants of the alphabets; consistency of the estimators
    * - DAC and ADC
      - B
      - Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999
@@ -129,8 +132,8 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
      - A
      - OptiCommPy outputs
    * - Chromatic dispersion compensation
-     - C
-     - inverts the linear fibre
+     - A
+     - Eghbali et al. 2014 Table I, Figs. 5 and 9
    * - Adaptive equalisers
      - A
      - OptiCommPy outputs; Kikuchi's singularity

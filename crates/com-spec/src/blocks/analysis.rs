@@ -34,6 +34,13 @@ pub(super) fn infos() -> Vec<BlockInfo> {
             needs [Samples, Symbols, Constellation],
             gives [Noise],
         ),
+        block_info!(
+            "classify",
+            "Blind modulation classification at one sample per symbol, by fourth-order cumulants or by likelihood; records class (the index of the decided candidate), correct (1 if it is the transmitted alphabet) and snr_m2m4_db (M2M4 for the decided alphabet).",
+            ClassifySpec,
+            needs [Samples],
+            gives [],
+        ),
     ]
 }
 
@@ -45,6 +52,7 @@ pub(super) fn build(k: &str, label: &str, p: &Json, ctx: &BuildContext) -> Optio
             "probe" => Box::new(Probe::new(&ProbeSpec::parse(k, p)?, label)?),
             "dump" => Box::new(Dump::new(&DumpSpec::parse(k, p)?, label, ctx)?),
             "noise_estimate" => Box::new(NoiseEstimate::new(&NoiseEstimateSpec::parse(k, p)?, label)?),
+            "classify" => Box::new(Classify::new(&ClassifySpec::parse(k, p)?, label)?),
             _ => return Ok(None),
         }))
     };
@@ -220,6 +228,59 @@ impl Block for NoiseEstimate {
         let sigma2 = (e / n as f64).max(f64::MIN_POSITIVE);
         s.receiver.sigma2 = Some(sigma2);
         s.record(&self.label, "sigma2", sigma2);
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------- classify
+
+block_params! {
+    struct ClassifySpec {
+        candidates: Vec<String> [["BPSK", "QPSK", "8-PSK", "16-QAM", "64-QAM"] => "[BPSK, QPSK, 8-PSK, 16-QAM, 64-QAM]"],
+            "the candidate alphabets";
+        method: String ["ml"] one_of ["cumulants", "ml"],
+            "cumulants (Swami & Sadler 2000, normalised by the received power: for high SNR) or ml (likelihood, the scale and the noise estimated by M2M4 under every candidate)";
+    }
+}
+
+struct Classify {
+    candidates: Vec<com_mapping::constellation::Constellation>,
+    ml: bool,
+    label: String,
+}
+
+impl Classify {
+    fn new(p: &ClassifySpec, label: String) -> Result<Classify> {
+        ensure(!p.candidates.is_empty(), || "classify: give at least one candidate".into())?;
+        let candidates = p
+            .candidates
+            .iter()
+            .map(|n| com_mapping::constellation::Constellation::from_name(n).map(|c| c.normalized()))
+            .collect::<Result<Vec<_>>>()
+            .map_err(|e| e.context("classify"))?;
+        Ok(Classify { candidates, ml: p.method == "ml", label })
+    }
+}
+
+impl Block for Classify {
+    fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
+        s.require_one_sps("classify")?;
+        let r: Vec<_> =
+            (0..s.samples.len()).filter(|&i| s.excluded.get(i).is_none_or(|e| !e)).map(|i| s.samples[i]).collect();
+        let d = if self.ml {
+            com_metrics::blind::classify_ml_blind(&r, &self.candidates)
+        } else {
+            com_metrics::blind::classify_cumulants(&r, &self.candidates, None)
+        }
+        .map_err(|e| e.context("classify"))?;
+        let decided = &self.candidates[d.index];
+        let snr = com_metrics::blind::snr_m2m4(&r, decided).map_err(|e| e.context("classify"))?;
+        s.record(&self.label, "class", d.index as f64);
+        if let Some(c) = &s.constellation {
+            let correct = c.kind() == decided.kind() && c.order() == decided.order();
+            s.record(&self.label, "correct", f64::from(u8::from(correct)));
+        }
+        s.record(&self.label, "snr_m2m4_db", 10.0 * snr.log10());
         Ok(())
     }
 }

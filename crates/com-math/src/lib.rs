@@ -28,7 +28,7 @@
 //!   [`np2db`] (attenuation per unit length);
 //! - [`sinc`], `sin(πx)/(πx)`, and [`effective_length`], `(1 - e^{-αL})/α`;
 //! - special functions: [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
-//!   `Q(x) = ½ erfc(x/√2)`);
+//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$);
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
 //! - quadrature: [`gauss_hermite`], the nodes and weights of `∫ f(t) e^{-t²} dt`;
@@ -176,6 +176,59 @@ pub fn qfunc(x: f64) -> f64 {
     0.5 * erfc(x / std::f64::consts::SQRT_2)
 }
 
+/// The Fresnel integrals $C(x) = \int_{0}^{x} \cos(\pi t^{2}/2)\, dt$ and
+/// $S(x) = \int_{0}^{x} \sin(\pi t^{2}/2)\, dt$, as `(C, S)`, to about $10^{-15}$.
+///
+/// For $|x| < 1.5$ the power series $C + jS = \sum_{k} (j\pi/2)^{k} x^{2k+1} / (k!\,(2k+1))$
+/// (Abramowitz & Stegun 7.3.11, 7.3.13); beyond, the relation to the error function
+/// $C + jS = \frac{1+j}{2} \operatorname{erf}(z)$, $z = \frac{\sqrt{\pi}}{2}(1-j)x$
+/// (A&S 7.3.22), with $\operatorname{erfc}(z) = \frac{e^{-z^{2}}}{\sqrt{\pi}}
+/// \cfrac{1}{z + \cfrac{1/2}{z + \cfrac{1}{z + \cfrac{3/2}{z + \dotsb}}}}$
+/// (A&S 7.1.14, valid for $\operatorname{Re} z > 0$), evaluated by the modified Lentz
+/// method. $C$ and $S$ are odd.
+pub fn fresnel(x: f64) -> (f64, f64) {
+    let ax = x.abs();
+    let v = if ax < 1.5 {
+        let a = C64::new(0.0, std::f64::consts::FRAC_PI_2 * ax * ax);
+        let (mut term, mut sum) = (C64::new(ax, 0.0), C64::new(ax, 0.0));
+        for k in 1..60 {
+            term *= a / k as f64;
+            let t = term / (2 * k + 1) as f64;
+            sum += t;
+            if t.norm() < 1e-17 * sum.norm() {
+                break;
+            }
+        }
+        sum
+    } else {
+        let z = C64::new(1.0, -1.0) * (std::f64::consts::PI.sqrt() / 2.0 * ax);
+        // modified Lentz for z + (1/2)/(z + 1/(z + (3/2)/(z + ...)))
+        let tiny = 1e-300;
+        let (mut f, mut c, mut d) = (z, z, C64::new(0.0, 0.0));
+        for k in 1..100_000 {
+            let a = k as f64 / 2.0;
+            d = z + a * d;
+            if d.norm() < tiny {
+                d = C64::new(tiny, 0.0);
+            }
+            c = z + a / c;
+            if c.norm() < tiny {
+                c = C64::new(tiny, 0.0);
+            }
+            d = d.inv();
+            let delta = c * d;
+            f *= delta;
+            if (delta - 1.0).norm() < 1e-16 {
+                break;
+            }
+        }
+        // e^{-z²} = e^{jπx²/2}
+        let erfc = cis(std::f64::consts::FRAC_PI_2 * ax * ax) / (std::f64::consts::PI.sqrt() * f);
+        C64::new(0.5, 0.5) * (1.0 - erfc)
+    };
+    (v.re.copysign(x), v.im.copysign(x))
+}
+
 /// Peak-to-average power ratio `max|x|² / mean|x|²` in dB (`-inf` for an empty or
 /// zero block).
 ///
@@ -303,6 +356,32 @@ pub fn log_sum_exp(v: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]
+    fn fresnel_against_scipy() {
+        // scipy.special.fresnel 1.x (which returns (S, C)): (x, C, S)
+        let table = [
+            (0.1, 0.09999753262708506, 0.0005235895476122108),
+            (0.5, 0.4923442258714464, 0.06473243285999929),
+            (1.0, 0.779893400376823, 0.4382591473903547),
+            (1.4999, 0.4453535730062187, 0.6975432066559986),
+            (1.5, 0.44526117603982146, 0.697504960082093),
+            (2.0, 0.48825340607534073, 0.34341567836369824),
+            (3.7, 0.5419456621544874, 0.5749803498874729),
+            (10.0, 0.49989869420551575, 0.46816997858488224),
+            (31.4, 0.5006397897427959, 0.51011704529959),
+            (-2.5, -0.45741300964177706, -0.6191817558195929),
+        ];
+        for (x, c, s) in table {
+            let (fc, fs) = fresnel(x);
+            assert!((fc - c).abs() < 1e-14 && (fs - s).abs() < 1e-14, "{x}: ({fc}, {fs}) vs ({c}, {s})");
+        }
+        assert_eq!(fresnel(0.0), (0.0, 0.0));
+        // C, S → 1/2 at infinity
+        let (c, s) = fresnel(1e4);
+        assert!((c - 0.5).abs() < 1e-4 && (s - 0.5).abs() < 1e-4);
+    }
 
     #[test]
     fn erfc_reference_values() {
