@@ -1,0 +1,17 @@
+name: msk_bpsk
+description: MSK over AWGN with precoding and maximum-likelihood sequence detection has the BER of BPSK
+seed: 5
+grid: {ebn0_db: [2, 4, 6]}
+link:
+  - {type: source, constellation: BPSK, n_symbols: 4000}
+  - {type: cpm_tx, h: 1/2, pulse: rec, length: 1, sps: 4, precode: true}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+  - {type: cpm_rx, h: 1/2, pulse: rec, length: 1, sps: 4, precode: true}
+metrics: {report: [ber]}
+stop: {min_errors: {ber: 500}, max_trials: 400}
+output: {csv: results/msk_bpsk.csv, json: results/msk_bpsk.json}
+expect:
+  - metric: ber
+    theory: {function: ber, kind: psk, m: 2, ebn0_db: $ebn0_db}
+    rtol: 0.1
+    source: "Proakis & Salehi, Digital Communications, 5th ed., Sec. 3.3-2: MSK is OQPSK with half-sinusoid pulses, so its coherent BER is Q(sqrt(2 Eb/N0))"

@@ -1,0 +1,48 @@
+name: Validation discrepancy
+description: A result of com-rs disagrees with a paper, a standard, a closed form or a reference implementation
+labels: [validation]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A disagreement with a reference, or a missing check, is a bug. Please give the
+        reference precisely and the specification that reproduces the result.
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: >-
+        Authors, title, venue and year (or the standard, its version and section), and
+        the equation, figure or table, with the values you read from it.
+    validations:
+      required: true
+  - type: textarea
+    id: specification
+    attributes:
+      label: Specification that reproduces it
+      description: >-
+        The specification (YAML) run with `comrs run` or `comrs verify`, with its
+        seed and stopping rule; an `expect` section with the reference values is
+        welcome. A Rust or Python program is accepted when no block exists yet.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed and expected
+      description: The values com-rs gives, with their confidence intervals, and the values of the reference.
+    validations:
+      required: true
+  - type: textarea
+    id: analysis
+    attributes:
+      label: Analysis
+      description: Anything you found about the cause (a convention, a normalisation, a definition of the SNR).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or the commit.
+    validations:
+      required: true

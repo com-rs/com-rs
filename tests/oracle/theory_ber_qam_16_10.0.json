@@ -1,0 +1,9 @@
+{
+ "data": 0.001754150617892733,
+ "name": "theory_ber_qam_16_10.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

@@ -1,0 +1,9 @@
+{
+ "data": 22.58501697759154,
+ "name": "wdm_link_snr_-6.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

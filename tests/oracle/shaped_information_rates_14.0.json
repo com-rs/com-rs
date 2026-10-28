@@ -1,0 +1,13 @@
+{
+ "data": {
+  "gmi": 4.57067418993087,
+  "mi": 4.567445002557733,
+  "ngmi": 0.858880418840552
+ },
+ "name": "shaped_information_rates_14.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

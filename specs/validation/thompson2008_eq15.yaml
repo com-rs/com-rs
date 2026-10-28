@@ -1,0 +1,52 @@
+# Eq. (15) of S. C. Thompson, A. U. Ahmed, J. G. Proakis, J. R. Zeidler and M. J.
+# Geile, "Constant envelope OFDM," IEEE Trans. Commun. 56(8), 2008: above the threshold
+# of the phase demodulator, the error rates of CE-OFDM are those of the data
+# constellation over AWGN with the SNR multiplied by (2πh)². The source is 16-QAM, two
+# 4-PAM symbols per subcarrier; the receiver records the theory of the condition as
+# ser_theory and ber_theory (the exact Gray BER, which eq. (15) approximates by its
+# nearest-neighbour term). The grid stays above the threshold of the demodulator: the
+# carrier-to-noise ratio per sample is E_s/N_0 · K/(N + N_cp), 6 dB below E_s/N_0 at
+# J = 2, and the paper puts the threshold near 10 dB (Sec. III-B). The simulated rates
+# sit a few percent above the theory at 2πh = 0.5 (within 8 %), the tails of the phase
+# error of a phasor in noise being heavier than Gaussian, as the simulated points of
+# the paper's Fig. 2 above its eq. (15). At 2πh = 0.7 the clicks of the unwrapper add
+# to the errors as the SNR grows (a BER 30 to 70 % above the theory at 20 and 22 dB),
+# so only the 18 dB point is checked there.
+name: thompson2008_eq15
+description: CE-OFDM 16-QAM against eq. (15) of Thompson et al. (2008), the linear regime
+seed: 2008
+batch: 8
+grid:
+  esn0_db: [18, 20, 22]
+cases:
+  - {two_pi_h: 0.5, h: 0.0795775}
+  - {two_pi_h: 0.7, h: 0.1114085}
+link:
+  - {type: source, constellation: 16-QAM, n_symbols: 4032}
+  - {type: ce_ofdm_tx, n_data: 126, oversampling: 2, h: $h}
+  - {type: awgn, snr_db: $esn0_db}
+  - {type: ce_ofdm_rx, n_data: 126, oversampling: 2, h: $h, unwrap: stream, esn0_db: $esn0_db}
+metrics: {report: [ber, ser], scale: none}
+stop: {min_errors: {ber: 400}, min_trials: 4, max_trials: 400}
+expect:
+  - name: BER of the linear regime (eq. 15, exact Gray BER)
+    source: Thompson et al., IEEE Trans. Commun. 56(8), 2008, eq. (15), Fig. 2
+    where: {two_pi_h: 0.5}
+    metric: ber
+    reference: ce_ofdm_rx.ber_theory
+    factor: 1.15
+    min_count: 100
+  - name: SER of the linear regime
+    source: Thompson et al., IEEE Trans. Commun. 56(8), 2008, Sec. III-A
+    where: {two_pi_h: 0.5}
+    metric: ser
+    reference: ce_ofdm_rx.ser_theory
+    factor: 1.15
+    min_count: 100
+  - name: BER of the linear regime at 2πh = 0.7 (above the threshold)
+    source: Thompson et al., IEEE Trans. Commun. 56(8), 2008, eq. (15), Fig. 2
+    where: {two_pi_h: 0.7, esn0_db: 18}
+    metric: ber
+    reference: ce_ofdm_rx.ber_theory
+    factor: 1.2
+    min_count: 100

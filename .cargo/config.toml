@@ -1,0 +1,4 @@
+# Local documentation builds load KaTeX for the formulas (docs.rs uses the copy shipped
+# by each crate, see [package.metadata.docs.rs] in the manifests).
+[build]
+rustdocflags = ["--html-in-header", "docs/katex-header.html"]

@@ -1,0 +1,36 @@
+# Diversity of two-antenna transmissions over i.i.d. Rayleigh fading, QPSK, two receive
+# antennas, against the BER of maximal-ratio combining (Proakis & Salehi, eq.
+# (13.4-15)). Alamouti's code (Alamouti 1998) collects the diversity of the four
+# antenna pairs; spatial multiplexing with zero forcing keeps n_r - n_t + 1 = 1 branch
+# (Winters, Salz & Gitlin 1994). Both split the power between the transmit antennas:
+# the mean SNR of a branch is E_b/N_0 - 3 dB.
+name: mimo_diversity
+description: Alamouti and zero-forcing spatial multiplexing, 2 x 2 Rayleigh, QPSK
+seed: 3
+batch: 16
+grid:
+  scheme: [alamouti, spatial]
+  ebn0_db: [4, 8, 12]
+link:
+  - {type: source, constellation: QPSK, n_symbols: 8192}
+  - {type: mimo_tx, n_tx: 2, scheme: $scheme}
+  - {type: rayleigh, n_rx: 2, coherence: 2}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+  - {type: mimo_rx, detector: zf}
+metrics: {report: [ber], scale: none}
+stop: {min_errors: {ber: 400}, min_trials: 16, max_trials: 2000}
+expect:
+  - name: Alamouti 2 x 2, MRC of four branches
+    source: S. M. Alamouti, IEEE J. Sel. Areas Commun., 16(8), 1998; Proakis & Salehi, eq. (13.4-15)
+    where: {scheme: alamouti}
+    metric: ber
+    theory: {function: ber_rayleigh, m: 4, ebn0_db: $ebn0_db, offset_db: -3.0103, branches: 4}
+    interval: 0.999
+    rtol: 0.05
+  - name: zero forcing 2 x 2, one branch
+    source: J. H. Winters, J. Salz and R. D. Gitlin, IEEE Trans. Commun., 42(234), 1994
+    where: {scheme: spatial}
+    metric: ber
+    theory: {function: ber_rayleigh, m: 4, ebn0_db: $ebn0_db, offset_db: -3.0103, branches: 1}
+    interval: 0.999
+    rtol: 0.05

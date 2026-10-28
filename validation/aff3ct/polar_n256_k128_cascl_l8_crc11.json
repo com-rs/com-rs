@@ -1,0 +1,129 @@
+{
+ "bit_rate": [
+  1,
+  2
+ ],
+ "bits_per_frame": 128,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C POLAR -N 256 -K 139 --enc-no-sys --enc-fb-gen-method FILE --enc-fb-awgn-path validation/aff3ct/frozen/polar_n256_k139.txt --dec-implem NAIVE -D SCL -L 8 --crc-poly 11-5G --crc-size 11 -m 0.5 -M 3.75 -s 0.5 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.235, "bit_errors": 10036, "ebn0_db": 0.5, "esn0_db": -2.51, "fer": 0.634, "frame_errors": 211, "frames": 333},
+  {"ber": 0.128, "bit_errors": 9112, "ebn0_db": 1.0, "esn0_db": -2.01, "fer": 0.375, "frame_errors": 208, "frames": 554},
+  {"ber": 0.0451, "bit_errors": 7898, "ebn0_db": 1.5, "esn0_db": -1.51, "fer": 0.15, "frame_errors": 205, "frames": 1368},
+  {"ber": 0.0102, "bit_errors": 7097, "ebn0_db": 2.0, "esn0_db": -1.01, "fer": 0.0371, "frame_errors": 201, "frames": 5420},
+  {"ber": 0.0017, "bit_errors": 6219, "ebn0_db": 2.5, "esn0_db": -0.51, "fer": 0.00698, "frame_errors": 200, "frames": 28643},
+  {"ber": 0.000146, "bit_errors": 6101, "ebn0_db": 3.0, "esn0_db": -0.01, "fer": 0.000614, "frame_errors": 200, "frames": 325844},
+  {"ber": 7.28e-06, "bit_errors": 5213, "ebn0_db": 3.5, "esn0_db": 0.49, "fer": 3.58e-05, "frame_errors": 200, "frames": 5592724}
+ ],
+ "description": "polar (256, 128) + CRC11 of 5G NR, CA-SCL, L = 8, frozen set of com-rs",
+ "name": "polar_n256_k128_cascl_l8_crc11",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "128",
+   "Polynomial (hexadecimal)": "0x621",
+   "Size (in bit)": "11",
+   "Type": "11-5G"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "256",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.542969 (139/256)",
+   "Codeword size (N_cw)": "256",
+   "Frame size (N)": "256",
+   "Info. bits (K)": "139",
+   "Type": "POLAR"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.542969",
+   "Codeword size (N_cw)": "256",
+   "Implementation": "NAIVE",
+   "Info. bits (K)": "139",
+   "Num. of lists (L)": "8",
+   "Seed": "0",
+   "Systematic": "no",
+   "Type (D)": "SCL"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.542969",
+   "Codeword size (N)": "256",
+   "Frozen bits generator": {
+    "Codeword size (N)": "256",
+    "Info. bits (K)": "139",
+    "Noise": "adaptive",
+    "Path": "validation/aff3ct/frozen/polar_n256_k139.txt",
+    "Type": "FILE"
+   },
+   "Implementation": "FAST",
+   "Info. bits (K)": "139",
+   "Systematic": "no",
+   "Type": "POLAR"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "256",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "128"
+  },
+  "Puncturer": {
+   "Codeword size": "256",
+   "Frame size (N)": "256",
+   "Info. bits (K)": "139",
+   "Type": "NO"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "256",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.5 (1/2)",
+   "Code type (C)": "POLAR",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "0.5 -> 3.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "128",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "E. Arıkan, \"Channel polarization,\" IEEE Trans. Inf. Theory 55(7), 2009; I. Tal and A. Vardy, \"List decoding of polar codes,\" IEEE Trans. Inf. Theory 61(5), 2015"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

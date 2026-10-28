@@ -1,0 +1,18 @@
+# BER of Gray-mapped 4-, 16- and 64-QAM over AWGN against the theory: the declarative
+# form of the example `ber_awgn`. A point stops after 200 bit errors (at least 2
+# batches, at most 4000 trials of 4096 symbols); the rest of a sweep is skipped once the
+# BER falls below 1e-6.
+name: qam_awgn
+description: BER of 4-, 16- and 64-QAM over AWGN
+seed: 2024
+batch: 64
+grid:
+  m: [4, 16, 64]
+  ebn0_db: {from: 0, to: 20, step: 2}
+link:
+  - {type: source, constellation: {kind: qam, m: $m}, n_symbols: 4096}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+metrics: {report: [ber, ser], scale: none}
+stop: {min_errors: {ber: 200}, min_trials: 128, max_trials: 4000}
+callbacks:
+  skip_below: {metric: ber, threshold: 1e-6, along: ebn0_db}

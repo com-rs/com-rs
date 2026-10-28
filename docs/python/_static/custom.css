@@ -1,0 +1,8 @@
+/* Figures of the gallery are drawn on a light surface: keep them as light cards in dark mode. */
+html[data-theme="dark"] .sphx-glr-single-img,
+html[data-theme="dark"] .sphx-glr-thumbcontainer img {
+    background: #fcfcfb;
+    border-radius: 6px;
+    padding: 4px;
+}
+.bd-content .sd-card .sd-card-title { font-weight: 600; }

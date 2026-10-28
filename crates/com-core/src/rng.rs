@@ -1,0 +1,208 @@
+//! Reproducible random numbers.
+//!
+//! The generator is **xoshiro256\*\*** (Blackman & Vigna, 2018) seeded through
+//! **SplitMix64**: fast, statistically excellent for simulation, and identical across
+//! platforms, so that a stream drawn here is the same as one drawn from the same seed by
+//! another implementation of the generator (a learned receiver trained in Python, say).
+//!
+//! Monte Carlo campaigns never share a generator between trials: [`stream`] derives an
+//! independent generator from `(base_seed, experiment, condition, trial)`, so a trial is
+//! reproducible on its own, whatever the number of threads and the order in which the
+//! trials run (see the crate `com-sim`).
+//!
+//! # Mathematics
+//!
+//! - [`Rng::uniform`] returns `(next_u64() >> 11) · 2⁻⁵³ ∈ [0, 1)`;
+//! - [`Rng::gaussian`] is the Box–Muller transform `√(-2 ln(1-u₁)) cos(2π u₂)` (the sine
+//!   branch is dropped, so that one call consumes exactly two uniforms);
+//! - [`Rng::complex_gaussian`] is circular with `E|z|² = 1`;
+//! - [`stream`]: `seed = sm(sm(sm(base ⊕ fnv1a(experiment)) ⊕ condition) ⊕ trial)` with
+//!   `sm` one SplitMix64 step.
+//!
+//! # Examples
+//! ```
+//! use com_core::rng::{stream, Rng};
+//! let mut a = Rng::new(42);
+//! let mut b = Rng::new(42);
+//! assert_eq!(a.next_u64(), b.next_u64());
+//! // two trials of the same condition get independent streams
+//! let x = stream(1, "ber", 3, 0).uniform();
+//! let y = stream(1, "ber", 3, 1).uniform();
+//! assert_ne!(x, y);
+//! assert_eq!(x, stream(1, "ber", 3, 0).uniform());
+//! ```
+
+use crate::C64;
+
+/// Advance a SplitMix64 state and return its output.
+#[inline]
+pub(crate) fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// FNV-1a 64-bit hash of a byte string (hashes the experiment names of [`stream`]).
+pub fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
+}
+
+/// The xoshiro256\*\* generator (256 bits of state).
+#[derive(Clone, Debug)]
+pub struct Rng {
+    s: [u64; 4],
+}
+
+impl Rng {
+    /// A generator seeded from one `u64` through SplitMix64.
+    pub fn new(seed: u64) -> Rng {
+        let mut st = seed;
+        let s = [splitmix64(&mut st), splitmix64(&mut st), splitmix64(&mut st), splitmix64(&mut st)];
+        Rng { s }
+    }
+
+    /// Next 64 random bits.
+    #[inline]
+    pub fn next_u64(&mut self) -> u64 {
+        let s = &mut self.s;
+        let result = s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+        let t = s[1] << 17;
+        s[2] ^= s[0];
+        s[3] ^= s[1];
+        s[1] ^= s[2];
+        s[0] ^= s[3];
+        s[2] ^= t;
+        s[3] = s[3].rotate_left(45);
+        result
+    }
+
+    /// Uniform on `[0, 1)` with 53 random bits.
+    #[inline]
+    pub fn uniform(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 * (1.0 / 9_007_199_254_740_992.0)
+    }
+
+    /// Uniform integer in `0..n` (`n ≥ 1`).
+    #[inline]
+    pub fn below(&mut self, n: usize) -> usize {
+        ((self.uniform() * n as f64) as usize).min(n.saturating_sub(1))
+    }
+
+    /// One fair random bit.
+    #[inline]
+    pub fn bit(&mut self) -> u8 {
+        (self.next_u64() >> 63) as u8
+    }
+
+    /// Standard Gaussian `N(0, 1)`.
+    #[inline]
+    pub fn gaussian(&mut self) -> f64 {
+        let u1 = self.uniform();
+        let u2 = self.uniform();
+        let r = (-2.0 * (1.0 - u1).ln()).sqrt();
+        r * (2.0 * std::f64::consts::PI * u2).cos()
+    }
+
+    /// Circular complex Gaussian with `E|z|² = 1` (each component of variance ½).
+    #[inline]
+    pub fn complex_gaussian(&mut self) -> C64 {
+        let u1 = self.uniform();
+        let u2 = self.uniform();
+        let r = (-2.0 * (1.0 - u1).ln()).sqrt() * std::f64::consts::FRAC_1_SQRT_2;
+        let (s, c) = (2.0 * std::f64::consts::PI * u2).sin_cos();
+        C64::new(r * c, r * s)
+    }
+
+    /// A uniform random permutation of `v` in place (Fisher–Yates, Durstenfeld's
+    /// version): for $i = n - 1, \dots, 1$, swap $v_{i}$ and $v_{j}$ with $j$ uniform in
+    /// $\\{0, \dots, i\\}$ ([`Rng::below`]), $n - 1$ draws in all.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::rng::Rng;
+    /// let mut v: Vec<usize> = (0..10).collect();
+    /// Rng::new(3).shuffle(&mut v);
+    /// let mut sorted = v.clone();
+    /// sorted.sort_unstable();
+    /// assert_eq!(sorted, (0..10).collect::<Vec<_>>());
+    /// ```
+    pub fn shuffle<T>(&mut self, v: &mut [T]) {
+        for i in (1..v.len()).rev() {
+            v.swap(i, self.below(i + 1));
+        }
+    }
+
+    /// `n` circular complex Gaussian samples of variance `sigma2` (`E|z|² = σ²`).
+    pub fn complex_noise(&mut self, n: usize, sigma2: f64) -> Vec<C64> {
+        let s = sigma2.max(0.0).sqrt();
+        (0..n).map(|_| self.complex_gaussian() * s).collect()
+    }
+}
+
+/// The generator every random block receives (`&mut SimRng`).
+///
+/// A concrete type rather than a generic parameter, so that the block traits stay
+/// object-safe and every call is monomorphic. It is [`Rng`] (xoshiro256\*\*), see
+/// `docs/adr/0002-keep-xoshiro-rng.md`.
+pub type SimRng = Rng;
+
+/// An independent, reproducible generator for one batch of frames.
+///
+/// Keyed by the batch index, never by the worker, so that results do not depend on the
+/// number of threads. It is the stream `(master_seed, "", 0, batch)` of [`stream`].
+///
+/// # Examples
+/// ```
+/// use com_core::rng::batch_rng;
+/// assert_eq!(batch_rng(42, 3).next_u64(), batch_rng(42, 3).next_u64());
+/// assert_ne!(batch_rng(42, 3).next_u64(), batch_rng(42, 4).next_u64());
+/// ```
+pub fn batch_rng(master_seed: u64, batch: u64) -> SimRng {
+    stream(master_seed, "", 0, batch)
+}
+
+/// An independent generator for `(base_seed, experiment, condition, trial)`.
+pub fn stream(base_seed: u64, experiment: &str, condition: u64, trial: u64) -> Rng {
+    let mut st = base_seed ^ fnv1a64(experiment.as_bytes());
+    let a = splitmix64(&mut st);
+    let mut st = a ^ condition;
+    let b = splitmix64(&mut st);
+    let mut st = b ^ trial;
+    let c = splitmix64(&mut st);
+    Rng::new(c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reference_values() {
+        // xoshiro256** seeded by SplitMix64 from 0 (reference C implementation)
+        assert_eq!(Rng::new(0).next_u64(), 0x99EC_5F36_CB75_F2B4);
+        assert_eq!(fnv1a64(b"a"), 0xAF63_DC4C_8601_EC8C);
+    }
+
+    #[test]
+    fn moments() {
+        let mut r = Rng::new(7);
+        let n = 200_000;
+        let (mut m, mut v, mut b) = (0.0, 0.0, 0u64);
+        for _ in 0..n {
+            let z = r.complex_gaussian();
+            m += z.re;
+            v += z.norm_sqr();
+            b += r.bit() as u64;
+        }
+        assert!((m / n as f64).abs() < 0.01);
+        assert!((v / n as f64 - 1.0).abs() < 0.01);
+        assert!((b as f64 / n as f64 - 0.5).abs() < 0.01);
+    }
+}

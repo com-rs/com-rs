@@ -1,0 +1,9 @@
+{
+ "data": 6.337878823300021e-05,
+ "name": "theory_ber_psk_8_12.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

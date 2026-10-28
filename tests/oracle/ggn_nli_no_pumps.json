@@ -1,0 +1,9 @@
+{
+ "data": 4.1453864771326074e-07,
+ "name": "ggn_nli_no_pumps",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "GNPy",
+ "version": "3.0.1"
+}

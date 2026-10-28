@@ -1,0 +1,119 @@
+{
+ "bit_rate": [
+  16,
+  35
+ ],
+ "bits_per_frame": 64,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C CONV -K 64 --enc-poly '{0133,0171}' -D VITERBI -m 0 -M 4.75 -s 0.5 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.153, "bit_errors": 3140, "ebn0_db": 0.0, "esn0_db": -3.4, "fer": 0.654, "frame_errors": 210, "frames": 321},
+  {"ber": 0.0845, "bit_errors": 2564, "ebn0_db": 0.5, "esn0_db": -2.9, "fer": 0.435, "frame_errors": 206, "frames": 474},
+  {"ber": 0.0496, "bit_errors": 2220, "ebn0_db": 1.0, "esn0_db": -2.4, "fer": 0.293, "frame_errors": 205, "frames": 699},
+  {"ber": 0.0238, "bit_errors": 1962, "ebn0_db": 1.5, "esn0_db": -1.9, "fer": 0.156, "frame_errors": 201, "frames": 1287},
+  {"ber": 0.00796, "bit_errors": 1422, "ebn0_db": 2.0, "esn0_db": -1.4, "fer": 0.072, "frame_errors": 201, "frames": 2791},
+  {"ber": 0.00243, "bit_errors": 1303, "ebn0_db": 2.5, "esn0_db": -0.9, "fer": 0.0239, "frame_errors": 200, "frames": 8362},
+  {"ber": 0.000908, "bit_errors": 1122, "ebn0_db": 3.0, "esn0_db": -0.4, "fer": 0.0104, "frame_errors": 200, "frames": 19302},
+  {"ber": 0.00021, "bit_errors": 996, "ebn0_db": 3.5, "esn0_db": 0.1, "fer": 0.0027, "frame_errors": 200, "frames": 74109},
+  {"ber": 4.4e-05, "bit_errors": 832, "ebn0_db": 4.0, "esn0_db": 0.6, "fer": 0.000677, "frame_errors": 200, "frames": 295216},
+  {"ber": 9.89e-06, "bit_errors": 785, "ebn0_db": 4.5, "esn0_db": 1.1, "fer": 0.000161, "frame_errors": 200, "frames": 1240068}
+ ],
+ "description": "convolutional code (133, 171), K = 7, 64 information bits, terminated, soft Viterbi",
+ "name": "conv_k7_k64_viterbi",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "64",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "140",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.457143 (16/35)",
+   "Codeword size (N_cw)": "140",
+   "Frame size (N)": "140",
+   "Info. bits (K)": "64",
+   "Type": "CONV"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.457143",
+   "Codeword size (N_cw)": "140",
+   "Implementation": "STD",
+   "Info. bits (K)": "64",
+   "Polynomials": "{0133,0171}",
+   "Seed": "0",
+   "Systematic": "no",
+   "Tail length": "12",
+   "Type (D)": "VITERBI"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.457143",
+   "Codeword size (N)": "140",
+   "Info. bits (K)": "64",
+   "Polynomials": "{0133,0171}",
+   "Systematic": "no",
+   "Tail length": "12",
+   "Type": "CONV"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "140",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "64"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "140",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.457143 (16/35)",
+   "Code type (C)": "CONV",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "0 -> 4.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "64",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "A. J. Viterbi, \"Error bounds for convolutional codes and an asymptotically optimum decoding algorithm,\" IEEE Trans. Inf. Theory 13(2), 1967"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

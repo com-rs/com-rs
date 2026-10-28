@@ -1,0 +1,127 @@
+{
+ "bit_rate": [
+  1,
+  2
+ ],
+ "bits_per_frame": 576,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C LDPC -N 576 -K 288 --dec-h-path validation/aff3ct/matrices/peg_n576_k288.alist --src-type AZCW --enc-type AZCW --sim-coded -D BP_FLOODING --dec-implem OMS --dec-off 0.15 -i 20 -m 1 -M 3.625 -s 0.25 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.0917, "bit_errors": 12724, "ebn0_db": 1.0, "esn0_db": -2.01, "fer": 0.888, "frame_errors": 214, "frames": 241},
+  {"ber": 0.0724, "bit_errors": 11309, "ebn0_db": 1.25, "esn0_db": -1.76, "fer": 0.775, "frame_errors": 210, "frames": 271},
+  {"ber": 0.0443, "bit_errors": 9604, "ebn0_db": 1.5, "esn0_db": -1.51, "fer": 0.559, "frame_errors": 210, "frames": 376},
+  {"ber": 0.0228, "bit_errors": 7970, "ebn0_db": 1.75, "esn0_db": -1.26, "fer": 0.34, "frame_errors": 207, "frames": 608},
+  {"ber": 0.011, "bit_errors": 7159, "ebn0_db": 2.0, "esn0_db": -1.01, "fer": 0.179, "frame_errors": 202, "frames": 1126},
+  {"ber": 0.00463, "bit_errors": 6823, "ebn0_db": 2.25, "esn0_db": -0.76, "fer": 0.0786, "frame_errors": 201, "frames": 2556},
+  {"ber": 0.00138, "bit_errors": 5673, "ebn0_db": 2.5, "esn0_db": -0.51, "fer": 0.028, "frame_errors": 200, "frames": 7154},
+  {"ber": 0.000295, "bit_errors": 4863, "ebn0_db": 2.75, "esn0_db": -0.26, "fer": 0.00703, "frame_errors": 201, "frames": 28598},
+  {"ber": 6.69e-05, "bit_errors": 4232, "ebn0_db": 3.0, "esn0_db": -0.01, "fer": 0.00182, "frame_errors": 200, "frames": 109893},
+  {"ber": 1.44e-05, "bit_errors": 4225, "ebn0_db": 3.25, "esn0_db": 0.24, "fer": 0.000393, "frame_errors": 200, "frames": 509006},
+  {"ber": 2.23e-06, "bit_errors": 3517, "ebn0_db": 3.5, "esn0_db": 0.49, "fer": 7.29e-05, "frame_errors": 200, "frames": 2743048}
+ ],
+ "description": "PEG (576, 288) LDPC, degree 3, flooding offset min-sum (β = 0.15), 20 iterations",
+ "name": "ldpc_peg_n576_k288_flooding_oms015_i20",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "288",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "576",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.5 (1/2)",
+   "Codeword size (N_cw)": "576",
+   "Frame size (N)": "576",
+   "Info. bits (K)": "288",
+   "Type": "LDPC"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.500000",
+   "Codeword size (N_cw)": "576",
+   "H matrix path": "validation/aff3ct/matrices/peg_n576_k288.alist",
+   "H matrix reordering": "NONE",
+   "Implementation": "OMS",
+   "Info. bits (K)": "288",
+   "Num. of iterations (i)": "20",
+   "Offset": "0.150000",
+   "Seed": "0",
+   "Stop criterion (syndrome)": "on",
+   "Stop criterion depth": "1",
+   "Systematic": "yes",
+   "Type (D)": "BP_FLOODING"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.500000",
+   "Codeword size (N)": "576",
+   "Info. bits (K)": "288",
+   "Systematic": "yes",
+   "Type": "AZCW"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "576",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "576"
+  },
+  "Puncturer": {
+   "Codeword size": "576",
+   "Frame size (N)": "576",
+   "Info. bits (K)": "288",
+   "Type": "NO"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "576",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.5 (1/2)",
+   "Code type (C)": "LDPC",
+   "Coded monitoring": "yes",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "1 -> 3.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "288",
+   "Type": "AZCW"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "X.-Y. Hu, E. Eleftheriou and D. M. Arnold, \"Regular and irregular progressive edge-growth Tanner graphs,\" IEEE Trans. Inf. Theory 51(1), 2005"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

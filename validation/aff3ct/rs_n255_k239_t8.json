@@ -1,0 +1,119 @@
+{
+ "bit_rate": [
+  239,
+  255
+ ],
+ "bits_per_frame": 1912,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C RS -N 255 -K 239 -T 8 -m 5 -M 7.375 -s 0.25 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.00716, "bit_errors": 3040, "ebn0_db": 5.0, "esn0_db": 4.72, "fer": 0.955, "frame_errors": 212, "frames": 222},
+  {"ber": 0.00547, "bit_errors": 2645, "ebn0_db": 5.25, "esn0_db": 4.97, "fer": 0.838, "frame_errors": 212, "frames": 253},
+  {"ber": 0.00368, "bit_errors": 2281, "ebn0_db": 5.5, "esn0_db": 5.22, "fer": 0.636, "frame_errors": 206, "frames": 324},
+  {"ber": 0.00213, "bit_errors": 2096, "ebn0_db": 5.75, "esn0_db": 5.47, "fer": 0.403, "frame_errors": 207, "frames": 514},
+  {"ber": 0.000911, "bit_errors": 3441, "ebn0_db": 6.0, "esn0_db": 5.72, "fer": 0.18, "frame_errors": 356, "frames": 1975},
+  {"ber": 0.000324, "bit_errors": 1829, "ebn0_db": 6.25, "esn0_db": 5.97, "fer": 0.0682, "frame_errors": 201, "frames": 2948},
+  {"ber": 7.31e-05, "bit_errors": 2022, "ebn0_db": 6.5, "esn0_db": 6.22, "fer": 0.0156, "frame_errors": 225, "frames": 14467},
+  {"ber": 1.48e-05, "bit_errors": 1769, "ebn0_db": 6.75, "esn0_db": 6.47, "fer": 0.00319, "frame_errors": 200, "frames": 62603},
+  {"ber": 1.84e-06, "bit_errors": 1802, "ebn0_db": 7.0, "esn0_db": 6.72, "fer": 0.000403, "frame_errors": 206, "frames": 511581},
+  {"ber": 2.1e-07, "bit_errors": 1734, "ebn0_db": 7.25, "esn0_db": 6.97, "fer": 4.63e-05, "frame_errors": 200, "frames": 4315304}
+ ],
+ "description": "Reed–Solomon (255, 239), t = 8, algebraic (Berlekamp–Massey) hard decoding",
+ "name": "rs_n255_k239_t8",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "1912",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "2040",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.937255 (239/255)",
+   "Codeword size (N_cw)": "2040",
+   "Frame size (N)": "2040",
+   "Info. bits (K)": "1912",
+   "Symbols Codeword size": "255",
+   "Symbols Source size": "239",
+   "Type": "RS"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.937255",
+   "Codeword size (N_cw)": "255",
+   "Correction power (T)": "8",
+   "Galois field order (m)": "8",
+   "Implementation": "STD",
+   "Info. bits (K)": "239",
+   "Seed": "0",
+   "Systematic": "yes",
+   "Type (D)": "ALGEBRAIC"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.937255",
+   "Codeword size (N)": "255",
+   "Info. bits (K)": "239",
+   "Systematic": "yes",
+   "Type": "RS"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "2040",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "1912"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "2040",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.937255 (239/255)",
+   "Code type (C)": "RS",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "5 -> 7.25 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "1912",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "I. S. Reed and G. Solomon, J. SIAM 8(2), 1960; S. Lin and D. J. Costello, Error Control Coding, 2nd ed., Pearson, 2004, ch. 7"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

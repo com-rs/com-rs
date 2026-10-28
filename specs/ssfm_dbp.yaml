@@ -1,0 +1,26 @@
+# Launch-power sweep over 10 x 80 km of standard fibre with EDFAs: dispersion
+# compensation (linear back-propagation) against digital back-propagation with 1, 4 and
+# 20 steps per span. The declarative form of the example `ssfm_dbp` (here every
+# receiver sees its own realisations of the noise).
+name: ssfm_dbp
+description: Effective SNR versus launch power, CDC and DBP, 10 x 80 km
+seed: 11
+batch: 8
+fiber: {n_spans: 10}
+cases:
+  - {receiver: cdc, steps: 1, nonlinear: false}
+  - {receiver: dbp1, steps: 1, nonlinear: true}
+  - {receiver: dbp4, steps: 4, nonlinear: true}
+  - {receiver: dbp20, steps: 20, nonlinear: true}
+grid:
+  power_dbm: {from: -4, to: 8, step: 2}
+link:
+  - {type: source, constellation: 16-QAM, n_symbols: 4096, symbol_rate: 32e9}
+  - {type: pulse_shape, sps: 4, rolloff: 0.1, n_taps: 4097}
+  - {type: normalize, power_dbm: $power_dbm}
+  - {type: ssfm, step_km: 1.0}
+  - {type: dbp, steps_per_span: $steps, nonlinear: $nonlinear}
+  - {type: matched_filter, rolloff: 0.1, n_taps: 4097}
+  - {type: decimate, method: offset}
+metrics: {report: [snr_db, ber], skip_start: 64, skip_end: 64, scale: ls}
+stop: {max_trials: 16}

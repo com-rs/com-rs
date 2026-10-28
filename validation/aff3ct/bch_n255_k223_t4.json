@@ -1,0 +1,114 @@
+{
+ "bit_rate": [
+  223,
+  255
+ ],
+ "bits_per_frame": 223,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C BCH -N 255 -K 223 -T 4 -m 4 -M 7.25 -s 0.5 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.0121, "bit_errors": 1165, "ebn0_db": 4.0, "esn0_db": 3.42, "fer": 0.48, "frame_errors": 208, "frames": 433},
+  {"ber": 0.00551, "bit_errors": 1046, "ebn0_db": 4.5, "esn0_db": 3.92, "fer": 0.237, "frame_errors": 202, "frames": 852},
+  {"ber": 0.00214, "bit_errors": 1046, "ebn0_db": 5.0, "esn0_db": 4.42, "fer": 0.0932, "frame_errors": 204, "frames": 2188},
+  {"ber": 0.000489, "bit_errors": 977, "ebn0_db": 5.5, "esn0_db": 4.92, "fer": 0.0223, "frame_errors": 200, "frames": 8963},
+  {"ber": 0.000105, "bit_errors": 937, "ebn0_db": 6.0, "esn0_db": 5.42, "fer": 0.00501, "frame_errors": 200, "frames": 39882},
+  {"ber": 1.32e-05, "bit_errors": 936, "ebn0_db": 6.5, "esn0_db": 5.92, "fer": 0.00063, "frame_errors": 200, "frames": 317459},
+  {"ber": 1.09e-06, "bit_errors": 910, "ebn0_db": 7.0, "esn0_db": 6.42, "fer": 5.36e-05, "frame_errors": 200, "frames": 3731705}
+ ],
+ "description": "binary BCH (255, 223), t = 4, algebraic (Berlekamp–Massey) hard decoding",
+ "name": "bch_n255_k223_t4",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "223",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "255",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.87451 (223/255)",
+   "Codeword size (N_cw)": "255",
+   "Frame size (N)": "255",
+   "Info. bits (K)": "223",
+   "Type": "BCH"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.874510",
+   "Codeword size (N_cw)": "255",
+   "Correction power (T)": "4",
+   "Galois field order (m)": "8",
+   "Implementation": "STD",
+   "Info. bits (K)": "223",
+   "Seed": "0",
+   "Systematic": "yes",
+   "Type (D)": "ALGEBRAIC"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.874510",
+   "Codeword size (N)": "255",
+   "Info. bits (K)": "223",
+   "Systematic": "yes",
+   "Type": "BCH"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "255",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "223"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "255",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.87451 (223/255)",
+   "Code type (C)": "BCH",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "4 -> 7 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "223",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "S. Lin and D. J. Costello, Error Control Coding, 2nd ed., Pearson, 2004, ch. 6"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

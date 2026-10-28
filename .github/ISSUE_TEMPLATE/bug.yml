@@ -1,0 +1,50 @@
+name: Bug report
+description: A crash, a wrong error, a wrong result or a build failure
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thank you for the report. A result that disagrees with a paper, a standard or a
+        closed form has its own template ("Validation discrepancy"). Security issues
+        are reported privately (SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead (the full error message).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: >-
+        The smallest specification (YAML), Rust program or Python script that shows
+        the problem, with its seed.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - Rust library (comrs or a com-* crate)
+        - Python package (comrs)
+        - Command line (comrs)
+        - Build or installation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release (`comrs.__version__` in Python, the version of comrs in Cargo.lock) or the commit.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system, Rust version (`rustc --version`), Python version.

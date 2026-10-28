@@ -1,0 +1,12 @@
+{
+ "data": {
+  "gmi": 1.9315731790163844,
+  "mi": 1.9731674614871824
+ },
+ "name": "theory_mi_gmi_qam_16_5.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

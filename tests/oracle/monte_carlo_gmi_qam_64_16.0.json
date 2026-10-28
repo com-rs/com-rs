@@ -1,0 +1,12 @@
+{
+ "data": [
+  4.96472015174869,
+  0.8274533586247816
+ ],
+ "name": "monte_carlo_gmi_qam_64_16.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

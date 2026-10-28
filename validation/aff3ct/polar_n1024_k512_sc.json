@@ -1,0 +1,128 @@
+{
+ "bit_rate": [
+  1,
+  2
+ ],
+ "bits_per_frame": 512,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C POLAR -N 1024 -K 512 --enc-no-sys --enc-fb-gen-method FILE --enc-fb-awgn-path validation/aff3ct/frozen/polar_n1024_k512.txt --dec-implem NAIVE -D SC -m 1.5 -M 3.625 -s 0.25 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.096, "bit_errors": 29284, "ebn0_db": 1.5, "esn0_db": -1.51, "fer": 0.341, "frame_errors": 203, "frames": 596},
+  {"ber": 0.0424, "bit_errors": 24274, "ebn0_db": 1.75, "esn0_db": -1.26, "fer": 0.182, "frame_errors": 203, "frames": 1118},
+  {"ber": 0.0167, "bit_errors": 22001, "ebn0_db": 2.0, "esn0_db": -1.01, "fer": 0.0799, "frame_errors": 206, "frames": 2577},
+  {"ber": 0.00574, "bit_errors": 17459, "ebn0_db": 2.25, "esn0_db": -0.76, "fer": 0.0338, "frame_errors": 201, "frames": 5941},
+  {"ber": 0.00178, "bit_errors": 14907, "ebn0_db": 2.5, "esn0_db": -0.51, "fer": 0.0122, "frame_errors": 200, "frames": 16373},
+  {"ber": 0.000534, "bit_errors": 13109, "ebn0_db": 2.75, "esn0_db": -0.26, "fer": 0.00417, "frame_errors": 200, "frames": 47959},
+  {"ber": 0.000159, "bit_errors": 11561, "ebn0_db": 3.0, "esn0_db": -0.01, "fer": 0.00141, "frame_errors": 200, "frames": 141747},
+  {"ber": 4.3e-05, "bit_errors": 9894, "ebn0_db": 3.25, "esn0_db": 0.24, "fer": 0.000445, "frame_errors": 200, "frames": 449770},
+  {"ber": 1.6e-05, "bit_errors": 8515, "ebn0_db": 3.5, "esn0_db": 0.49, "fer": 0.000193, "frame_errors": 200, "frames": 1036492}
+ ],
+ "description": "polar (1024, 512), SC (min-sum f), frozen set of com-rs",
+ "name": "polar_n1024_k512_sc",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "512",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "1024",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.5 (1/2)",
+   "Codeword size (N_cw)": "1024",
+   "Frame size (N)": "1024",
+   "Info. bits (K)": "512",
+   "Type": "POLAR"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.500000",
+   "Codeword size (N_cw)": "1024",
+   "Implementation": "NAIVE",
+   "Info. bits (K)": "512",
+   "Seed": "0",
+   "Systematic": "no",
+   "Type (D)": "SC"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.500000",
+   "Codeword size (N)": "1024",
+   "Frozen bits generator": {
+    "Codeword size (N)": "1024",
+    "Info. bits (K)": "512",
+    "Noise": "adaptive",
+    "Path": "validation/aff3ct/frozen/polar_n1024_k512.txt",
+    "Type": "FILE"
+   },
+   "Implementation": "FAST",
+   "Info. bits (K)": "512",
+   "Systematic": "no",
+   "Type": "POLAR"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "1024",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "512"
+  },
+  "Puncturer": {
+   "Codeword size": "1024",
+   "Frame size (N)": "1024",
+   "Info. bits (K)": "512",
+   "Type": "NO"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "1024",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.5 (1/2)",
+   "Code type (C)": "POLAR",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "1.5 -> 3.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "512",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "E. Arıkan, \"Channel polarization,\" IEEE Trans. Inf. Theory 55(7), 2009; I. Tal and A. Vardy, \"List decoding of polar codes,\" IEEE Trans. Inf. Theory 61(5), 2015"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

@@ -1,0 +1,358 @@
+//! The specification: its parsing ([`Spec`]), its grid and its stopping rule.
+
+use crate::{params, search, verify};
+use com_core::{Error, Result};
+use com_sim::grid::{Condition, Grid, Value};
+use com_sim::stopping::Stop;
+use serde::Deserialize;
+use serde_json::{Map, Value as Json};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// A parsed specification (see the module documentation for the format).
+#[derive(Clone, Debug)]
+pub struct Spec {
+    /// Name of the campaign (it enters the seeds of the trials).
+    pub name: String,
+    /// One-line description.
+    pub description: String,
+    /// Base seed.
+    pub seed: u64,
+    /// Trials per batch.
+    pub batch: u64,
+    /// Worker threads (0: all cores).
+    pub threads: usize,
+    /// Confidence level of the reported intervals.
+    pub confidence: f64,
+    /// The conditions.
+    pub grid: Grid,
+    /// Defaults of the fibre blocks.
+    pub fiber: Option<Json>,
+    /// The blocks of the link, before substitution.
+    pub link: Vec<Json>,
+    /// The metrics, before substitution.
+    pub metrics: Json,
+    /// The stopping rule.
+    pub stop: Stop,
+    /// Print one line per condition.
+    pub progress: bool,
+    /// Skip the rest of a sweep below an error floor.
+    pub skip_below: Option<(String, f64, String)>,
+    /// Time every block of every trial (see [`Link::trial`](crate::Link::trial)).
+    pub profile: bool,
+    /// CSV output.
+    pub csv: Option<PathBuf>,
+    /// JSON output.
+    pub json: Option<PathBuf>,
+    /// Directory of the specification file (relative paths of the blocks).
+    pub base_dir: Option<PathBuf>,
+    /// The expected results (see [`verify`]).
+    pub expect: Vec<Json>,
+    /// The search of an operating point (see [`search`]), instead of the sweep.
+    pub search: Option<search::SearchSpec>,
+    /// The specification as parsed, recorded in the JSON report of every run.
+    pub source: Json,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSpec {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    seed: u64,
+    #[serde(default = "d_batch")]
+    batch: u64,
+    #[serde(default)]
+    threads: usize,
+    #[serde(default = "d_confidence")]
+    confidence: f64,
+    #[serde(default)]
+    grid: Map<String, Json>,
+    #[serde(default)]
+    cases: Vec<Map<String, Json>>,
+    #[serde(default)]
+    fiber: Option<Json>,
+    link: Vec<Json>,
+    #[serde(default)]
+    metrics: Json,
+    #[serde(default)]
+    stop: StopSpec,
+    #[serde(default)]
+    callbacks: CallbacksSpec,
+    #[serde(default)]
+    profile: bool,
+    #[serde(default)]
+    output: OutputSpec,
+    #[serde(default)]
+    expect: Vec<Json>,
+    #[serde(default)]
+    search: Option<Json>,
+}
+
+fn d_batch() -> u64 {
+    32
+}
+fn d_confidence() -> f64 {
+    0.95
+}
+
+/// The `stop` mapping.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct StopSpec {
+    max_trials: Option<u64>,
+    min_trials: Option<u64>,
+    #[serde(default)]
+    min_errors: BTreeMap<String, u64>,
+    #[serde(default)]
+    precision: BTreeMap<String, f64>,
+    max_time_s: Option<f64>,
+}
+
+impl StopSpec {
+    fn rule(&self) -> Stop {
+        let mut targets: Vec<Stop> = self.min_errors.iter().map(|(m, k)| Stop::min_errors(m, *k)).collect();
+        targets.extend(self.precision.iter().map(|(m, r)| Stop::precision(m, *r)));
+        let mut caps: Vec<Stop> = Vec::new();
+        if let Some(n) = self.max_trials {
+            caps.push(Stop::max_trials(n));
+        }
+        if let Some(t) = self.max_time_s {
+            caps.push(Stop::max_time(Duration::from_secs_f64(t.max(0.0))));
+        }
+        if targets.is_empty() && caps.is_empty() {
+            caps.push(Stop::max_trials(self.min_trials.unwrap_or(100).max(1)));
+        }
+        let mut any = Vec::new();
+        if !targets.is_empty() {
+            if let Some(n) = self.min_trials {
+                targets.push(Stop::min_trials(n));
+            }
+            any.push(if targets.len() == 1 { targets.remove(0) } else { Stop::All(targets) });
+        }
+        any.extend(caps);
+        if any.len() == 1 { any.remove(0) } else { Stop::Any(any) }
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct CallbacksSpec {
+    #[serde(default)]
+    progress: bool,
+    #[serde(default)]
+    skip_below: Option<SkipBelowSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SkipBelowSpec {
+    metric: String,
+    threshold: f64,
+    along: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct OutputSpec {
+    csv: Option<PathBuf>,
+    json: Option<PathBuf>,
+}
+
+/// The format of a specification text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format {
+    /// YAML (a superset of JSON).
+    Yaml,
+    /// JSON.
+    Json,
+    /// TOML.
+    Toml,
+}
+
+fn grid_axis(name: &str, v: &Json) -> Result<Vec<Value>> {
+    match v {
+        Json::Array(a) => a.iter().map(|x| params::from_json(name, x)).collect(),
+        Json::Object(o) => {
+            if let Some(Json::Array(l)) = o.get("linspace") {
+                let f: Vec<f64> = l.iter().filter_map(Json::as_f64).collect();
+                if f.len() != 3 || f[2] < 1.0 {
+                    return Err(Error::Config(format!("grid {name:?}: linspace is [start, stop, count]")));
+                }
+                let n = f[2] as usize;
+                return Ok((0..n)
+                    .map(|i| Value::F64(if n == 1 { f[0] } else { f[0] + (f[1] - f[0]) * i as f64 / (n - 1) as f64 }))
+                    .collect());
+            }
+            let get = |k: &str| o.get(k).and_then(Json::as_f64);
+            match (get("from"), get("to"), get("step")) {
+                (Some(a), Some(b), Some(st)) if st != 0.0 && (b - a) / st >= 0.0 => {
+                    let n = ((b - a) / st + 1e-9).floor() as usize + 1;
+                    let ints =
+                        [a, b, st].iter().all(|v| v.fract() == 0.0) && o.values().all(|v| v.is_i64() || v.is_u64());
+                    Ok((0..n)
+                        .map(|i| {
+                            let x = a + st * i as f64;
+                            if ints { Value::I64(x as i64) } else { Value::F64(x) }
+                        })
+                        .collect())
+                }
+                _ => Err(Error::Config(format!(
+                    "grid {name:?}: an axis is a list, {{from, to, step}} or {{linspace: [start, stop, count]}}"
+                ))),
+            }
+        }
+        scalar => Ok(vec![params::from_json(name, scalar)?]),
+    }
+}
+
+impl Spec {
+    /// Parse a specification from a JSON tree.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a missing or unknown key, an invalid grid or rule.
+    pub fn from_json(v: Json) -> Result<Spec> {
+        let source = v.clone();
+        let raw: RawSpec = serde_json::from_value(v).map_err(|e| Error::Config(format!("specification: {e}")))?;
+        let mut grid = if raw.cases.is_empty() {
+            Grid::new()
+        } else {
+            let mut conds = Vec::new();
+            for case in &raw.cases {
+                let mut c = Condition::new();
+                for (k, v) in case {
+                    c.set(k, params::from_json(k, v)?);
+                }
+                conds.push(c);
+            }
+            Grid::from_conditions(conds)
+        };
+        for (k, v) in &raw.grid {
+            grid = grid.axis(k, grid_axis(k, v)?);
+        }
+        if raw.link.is_empty() {
+            return Err(Error::Config("the link has no block".into()));
+        }
+        for e in &raw.expect {
+            verify::Expectation::from_json(e)?;
+        }
+        Ok(Spec {
+            source,
+            name: raw.name,
+            description: raw.description,
+            seed: raw.seed,
+            batch: raw.batch.max(1),
+            threads: raw.threads,
+            confidence: raw.confidence,
+            grid,
+            fiber: raw.fiber,
+            link: raw.link,
+            metrics: raw.metrics,
+            stop: raw.stop.rule(),
+            progress: raw.callbacks.progress,
+            skip_below: raw.callbacks.skip_below.map(|s| (s.metric, s.threshold, s.along)),
+            profile: raw.profile,
+            csv: raw.output.csv,
+            json: raw.output.json,
+            base_dir: None,
+            expect: raw.expect,
+            search: raw.search.as_ref().map(search::SearchSpec::from_json).transpose()?,
+        })
+    }
+
+    /// Parse a specification text.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a syntax error or an invalid specification.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_spec::{Format, Spec};
+    /// let spec = Spec::parse(r#"{"name": "t", "grid": {"x": [1, 2]}, "link": ["source"]}"#, Format::Json)?;
+    /// assert_eq!(spec.conditions().len(), 2);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn parse(text: &str, format: Format) -> Result<Spec> {
+        let v: Json = match format {
+            Format::Yaml => serde_norway::from_str(text).map_err(|e| Error::Config(format!("YAML: {e}")))?,
+            Format::Json => serde_json::from_str(text).map_err(|e| Error::Config(format!("JSON: {e}")))?,
+            Format::Toml => toml::from_str(text).map_err(|e| Error::Config(format!("TOML: {e}")))?,
+        };
+        Spec::from_json(v)
+    }
+
+    /// Parse a YAML specification.
+    ///
+    /// # Errors
+    /// See [`Spec::parse`].
+    pub fn from_yaml(text: &str) -> Result<Spec> {
+        Spec::parse(text, Format::Yaml)
+    }
+
+    /// Read a specification file (`.yaml`, `.yml`, `.json` or `.toml`).
+    ///
+    /// # Errors
+    /// [`Error::Io`] if the file cannot be read, [`Error::Config`] otherwise.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Spec> {
+        let path = path.as_ref();
+        let text = std::fs::read_to_string(path)?;
+        let format = match path.extension().and_then(|e| e.to_str()) {
+            Some("json") => Format::Json,
+            Some("toml") => Format::Toml,
+            _ => Format::Yaml,
+        };
+        let mut spec = Spec::parse(&text, format).map_err(|e| e.context(path.display()))?;
+        spec.base_dir = path.parent().map(Path::to_path_buf);
+        Ok(spec)
+    }
+
+    /// The conditions of the grid.
+    pub fn conditions(&self) -> Vec<Condition> {
+        self.grid.conditions()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopping_rules() {
+        let s = |y: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nstop: {y}")).unwrap().stop.to_string();
+        assert_eq!(s("{}"), "trials ≥ 100");
+        assert_eq!(s("{max_trials: 5}"), "trials ≥ 5");
+        assert_eq!(s("{min_errors: {ber: 10}, max_trials: 5}"), "(errors(ber) ≥ 10 or trials ≥ 5)");
+        assert_eq!(
+            s("{min_errors: {ber: 10}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5}"),
+            "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and trials ≥ 2) or trials ≥ 5)"
+        );
+    }
+
+    #[test]
+    fn grids_from_lists_ranges_and_cases() {
+        let spec = Spec::from_yaml(
+            "name: g\nlink: [source]\ncases: [{m: 4}, {m: 16}]\ngrid:\n  snr_db: {from: 0, to: 4, step: 2}\n  rate: {linspace: [1.0, 2.0, 3]}\n  kind: qam\n",
+        )
+        .unwrap();
+        let c = spec.conditions();
+        assert_eq!(c.len(), 2 * 3 * 3);
+        assert_eq!(c[0].label(), "m=4, snr_db=0, rate=1, kind=qam");
+        assert_eq!(c[17].label(), "m=16, snr_db=4, rate=2, kind=qam");
+        assert!(matches!(c[1].get("rate"), Some(Value::F64(_))));
+        assert!(matches!(c[3].get("snr_db"), Some(Value::I64(2))));
+    }
+
+    #[test]
+    fn the_three_formats_give_the_same_specification() {
+        let y = Spec::parse("name: t\ngrid: {x: [1, 2]}\nlink: [source]", Format::Yaml).unwrap();
+        let j = Spec::parse(r#"{"name": "t", "grid": {"x": [1, 2]}, "link": ["source"]}"#, Format::Json).unwrap();
+        let t = Spec::parse("name = \"t\"\nlink = [\"source\"]\n[grid]\nx = [1, 2]\n", Format::Toml).unwrap();
+        for s in [&j, &t] {
+            assert_eq!(s.conditions(), y.conditions());
+            assert_eq!(s.link, y.link);
+        }
+    }
+}

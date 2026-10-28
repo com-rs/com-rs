@@ -1,0 +1,35 @@
+[package]
+name = "com-py"
+description = "Python bindings of com-rs (PyO3), imported as the Python package `comrs`"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_comrs"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+path = "src/lib.rs"
+
+# PyO3's macros expand to unsafe code: the workspace lints apply except `unsafe_code`
+[lints.rust]
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+
+[dependencies]
+comrs = { workspace = true, features = ["optical", "spec"] }
+# `pyo3/extension-module` is enabled by maturin ([tool.maturin] features of pyproject.toml)
+pyo3 = { version = "0.30", features = ["abi3-py311", "num-complex"] }
+numpy = "0.30"
+num-complex.workspace = true
+ndarray.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true

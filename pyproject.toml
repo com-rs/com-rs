@@ -1,0 +1,93 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]   # PEP 639 licence metadata
+build-backend = "maturin"
+
+[project]
+name = "comrs"
+# the version of the Cargo workspace (`workspace.package.version`), read by maturin
+dynamic = ["version"]
+description = "Link-level simulation of digital communication systems, wireless and optical, in Rust with Python bindings"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY.md"]
+authors = [{ name = "Vincent Choqueuse", email = "vincent.choqueuse@gmail.com" }]
+keywords = [
+    "communications",
+    "wireless",
+    "optical communications",
+    "monte carlo",
+    "link-level simulation",
+    "channel coding",
+    "signal processing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+# comrs.plot and Results.plot
+plot = ["matplotlib>=3.9"]
+
+[project.urls]
+Homepage = "https://com-rs.github.io/com-rs/"
+Documentation = "https://com-rs.github.io/com-rs/"
+Repository = "https://github.com/com-rs/com-rs"
+Changelog = "https://github.com/com-rs/com-rs/blob/main/CHANGELOG.md"
+Issues = "https://github.com/com-rs/com-rs/issues"
+
+# The development dependencies (PEP 735): not published as extras of the package.
+# `pip install --group <name>` (pip >= 25.1) installs one of them.
+[dependency-groups]
+test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9"]
+lint = ["ruff"]
+# The test oracles, OptiCommPy (GPL-3.0) and GNPy (BSD-3-Clause, the Raman
+# amplification), are never imported by the package. Their outputs are recorded
+# fixtures (tests/oracle/*.json and *.npz, with the version of the tool) that the tests
+# of tests/test_oracle.py and tests/test_gnpy_oracle.py read; the tools are only needed
+# to re-record them, a deliberate act named in the commit message:
+#   pip install --group oracle
+#   COMRS_RECORD_ORACLE=1 python -m pytest tests/test_oracle.py tests/test_gnpy_oracle.py
+oracle = ["OptiCommPy>=0.11", "gnpy>=3.0"]
+# the documentation of the Python package (docs/python, `just docs-py`)
+docs = [
+    "sphinx>=8",
+    "pydata-sphinx-theme>=0.16",
+    "sphinx-gallery>=0.18",
+    "sphinx-design>=0.6",
+    "sphinx-copybutton>=0.5",
+    "matplotlib>=3.9",
+]
+
+[tool.maturin]
+manifest-path = "bindings/com-py/Cargo.toml"
+python-source = "python"
+module-name = "comrs._comrs"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# every test runs by default (CI runs them all); `-m "not slow"` leaves the long ones out
+markers = ["slow: a long test (a WDM link, Raman amplification, dual-polarisation DBP)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]  # long table rows; Greek letters and math in docstrings
+
+[tool.ruff.lint.isort]
+known-first-party = ["comrs"]

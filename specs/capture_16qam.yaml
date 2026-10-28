@@ -1,0 +1,27 @@
+# The receiver DSP chain on a recorded capture: a SigMF file of 16-bit samples at
+# 80 GS/s (2.5 samples per symbol) and one period of the transmitted indices. Every
+# trial takes a random segment of 16384 samples, resamples it to 2 samples per symbol,
+# compensates 200 km of dispersion, recovers the clock, the frequency offset and the
+# phase, and aligns the periodic reference on the symbols. The capture in data/ is
+# synthetic (cargo run --example make_capture): 32 GBd 16-QAM at 18 dB of SNR.
+name: capture_16qam
+description: DSP chain on a recorded capture (synthetic 32 GBd 16-QAM, 200 km, 80 GS/s, ci16)
+seed: 1
+batch: 8
+link:
+  - type: capture
+    file: ../data/synthetic_16qam.sigmf-meta
+    symbol_rate: 32e9
+    constellation: 16-QAM
+    reference: ../data/synthetic_16qam_reference.npy
+    segment: 16384
+  - {type: resample, sps: 2}
+  - {type: cdc, length_km: 200}
+  - {type: matched_filter, rolloff: 0.2}
+  - {type: gardner, kp: 3e-3, ki: 1e-5}
+  - decimate
+  - foe
+  - {type: bps, n: 32, b: 32}
+  - reference_sync
+metrics: {report: [ber, ser, snr_db, evm], skip_start: 2048, skip_end: 128}
+stop: {max_trials: 32}

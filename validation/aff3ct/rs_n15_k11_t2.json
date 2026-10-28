@@ -1,0 +1,119 @@
+{
+ "bit_rate": [
+  11,
+  15
+ ],
+ "bits_per_frame": 44,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C RS -N 15 -K 11 -T 2 -m 3 -M 7.75 -s 0.5 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.0432, "bit_errors": 823, "ebn0_db": 3.0, "esn0_db": 1.65, "fer": 0.478, "frame_errors": 207, "frames": 433},
+  {"ber": 0.0258, "bit_errors": 709, "ebn0_db": 3.5, "esn0_db": 2.15, "fer": 0.326, "frame_errors": 204, "frames": 625},
+  {"ber": 0.0151, "bit_errors": 743, "ebn0_db": 4.0, "esn0_db": 2.65, "fer": 0.181, "frame_errors": 202, "frames": 1119},
+  {"ber": 0.00941, "bit_errors": 714, "ebn0_db": 4.5, "esn0_db": 3.15, "fer": 0.117, "frame_errors": 202, "frames": 1725},
+  {"ber": 0.00444, "bit_errors": 675, "ebn0_db": 5.0, "esn0_db": 3.65, "fer": 0.0579, "frame_errors": 200, "frames": 3454},
+  {"ber": 0.0019, "bit_errors": 650, "ebn0_db": 5.5, "esn0_db": 4.15, "fer": 0.0258, "frame_errors": 200, "frames": 7757},
+  {"ber": 0.000785, "bit_errors": 661, "ebn0_db": 6.0, "esn0_db": 4.65, "fer": 0.0104, "frame_errors": 200, "frames": 19148},
+  {"ber": 0.000255, "bit_errors": 637, "ebn0_db": 6.5, "esn0_db": 5.15, "fer": 0.00352, "frame_errors": 200, "frames": 56824},
+  {"ber": 7.98e-05, "bit_errors": 633, "ebn0_db": 7.0, "esn0_db": 5.65, "fer": 0.00111, "frame_errors": 200, "frames": 180191},
+  {"ber": 1.71e-05, "bit_errors": 624, "ebn0_db": 7.5, "esn0_db": 6.15, "fer": 0.000242, "frame_errors": 200, "frames": 827698}
+ ],
+ "description": "Reed–Solomon (15, 11), t = 2, algebraic (Berlekamp–Massey) hard decoding",
+ "name": "rs_n15_k11_t2",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "44",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "60",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.733333 (11/15)",
+   "Codeword size (N_cw)": "60",
+   "Frame size (N)": "60",
+   "Info. bits (K)": "44",
+   "Symbols Codeword size": "15",
+   "Symbols Source size": "11",
+   "Type": "RS"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.733333",
+   "Codeword size (N_cw)": "15",
+   "Correction power (T)": "2",
+   "Galois field order (m)": "4",
+   "Implementation": "STD",
+   "Info. bits (K)": "11",
+   "Seed": "0",
+   "Systematic": "yes",
+   "Type (D)": "ALGEBRAIC"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.733333",
+   "Codeword size (N)": "15",
+   "Info. bits (K)": "11",
+   "Systematic": "yes",
+   "Type": "RS"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "60",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "44"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "60",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.733333 (11/15)",
+   "Code type (C)": "RS",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "3 -> 7.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "44",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "I. S. Reed and G. Solomon, J. SIAM 8(2), 1960; S. Lin and D. J. Costello, Error Control Coding, 2nd ed., Pearson, 2004, ch. 7"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

@@ -1,0 +1,794 @@
+//! Low-density parity-check (LDPC) codes.
+//!
+//! A code is the null space of a sparse parity-check matrix $H$ ($m \times n$):
+//! $H c = 0$. Its Tanner graph links every variable node (coded bit) to the check
+//! nodes (parity equations) it takes part in.
+//!
+//! # Construction
+//!
+//! [`LdpcCode::peg`] builds $H$ by progressive edge growth (Hu, Eleftheriou & Arnold
+//! 2005): every new edge of a variable node goes to the check node farthest from it in
+//! the current graph (lowest degree among the farthest), which maximises the local girth.
+//! [`LdpcCode::from_rows`] takes any $H$ (for instance the lifted base graph of a
+//! standard), and [`LdpcCode::from_alist`] reads it from MacKay's `alist` format (the
+//! format of the matrices of MacKay's encyclopedia and of AFF3CT). The encoder brings $H$ to the systematic form $[A \mid I]$ by Gaussian
+//! elimination over GF(2) (with a column permutation), so that the parity bits are
+//! $p = A u$.
+//!
+//! # Decoding
+//!
+//! Message passing on the Tanner graph, with the LLR convention of the library
+//! (positive for a 0). A variable node sends the sum of its channel LLR and of the
+//! other incoming messages; a check node sends
+//!
+//! $$
+//! L_{c \to v} = 2 \operatorname{atanh} \prod_{v' \ne v} \tanh\frac{L_{v' \to c}}{2}
+//! \quad \text{(sum-product)}, \qquad
+//! L_{c \to v} \approx \alpha \prod_{v' \ne v} \operatorname{sgn} L_{v' \to c}
+//! \min_{v' \ne v} |L_{v' \to c}| \quad \text{(min-sum)},
+//! $$
+//!
+//! with the normalisation $\alpha$ (Chen & Fossorier 2002) or an offset. The schedule is
+//! flooding, or layered (row by row with immediate updates, Hocevar 2004), which
+//! converges in about half the iterations; decoding stops as soon as $H \hat c = 0$.
+//!
+//! The decoder settings of a new code are the defaults of the crate, which the
+//! specifications (`com_spec`) and the Python bindings also take: [`DEFAULT_RULE`]
+//! (sum-product), [`DEFAULT_LAYERED`] (layered) and [`DEFAULT_MAX_ITERATIONS`] (50);
+//! [`DEFAULT_ALPHA`] is the scale or the offset of a min-sum rule named without it,
+//! [`DEFAULT_VAR_DEGREE`] and [`DEFAULT_PEG_SEED`] those of a PEG construction.
+//!
+//! # Examples
+//! ```
+//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::ldpc::LdpcCode;
+//! let code = LdpcCode::peg(256, 128, 3, 1)?;                 // (256, 128), degree 3
+//! assert_eq!(code.k(), 128);
+//! let info: Vec<u8> = (0..128).map(|i| (i % 5 == 2) as u8).collect();
+//! let c = code.encode_block(&info)?;
+//! assert!(code.is_codeword(&c));
+//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
+//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! # Ok::<(), com_core::Error>(())
+//! ```
+//!
+//! # References
+//!
+//! 1. R. G. Gallager, "Low-density parity-check codes," *IRE Trans. Inf. Theory*, 8(1),
+//!    21–28, 1962.
+//! 2. X.-Y. Hu, E. Eleftheriou and D. M. Arnold, "Regular and irregular progressive
+//!    edge-growth Tanner graphs," *IEEE Trans. Inf. Theory*, 51(1), 386–398, 2005.
+//! 3. J. Chen and M. P. C. Fossorier, "Near optimum universal belief propagation based
+//!    decoding of low-density parity check codes," *IEEE Trans. Commun.*, 50(3), 406–414,
+//!    2002.
+//! 4. D. E. Hocevar, "A reduced complexity decoder architecture via layered decoding of
+//!    LDPC codes," *Proc. IEEE SiPS*, 107–112, 2004.
+//! 5. T. Richardson and R. Urbanke, *Modern Coding Theory*, Cambridge University Press,
+//!    2008.
+
+use crate::block::{BlockCode, container_traits, expect_len, hard};
+use com_core::{Error, Result, ensure};
+use com_math::gf2;
+use std::collections::VecDeque;
+
+/// The default check-node rule: sum-product, the exact belief propagation (the
+/// reference of the performance tables of the standards).
+pub const DEFAULT_RULE: CheckRule = CheckRule::SumProduct;
+/// The default scale $\alpha$ of the normalised min-sum, or offset $\beta$ of the offset
+/// min-sum, when a rule is named without it.
+pub const DEFAULT_ALPHA: f64 = 0.8;
+/// The default schedule: layered.
+pub const DEFAULT_LAYERED: bool = true;
+/// The default maximum number of iterations.
+pub const DEFAULT_MAX_ITERATIONS: usize = 50;
+/// The default degree of the variable nodes of a PEG construction.
+pub const DEFAULT_VAR_DEGREE: usize = 3;
+/// The default seed of a PEG construction.
+pub const DEFAULT_PEG_SEED: u64 = 1;
+
+/// The check-node rule of the decoder.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum CheckRule {
+    /// Sum-product (belief propagation, exact).
+    SumProduct,
+    /// Min-sum scaled by $\alpha$ (1 for plain min-sum, 0.75 to 0.8 typically).
+    NormalizedMinSum(f64),
+    /// Min-sum with the offset $\beta$ subtracted from the magnitudes.
+    OffsetMinSum(f64),
+}
+
+impl CheckRule {
+    /// The rule of a name: `sum_product`, `min_sum` (plain), `normalized_min_sum`
+    /// (scaled by `alpha`) or `offset_min_sum` (offset `alpha`), case-insensitive.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    pub fn parse(rule: &str, alpha: f64) -> Result<CheckRule> {
+        match rule.to_ascii_lowercase().as_str() {
+            "sum_product" => Ok(CheckRule::SumProduct),
+            "min_sum" => Ok(CheckRule::NormalizedMinSum(1.0)),
+            "normalized_min_sum" => Ok(CheckRule::NormalizedMinSum(alpha)),
+            "offset_min_sum" => Ok(CheckRule::OffsetMinSum(alpha)),
+            other => Err(Error::Config(format!(
+                "rule must be sum_product, min_sum, normalized_min_sum or offset_min_sum, got {other:?}"
+            ))),
+        }
+    }
+
+    /// The name of the rule, as [`CheckRule::parse`] reads it (`min_sum` is the
+    /// normalised min-sum of scale 1).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_fec::ldpc::{CheckRule, DEFAULT_RULE};
+    /// assert_eq!(DEFAULT_RULE.name(), "sum_product");
+    /// assert_eq!(CheckRule::parse("min_sum", 0.5)?.name(), "normalized_min_sum");
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn name(self) -> &'static str {
+        match self {
+            CheckRule::SumProduct => "sum_product",
+            CheckRule::NormalizedMinSum(_) => "normalized_min_sum",
+            CheckRule::OffsetMinSum(_) => "offset_min_sum",
+        }
+    }
+}
+
+/// The systematic encoder of a code.
+#[derive(Clone, Debug, PartialEq)]
+enum Encoder {
+    /// The positions of the parity bits, and the information bits each one sums
+    /// (from the Gaussian elimination of $H$).
+    Sums(Vec<(usize, Vec<usize>)>),
+    /// Irregular repeat-accumulate: the information bits are the first $k$, parity bit
+    /// $p_{r}$ (position $k + r$) closes check $r$ with $p_{r-1}$ (the dual-diagonal part
+    /// of $H$): $p_{r} = p_{r-1} \oplus \bigoplus_{v \in r,\, v < k} c_{v}$.
+    Accumulate,
+}
+
+/// An LDPC code with its systematic encoder and its decoder settings.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LdpcCode {
+    n: usize,
+    /// The variable nodes of every check node (the rows of $H$).
+    rows: Vec<Vec<usize>>,
+    /// Positions of the information bits in the codeword.
+    info: Vec<usize>,
+    /// How the parity bits follow from the information bits.
+    encoder: Encoder,
+    /// The check-node rule.
+    pub rule: CheckRule,
+    /// Layered (true) or flooding schedule.
+    pub layered: bool,
+    /// Maximum iterations.
+    pub max_iterations: usize,
+}
+
+impl LdpcCode {
+    /// The code of the parity-check matrix whose rows list the variable nodes of every
+    /// check; $k = n - \operatorname{rank} H$.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a variable index out of range or a code without
+    /// information bits.
+    pub fn from_rows(n: usize, rows: Vec<Vec<usize>>) -> Result<LdpcCode> {
+        ensure(rows.iter().flatten().all(|v| *v < n), || "a check refers to a missing variable".into())?;
+        // the reduced parity-check matrix: every pivot (parity) bit is a sum of
+        // information bits
+        let mut m = gf2::Matrix::from_rows(n, &rows);
+        let pivots = m.reduce();
+        let is_pivot: Vec<bool> = (0..n).map(|c| pivots.contains(&c)).collect();
+        let info: Vec<usize> = (0..n).filter(|c| !is_pivot[*c]).collect();
+        ensure(!info.is_empty(), || "the code has no information bits".into())?;
+        let parity = pivots
+            .iter()
+            .enumerate()
+            .map(|(row, &c)| (c, info.iter().copied().filter(|&v| m.get(row, v)).collect()))
+            .collect();
+        Ok(LdpcCode {
+            n,
+            rows,
+            info,
+            encoder: Encoder::Sums(parity),
+            rule: DEFAULT_RULE,
+            layered: DEFAULT_LAYERED,
+            max_iterations: DEFAULT_MAX_ITERATIONS,
+        })
+    }
+
+    /// An irregular repeat-accumulate code: check $r$ of `rows` holds information bits
+    /// (positions below $k = n - m$, $m$ the number of checks) and the parity bits
+    /// $k + r$ and, for $r > 0$, $k + r - 1$ only (the dual-diagonal structure of the
+    /// DVB-S2, DVB-T2 and IEEE 802.11n codes). The encoder accumulates the checks, in
+    /// $O(n)$, without the elimination of [`LdpcCode::from_rows`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] if the checks do not have this structure.
+    pub fn accumulate(n: usize, rows: Vec<Vec<usize>>) -> Result<LdpcCode> {
+        let m = rows.len();
+        ensure(m > 0 && m < n, || format!("{m} checks for {n} bits"))?;
+        let k = n - m;
+        for (r, row) in rows.iter().enumerate() {
+            let parity: Vec<usize> = row.iter().copied().filter(|&v| v >= k).collect();
+            let expected: Vec<usize> = if r == 0 { vec![k] } else { vec![k + r - 1, k + r] };
+            let mut sorted = parity.clone();
+            sorted.sort_unstable();
+            ensure(sorted == expected, || {
+                format!("check {r} is not dual-diagonal: parity bits {parity:?}, expected {expected:?}")
+            })?;
+            ensure(row.iter().all(|&v| v < n), || "a check refers to a missing variable".into())?;
+        }
+        Ok(LdpcCode {
+            n,
+            rows,
+            info: (0..k).collect(),
+            encoder: Encoder::Accumulate,
+            rule: DEFAULT_RULE,
+            layered: DEFAULT_LAYERED,
+            max_iterations: DEFAULT_MAX_ITERATIONS,
+        })
+    }
+
+    /// A code of length `n` with `n - k` checks built by progressive edge growth, every
+    /// variable node of degree `var_degree` (seeded tie breaks).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for $k \ge n$ or a degree larger than the number of checks.
+    pub fn peg(n: usize, k: usize, var_degree: usize, seed: u64) -> Result<LdpcCode> {
+        ensure(k < n && k > 0, || format!("PEG needs 0 < k < n, got k = {k}, n = {n}"))?;
+        let m = n - k;
+        ensure(var_degree >= 1 && var_degree <= m, || format!("variable degree {var_degree} for {m} checks"))?;
+        let mut rng = com_core::rng::Rng::new(seed);
+        let mut check_vars: Vec<Vec<usize>> = vec![Vec::new(); m];
+        let mut var_checks: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let lowest = |cands: &[usize], cv: &[Vec<usize>], rng: &mut com_core::rng::Rng| -> usize {
+            let d = cands.iter().map(|&c| cv[c].len()).min().unwrap_or(0);
+            let best: Vec<usize> = cands.iter().copied().filter(|&c| cv[c].len() == d).collect();
+            best[rng.below(best.len())]
+        };
+        for v in 0..n {
+            for e in 0..var_degree {
+                let c = if e == 0 {
+                    let all: Vec<usize> = (0..m).collect();
+                    lowest(&all, &check_vars, &mut rng)
+                } else {
+                    // breadth-first expansion from v until no new check is reached
+                    let mut reached = vec![false; m];
+                    let mut frontier: VecDeque<usize> = VecDeque::new();
+                    for &c in &var_checks[v] {
+                        reached[c] = true;
+                        frontier.push_back(c);
+                    }
+                    let mut last_new: Vec<usize> = var_checks[v].clone();
+                    loop {
+                        let mut new = Vec::new();
+                        let mut next = VecDeque::new();
+                        while let Some(c) = frontier.pop_front() {
+                            for &u in &check_vars[c] {
+                                for &c2 in &var_checks[u] {
+                                    if !reached[c2] {
+                                        reached[c2] = true;
+                                        new.push(c2);
+                                        next.push_back(c2);
+                                    }
+                                }
+                            }
+                        }
+                        if new.is_empty() || reached.iter().all(|r| *r) {
+                            let unreached: Vec<usize> = (0..m).filter(|&c| !reached[c]).collect();
+                            break if unreached.is_empty() {
+                                let cands: Vec<usize> = if new.is_empty() { last_new.clone() } else { new };
+                                let cands: Vec<usize> =
+                                    cands.into_iter().filter(|c| !var_checks[v].contains(c)).collect();
+                                let cands = if cands.is_empty() {
+                                    (0..m).filter(|c| !var_checks[v].contains(c)).collect()
+                                } else {
+                                    cands
+                                };
+                                lowest(&cands, &check_vars, &mut rng)
+                            } else {
+                                lowest(&unreached, &check_vars, &mut rng)
+                            };
+                        }
+                        last_new = new;
+                        frontier = next;
+                    }
+                };
+                check_vars[c].push(v);
+                var_checks[v].push(c);
+            }
+        }
+        LdpcCode::from_rows(n, check_vars)
+    }
+
+    /// The code of a parity-check matrix written in MacKay's `alist` format (the format
+    /// of MacKay's *Encyclopedia of Sparse Graph Codes* and of the matrices shipped with
+    /// AFF3CT), with the systematic encoder of [`LdpcCode::from_rows`]. The rows of $H$
+    /// keep the order of the file, which is the order of a layered schedule.
+    ///
+    /// The format is a list of integers: $n$ and $m$ (columns and rows of $H$), the
+    /// largest column and row degrees, the $n$ column degrees, the $m$ row degrees, then
+    /// for every column the (1-based) rows of its ones, and for every row the columns of
+    /// its ones. The lists may be padded with zeros up to the largest degree or not;
+    /// the text after a `#` is a comment. The two descriptions of the matrix must agree.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a malformed file: a missing or extra number, a degree or an
+    /// index out of range, a repeated one, or column and row lists that disagree; or
+    /// for a matrix that [`LdpcCode::from_rows`] rejects.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_fec::block::BlockCode;
+    /// use com_fec::ldpc::LdpcCode;
+    /// // the (7, 4) Hamming code: n = 7 columns, m = 3 rows
+    /// let alist = "7 3\n3 4\n3 2 2 2 1 1 1\n4 4 4\n\
+    ///              1 2 3\n1 2 0\n1 3 0\n2 3 0\n1 0 0\n2 0 0\n3 0 0\n\
+    ///              1 2 3 5\n1 2 4 6\n1 3 4 7\n";
+    /// let code = LdpcCode::from_alist(alist)?;
+    /// assert_eq!((code.n(), code.k()), (7, 4));
+    /// assert_eq!(code.rows()[1], [0, 1, 3, 5]);
+    /// assert_eq!(LdpcCode::from_alist(&code.to_alist())?, code);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    ///
+    /// # References
+    /// 1. D. J. C. MacKay, *Encyclopedia of Sparse Graph Codes*, "alist" format,
+    ///    <http://www.inference.org.uk/mackay/codes/alist.html>.
+    pub fn from_alist(text: &str) -> Result<LdpcCode> {
+        let (n, rows) = parse_alist(text).map_err(|e| Error::Config(format!("alist: {e}")))?;
+        LdpcCode::from_rows(n, rows)
+    }
+
+    /// [`LdpcCode::from_alist`] on the content of the file `path`.
+    ///
+    /// # Errors
+    /// [`Error::Io`] if the file cannot be read, otherwise those of
+    /// [`LdpcCode::from_alist`].
+    pub fn from_alist_file(path: impl AsRef<std::path::Path>) -> Result<LdpcCode> {
+        LdpcCode::from_alist(&std::fs::read_to_string(path)?)
+    }
+
+    /// The parity-check matrix in the `alist` format of [`LdpcCode::from_alist`], with
+    /// the lists padded with zeros (the format MacKay's files use).
+    pub fn to_alist(&self) -> String {
+        let m = self.rows.len();
+        let mut cols: Vec<Vec<usize>> = vec![Vec::new(); self.n];
+        for (r, row) in self.rows.iter().enumerate() {
+            for &v in row {
+                cols[v].push(r);
+            }
+        }
+        let max_col = cols.iter().map(Vec::len).max().unwrap_or(0);
+        let max_row = self.rows.iter().map(Vec::len).max().unwrap_or(0);
+        let line = |values: &mut dyn Iterator<Item = usize>| {
+            let mut s = values.map(|v| v.to_string()).collect::<Vec<_>>().join(" ");
+            s.push('\n');
+            s
+        };
+        let padded = |list: &[usize], len: usize| -> String {
+            line(&mut list.iter().map(|v| v + 1).chain(std::iter::repeat_n(0, len - list.len())))
+        };
+        let mut out = format!("{} {m}\n{max_col} {max_row}\n", self.n);
+        out.push_str(&line(&mut cols.iter().map(Vec::len)));
+        out.push_str(&line(&mut self.rows.iter().map(Vec::len)));
+        for c in &cols {
+            out.push_str(&padded(c, max_col));
+        }
+        for r in &self.rows {
+            out.push_str(&padded(r, max_row));
+        }
+        out
+    }
+
+    /// The positions of the information bits in the codeword, in the order of the
+    /// information bits of [`BlockCode::encode_block`] (the code is systematic).
+    pub fn info_positions(&self) -> &[usize] {
+        &self.info
+    }
+
+    /// The parity checks: the variable nodes of every row of $H$.
+    pub fn rows(&self) -> &[Vec<usize>] {
+        &self.rows
+    }
+
+    /// Whether $H c = 0$.
+    pub fn is_codeword(&self, c: &[u8]) -> bool {
+        self.rows.iter().all(|r| r.iter().fold(0u8, |a, &v| a ^ c[v]) == 0)
+    }
+
+    /// The length of the shortest cycle through every variable node of the Tanner
+    /// graph, minimised over the graph (the girth; 0 without cycle).
+    pub fn girth(&self) -> usize {
+        let mut var_checks: Vec<Vec<usize>> = vec![Vec::new(); self.n];
+        for (c, r) in self.rows.iter().enumerate() {
+            for &v in r {
+                var_checks[v].push(c);
+            }
+        }
+        let mut best = usize::MAX;
+        // BFS on the bipartite graph from every variable node
+        let nodes = self.n + self.rows.len();
+        for s in 0..self.n {
+            let mut dist = vec![usize::MAX; nodes];
+            let mut parent = vec![usize::MAX; nodes];
+            dist[s] = 0;
+            let mut q = VecDeque::from([s]);
+            while let Some(x) = q.pop_front() {
+                let nbrs: Vec<usize> = if x < self.n {
+                    var_checks[x].iter().map(|c| self.n + c).collect()
+                } else {
+                    self.rows[x - self.n].clone()
+                };
+                for y in nbrs {
+                    if dist[y] == usize::MAX {
+                        dist[y] = dist[x] + 1;
+                        parent[y] = x;
+                        q.push_back(y);
+                    } else if parent[x] != y {
+                        best = best.min(dist[x] + dist[y] + 1);
+                    }
+                }
+            }
+        }
+        if best == usize::MAX { 0 } else { best }
+    }
+
+    fn check_message(&self, incoming: &[f64], out: &mut [f64], scratch: &mut Vec<f64>) {
+        match self.rule {
+            CheckRule::SumProduct => {
+                // the product of the other tanh(L/2) by prefix and suffix products, O(d)
+                let d = incoming.len();
+                scratch.clear();
+                scratch.extend(incoming.iter().map(|l| (l / 2.0).tanh()));
+                let mut prefix = 1.0;
+                for (o, t) in out.iter_mut().zip(scratch.iter()) {
+                    *o = prefix;
+                    prefix *= t;
+                }
+                let mut suffix = 1.0;
+                for i in (0..d).rev() {
+                    let p = out[i] * suffix;
+                    suffix *= scratch[i];
+                    out[i] = 2.0 * p.clamp(-0.999_999_999_999, 0.999_999_999_999).atanh();
+                }
+            }
+            CheckRule::NormalizedMinSum(_) | CheckRule::OffsetMinSum(_) => {
+                let sign: f64 = incoming.iter().map(|l| if *l < 0.0 { -1.0 } else { 1.0 }).product();
+                let (mut m1, mut m2, mut i1) = (f64::INFINITY, f64::INFINITY, 0);
+                for (i, l) in incoming.iter().enumerate() {
+                    let a = l.abs();
+                    if a < m1 {
+                        m2 = m1;
+                        m1 = a;
+                        i1 = i;
+                    } else if a < m2 {
+                        m2 = a;
+                    }
+                }
+                for (i, o) in out.iter_mut().enumerate() {
+                    let mag = if i == i1 { m2 } else { m1 };
+                    let s = sign * if incoming[i] < 0.0 { -1.0 } else { 1.0 };
+                    let mag = match self.rule {
+                        CheckRule::NormalizedMinSum(a) => a * mag,
+                        CheckRule::OffsetMinSum(b) => (mag - b).max(0.0),
+                        CheckRule::SumProduct => mag,
+                    };
+                    *o = s * mag;
+                }
+            }
+        }
+    }
+
+    /// Decode a block of $n$ channel LLRs: the a posteriori LLRs of the coded bits and
+    /// the number of iterations used.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `llr` does not have $n$ values.
+    pub fn decode_llr(&self, llr: &[f64]) -> Result<(Vec<f64>, usize)> {
+        expect_len(llr.len(), self.n, "LLRs")?;
+        let mut post = llr.to_vec();
+        let mut c2v: Vec<Vec<f64>> = self.rows.iter().map(|r| vec![0.0; r.len()]).collect();
+        if self.is_codeword(&hard(&post)) {
+            return Ok((post, 0));
+        }
+        let (mut incoming, mut out, mut scratch) = (Vec::new(), Vec::new(), Vec::new());
+        for it in 1..=self.max_iterations {
+            if self.layered {
+                for (c, row) in self.rows.iter().enumerate() {
+                    incoming.clear();
+                    incoming.extend(row.iter().zip(&c2v[c]).map(|(&v, m)| post[v] - m));
+                    out.clear();
+                    out.resize(row.len(), 0.0);
+                    self.check_message(&incoming, &mut out, &mut scratch);
+                    for ((&v, m), (i, o)) in row.iter().zip(c2v[c].iter_mut()).zip(incoming.iter().zip(&out)) {
+                        post[v] = i + o;
+                        *m = *o;
+                    }
+                }
+            } else {
+                let mut new_c2v = c2v.clone();
+                for (c, row) in self.rows.iter().enumerate() {
+                    incoming.clear();
+                    incoming.extend(row.iter().zip(&c2v[c]).map(|(&v, m)| post[v] - m));
+                    self.check_message(&incoming, &mut new_c2v[c], &mut scratch);
+                }
+                post = llr.to_vec();
+                for (row, msgs) in self.rows.iter().zip(&new_c2v) {
+                    for (&v, m) in row.iter().zip(msgs) {
+                        post[v] += m;
+                    }
+                }
+                c2v = new_c2v;
+            }
+            if self.is_codeword(&hard(&post)) {
+                return Ok((post, it));
+            }
+        }
+        Ok((post, self.max_iterations))
+    }
+}
+
+/// The number of columns and the rows (0-based column indices, in the order of the
+/// file) of an `alist` text; the message of the error names what is wrong.
+fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), String> {
+    let mut numbers = Vec::new();
+    for (l, line) in text.lines().enumerate() {
+        let content = line.split('#').next().unwrap_or("");
+        for token in content.split_whitespace() {
+            numbers.push(token.parse::<usize>().map_err(|_| format!("line {}: {token:?} is not a number", l + 1))?);
+        }
+    }
+    let mut it = numbers.into_iter();
+    let mut next = |what: &str| it.next().ok_or_else(|| format!("the file ends before {what}"));
+    let (n, m) = (next("the number of columns")?, next("the number of rows")?);
+    if n == 0 || m == 0 {
+        return Err(format!("a matrix of {m} × {n}"));
+    }
+    let (max_col, max_row) = (next("the largest column degree")?, next("the largest row degree")?);
+    let mut col_deg = Vec::with_capacity(n);
+    for _ in 0..n {
+        col_deg.push(next("the column degrees")?);
+    }
+    let mut row_deg = Vec::with_capacity(m);
+    for _ in 0..m {
+        row_deg.push(next("the row degrees")?);
+    }
+    if col_deg.iter().any(|&d| d > max_col) || col_deg.iter().max() != Some(&max_col) {
+        return Err(format!("the column degrees do not have the maximum {max_col}"));
+    }
+    if row_deg.iter().any(|&d| d > max_row) || row_deg.iter().max() != Some(&max_row) {
+        return Err(format!("the row degrees do not have the maximum {max_row}"));
+    }
+    let edges: usize = col_deg.iter().sum();
+    if row_deg.iter().sum::<usize>() != edges {
+        return Err(format!(
+            "the column degrees count {edges} ones, the row degrees {}",
+            row_deg.iter().sum::<usize>()
+        ));
+    }
+    let rest: Vec<usize> = it.collect();
+    // the lists are padded with zeros up to the largest degree, or not
+    let padded = if rest.len() == n * max_col + m * max_row {
+        true
+    } else if rest.len() == 2 * edges {
+        false
+    } else {
+        return Err(format!(
+            "{} numbers after the degrees: {} with zero padding or {} without",
+            rest.len(),
+            n * max_col + m * max_row,
+            2 * edges
+        ));
+    };
+    let mut pos = 0;
+    let mut lists = |degrees: &[usize], width: usize, bound: usize, what: &str| {
+        let mut out = Vec::with_capacity(degrees.len());
+        for (i, &d) in degrees.iter().enumerate() {
+            let len = if padded { width } else { d };
+            let entries = &rest[pos..pos + len];
+            pos += len;
+            let (ones, zeros) = entries.split_at(d);
+            if zeros.iter().any(|&z| z != 0) {
+                return Err(format!("{what} {}: more entries than its degree {d}", i + 1));
+            }
+            let mut list = Vec::with_capacity(d);
+            for &e in ones {
+                if e == 0 || e > bound {
+                    return Err(format!("{what} {}: the index {e} is outside 1 to {bound}", i + 1));
+                }
+                if list.contains(&(e - 1)) {
+                    return Err(format!("{what} {}: the index {e} is repeated", i + 1));
+                }
+                list.push(e - 1);
+            }
+            out.push(list);
+        }
+        Ok(out)
+    };
+    let cols = lists(&col_deg, max_col, m, "column")?;
+    let rows = lists(&row_deg, max_row, n, "row")?;
+    for (c, col) in cols.iter().enumerate() {
+        for &r in col {
+            if !rows[r].contains(&c) {
+                return Err(format!("column {} lists row {} but row {} does not list it", c + 1, r + 1, r + 1));
+            }
+        }
+    }
+    Ok((n, rows))
+}
+
+impl BlockCode for LdpcCode {
+    fn k(&self) -> usize {
+        self.info.len()
+    }
+
+    fn n(&self) -> usize {
+        self.n
+    }
+
+    fn encode_block(&self, info: &[u8]) -> Result<Vec<u8>> {
+        expect_len(info.len(), self.k(), "bits")?;
+        let mut c = vec![0u8; self.n];
+        for (&p, &b) in self.info.iter().zip(info) {
+            c[p] = b & 1;
+        }
+        match &self.encoder {
+            Encoder::Sums(parity) => {
+                for (p, deps) in parity {
+                    c[*p] = deps.iter().fold(0, |a, &v| a ^ c[v]);
+                }
+            }
+            Encoder::Accumulate => {
+                let k = self.info.len();
+                let mut prev = 0u8;
+                for (r, row) in self.rows.iter().enumerate() {
+                    let s = row.iter().filter(|&&v| v < k).fold(0, |a, &v| a ^ c[v]);
+                    prev ^= s;
+                    c[k + r] = prev;
+                }
+            }
+        }
+        if !self.is_codeword(&c) {
+            return Err(Error::Numerical("the encoder produced a non-codeword".into()));
+        }
+        Ok(c)
+    }
+
+    fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
+        let (post, _) = self.decode_llr(llr)?;
+        Ok(self.info.iter().map(|&p| u8::from(post[p] < 0.0)).collect())
+    }
+}
+
+container_traits!(LdpcCode);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::testing::awgn_llr;
+    use com_core::rng::Rng;
+
+    #[test]
+    fn peg_builds_a_regular_code_without_four_cycles() {
+        let code = LdpcCode::peg(504, 252, 3, 2).unwrap();
+        assert_eq!(code.k(), 252);
+        assert!(code.girth() >= 6, "girth {}", code.girth());
+        let mut deg = vec![0; 504];
+        for r in code.rows() {
+            for &v in r {
+                deg[v] += 1;
+            }
+        }
+        assert!(deg.iter().all(|d| *d == 3));
+        let mut r = Rng::new(3);
+        for _ in 0..20 {
+            let info: Vec<u8> = (0..252).map(|_| r.bit()).collect();
+            assert!(code.is_codeword(&code.encode_block(&info).unwrap()));
+        }
+    }
+
+    #[test]
+    fn every_schedule_and_rule_decodes_and_layered_converges_faster() {
+        let mut code = LdpcCode::peg(504, 252, 3, 4).unwrap();
+        let mut r = Rng::new(5);
+        let info: Vec<u8> = (0..252).map(|_| r.bit()).collect();
+        let c = code.encode_block(&info).unwrap();
+        // Eb/N0 = 2.5 dB at rate 1/2: σ² = 1/(2 R Eb/N0)
+        let s2 = 1.0 / 10f64.powf(0.25);
+        let y = awgn_llr(&c, s2, &mut r);
+        let mut its = Vec::new();
+        for layered in [false, true] {
+            for rule in [CheckRule::SumProduct, CheckRule::NormalizedMinSum(0.8), CheckRule::OffsetMinSum(0.15)] {
+                code.layered = layered;
+                code.rule = rule;
+                let (post, it) = code.decode_llr(&y).unwrap();
+                assert!(code.is_codeword(&hard(&post)), "{rule:?} layered={layered}");
+                assert_eq!(code.decode_block(&y).unwrap(), info);
+                if rule == CheckRule::SumProduct {
+                    its.push(it);
+                }
+            }
+        }
+        assert!(its[1] <= its[0], "flooding {} vs layered {} iterations", its[0], its[1]);
+    }
+
+    #[test]
+    fn alist_files_round_trip_with_or_without_padding_and_comments() {
+        let code = LdpcCode::peg(96, 48, 3, 7).unwrap();
+        let text = code.to_alist();
+        assert_eq!(LdpcCode::from_alist(&text).unwrap(), code);
+        // the same matrix without the zero padding, with comments and blank lines
+        let hamming_padded = "7 3\n3 4\n3 2 2 2 1 1 1\n4 4 4\n1 2 3\n1 2 0\n1 3 0\n2 3 0\n1 0 0\n2 0 0\n\
+                              3 0 0\n1 2 3 5\n1 2 4 6\n1 3 4 7\n";
+        let hamming_bare = "# the (7, 4) Hamming code\n7 3\n\n3 4 # degrees\n3 2 2 2 1 1 1\n4 4 4\n\
+                            1 2 3\n1 2\n1 3\n2 3\n1\n2\n3\n1 2 3 5\n1 2 4 6\n1 3 4 7\n";
+        let a = LdpcCode::from_alist(hamming_padded).unwrap();
+        assert_eq!(LdpcCode::from_alist(hamming_bare).unwrap(), a);
+        assert_eq!(a.rows(), &[vec![0, 1, 2, 4], vec![0, 1, 3, 5], vec![0, 2, 3, 6]]);
+        let dir = std::env::temp_dir().join(format!("com-fec-alist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hamming.alist");
+        std::fs::write(&path, hamming_bare).unwrap();
+        assert_eq!(LdpcCode::from_alist_file(&path).unwrap(), a);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(matches!(LdpcCode::from_alist_file(dir.join("missing.alist")), Err(Error::Io(_))));
+    }
+
+    #[test]
+    fn malformed_alist_files_are_rejected() {
+        let good = "7 3\n3 4\n3 2 2 2 1 1 1\n4 4 4\n1 2 3\n1 2\n1 3\n2 3\n1\n2\n3\n1 2 3 5\n1 2 4 6\n1 3 4 7\n";
+        assert!(LdpcCode::from_alist(good).is_ok());
+        let cases = [
+            ("", "ends before"),
+            ("7 3\n3 4\n3 2 2 2 1 1 1\n", "ends before"),
+            (&good.replace("1 3 4 7", "1 3 4 x"), "not a number"),
+            (&good.replace("1 3 4 7", "1 3 4"), "numbers after the degrees"),
+            (&good.replace("1 3 4 7", "1 3 4 9"), "outside"),
+            (&good.replace("1 3 4 7", "1 3 3 7"), "repeated"),
+            (&good.replace("1 3 4 7", "1 3 5 7"), "does not list"),
+            (&good.replace("3 4\n3 2", "3 5\n3 2"), "maximum"),
+        ];
+        for (text, message) in cases {
+            match LdpcCode::from_alist(text) {
+                Err(Error::Config(e)) => assert!(e.contains(message), "{e:?} should name {message:?}"),
+                other => panic!("{text:?} gave {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn from_rows_handles_a_hamming_code() {
+        // the (7, 4) Hamming code
+        let code = LdpcCode::from_rows(7, vec![vec![0, 1, 2, 4], vec![0, 1, 3, 5], vec![0, 2, 3, 6]]).unwrap();
+        assert_eq!(code.k(), 4);
+        assert!(LdpcCode::from_rows(3, vec![vec![0, 5]]).is_err());
+    }
+}
+
+/// Checks against the published constructions (`references/`).
+#[cfg(test)]
+mod literature {
+    use super::*;
+
+    /// X.-Y. Hu, E. Eleftheriou and D. M. Arnold, "Regular and irregular progressive
+    /// edge-growth Tanner graphs," IEEE Trans. Inf. Theory 51(1), 2005, Sec. VI
+    /// (pp. 393-394): the regular (504, 252) PEG code with symbol degree 3 has girth 8
+    /// (a few nodes 10), and its check degrees are 6 except for a few nodes of degrees 5
+    /// and 7 (the paper: 8 of each).
+    #[test]
+    fn hu_2005_peg_504_252_has_girth_8() {
+        for seed in [0, 1, 2] {
+            let code = LdpcCode::peg(504, 252, 3, seed).unwrap();
+            assert_eq!(code.girth(), 8, "seed {seed}");
+            let mut degrees = std::collections::BTreeMap::new();
+            for r in code.rows() {
+                *degrees.entry(r.len()).or_insert(0usize) += 1;
+            }
+            assert_eq!(degrees.keys().copied().collect::<Vec<_>>(), [5, 6, 7], "seed {seed}: {degrees:?}");
+            assert_eq!(degrees[&5], degrees[&7]);
+            assert!(degrees[&5] <= 10 && degrees[&6] >= 230, "seed {seed}: {degrees:?}");
+        }
+    }
+}

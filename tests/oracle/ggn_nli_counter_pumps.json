@@ -1,0 +1,9 @@
+{
+ "data": 7.568688074593261e-07,
+ "name": "ggn_nli_counter_pumps",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "GNPy",
+ "version": "3.0.1"
+}

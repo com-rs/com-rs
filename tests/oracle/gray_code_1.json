@@ -1,0 +1,12 @@
+{
+ "data": [
+  0,
+  1
+ ],
+ "name": "gray_code_1",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

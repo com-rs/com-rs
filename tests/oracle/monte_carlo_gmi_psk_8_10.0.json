@@ -1,0 +1,12 @@
+{
+ "data": [
+  2.685122111580706,
+  0.8950407038602353
+ ],
+ "name": "monte_carlo_gmi_psk_8_10.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

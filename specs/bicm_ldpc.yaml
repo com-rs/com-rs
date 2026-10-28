@@ -1,0 +1,21 @@
+# Bit-interleaved coded modulation (Caire, Taricco & Biglieri 1998): a regular (3, 6)
+# LDPC code of 1024 bits built by progressive edge growth (Hu, Eleftheriou & Arnold
+# 2005), a random bit interleaver, 16-QAM over AWGN, exact LLRs and layered
+# sum-product decoding. The waterfall sits about 1.5 dB above the BICM limit of
+# 16-QAM at rate 1/2 (E_b/N_0 near 2.2 dB).
+name: bicm_ldpc
+description: LDPC (1024, 512) BICM with 16-QAM over AWGN
+seed: 6
+batch: 8
+grid:
+  ebn0_db: {from: 2.5, to: 5.0, step: 0.5}
+link:
+  - {type: fec_encode, code: &code {type: ldpc, n: 1024, k: 512, seed: 1}, blocks: 8, interleave: true}
+  - {type: map, constellation: 16-QAM}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+  - demap
+  - {type: fec_decode, code: *code, interleave: true}
+metrics: {report: [ber, coded_ber, bler]}
+stop: {min_errors: {bler: 100}, min_trials: 8, max_trials: 400}
+callbacks:
+  skip_below: {metric: bler, threshold: 1e-3, along: ebn0_db}

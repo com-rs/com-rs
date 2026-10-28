@@ -1,0 +1,17 @@
+{
+ "data": {
+  "decimated": {
+   "__npz__": "data.decimated"
+  },
+  "upsampled": {
+   "__npz__": "data.upsampled"
+  }
+ },
+ "name": "upsample_decimate",
+ "npz": "upsample_decimate.npz",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

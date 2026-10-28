@@ -1,0 +1,123 @@
+{
+ "bit_rate": [
+  55,
+  63
+ ],
+ "bits_per_frame": 330,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C RS -N 63 -K 55 -T 4 -m 4 -M 7.375 -s 0.25 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.017, "bit_errors": 1492, "ebn0_db": 4.0, "esn0_db": 3.41, "fer": 0.801, "frame_errors": 213, "frames": 266},
+  {"ber": 0.0127, "bit_errors": 1339, "ebn0_db": 4.25, "esn0_db": 3.66, "fer": 0.653, "frame_errors": 209, "frames": 320},
+  {"ber": 0.0106, "bit_errors": 1353, "ebn0_db": 4.5, "esn0_db": 3.91, "fer": 0.54, "frame_errors": 208, "frames": 385},
+  {"ber": 0.00663, "bit_errors": 1158, "ebn0_db": 4.75, "esn0_db": 4.16, "fer": 0.384, "frame_errors": 203, "frames": 529},
+  {"ber": 0.00458, "bit_errors": 1126, "ebn0_db": 5.0, "esn0_db": 4.41, "fer": 0.274, "frame_errors": 204, "frames": 745},
+  {"ber": 0.00263, "bit_errors": 1069, "ebn0_db": 5.25, "esn0_db": 4.66, "fer": 0.164, "frame_errors": 202, "frames": 1232},
+  {"ber": 0.00155, "bit_errors": 1052, "ebn0_db": 5.5, "esn0_db": 4.91, "fer": 0.0974, "frame_errors": 200, "frames": 2054},
+  {"ber": 0.000685, "bit_errors": 1022, "ebn0_db": 5.75, "esn0_db": 5.16, "fer": 0.0443, "frame_errors": 200, "frames": 4518},
+  {"ber": 0.000298, "bit_errors": 987, "ebn0_db": 6.0, "esn0_db": 5.41, "fer": 0.0199, "frame_errors": 200, "frames": 10045},
+  {"ber": 0.000112, "bit_errors": 942, "ebn0_db": 6.25, "esn0_db": 5.66, "fer": 0.00784, "frame_errors": 200, "frames": 25511},
+  {"ber": 4.31e-05, "bit_errors": 942, "ebn0_db": 6.5, "esn0_db": 5.91, "fer": 0.00302, "frame_errors": 200, "frames": 66230},
+  {"ber": 1.5e-05, "bit_errors": 927, "ebn0_db": 6.75, "esn0_db": 6.16, "fer": 0.00107, "frame_errors": 200, "frames": 186994},
+  {"ber": 3.61e-06, "bit_errors": 931, "ebn0_db": 7.0, "esn0_db": 6.41, "fer": 0.000256, "frame_errors": 200, "frames": 780771},
+  {"ber": 1.16e-06, "bit_errors": 935, "ebn0_db": 7.25, "esn0_db": 6.66, "fer": 8.16e-05, "frame_errors": 200, "frames": 2450720}
+ ],
+ "description": "Reed–Solomon (63, 55), t = 4, algebraic (Berlekamp–Massey) hard decoding",
+ "name": "rs_n63_k55_t4",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "330",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "378",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.873016 (55/63)",
+   "Codeword size (N_cw)": "378",
+   "Frame size (N)": "378",
+   "Info. bits (K)": "330",
+   "Symbols Codeword size": "63",
+   "Symbols Source size": "55",
+   "Type": "RS"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.873016",
+   "Codeword size (N_cw)": "63",
+   "Correction power (T)": "4",
+   "Galois field order (m)": "6",
+   "Implementation": "STD",
+   "Info. bits (K)": "55",
+   "Seed": "0",
+   "Systematic": "yes",
+   "Type (D)": "ALGEBRAIC"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.873016",
+   "Codeword size (N)": "63",
+   "Info. bits (K)": "55",
+   "Systematic": "yes",
+   "Type": "RS"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "378",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "330"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "378",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.873016 (55/63)",
+   "Code type (C)": "RS",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "4 -> 7.25 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "330",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "I. S. Reed and G. Solomon, J. SIAM 8(2), 1960; S. Lin and D. J. Costello, Error Control Coding, 2nd ed., Pearson, 2004, ch. 7"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

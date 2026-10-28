@@ -1,0 +1,25 @@
+{
+ "data": {
+  "mzm": [
+   {
+    "__npz__": "data.mzm.0"
+   },
+   {
+    "__npz__": "data.mzm.1"
+   },
+   {
+    "__npz__": "data.mzm.2"
+   }
+  ],
+  "pm": {
+   "__npz__": "data.pm"
+  }
+ },
+ "name": "mzm_phase_modulator",
+ "npz": "mzm_phase_modulator.npz",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

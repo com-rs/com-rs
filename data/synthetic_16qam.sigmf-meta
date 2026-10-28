@@ -1,0 +1,17 @@
+{
+  "global": {
+    "core:datatype": "ci16_le",
+    "core:sample_rate": 80000000000.0,
+    "core:version": "1.0.0",
+    "core:recorder": "comrs 0.1.0",
+    "core:description": "synthetic capture: 32 GBd 16-QAM, 200 km SSMF, 18 dB SNR, 100 kHz lasers, 300 MHz LO offset, 80 GS/s",
+    "comrs:symbol_rate": 32000000000.0,
+    "comrs:reference": "synthetic_16qam_reference.npy"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0
+    }
+  ],
+  "annotations": []
+}

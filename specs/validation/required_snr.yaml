@@ -1,0 +1,25 @@
+# The operating point instead of the curve: the Eb/N0 at which Gray QPSK, 16-QAM and
+# 64-QAM reach a BER of 1e-3 over AWGN, found by bisection with common random numbers,
+# against the inverse of the closed forms (Proakis & Salehi, Sec. 4.3; for QPSK the
+# exact Q(√(2 Eb/N0)), for QAM the nearest-neighbour approximation, within 0.02 dB of
+# the exact BER at this rate). The check passes when the theory lies in the confidence
+# interval of the search widened by 0.05 dB.
+name: required_snr
+description: Eb/N0 for a BER of 1e-3 of Gray QAM over AWGN, search against the theory
+seed: 7
+batch: 32
+grid:
+  m: [4, 16, 64]
+link:
+  - {type: source, constellation: {kind: qam, m: $m}, n_symbols: 8192}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+metrics: {report: [ber], scale: none}
+stop: {min_errors: {ber: 2000}, min_trials: 32, max_trials: 4000}
+search: {along: ebn0_db, range: [2, 20], metric: ber, target: 1.0e-3, tolerance: 0.02}
+expect:
+  - name: Eb/N0 at a BER of 1e-3
+    source: Proakis & Salehi, Digital Communications, 5th ed., Sec. 4.3 (inverted)
+    metric: ebn0_db
+    theory: {function: ebn0_for_ber, kind: qam, m: $m, target: 1.0e-3}
+    interval: 0.95
+    atol: 0.05

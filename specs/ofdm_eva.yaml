@@ -1,0 +1,29 @@
+# OFDM over the EVA channel of 3GPP TS 36.101 (Doppler 70 Hz), QPSK, 200 subcarriers of
+# 15 kHz, cyclic prefix of 18 samples, lattice pilots every 3 subcarriers and 4 symbols.
+# With the channel known, every subcarrier is a flat Rayleigh channel (the BER of BPSK
+# over Rayleigh fading, Proakis & Salehi eq. (13.3-7)); estimating it from the pilots
+# costs a fraction of a dB, less with LMMSE interpolation (Edfors et al. 1998) than with
+# linear interpolation.
+name: ofdm_eva
+description: OFDM over EVA, perfect, LMMSE and LS channel estimation
+seed: 4
+batch: 16
+grid:
+  estimation: [perfect, lmmse, ls]
+  ebn0_db: [5, 10, 15, 20]
+link:
+  - {type: source, constellation: QPSK, n_symbols: 2400}
+  - {type: ofdm_tx, n_fft: 256, n_subcarriers: 200, n_cp: 18, pilots: {pattern: lattice, freq: 3, time: 4}}
+  - {type: tdl, profile: EVA, doppler_hz: 70}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+  - {type: ofdm_rx, estimation: $estimation, detector: zf}
+metrics: {report: [ber], scale: none}
+# one channel realisation per trial: the precision is set by the number of trials
+stop: {min_trials: 2000, max_trials: 2000}
+expect:
+  - name: known channel, flat Rayleigh subcarriers
+    source: Proakis & Salehi, Digital Communications, 5th ed., eq. (13.3-7)
+    where: {estimation: perfect}
+    metric: ber
+    theory: {function: ber_rayleigh, m: 4, ebn0_db: $ebn0_db, branches: 1}
+    rtol: 0.1

@@ -1,0 +1,12 @@
+{
+ "data": {
+  "decided": 0.08108430302042746,
+  "with_reference": 0.09910903843948884
+ },
+ "name": "evm_psk_8_10.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

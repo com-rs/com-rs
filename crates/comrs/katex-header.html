@@ -1,0 +1,19 @@
+<!-- KaTeX for the formulas of rustdoc (docs/ARCHITECTURE.md, "Documentation standards").
+     Each crate ships a copy as katex-header.html, since docs.rs builds crates in isolation;
+     `just katex` refreshes the copies. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        renderMathInElement(document.body, {
+            delimiters: [
+                { left: "$$", right: "$$", display: true },
+                { left: "\\(", right: "\\)", display: false },
+                { left: "$", right: "$", display: false },
+                { left: "\\[", right: "\\]", display: true }
+            ],
+            ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+        });
+    });
+</script>

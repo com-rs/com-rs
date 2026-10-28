@@ -1,0 +1,98 @@
+{
+  "machine": {
+    "cpu": "Apple M6",
+    "cores": 12,
+    "python": "3.12.15",
+    "numpy": "2.5.4",
+    "numba": "0.68.0",
+    "opticommpy": "0.11",
+    "comrs": "0.2.0",
+    "system": "Darwin 27.0.0"
+  },
+  "cases": [
+    {
+      "name": "split-step Fourier, 5 x 80 km, 800 steps, 65536 samples",
+      "ref": 1.2739642080268823,
+      "ours": 0.5592509590205736,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "split-step Fourier in f32, same link",
+      "ref": 1.2742107920057606,
+      "ours": 0.33304462500382215,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "linear fibre channel, 1048576 samples",
+      "ref": 0.028006874985294417,
+      "ours": 0.014890999998897314,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "FIR filter, 1024 taps, 262144 samples",
+      "ref": 0.0042501249990891665,
+      "ours": 0.002300499996636063,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "blind phase search, B = 64, N = 35, 32768 symbols",
+      "ref": 0.012335000006714836,
+      "ours": 0.007087917008902878,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "Viterbi-Viterbi, 32768 symbols",
+      "ref": 0.0009732080216053873,
+      "ours": 0.00028495799051597714,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "decision-directed PLL, 32768 symbols",
+      "ref": 0.0014234580157790333,
+      "ours": 0.0008412089955527335,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "Gardner clock recovery, 65536 samples",
+      "ref": 0.020355707994895056,
+      "ours": 0.00043250000453554094,
+      "agree": true,
+      "checked": true
+    },
+    {
+      "name": "adaptive equaliser (CMA, 15 taps), 32768 symbols",
+      "ref": 0.02122358398628421,
+      "ours": 0.0015164589858613908,
+      "agree": true,
+      "checked": false
+    },
+    {
+      "name": "BER, SER and SNR (fastBERcalc), 64-QAM, 1048576 symbols",
+      "ref": 0.06410779198631644,
+      "ours": 0.007038041017949581,
+      "agree": true,
+      "checked": false
+    },
+    {
+      "name": "GMI (monteCarloGMI), 16-QAM, 32768 symbols",
+      "ref": 0.006833917024778202,
+      "ours": 0.007222459011245519,
+      "agree": true,
+      "checked": false
+    }
+  ],
+  "campaign": {
+    "name": "Monte Carlo BER campaign: 16-QAM, 8 points x 100 blocks of 4096 symbols",
+    "ref": 0.33179187501082197,
+    "ours": 0.07433900001342408,
+    "ours_all": 0.012010083009954542,
+    "agree": true
+  }
+}

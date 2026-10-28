@@ -1,0 +1,27 @@
+[package]
+name = "com-math"
+description = "Numerical methods of com-rs: special functions, Gauss–Hermite quadrature, FFT plans, complex linear algebra, nearest-point search, NLSE split-step solver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/com-math"
+keywords = ["special-functions", "quadrature", "fft", "nlse", "communications"]
+categories.workspace = true
+readme = "README.md"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
+all-features = true
+
+[lints]
+workspace = true
+
+[dependencies]
+com-core.workspace = true
+num-complex.workspace = true
+rustfft.workspace = true
+ndarray.workspace = true

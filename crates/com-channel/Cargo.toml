@@ -1,0 +1,33 @@
+[package]
+name = "com-channel"
+description = "Propagation media of com-rs: AWGN, flat and multipath fading, TDL and CDL channels of 3GPP TR 38.901, optical fibre (linear, split-step, Manakov-PMD, EDFA, Raman, GN and EGN models)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/com-channel"
+keywords = ["awgn", "fading", "channel-model", "optics", "wireless"]
+categories.workspace = true
+readme = "README.md"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
+all-features = true
+
+[lints]
+workspace = true
+
+[dependencies]
+com-core.workspace = true
+com-math.workspace = true
+com-dsp.workspace = true
+num-complex.workspace = true
+ndarray.workspace = true
+
+[features]
+default = ["optical"]
+# optical fibre: linear channel, split-step Fourier, Manakov-PMD, EDFA
+optical = []

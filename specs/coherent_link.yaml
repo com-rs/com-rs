@@ -1,0 +1,32 @@
+# A single-polarisation coherent link with the standard receiver DSP chain: the
+# declarative form of the example `coherent_link`. 16-QAM at 32 GBd, root-raised-cosine
+# shaping (roll-off 0.2, 2 samples per symbol), lasers of 100 kHz linewidth, a local
+# oscillator detuned by 500 MHz, then dispersion compensation, matched filter, Gardner
+# clock recovery, decimation, fourth-power frequency estimation, blind phase search and
+# frame synchronisation on a preamble of 512 symbols placed after the convergence of the
+# clock loop.
+name: coherent_link
+description: 16-QAM at 32 GBd over standard fibre, SNR penalty of the receiver DSP
+seed: 7
+batch: 8
+grid:
+  length_km: [80, 1000, 3000]
+  snr_db: [14, 16, 18, 20]
+link:
+  - {type: source, constellation: 16-QAM, n_symbols: 16384, symbol_rate: 32e9}
+  - {type: pulse_shape, sps: 2, rolloff: 0.2}
+  - {type: phase_noise, label: tx_laser, linewidth_hz: 100e3}
+  - {type: fiber, length_km: $length_km}
+  - {type: normalize}
+  - {type: awgn, snr_db: $snr_db}
+  - {type: phase_noise, label: lo_laser, linewidth_hz: 100e3}
+  - {type: cfo, hz: -500e6}
+  - {type: cdc, length_km: $length_km}
+  - {type: matched_filter, rolloff: 0.2}
+  - {type: gardner, kp: 3e-3, ki: 1e-5}
+  - decimate
+  - {type: foe, refined: true}
+  - {type: bps, n: 32, b: 32}
+  - {type: frame_sync, start: 2048, length: 512, max_delay: 64}
+metrics: {report: [ber, snr_db, evm], skip_start: 2560, skip_end: 256}
+stop: {min_errors: {ber: 200}, min_trials: 16, max_trials: 256}

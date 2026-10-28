@@ -1,0 +1,49 @@
+# Error rates over AWGN against the closed forms of the textbooks: the symbol error
+# rate of square QAM and PAM is exact, that of PSK the nearest-neighbour bound (tight
+# for M ≥ 4); the bit error rate of Gray mapping is the nearest-neighbour approximation
+# P_b ≈ P_s / log2 M of the exact SER, within a few percent above 4 dB.
+name: proakis_awgn
+description: BER and SER of Gray QAM, PSK and PAM over AWGN against the closed forms
+seed: 3
+batch: 32
+cases:
+  - {kind: qam, m: 4}
+  - {kind: qam, m: 16}
+  - {kind: qam, m: 64}
+  - {kind: psk, m: 8}
+  - {kind: pam, m: 4}
+grid:
+  ebn0_db: [4, 6, 8, 10, 12]
+link:
+  - {type: source, constellation: {kind: $kind, m: $m}, n_symbols: 8192}
+  - {type: awgn_ebn0, ebn0_db: $ebn0_db}
+metrics: {report: [ber, ser], scale: none}
+stop: {min_errors: {ser: 2000}, min_trials: 32, max_trials: 2000}
+expect:
+  - name: SER of square QAM (exact)
+    source: Proakis & Salehi, Digital Communications, 5th ed., Sec. 4.3 (square QAM as two PAM)
+    where: {kind: qam}
+    metric: ser
+    theory: {function: ser, kind: qam, m: $m, ebn0_db: $ebn0_db}
+    interval: 0.999
+    min_count: 100
+  - name: SER of PAM (exact)
+    source: Proakis & Salehi, Digital Communications, 5th ed., Sec. 4.3
+    where: {kind: pam}
+    metric: ser
+    theory: {function: ser, kind: pam, m: $m, ebn0_db: $ebn0_db}
+    interval: 0.999
+    min_count: 100
+  - name: SER of 8-PSK (nearest-neighbour bound)
+    source: Proakis & Salehi, Digital Communications, 5th ed., Sec. 4.3
+    where: {kind: psk}
+    metric: ser
+    theory: {function: ser, kind: psk, m: $m, ebn0_db: $ebn0_db}
+    rtol: 0.05
+    min_count: 100
+  - name: BER of Gray QAM, PSK and PAM (nearest-neighbour approximation)
+    source: Proakis & Salehi, Digital Communications, 5th ed., Sec. 4.3; OptiCommPy theoryBER
+    metric: ber
+    theory: {function: ber, kind: $kind, m: $m, ebn0_db: $ebn0_db}
+    rtol: 0.08
+    min_count: 1000

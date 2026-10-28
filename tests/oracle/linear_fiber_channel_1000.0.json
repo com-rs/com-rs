@@ -1,0 +1,12 @@
+{
+ "data": {
+  "__npz__": "data"
+ },
+ "name": "linear_fiber_channel_1000.0",
+ "npz": "linear_fiber_channel_1000.0.npz",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

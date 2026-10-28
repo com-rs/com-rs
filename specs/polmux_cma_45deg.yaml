@@ -1,0 +1,41 @@
+# The worst case of blind polarisation demultiplexing: the two polarisations of
+# DP-16QAM mixed by a real rotation of 45°, so that both inputs of the 2 x 2 equaliser
+# carry the same mixture. Started from the identity, the CMA converges with both
+# outputs on the same polarisation (the singularity) in about half of the trials;
+# Kikuchi's two-stage initialisation removes the singularity. The equaliser and the
+# channel are those of polmux_cma.yaml.
+name: polmux_cma_45deg
+description: 2 x 2 CMA at the 45° rotation, with and without Kikuchi's initialisation
+seed: 22
+batch: 25
+grid:
+  kikuchi: [0, 3000]
+link:
+  - {type: source, constellation: 16-QAM, n_symbols: 16384, symbol_rate: 32e9, pols: 2}
+  - {type: pulse_shape, sps: 2, rolloff: 0.2}
+  - {type: pmd, theta_deg: 45}
+  - {type: awgn, snr_db: 20}
+  - {type: matched_filter, rolloff: 0.2}
+  - {type: adaptive_equalizer, label: eq, algorithm: [[cma, 6000], [rde, 1000000000]], mu: [2e-3, 1e-4], n_taps: 15, kikuchi: $kikuchi}
+  - {type: frame_sync, start: 12384, length: 512, max_delay: 16, symmetry: 0}
+metrics: {report: [snr_db, ber], skip_start: 10384, skip_end: 64}
+stop: {min_trials: 200, max_trials: 200}
+expect:
+  - name: the singularity from the identity
+    source: K. Kikuchi, IEEE/LEOS Summer Topical Meetings, 2008
+    where: {kikuchi: 0}
+    metric: eq.singular
+    value: 0.5
+    atol: 0.15
+  - name: no singularity with Kikuchi's initialisation
+    source: Kikuchi (2008)
+    where: {kikuchi: 3000}
+    metric: eq.singular
+    value: 0
+    atol: 0.03
+  - name: SNR after the equaliser, Kikuchi initialisation
+    source: Kikuchi (2008)
+    where: {kikuchi: 3000}
+    metric: snr_db
+    value: 20
+    atol: 1.5

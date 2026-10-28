@@ -1,0 +1,31 @@
+# Achievable information rates over AWGN: the Monte Carlo estimates of the symbol-wise
+# mutual information and of the generalised mutual information of a bit-wise decoder
+# against their Gauss-Hermite quadratures (the definitions of Alvarado et al., JLT
+# 2018; the quadrature of OptiCommPy theoryMI and theoryGMI, checked against it in the
+# Python tests).
+name: information_rates
+description: MI and GMI of QAM and PSK over AWGN, Monte Carlo against quadrature
+seed: 5
+batch: 8
+cases:
+  - {kind: qam, m: 16}
+  - {kind: qam, m: 64}
+  - {kind: psk, m: 8}
+grid:
+  snr_db: [0, 5, 10, 15, 20]
+link:
+  - {type: source, constellation: {kind: $kind, m: $m}, n_symbols: 16384}
+  - {type: awgn, snr_db: $snr_db}
+metrics: {report: [mi, gmi], scale: none}
+stop: {max_trials: 8}
+expect:
+  - name: Symbol-wise mutual information
+    source: Gauss-Hermite quadrature (Alvarado et al., JLT 36(2), 2018; OptiCommPy theoryMI)
+    metric: mi
+    theory: {function: mi, kind: $kind, m: $m, snr_db: $snr_db}
+    atol: 0.02
+  - name: Generalised mutual information (Gray labels)
+    source: Gauss-Hermite quadrature (Alvarado et al., JLT 36(2), 2018; OptiCommPy theoryGMI)
+    metric: gmi
+    theory: {function: gmi, kind: $kind, m: $m, snr_db: $snr_db}
+    atol: 0.02

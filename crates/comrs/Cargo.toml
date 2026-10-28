@@ -1,0 +1,73 @@
+[package]
+name = "comrs"
+description = "Link-level simulation of digital communication systems, wireless and optical: the facade of the com-rs workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/comrs"
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+# the test of the specifications reads specs/ of the repository, outside the crate
+exclude = ["tests/specs.rs"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
+features = ["optical", "spec"]
+
+[lints]
+workspace = true
+
+[dependencies]
+com-core.workspace = true
+com-math.workspace = true
+com-dsp.workspace = true
+com-fec.workspace = true
+com-mapping.workspace = true
+com-waveform.workspace = true
+com-mimo.workspace = true
+com-channel.workspace = true
+com-hardware.workspace = true
+com-metrics.workspace = true
+com-sim.workspace = true
+com-spec = { workspace = true, optional = true }
+com-systems.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+serde_json.workspace = true
+
+[features]
+default = ["optical", "spec"]
+# optical fibre and optical devices (`channel::optical`, `hardware::optical`)
+optical = ["com-channel/optical", "com-hardware/optical"]
+# declarative campaigns, recordings I/O (`com::spec`, `com::io`)
+spec = ["dep:com-spec"]
+
+[[example]]
+name = "ber_awgn"
+path = "../../examples/ber_awgn.rs"
+
+[[example]]
+name = "coherent_link"
+path = "../../examples/coherent_link.rs"
+required-features = ["optical"]
+
+[[example]]
+name = "ssfm_dbp"
+path = "../../examples/ssfm_dbp.rs"
+required-features = ["optical"]
+
+[[example]]
+name = "make_capture"
+path = "../../examples/make_capture.rs"
+required-features = ["spec"]
+
+[[bench]]
+name = "blocks"
+path = "../../benches/blocks.rs"
+harness = false

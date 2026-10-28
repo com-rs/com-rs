@@ -1,0 +1,21 @@
+target/
+.venv/
+__pycache__/
+*.so
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+results/
+docs/python/_build/
+docs/python/auto_examples/
+docs/python/auto_tutorials/
+docs/python/api/generated/
+docs/python/sg_execution_times.rst
+# the standards and papers of references/ are not redistributable: keep the list, not the files
+references/*
+!references/README.md
+.DS_Store
+# local tools and build outputs
+.claude/
+dist/
+.venv-agent/

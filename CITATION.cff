@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use com-rs in your research, please cite it with these metadata."
+title: "com-rs: link-level simulation of digital communication systems"
+type: software
+authors:
+  - family-names: Choqueuse
+    given-names: Vincent
+    email: vincent.choqueuse@gmail.com
+version: 0.2.0
+license: MIT OR Apache-2.0
+repository-code: "https://github.com/com-rs/com-rs"
+url: "https://com-rs.github.io/com-rs/"
+abstract: >-
+  Link-level simulation of digital communication systems, wireless and optical, in
+  Rust with Python bindings: the blocks of a link, a parallel Monte Carlo runner whose
+  results do not depend on the thread count, and declarative campaigns checked against
+  the literature.
+keywords:
+  - digital communications
+  - link-level simulation
+  - Monte Carlo
+  - optical communications
+  - wireless communications
+  - channel coding

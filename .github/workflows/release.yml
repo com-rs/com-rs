@@ -1,0 +1,205 @@
+name: Release
+
+# A tag `vX.Y.Z` on main publishes the crates on crates.io, the wheels and the sdist of
+# the Python package on PyPI, and a GitHub Release whose notes are the section of
+# CHANGELOG.md for that version. The tag must equal `workspace.package.version`.
+#
+# A dry run (Actions → Release → Run workflow) builds the wheels and the sdist, installs
+# them on Linux, macOS and Windows, and publishes them on TestPyPI only: no crate, no
+# GitHub Release. Do it before the first tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        name: the tag equals the version of the workspace
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version'])")
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but workspace.package.version = ${version}"
+            exit 1
+          fi
+          if ! grep -qx "version: ${version}" CITATION.cff; then
+            echo "::error::CITATION.cff does not give version ${version}"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: CHANGELOG.md has a section for the version
+        run: |
+          awk -v v="${{ steps.check.outputs.version }}" '
+            /^## / { if (found) exit; if (index($0, "[" v "]") || index($0, "— " v)) { found = 1; next } }
+            found { print }' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "::error::no section of CHANGELOG.md for ${{ steps.check.outputs.version }}"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
+
+  crates:
+    needs: version
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The first release needs an API token of crates.io (secret CARGO_REGISTRY_TOKEN):
+      # trusted publishing can only be configured for crates that already exist.
+      # Afterwards, configure trusted publishing for every crate on crates.io, give this
+      # job `permissions: id-token: write`, and replace the token by
+      #   - uses: rust-lang/crates-io-auth-action@v1
+      #     id: auth
+      # with CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}.
+      # crates.io rate-limits the publication of new crate names: if the job stops on
+      # HTTP 429, wait for the delay that the error names, then rerun the job, or publish
+      # the remaining crates with `cargo publish -p <crate>` in the order of the layers
+      # if the rerun stops on a crate already published.
+      - name: publish the crates of the workspace, in the order of their dependencies
+        run: cargo publish --workspace
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  wheels:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { os: ubuntu-latest, target: aarch64, manylinux: auto }
+          # Alpine and the small container images (musl libc)
+          - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
+          - { os: ubuntu-latest, target: aarch64, manylinux: musllinux_1_2 }
+          - { os: macos-latest, target: x86_64 }
+          - { os: macos-latest, target: aarch64 }
+          - { os: windows-latest, target: x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # one abi3 wheel per platform (PyO3 feature `abi3-py311`): CPython 3.11 and later
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
+          path: dist
+
+  sdist:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  # The wheel of each system installs from the built files alone and runs a link.
+  install:
+    needs: wheels
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: install the wheel and run a link
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: --find-links dist comrs
+          python -c "import comrs; rng = comrs.Rng(1); c = comrs.Constellation('qam', 16).normalized(); b = comrs.bits(4 * 20000, rng); y = comrs.awgn_ebn0(c.modulate(b), 10.0, 4, rng); print(comrs.__version__, comrs.ber(c.demodulate(y), b))"
+
+  testpypi:
+    needs: [install, sdist]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Register a pending publisher on test.pypi.org first (project `comrs`, repository
+    # com-rs/com-rs, workflow release.yml, environment `testpypi`).
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/comrs/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: [install, sdist]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Trusted publishing: before the first release, register a pending publisher on
+    # PyPI (project `comrs`, repository com-rs/com-rs, workflow release.yml,
+    # environment `pypi`). No token is stored in the repository.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/comrs/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [version, crates, pypi]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: GitHub Release with the notes of CHANGELOG.md
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "com-rs ${{ needs.version.outputs.version }}" --notes-file notes.md dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,122 @@
+[workspace]
+resolver = "3"
+# the layers of docs/ARCHITECTURE.md, bottom-up; dependencies point downward only
+members = [
+    # layer 0: foundation
+    "crates/com-core",
+    "crates/com-math",
+    # layer 1: generic signal processing
+    "crates/com-dsp",
+    # layer 2: link blocks
+    "crates/com-fec",
+    "crates/com-mapping",
+    "crates/com-waveform",
+    "crates/com-mimo",
+    "crates/com-channel",
+    "crates/com-hardware",
+    "crates/com-metrics",
+    # layer 3: simulation
+    "crates/com-sim",
+    # layer 4: integration
+    "crates/com-spec",
+    "crates/com-systems",
+    "crates/comrs",
+    # bindings and validation
+    "bindings/com-py",
+    "validation",
+]
+default-members = [
+    "crates/com-core",
+    "crates/com-math",
+    "crates/com-dsp",
+    "crates/com-fec",
+    "crates/com-mapping",
+    "crates/com-waveform",
+    "crates/com-mimo",
+    "crates/com-channel",
+    "crates/com-hardware",
+    "crates/com-metrics",
+    "crates/com-sim",
+    "crates/com-spec",
+    "crates/com-systems",
+    "crates/comrs",
+    "validation",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"          # MSRV, tested in CI
+license = "MIT OR Apache-2.0"
+authors = ["Vincent Choqueuse <vincent.choqueuse@gmail.com>"]
+repository = "https://github.com/com-rs/com-rs"
+homepage = "https://com-rs.github.io/com-rs/"
+# the keywords of the facade `comrs`; every other crate lists its own
+keywords = ["communications", "wireless", "optics", "simulation", "dsp"]
+categories = ["science", "simulation"]
+
+[workspace.dependencies]
+# the crates of the workspace (one version, released together)
+com-core = { path = "crates/com-core", version = "0.2.0" }
+com-math = { path = "crates/com-math", version = "0.2.0" }
+com-dsp = { path = "crates/com-dsp", version = "0.2.0" }
+com-fec = { path = "crates/com-fec", version = "0.2.0" }
+com-mapping = { path = "crates/com-mapping", version = "0.2.0" }
+com-waveform = { path = "crates/com-waveform", version = "0.2.0" }
+com-mimo = { path = "crates/com-mimo", version = "0.2.0" }
+com-channel = { path = "crates/com-channel", version = "0.2.0" }
+com-hardware = { path = "crates/com-hardware", version = "0.2.0" }
+com-metrics = { path = "crates/com-metrics", version = "0.2.0" }
+com-sim = { path = "crates/com-sim", version = "0.2.0" }
+com-spec = { path = "crates/com-spec", version = "0.2.0" }
+com-systems = { path = "crates/com-systems", version = "0.2.0" }
+comrs = { path = "crates/comrs", version = "0.2.0", default-features = false }
+# third-party
+num-complex = "0.4"
+ndarray = "0.16"
+rustfft = "6.2"
+rayon = "1.10"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_norway = "0.9"
+toml = "0.8"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"  # usize -> f64 is pervasive in numeric code
+unwrap_used = "deny"
+expect_used = "warn"
+allow_attributes_without_reason = "warn"
+# numeric-code exceptions to `pedantic`, recorded in docs/adr/0005-lint-exceptions.md
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+similar_names = "allow"
+many_single_char_names = "allow"
+module_name_repetitions = "allow"
+needless_range_loop = "allow"
+float_cmp = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+suboptimal_flops = "allow"     # mul_add changes the rounding of published results
+manual_midpoint = "allow"      # f64::midpoint changes the rounding of published results
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+missing_panics_doc = "allow"
+naive_bytecount = "allow"      # suggests an extra dependency for test code
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+
+[profile.test]
+opt-level = 2

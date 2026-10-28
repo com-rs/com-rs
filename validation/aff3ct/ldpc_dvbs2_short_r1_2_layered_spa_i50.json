@@ -1,0 +1,119 @@
+{
+ "bit_rate": [
+  4,
+  9
+ ],
+ "bits_per_frame": 16200,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C LDPC -N 16200 -K 7200 --enc-type LDPC_DVBS2 --sim-coded -D BP_HORIZONTAL_LAYERED --dec-implem SPA -i 50 -m 0.5 -M 0.95 -s 0.1 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.0606, "bit_errors": 239541, "ebn0_db": 0.5, "esn0_db": -3.02, "fer": 0.865, "frame_errors": 211, "frames": 244},
+  {"ber": 0.0294, "bit_errors": 195077, "ebn0_db": 0.6, "esn0_db": -2.92, "fer": 0.51, "frame_errors": 209, "frames": 410},
+  {"ber": 0.00776, "bit_errors": 161453, "ebn0_db": 0.7, "esn0_db": -2.82, "fer": 0.163, "frame_errors": 209, "frames": 1284},
+  {"ber": 0.00104, "bit_errors": 128289, "ebn0_db": 0.8, "esn0_db": -2.72, "fer": 0.0264, "frame_errors": 200, "frames": 7587},
+  {"ber": 6.94e-05, "bit_errors": 104090, "ebn0_db": 0.9, "esn0_db": -2.62, "fer": 0.00216, "frame_errors": 200, "frames": 92580}
+ ],
+ "description": "DVB-S2 LDPC, short frame, rate 1/2 (16200, 7200), layered sum-product, 50 iterations",
+ "name": "ldpc_dvbs2_short_r1_2_layered_spa_i50",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "7200",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "16200",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.444444 (4/9)",
+   "Codeword size (N_cw)": "16200",
+   "Frame size (N)": "16200",
+   "Info. bits (K)": "7200",
+   "Type": "LDPC"
+  },
+  "Decoder": {
+   "Code rate (R)": "0.444444",
+   "Codeword size (N_cw)": "16200",
+   "Implementation": "SPA",
+   "Info. bits (K)": "7200",
+   "Num. of iterations (i)": "50",
+   "Seed": "0",
+   "Stop criterion (syndrome)": "on",
+   "Stop criterion depth": "1",
+   "Systematic": "yes",
+   "Type (D)": "BP_HORIZONTAL_LAYERED"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.444444",
+   "Codeword size (N)": "16200",
+   "Info. bits (K)": "7200",
+   "Systematic": "yes",
+   "Type": "LDPC_DVBS2"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "16200",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "16200"
+  },
+  "Puncturer": {
+   "Codeword size": "16200",
+   "Frame size (N)": "16200",
+   "Info. bits (K)": "7200",
+   "Type": "NO"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "16200",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.444444 (4/9)",
+   "Code type (C)": "LDPC",
+   "Coded monitoring": "yes",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "0.5 -> 0.9 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "7200",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "ETSI EN 302 307-1 V1.4.1, Sec. 5.3.2 and Table B.1 (short frame, rate 1/2)"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

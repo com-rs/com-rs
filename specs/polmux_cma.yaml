@@ -1,0 +1,41 @@
+# Blind polarisation demultiplexing of DP-16QAM at 32 GBd by a 2 x 2 adaptive
+# equaliser (15 taps at 2 samples per symbol): CMA (Godard 1980) then RDE, step sizes
+# 2e-3 then 1e-4, after a random rotation of the polarisations and polarisation-mode
+# dispersion of mean DGD 0, 10 and 20 ps (the coarse-step model of Marcuse, Menyuk &
+# Wai 1997, a new realisation every trial), at an SNR of 20 dB.
+#
+# The equaliser starts from the identity (kikuchi: 0) or from Kikuchi's two-stage
+# initialisation (output x alone for 3000 symbols, then output y as its unitary
+# complement), which keeps both outputs from converging to the same polarisation.
+# With it, the SNR after the equaliser is within 1.5 dB of the channel's and no trial
+# ends singular; the residual penalty is the misadjustment of the stochastic gradient.
+name: polmux_cma
+description: 2 x 2 CMA/RDE polarisation demultiplexing under random rotation and PMD
+seed: 21
+batch: 25
+grid:
+  kikuchi: [0, 3000]
+  dgd_ps: [0, 10, 20]
+link:
+  - {type: source, constellation: 16-QAM, n_symbols: 16384, symbol_rate: 32e9, pols: 2}
+  - {type: pulse_shape, sps: 2, rolloff: 0.2}
+  - {type: pmd, mean_dgd_ps: $dgd_ps}
+  - {type: awgn, snr_db: 20}
+  - {type: matched_filter, rolloff: 0.2}
+  - {type: adaptive_equalizer, label: eq, algorithm: [[cma, 6000], [rde, 1000000000]], mu: [2e-3, 1e-4], n_taps: 15, kikuchi: $kikuchi}
+  - {type: frame_sync, start: 12384, length: 512, max_delay: 16, symmetry: 0}
+metrics: {report: [snr_db, ber], skip_start: 10384, skip_end: 64}
+stop: {min_trials: 200, max_trials: 200}
+expect:
+  - name: SNR after the equaliser, Kikuchi initialisation
+    source: K. Kikuchi, "Polarization-demultiplexing algorithm in the digital coherent receiver," IEEE/LEOS Summer Topical Meetings, 2008
+    where: {kikuchi: 3000}
+    metric: snr_db
+    value: 20
+    atol: 1.5
+  - name: no singular trial, Kikuchi initialisation
+    source: Kikuchi (2008)
+    where: {kikuchi: 3000}
+    metric: eq.singular
+    value: 0
+    atol: 0.02

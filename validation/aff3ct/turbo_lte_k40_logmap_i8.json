@@ -1,0 +1,162 @@
+{
+ "bit_rate": [
+  10,
+  33
+ ],
+ "bits_per_frame": 40,
+ "build": "Mac OS X 64-bit, clang++-21.0, NEONv2",
+ "command": "aff3ct -C TURBO -K 40 --enc-sub-std LTE --itl-type LTE -i 8 --dec-sub-type BCJR --dec-sub-implem STD --dec-sub-max MAXS -m 0 -M 4.75 -s 0.5 -e 200 -S 1 -p 64",
+ "data": [
+  {"ber": 0.11, "bit_errors": 1548, "ebn0_db": 0.0, "esn0_db": -5.19, "fer": 0.587, "frame_errors": 206, "frames": 351},
+  {"ber": 0.0636, "bit_errors": 1372, "ebn0_db": 0.5, "esn0_db": -4.69, "fer": 0.377, "frame_errors": 203, "frames": 539},
+  {"ber": 0.0448, "bit_errors": 1442, "ebn0_db": 1.0, "esn0_db": -4.19, "fer": 0.252, "frame_errors": 203, "frames": 804},
+  {"ber": 0.017, "bit_errors": 1328, "ebn0_db": 1.5, "esn0_db": -3.69, "fer": 0.105, "frame_errors": 206, "frames": 1957},
+  {"ber": 0.00742, "bit_errors": 1300, "ebn0_db": 2.0, "esn0_db": -3.19, "fer": 0.0456, "frame_errors": 200, "frames": 4382},
+  {"ber": 0.00266, "bit_errors": 1354, "ebn0_db": 2.5, "esn0_db": -2.69, "fer": 0.0159, "frame_errors": 202, "frames": 12714},
+  {"ber": 0.000742, "bit_errors": 1180, "ebn0_db": 3.0, "esn0_db": -2.19, "fer": 0.00503, "frame_errors": 200, "frames": 39778},
+  {"ber": 0.000156, "bit_errors": 1156, "ebn0_db": 3.5, "esn0_db": -1.69, "fer": 0.00108, "frame_errors": 200, "frames": 185420},
+  {"ber": 3.04e-05, "bit_errors": 998, "ebn0_db": 4.0, "esn0_db": -1.19, "fer": 0.000243, "frame_errors": 200, "frames": 821381},
+  {"ber": 5.08e-06, "bit_errors": 839, "ebn0_db": 4.5, "esn0_db": -0.69, "fer": 4.84e-05, "frame_errors": 200, "frames": 4128629}
+ ],
+ "description": "LTE turbo code, K = 40 (QPP interleaver), 8 iterations of log-MAP BCJR",
+ "name": "turbo_lte_k40_logmap_i8",
+ "parameters": {
+  "CRC": {
+   "Implementation": "FAST",
+   "Info. bits (K)": "40",
+   "Type": "NO"
+  },
+  "Channel": {
+   "Add users": "off",
+   "Complex": "off",
+   "Frame size (N)": "132",
+   "Implementation": "STD",
+   "Seed": "1",
+   "Type": "AWGN"
+  },
+  "Codec": {
+   "Code rate": "0.30303 (10/33)",
+   "Codeword size (N_cw)": "132",
+   "Frame size (N)": "132",
+   "Info. bits (K)": "40",
+   "Type": "TURBO"
+  },
+  "Decoder": {
+   "CRC start iteration": "2",
+   "Code rate (R)": "0.303030",
+   "Codeword size (N_cw)": "132",
+   "Decoder": {
+    "Buffered": "on",
+    "Code rate (R)": "0.465116",
+    "Codeword size (N_cw)": "86",
+    "Implementation": "STD",
+    "Info. bits (K)": "40",
+    "Max type": "MAXS",
+    "Polynomials": "{013,015}",
+    "Seed": "0",
+    "Standard": "LTE",
+    "Systematic": "yes",
+    "Tail length": "6",
+    "Type (D)": "BCJR"
+   },
+   "Enable json": "off",
+   "Flip and check": {
+    "Enabled": "no"
+   },
+   "Implementation": "FAST",
+   "Info. bits (K)": "40",
+   "Num. of iterations (i)": "8",
+   "Scaling factor": {
+    "Enabled": "no"
+   },
+   "Seed": "0",
+   "Self-corrected": "off",
+   "Systematic": "yes",
+   "Tail length": "12",
+   "Type (D)": "TURBO"
+  },
+  "Encoder": {
+   "Code rate (R)": "0.303030",
+   "Codeword size (N)": "132",
+   "Encoder": {
+    "Buffered": "on",
+    "Code rate (R)": "0.465116",
+    "Codeword size (N)": "86",
+    "Info. bits (K)": "40",
+    "Polynomials": "{013,015}",
+    "Standard": "LTE",
+    "Systematic": "yes",
+    "Tail length": "6",
+    "Type": "RSC"
+   },
+   "Info. bits (K)": "40",
+   "Systematic": "yes",
+   "Tail length": "12",
+   "Type": "TURBO"
+  },
+  "Interleaver": {
+   "Size": "40",
+   "Type": "LTE"
+  },
+  "Modem": {
+   "Bits per symbol": "1",
+   "Channel type": "AWGN",
+   "Frame size (N)": "132",
+   "Implementation": "STD",
+   "Sigma square": "on",
+   "Type": "BPSK"
+  },
+  "Monitor": {
+   "Compute mutual info": "no",
+   "Frame error count (e)": "200",
+   "Lazy reduction": "off",
+   "Size (K)": "40"
+  },
+  "Puncturer": {
+   "Codeword size": "132",
+   "Frame size (N)": "132",
+   "Info. bits (K)": "40",
+   "Type": "NO"
+  },
+  "Quantizer": {
+   "Fixed-point config.": "unused",
+   "Frame size (N)": "132",
+   "Implementation": "STD",
+   "Type": "NO"
+  },
+  "Simulation": {
+   "Bad frames replay": "off",
+   "Bad frames tracking": "off",
+   "Bit rate": "0.30303 (10/33)",
+   "Code type (C)": "TURBO",
+   "Coded monitoring": "no",
+   "Coset approach (c)": "no",
+   "Debug mode": "off",
+   "Inter frame level": "1",
+   "Noise range": "0 -> 4.5 dB",
+   "Noise type (E)": "EBN0",
+   "Seed": "1",
+   "Statistics": "off",
+   "Type": "BFER",
+   "Type of bits": "int64",
+   "Type of reals": "float64"
+  },
+  "Source": {
+   "Implementation": "STD",
+   "Info. bits (K_info)": "40",
+   "Seed": "1",
+   "Type": "RAND"
+  },
+  "Terminal": {
+   "Enabled": "yes",
+   "Show Sigma": "off"
+  }
+ },
+ "recorded": "2026-10-28",
+ "references": [
+  "A. Cassagne, O. Hartmann, M. Léonardon, K. He, C. Leroux, R. Tajan, O. Aumage, D. Barthou, T. Tonnellier, V. Pignoly, B. Le Gal and C. Jégo, \"AFF3CT: A Fast Forward Error Correction Toolbox!,\" SoftwareX 10, 100345, 2019",
+  "C. Berrou, A. Glavieux and P. Thitimajshima, ICC 1993; 3GPP TS 36.212, E-UTRA; Multiplexing and channel coding, Sec. 5.1.3.2 and Table 5.1.3-3"
+ ],
+ "tool": "AFF3CT",
+ "version": "v4.7.1-4-gd4d715e"
+}

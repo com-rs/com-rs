@@ -1,0 +1,57 @@
+# The waterfall of every DVB-S2 MODCOD against Table 13 of ETSI EN 302 307-1: the
+# ideal Es/N0 at a quasi-error-free PER of 1e-7, normal FECFRAMEs of 64 800 bits, 50
+# decoding iterations, AWGN. The search finds, by bisection with common random numbers,
+# the Es/N0 at which the FECFRAME error rate falls to 10 % (BCH and LDPC, layered
+# sum-product, exact LLRs of the constellation). The cliff of the long LDPC codes is
+# steep: a frame error rate of 10 % lies 0.2 to 0.4 dB below the QEF point of the
+# table for most MODCODs, 0.7 dB for QPSK 1/4, whose entry keeps more margin. A wrong
+# parity-check table, bit labelling or interleaver moves the waterfall by more than
+# 1 dB or stops the decoder; the check accepts the interval [threshold - 0.8 dB,
+# threshold].
+name: dvbs2_table13
+description: Es/N0 of every DVB-S2 MODCOD at a FER of 10 % against Table 13 of EN 302 307-1
+seed: 13
+batch: 10
+cases:
+  - {modulation: QPSK, rate: 1/4}
+  - {modulation: QPSK, rate: 1/3}
+  - {modulation: QPSK, rate: 2/5}
+  - {modulation: QPSK, rate: 1/2}
+  - {modulation: QPSK, rate: 3/5}
+  - {modulation: QPSK, rate: 2/3}
+  - {modulation: QPSK, rate: 3/4}
+  - {modulation: QPSK, rate: 4/5}
+  - {modulation: QPSK, rate: 5/6}
+  - {modulation: QPSK, rate: 8/9}
+  - {modulation: QPSK, rate: 9/10}
+  - {modulation: 8PSK, rate: 3/5}
+  - {modulation: 8PSK, rate: 2/3}
+  - {modulation: 8PSK, rate: 3/4}
+  - {modulation: 8PSK, rate: 5/6}
+  - {modulation: 8PSK, rate: 8/9}
+  - {modulation: 8PSK, rate: 9/10}
+  - {modulation: 16APSK, rate: 2/3}
+  - {modulation: 16APSK, rate: 3/4}
+  - {modulation: 16APSK, rate: 4/5}
+  - {modulation: 16APSK, rate: 5/6}
+  - {modulation: 16APSK, rate: 8/9}
+  - {modulation: 16APSK, rate: 9/10}
+  - {modulation: 32APSK, rate: 3/4}
+  - {modulation: 32APSK, rate: 4/5}
+  - {modulation: 32APSK, rate: 5/6}
+  - {modulation: 32APSK, rate: 8/9}
+  - {modulation: 32APSK, rate: 9/10}
+link:
+  - {type: dvbs2_tx, modulation: $modulation, rate: $rate, pilots: false}
+  - {type: awgn, snr_db: $esn0_db, reference: unit}
+  - {type: dvbs2_rx, modulation: $modulation, rate: $rate, pilots: false}
+metrics: {report: [bler], scale: none}
+stop: {min_errors: {bler: 20}, min_trials: 40, max_trials: 400}
+search: {along: esn0_db, range: [-4, 18], metric: bler, target: 0.1, tolerance: 0.03}
+expect:
+  - name: Es/N0 at a FER of 10 %, within 0.8 dB below the QEF point of Table 13
+    source: ETSI EN 302 307-1 V1.4.1, Table 13 (ideal Es/N0 at PER = 1e-7, 50 iterations, AWGN)
+    metric: esn0_db
+    theory: {function: dvbs2_esn0_db, modulation: $modulation, rate: $rate, offset_db: -0.4}
+    interval: 0.95
+    atol: 0.4

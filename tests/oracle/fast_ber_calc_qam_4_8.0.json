@@ -1,0 +1,13 @@
+{
+ "data": [
+  0.00575,
+  0.0115,
+  8.48098271704838
+ ],
+ "name": "fast_ber_calc_qam_4_8.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

@@ -1,0 +1,112 @@
+//! Constant-envelope OFDM (Thompson et al. 2008): the modulator and the phase
+//! demodulator, which records the error rates of the linear regime.
+
+use super::{Block, BlockInfo, BuildContext, Frame, Params};
+use com_core::Result;
+use com_core::rng::Rng;
+use com_waveform::ce_ofdm::CeOfdm;
+use com_waveform::ce_ofdm::Unwrap;
+use com_waveform::ce_ofdm::theory as ce_theory;
+use serde_json::Value as Json;
+
+/// The documentation of the blocks of this module.
+pub(super) fn infos() -> Vec<BlockInfo> {
+    vec![
+        block_info!(
+            "ce_ofdm_tx",
+            "Constant-envelope OFDM modulator (Thompson et al. 2008): K symbols per block on the bins 1..K of an N = 2J(K + 1) DFT, exp(j2πh x).",
+            CeOfdmSpec,
+            needs [Samples],
+            gives [],
+        ),
+        block_info!(
+            "ce_ofdm_rx",
+            "CE-OFDM phase demodulator back to the symbols; records ser_theory and ber_theory, the error rates of the linear regime, when esn0_db is given.",
+            CeOfdmRxSpec,
+            needs [Samples, Constellation],
+            gives [],
+        ),
+    ]
+}
+
+/// Build a block of this module, or `None` for another type.
+pub(super) fn build(k: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
+    let (p, label) = (p.clone(), label.to_string());
+    let block = move || -> Result<Option<Box<dyn Block>>> {
+        Ok(Some(match k {
+            "ce_ofdm_tx" => Box::new(CeOfdmTx(CeOfdmSpec::parse(k, p)?.link())),
+            "ce_ofdm_rx" => Box::new(CeOfdmRx::new(&CeOfdmRxSpec::parse(k, p)?, label)?),
+            _ => return Ok(None),
+        }))
+    };
+    block().transpose()
+}
+
+// --------------------------------------------------------------------------- CE-OFDM
+
+block_params! {
+    struct CeOfdmSpec {
+        n_data: usize [64] >= 1, "data subcarriers K per block";
+        oversampling: usize [4] >= 1, "oversampling factor J";
+        h: f64 [required] > 0, "modulation index (phase standard deviation 2πh)";
+        n_cp: usize [0] "samples", "cyclic prefix";
+    }
+}
+
+impl CeOfdmSpec {
+    fn link(&self) -> CeOfdm {
+        CeOfdm { n_data: self.n_data, oversampling: self.oversampling, h: self.h, n_cp: self.n_cp }
+    }
+}
+
+struct CeOfdmTx(CeOfdm);
+
+impl Block for CeOfdmTx {
+    fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
+        s.require_one_sps("ce_ofdm_tx")?;
+        s.samples = self.0.modulate(&s.samples)?;
+        s.sps = self.0.samples_per_symbol();
+        Ok(())
+    }
+}
+
+block_params! {
+    struct CeOfdmRxSpec {
+        n_data: usize [64] >= 1, "data subcarriers K (as the modulator)";
+        oversampling: usize [4] >= 1, "oversampling factor J (as the modulator)";
+        h: f64 [required] > 0, "modulation index (as the modulator)";
+        n_cp: usize [0] "samples", "cyclic prefix (as the modulator)";
+        unwrap: String ["none"] one_of ["none", "stream"],
+            "none (principal phase) or stream (unwrapped along the stream, the phase unwrapper of the paper)";
+        esn0_db: Option<f64> [absent] "dB",
+            "E_s/N_0 of the channel per data symbol: records ser_theory and ber_theory, the error rates of the constellation of the source at the SNR of the linear regime";
+    }
+}
+
+struct CeOfdmRx {
+    ce: CeOfdm,
+    unwrap: Unwrap,
+    label: String,
+    esn0_db: Option<f64>,
+}
+
+impl CeOfdmRx {
+    fn new(p: &CeOfdmRxSpec, label: String) -> Result<CeOfdmRx> {
+        let ce = CeOfdmSpec { n_data: p.n_data, oversampling: p.oversampling, h: p.h, n_cp: p.n_cp }.link();
+        Ok(CeOfdmRx { ce, unwrap: p.unwrap.parse()?, label, esn0_db: p.esn0_db })
+    }
+}
+
+impl Block for CeOfdmRx {
+    fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
+        let c = s.constellation("ce_ofdm_rx")?;
+        if let Some(es) = self.esn0_db {
+            let (m, kind) = (c.order(), c.kind());
+            s.record(&self.label, "ser_theory", ce_theory::ser(&self.ce, m, es, kind)?);
+            s.record(&self.label, "ber_theory", ce_theory::ber(&self.ce, m, es, kind)?);
+        }
+        s.samples = self.ce.demodulate(&s.samples, self.unwrap)?;
+        s.sps = 1.0;
+        Ok(())
+    }
+}

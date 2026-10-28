@@ -1,0 +1,8 @@
+# Configuration of the workspace lints (docs/adr/0005-lint-exceptions.md).
+
+# unwrap/expect are denied in library code, allowed in tests
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# proper names of the documentation, not code
+doc-valid-idents = ["OptiCommPy", "GNPy", "SigMF", "SplitMix64", "NumPy", "PyTorch", "ChaCha12", "LeVeque", "AFF3CT", "GBd", "KaTeX", "MathJax", "VitePress", "EuCNC", "SiPS", "ICC", "ISSSE", "GLOBECOM", "ECSC", "McLaughlin", "MacKay", "SoftwareX", ".."]

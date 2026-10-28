@@ -1,0 +1,12 @@
+{
+ "data": {
+  "decided": 0.05095339312043439,
+  "with_reference": 0.06171337798839203
+ },
+ "name": "evm_qam_16_12.0",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-28",
+ "tool": "OptiCommPy",
+ "version": "0.11.0"
+}

@@ -1,0 +1,41 @@
+name: Validation
+
+# The long statistical validations (the tests marked `#[ignore]` of the crate
+# com-validation: PAS on the DVB-S2 codes, the long AFF3CT configurations, the MIMO
+# diversity slopes, the closed forms at low error rates…) and the benchmarks. They take
+# hours on a hosted runner, so they never run on a push, a pull request or a schedule:
+# only when started by hand (Actions → Validation → Run workflow), with a filter on the
+# test names if needed.
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: "Name filter of the ignored tests (empty: all of them)"
+        required: false
+        default: ""
+      benchmarks:
+        description: "Also run the criterion benchmarks"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: statistical validation (ignored tests)
+        run: cargo test --release -p com-validation -- --ignored $FILTER
+        env:
+          FILTER: ${{ inputs.filter }}
+      - name: benchmarks
+        if: inputs.benchmarks
+        run: cargo bench -p comrs

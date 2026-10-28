@@ -1,0 +1,31 @@
+# Probabilistic constellation shaping over AWGN: 64-QAM with Maxwell-Boltzmann
+# probabilities p(x) ∝ exp(-λ|x|²) (on the unit-energy uniform constellation), λ = 0
+# (uniform), 1.5 and 3, at SNRs (E_s/N_0 of the shaped signal) from 4 to 20 dB. The
+# estimates of the mutual information and of the GMI of bit-metric decoding (with the
+# priors of the source, H(X) - Σ_k H(B_k|Y), Böcherer 2014) must follow their closed
+# forms by Gauss–Hermite quadrature. Shaping trades entropy for energy: at low SNR the
+# shaped source carries more information per symbol than the uniform one, at high SNR
+# its rate saturates at its entropy.
+name: shaping_awgn
+description: MI and GMI of Maxwell-Boltzmann 64-QAM over AWGN against the closed forms
+seed: 8
+batch: 8
+grid:
+  lambda: [0, 1.5, 3]
+  snr_db: [4, 8, 12, 16, 20]
+link:
+  - {type: source, constellation: 64-QAM, n_symbols: 16384, mb_lambda: $lambda}
+  - {type: awgn, snr_db: $snr_db}
+metrics: {report: [mi, gmi, entropy], scale: none}
+stop: {min_trials: 16, max_trials: 16}
+expect:
+  - name: symbol-wise mutual information of the shaped source
+    source: Alvarado, Fehenberger, Chen & Willems, J. Lightw. Technol., 36(2), 2018
+    metric: mi
+    theory: {function: mi, kind: qam, m: 64, snr_db: $snr_db, mb_lambda: $lambda}
+    atol: 0.02
+  - name: GMI of bit-metric decoding with the priors
+    source: G. Böcherer, "Achievable rates for shaped bit-metric decoding," arXiv:1410.8075, 2014
+    metric: gmi
+    theory: {function: gmi, kind: qam, m: 64, snr_db: $snr_db, mb_lambda: $lambda}
+    atol: 0.02

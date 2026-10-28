@@ -1,0 +1,45 @@
+[package]
+name = "com-spec"
+description = "Declarative Monte Carlo campaigns of com-rs (YAML, JSON, TOML), validation against the literature, recordings I/O (SigMF, raw IQ, NPY) and the comrs command"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/com-spec"
+keywords = ["simulation", "monte-carlo", "yaml", "sigmf", "communications"]
+categories.workspace = true
+readme = "README.md"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
+features = []
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "comrs"
+path = "src/bin/comrs.rs"
+doc = false   # the lib `comrs` (the facade) has the same rustdoc path
+
+[dependencies]
+com-core.workspace = true
+com-math.workspace = true
+com-dsp.workspace = true
+com-mapping.workspace = true
+com-waveform.workspace = true
+com-fec.workspace = true
+com-mimo.workspace = true
+ndarray.workspace = true
+com-channel.workspace = true
+com-hardware.workspace = true
+com-metrics.workspace = true
+com-sim.workspace = true
+com-systems.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true
+toml.workspace = true

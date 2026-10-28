@@ -1,0 +1,25 @@
+# Probabilistic amplitude shaping (Böcherer, Steiner & Schulte 2015) of 64-QAM at 3
+# information bits per QAM symbol: per dimension, constant-composition matching
+# (Schulte & Böcherer 2016) of 512 amplitudes to a Maxwell-Boltzmann distribution
+# (λ = 2.55), a regular LDPC code (1536, 1024) of rate 2/3 whose parity bits are the
+# signs, bit-metric decoding with the amplitude priors. The AWGN capacity at 3 bits per
+# symbol is reached at an SNR of 8.45 dB; the shaped GMI reaches 3 bits about 0.8 dB
+# before that of uniform 16-QAM. Compare with bicm_ldpc.yaml for the uniform BICM.
+name: pas_64qam
+description: PAS of 64-QAM at 3 bits per symbol over AWGN
+seed: 9
+batch: 4
+grid:
+  snr_db: {from: 9.0, to: 12.0, step: 0.5}
+link:
+  - {type: pas_encode, constellation: 64-QAM, mb_lambda: 2.55, n: 1536, blocks: 4}
+  - {type: awgn, snr_db: $snr_db}
+  - {type: pas_decode, constellation: 64-QAM, mb_lambda: 2.55, n: 1536}
+metrics: {report: [coded_ber, bler, gmi, entropy], scale: none}
+stop: {min_errors: {bler: 40}, min_trials: 8, max_trials: 120}
+expect:
+  - name: GMI of the shaped constellation
+    source: Böcherer (2014); the composition of the matcher is the Maxwell-Boltzmann distribution within 1/512
+    metric: gmi
+    theory: {function: gmi, kind: qam, m: 64, snr_db: $snr_db, mb_lambda: 2.55}
+    atol: 0.03

@@ -1,0 +1,24 @@
+[package]
+name = "com-validation"
+description = "Statistical validation of com-rs: simulated curves against closed forms and published results"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+comrs = { workspace = true, features = ["optical"] }
+ndarray.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+default = ["spec"]
+spec = ["comrs/spec"]
