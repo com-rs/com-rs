@@ -6,8 +6,11 @@ authors:
   - family-names: Choqueuse
     given-names: Vincent
     email: vincent.choqueuse@gmail.com
+    orcid: "https://orcid.org/0000-0002-2532-7486"
 version: 0.2.0
-license: MIT OR Apache-2.0
+license:
+  - MIT
+  - Apache-2.0
 repository-code: "https://github.com/com-rs/com-rs"
 url: "https://com-rs.github.io/com-rs/"
 abstract: >-
