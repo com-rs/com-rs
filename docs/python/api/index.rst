@@ -340,6 +340,28 @@ Optical devices
    hybrid_2x4
    coherent_receiver
 
+Optical wireless
+~~~~~~~~~~~~~~~~
+
+Indoor visible-light and infrared links (Lambertian emitters, the reflections of a room,
+the PIN-FET receiver) and free-space optics (turbulence, pointing errors, fog).
+
+.. autosummary::
+   :toctree: generated
+
+   OwcRoom
+   OwcIllumination
+   OwcImpulseResponse
+   lambertian_mode
+   owc_direction
+   owc_illuminance
+   PinFetReceiver
+   Fso
+   GammaGamma
+   PointingError
+   rytov_variance
+   fog_attenuation_db_per_km
+
 Hardware impairments
 --------------------
 

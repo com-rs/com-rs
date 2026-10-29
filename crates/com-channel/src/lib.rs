@@ -9,6 +9,7 @@
 //! | [`awgn`] | additive white Gaussian noise at an $E_{s}/N_{0}$ ([`awgn::Awgn`]) or of a given variance ([`awgn::Noise`]), and its kernel [`awgn::add_noise`] |
 //! | [`fading`] | flat fading: single-antenna Rayleigh ([`fading::Rayleigh`]) and MIMO Rayleigh or Rician, block or fast ([`fading::Mimo`]) |
 //! | [`multipath`] | frequency-selective fading: tapped delay lines (EPA, EVA, ETU of 3GPP TS 36.101 Annex B, ITU-R Pedestrian/Vehicular A, exponential) with the Clarke spectrum by sums of sinusoids (Zheng & Xiao), SISO or MIMO; the delay–Doppler channel of discrete paths ([`multipath::DelayDoppler`]) and its random model |
+//! | [`owc`] | optical wireless: the indoor room channel of visible-light and infrared links (Lambertian LEDs, reflections of every order, illuminance) and the free-space optical channel (turbulence, pointing errors, weather) |
 //! | [`spatial`] | antenna correlation: the Kronecker model, exponential correlation |
 //! | [`optical`] | fibre parameters, the linear fibre channel, the split-step Fourier method (scalar) and the Manakov-PMD equation (two polarisations), the EDFA, Raman amplification and ISRS, the GN model (feature `optical`) |
 //!
@@ -25,4 +26,5 @@ pub mod fading;
 pub mod multipath;
 #[cfg(feature = "optical")]
 pub mod optical;
+pub mod owc;
 pub mod spatial;

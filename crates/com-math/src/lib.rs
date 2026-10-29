@@ -31,7 +31,8 @@
 //!   [`effective_length`], `(1 - e^{-αL})/α`;
 //! - special functions: [`erf`], [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
 //!   `Q(x) = ½ erfc(x/√2)`), its inverse [`qfuncinv`], [`fresnel`] (the Fresnel
-//!   integrals $C$ and $S$), [`bessel_j0`], [`bessel_i0e`], [`ln_gamma`], [`gamma_p`] (the regularized incomplete gamma
+//!   integrals $C$ and $S$), [`bessel_j0`], [`bessel_i0e`], [`bessel_k`] and
+//!   [`ln_bessel_k`], [`ln_gamma`], [`gamma_p`] (the regularized incomplete gamma
 //!   function), [`expint_e1`] (the exponential integral);
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
@@ -356,6 +357,62 @@ pub fn bessel_j0(x: f64) -> f64 {
     let n = 64 + 2 * x.abs().ceil() as usize;
     let h = std::f64::consts::PI / n as f64;
     (0..n).map(|k| (x * (h * (k as f64 + 0.5)).sin()).cos()).sum::<f64>() / n as f64
+}
+
+/// The natural logarithm of the modified Bessel function of the second kind $K_{\nu}(x)$
+/// of real order $\nu$ and $x > 0$, from $K_{\nu}(x) = \int_{0}^{\infty} e^{-x \cosh t}
+/// \cosh(\nu t)\, dt$ by the trapezoidal rule (exponentially convergent on this even,
+/// entire integrand), summed in the log domain so that neither the large values at
+/// small $x$ and large $\nu$ nor the small ones at large $x$ overflow; to about
+/// $10^{-13}$ relative. `NaN` for $x \le 0$.
+///
+/// # Examples
+/// ```
+/// use com_math::{bessel_k, ln_bessel_k};
+/// // K₀(1) and K₁(1) (Abramowitz & Stegun, Table 9.8); K_{1/2}(x) = √(π/2x) e^{-x}
+/// assert!((bessel_k(0.0, 1.0) - 0.421_024_438_240_708_3).abs() < 1e-13);
+/// assert!((bessel_k(1.0, 1.0) - 0.601_907_230_197_234_6).abs() < 1e-13);
+/// let x = 3.7;
+/// let half = (std::f64::consts::PI / (2.0 * x)).sqrt() * (-x).exp();
+/// assert!((bessel_k(0.5, x) / half - 1.0).abs() < 1e-13);
+/// // small x: K_ν(x) ≈ ½ Γ(ν) (2/x)^ν, here about 10^{129}
+/// let asymptotic = (0.5f64).ln() + com_math::ln_gamma(30.0) + 30.0 * 2000f64.ln();
+/// assert!((ln_bessel_k(30.0, 1e-3) - asymptotic).abs() < 1e-3);
+/// ```
+pub fn ln_bessel_k(nu: f64, x: f64) -> f64 {
+    if x.is_nan() || x <= 0.0 {
+        return f64::NAN;
+    }
+    let nu = nu.abs();
+    // ln cosh(νt) - x cosh t, without overflow
+    let f = |t: f64| {
+        let a = nu * t;
+        a + (-2.0 * a).exp().ln_1p() - std::f64::consts::LN_2 - x * t.cosh()
+    };
+    // the maximum of the integrand: sinh t = (ν/x) tanh(νt) ≈ ν/x
+    let t_max = if nu > 0.0 { (nu / x).asinh() } else { 0.0 };
+    let peak = f(t_max);
+    // step: a fraction of the width of the peak, (x cosh t_max)^{-1/2}
+    let width = 1.0 / (x * t_max.cosh()).sqrt().max(1.0);
+    let h = 0.1 * width.min(1.0);
+    let mut acc = 0.5 * (f(0.0) - peak).exp();
+    let mut k = 1usize;
+    loop {
+        let t = k as f64 * h;
+        let v = f(t) - peak;
+        acc += v.exp();
+        if t > t_max && v < -50.0 {
+            break;
+        }
+        k += 1;
+    }
+    peak + (acc * h).ln()
+}
+
+/// The modified Bessel function of the second kind $K_{\nu}(x)$ of real order:
+/// `exp(`[`ln_bessel_k`]`)`.
+pub fn bessel_k(nu: f64, x: f64) -> f64 {
+    ln_bessel_k(nu, x).exp()
 }
 
 /// The scaled modified Bessel function of the first kind of order zero,

@@ -457,6 +457,52 @@
     - crates/com-channel/src/multipath.rs::itu_r_m1225_tables_4_and_5
     - crates/com-channel/src/multipath.rs::itu_r_m1225_table_2_delay_spreads
   badge: green
+- id: barry1993
+  area: Optical
+  ref: "J. R. Barry, J. M. Kahn, W. J. Krause, E. A. Lee, D. G. Messerschmitt, Simulation of multipath impulse response for indoor wireless optical channels, JSAC 11(3), 1993"
+  module: com_channel::owc::indoor
+  tested: "the four configurations of Table I with their partitions: the power of the line of sight and of 1 to 3 reflections of Fig. 3 and the totals and shares of Table II within 3 %; the -3 dB bandwidths of configurations B, C and D (19.2, 13.0, 31.9 MHz against 19.5, 13 and 32) within 5 %"
+  tests:
+    - validation/tests/barry1993.rs::barry_1993_configuration_a
+    - validation/tests/barry1993.rs::barry_1993_configuration_b
+    - validation/tests/barry1993.rs::barry_1993_configuration_c
+    - validation/tests/barry1993.rs::barry_1993_configuration_d
+  badge: orange
+  not_covered: "the bandwidth of configuration A: 14.4 MHz with three reflections against the 9 MHz of Sec. IV-A (unexplained); with one reflection the line of sight carries 0.709 of the power, at the -3 dB threshold, and the bandwidth is ill-conditioned; the measured responses of Sec. V"
+- id: komine2004
+  area: Optical
+  ref: "T. Komine, M. Nakagawa, Fundamental analysis for visible-light communication system using LED lights, IEEE Trans. Consum. Electron. 50(1), 2004"
+  module: com_channel::owc::indoor, com_hardware::optical::PinFetReceiver
+  tested: "the room of Fig. 2 with Tables I-II: the illuminance of Fig. 3 exactly (313.5 / 1211.5 / 865.7 lx), the received power of Figs. 4 and 6 within 0.15 dB, the maxima and averages of the SNR of Figs. 8 and 9 within 0.15 dB"
+  tests:
+    - validation/tests/komine2004.rs::komine_2004_illuminance_fig_3
+    - validation/tests/komine2004.rs::komine_2004_received_power_and_snr_figs_4_6_8_9
+  badge: orange
+  not_covered: "the minima of the SNR are 0.9 dB (Fig. 8) and 1.35 dB (Fig. 9) above the captions, at the points between the lights (unexplained); the reflectivity of the walls (0.7) is inferred, not stated; Figs. 10-14 (data rate, field of view, tracking)"
+  remarks:
+    - "the Lambertian mode is printed m = ln 2 / ln cos(Phi_1/2), without its minus sign"
+    - "the responsivity is 0.53 A/W in Table II and 0.54 A/W in the text; the temperature 298 K and 295 K"
+- id: alhabash2001
+  area: Optical
+  ref: "M. A. Al-Habash, L. C. Andrews, R. L. Phillips, Mathematical model for the irradiance probability density function of a laser beam propagating through turbulent media, Opt. Eng. 40(8), 2001"
+  module: com_channel::owc::atmospheric::GammaGamma
+  tested: "alpha and beta of Figs. 3 and 6-8 (plane and spherical waves, zero inner scale) within 0.01; the scintillation index 1.214 of Sec. 4; the density normalised with unit mean; the draws against the scintillation index"
+  tests:
+    - validation/tests/alhabash2001.rs::al_habash_2001_parameters_figs_3_and_6_to_8
+    - validation/tests/alhabash2001.rs::al_habash_2001_density_and_draws
+  badge: green
+  not_covered: "the inner-scale models (Figs. 1, 2, 4, 5, 9-14); the measured histograms"
+  remarks:
+    - "eqs. (19) and (26) print the exponent 7/6 for the small-scale variance; the parameters of the figures and the scintillation index follow from 5/6 (7/6 would give beta = 4.29 for sigma_1^2 = 25)"
+- id: khalighi2014
+  area: Optical
+  ref: "M. A. Khalighi, M. Uysal, Survey on free space optical communication: a communication theory perspective, IEEE Commun. Surveys Tuts. 16(4), 2014"
+  module: com_channel::owc::atmospheric
+  tested: "the log-normal model and the pointing errors (after Farid & Hranilovic 2007) are implemented from it; only their moments and normalisation are tested"
+  tests:
+    - crates/com-channel/src/owc/atmospheric.rs
+  badge: red
+  not_covered: "the error rates of OOK and PPM over turbulence and their figures; aperture averaging"
 - id: poggiolini2012
   area: Optical
   ref: "P. Poggiolini, The GN model of non-linear propagation in uncompensated coherent optical systems, JLT 30(24), 2012"

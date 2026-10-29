@@ -44,6 +44,7 @@ mod nr;
 mod ofdm;
 mod ofdm_link;
 mod otfs;
+mod owc;
 mod rng;
 mod sim;
 mod spec;
@@ -270,6 +271,7 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     multicarrier::register(m)?;
     ofdm_link::register(m)?;
     otfs::register(m)?;
+    owc::register(m)?;
     cdl::register(m)?;
     differential::register(m)?;
     fec::register(m)?;

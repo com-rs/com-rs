@@ -281,6 +281,22 @@
   summary: "OptiCommPy outputs"
   evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_mzm_and_phase_modulator`, `::test_iq_modulator`, `::test_optical_hybrid_and_coherent_receiver`, `::test_noiseless_photodiode_with_bandwidth_limitation`, `::test_wdm_grid`<br>• `crates/comrs/tests/links.rs::optical_transmitter_and_coherent_receiver_recover_the_symbols`<br>• closed forms (`tests/test_performance.py`): the transfer of the MZM and its extinction ratio (`::test_mzm_extinction_ratio_and_field_transfer`, within 10⁻⁶ dB), the harmonics of a sine drive against the Jacobi–Anger expansion J_k(m) (`::test_mzm_harmonics_follow_the_jacobi_anger_expansion`, within 10⁻¹²), the compression of 16-QAM by the IQ modulator and its arcsine predistortion (`::test_iq_modulator_compression_and_arcsine_predistortion`); gallery `optical/plot_06_mach_zehnder.py`"
   gaps: "• the shot and thermal noise of the photodiodes and the laser phase noise are not compared with a reference<br>• the modulators are memoryless and chirp-free: no electrode bandwidth, no chirp of an unbalanced drive (Koyama & Iga, *J. Lightw. Technol.*, 1988, status next)"
+- theme: Optical
+  name: "Indoor optical wireless (visible light, infrared)"
+  short: "Indoor optical wireless"
+  modules: "`com_channel::owc::indoor`, `com_hardware::optical::PinFetReceiver`"
+  level: A
+  summary: "Barry et al. 1993 Table II; Komine & Nakagawa 2004 Figs. 3–9"
+  evidence: "• `validation/tests/barry1993.rs` (Barry et al., *IEEE J. Sel. Areas Commun.* 11(3), 1993: the four configurations of Table I, the powers of 0 to 3 reflections of Fig. 3 and Table II within 3 %, the −3 dB bandwidths of configurations B–D within 5 %; ignored)<br>• `validation/tests/komine2004.rs` (Komine & Nakagawa, *IEEE Trans. Consum. Electron.* 50(1), 2004: the illuminance of Fig. 3 exactly, the received power of Figs. 4 and 6 within 0.15 dB, the maxima and averages of the SNR of Figs. 8–9 within 0.15 dB; the power and SNR test ignored)<br>• `crates/com-channel/src/owc/indoor.rs::the_line_of_sight_is_the_closed_form_and_energy_is_conserved`; `tests/test_owc.py`"
+  gaps: "• the bandwidth of Barry's configuration A (14.4 MHz against 9) and the minima of Komine's SNR (0.9 and 1.35 dB high) are not explained<br>• no IM/DD modulation (DCO- or ACO-OFDM, VPPM, CSK; Matheus et al. 2019, status next); no measured channel"
+- theme: Optical
+  name: "Free-space optics (turbulence, pointing errors, fog)"
+  short: "Free-space optics"
+  modules: "`com_channel::owc::atmospheric`"
+  level: A
+  summary: "Al-Habash et al. 2001 Figs. 3, 6–8"
+  evidence: "• `validation/tests/alhabash2001.rs` (Al-Habash, Andrews & Phillips, *Opt. Eng.* 40(8), 2001: α and β of Figs. 3 and 6–8 within 0.01, the scintillation index 1.214 of Sec. 4, the density and the draws)<br>• `crates/com-channel/src/owc/atmospheric.rs` (moments of the log-normal and negative exponential models, the density of the pointing errors); `tests/test_owc.py`"
+  gaps: "• the log-normal model, the pointing errors (Farid & Hranilovic 2007) and the fog attenuation (Kim et al. 2001) are not compared with published values (Khalighi & Uysal 2014, status needed)<br>• no inner-scale model; no error rate of OOK or PPM over turbulence"
 - theme: Hardware impairments
   name: "Nonlinear amplifier driven by OFDM: output series, Bussgang's decomposition and in-band distortion"
   short: "Nonlinear amplifier driven by OFDM"

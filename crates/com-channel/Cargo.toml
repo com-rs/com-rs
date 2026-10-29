@@ -1,6 +1,6 @@
 [package]
 name = "com-channel"
-description = "Propagation media of com-rs: AWGN, flat and multipath fading, TDL and CDL channels of 3GPP TR 38.901, delay–Doppler channels, optical fibre (linear, split-step, Manakov-PMD, EDFA, Raman, GN and EGN models)"
+description = "Propagation media of com-rs: AWGN, flat and multipath fading, TDL and CDL channels of 3GPP TR 38.901, delay–Doppler channels, optical fibre (linear, split-step, Manakov-PMD, EDFA, Raman, GN and EGN models), optical wireless (indoor rooms, free-space optics)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

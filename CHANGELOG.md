@@ -166,7 +166,22 @@ PyPI and the command line `comrs`.
   and Heisenberg transform, the sparse effective channel of Theorem 1 of Raviteja et al.
   2019 and the general one of their eq. (13)), and the delay–Doppler channel of
   discrete paths with one Doppler shift each (`com_channel::multipath::DelayDoppler`,
-  realised as `Taps`); detection with the MMSE detector of `com-mimo`. Rust only.
+  realised as `Taps`); detection with the MMSE detector of `com-mimo`. Python `Otfs`,
+  `delay_doppler_paths`.
+- Optical wireless channels (`com_channel::owc`): the indoor channel of a rectangular
+  room with Lambertian emitters and reflections of every order, computed recursively on
+  the elements of the surfaces (Barry et al. 1993), with the illuminance of LED lights,
+  the −3 dB bandwidth and the split of on–off keying into signal and interference
+  (`owc::indoor`); free-space optics with log-normal, gamma–gamma and negative
+  exponential turbulence, pointing errors and the attenuation of fog (`owc::atmospheric`,
+  `Fso` implements `Propagate`); the PIN-FET receiver of Komine & Nakagawa (2004)
+  (`com_hardware::optical::PinFetReceiver`), gamma variates (`SimRng::gamma`) and the
+  modified Bessel function $K_{\nu}$ (`com_math::{bessel_k, ln_bessel_k}`). Reproduces
+  the powers of the four configurations of Barry et al. (1993) and the bandwidths of
+  three of them, Figs. 3, 4, 6, 8 and 9 of Komine & Nakagawa (2004), and Figs. 3 and 6–8
+  of Al-Habash, Andrews & Phillips (2001), whose exponent 7/6 of eqs. (19) and (26) is
+  5/6. Python `OwcRoom`, `OwcIllumination`, `OwcImpulseResponse`, `PinFetReceiver`,
+  `Fso`, `GammaGamma`, `PointingError` and helpers.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.
@@ -256,7 +271,8 @@ A review of the whole library before the release settled its conventions
 
 ### Documentation
 
-- The Python documentation (Sphinx): getting started, six tutorials, a user guide, a
+- The Python documentation (Sphinx): getting started, six tutorials, a user guide (with
+  pages on the waveforms beyond OFDM and on optical wireless links), a
   gallery of classical results with a section that reproduces named figures of the
   literature, the API reference and the maturity table.
 - The Rust API on docs.rs, every formula in LaTeX; `docs/API.md`, the generated index

@@ -113,7 +113,7 @@ contain" column is as binding as the first one.
 | `com-mapping` | 2 | Constellations, labelling, hard and soft demapping, differential PSK, sources, the closed forms of error and information rates | Pulse shaping or framing | 0 |
 | `com-waveform` | 2 | Time–frequency structure: OFDM and its grid, PAPR, CE-OFDM, CPM, CSS, FBMC/OQAM, UFMC, OTFS | Channel models; MIMO detection algorithms | 0, 1, `com-mapping`, `com-mimo` (ADR 0009) |
 | `com-mimo` | 2 | Detection, the receiver of a link, space-time codes, precoding, capacity | Waveform-specific resource mapping | 0, `com-mapping` (ADR 0008) |
-| `com-channel` | 2 | Propagation media: AWGN, fading, spatial correlation, TDL and CDL multipath, delay–Doppler channels, optical fibre | Component non-idealities | 0, 1 |
+| `com-channel` | 2 | Propagation media: AWGN, fading, spatial correlation, TDL and CDL multipath, delay–Doppler channels, optical fibre, optical wireless (indoor rooms, free-space optics) | Component non-idealities | 0, 1 |
 | `com-hardware` | 2 | Transmitter and receiver non-idealities, electrical and optical | Propagation effects | 0, 1 |
 | `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, metrics of spectra (ACLR) | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
 | `com-sim` | 3 | Monte Carlo engine, grids, stopping rules, callbacks, loggers, statistics | Physical-layer algorithms | 0 (`rayon`) |
@@ -182,6 +182,10 @@ The following cases are settled. Treat them as precedent.
 | SER of $M$ orthogonal signals detected noncoherently | `com_mapping::theory::ser_orthogonal_noncoherent` | Shared by noncoherent FSK and chirp spread spectrum |
 | Mutual information over fading (CM and BICM capacities) | `com_mapping::theory::{constellation_mi, constellation_gmi}` | One kernel for the closed forms over AWGN and Rayleigh fading; `com_mapping::bicm` keeps the cutoff rates |
 | Hard decisions of LLRs | `com_core::signal::hard_decisions` | The sign convention of LLRs is fixed in `com-core`; used by codes, demappers and blocks |
+| Indoor optical channel (room, reflections, illuminance) and free-space optics (turbulence, pointing errors, fog) | `com_channel::owc` | Media: the waveforms and receivers take a realisation (an impulse response, a gain) |
+| PIN-FET receiver noise (shot, thermal) | `com_hardware::optical::PinFetReceiver` | A component of the receiver, next to the photodiodes |
+| Gamma variates | `com_core::rng::Rng::gamma` | Random variates are drawn by the generator every block takes |
+| Modified Bessel function $K_{\nu}$ | `com_math::{bessel_k, ln_bessel_k}` | A special function without communication meaning |
 | BPSK-over-AWGN LLRs of the code tests | `com_validation::bpsk_awgn_llr` | A test link, not a channel model of the library |
 
 ## Naming conventions

@@ -16,6 +16,8 @@
 //! - [`Rng::gaussian`] is the Box–Muller transform `√(-2 ln(1-u₁)) cos(2π u₂)` (the sine
 //!   branch is dropped, so that one call consumes exactly two uniforms);
 //! - [`Rng::complex_gaussian`] is circular with `E|z|² = 1`;
+//! - [`Rng::gamma`] is the method of Marsaglia & Tsang (2000), a rejection from a
+//!   transformed Gaussian;
 //! - [`stream`]: `seed = sm(sm(sm(base ⊕ fnv1a(experiment)) ⊕ condition) ⊕ trial)` with
 //!   `sm` one SplitMix64 step; [`member`]: `seed ⊕ index · φ`, the members of a family of
 //!   deterministic sequences shared by a transmitter and its receiver.
@@ -32,6 +34,13 @@
 //! assert_ne!(x, y);
 //! assert_eq!(x, stream(1, "ber", 3, 0).uniform());
 //! ```
+//!
+//! # References
+//!
+//! 1. D. Blackman and S. Vigna, "Scrambled linear pseudorandom number generators,"
+//!    *ACM Trans. Math. Softw.*, 47(4), 2021 (arXiv:1805.01407, 2018).
+//! 2. G. Marsaglia and W. W. Tsang, "A simple method for generating gamma variables,"
+//!    *ACM Trans. Math. Softw.*, 26(3), 363–372, 2000.
 
 use crate::C64;
 
@@ -119,6 +128,42 @@ impl Rng {
         let r = (-2.0 * (1.0 - u1).ln()).sqrt() * std::f64::consts::FRAC_1_SQRT_2;
         let (s, c) = (2.0 * std::f64::consts::PI * u2).sin_cos();
         C64::new(r * c, r * s)
+    }
+
+    /// A gamma variable of shape `shape` and unit scale (mean `shape`), by the method of
+    /// Marsaglia & Tsang (2000): for a shape below 1, the draw of shape `shape + 1` times
+    /// $U^{1/\text{shape}}$. A non-positive or non-finite shape returns `NaN`.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::rng::Rng;
+    /// let mut r = Rng::new(1);
+    /// let n = 100_000;
+    /// let mean = (0..n).map(|_| r.gamma(2.5)).sum::<f64>() / n as f64;
+    /// assert!((mean - 2.5).abs() < 0.03);
+    /// ```
+    pub fn gamma(&mut self, shape: f64) -> f64 {
+        if !(shape > 0.0 && shape.is_finite()) {
+            return f64::NAN;
+        }
+        if shape < 1.0 {
+            let u = self.uniform();
+            return self.gamma(shape + 1.0) * (1.0 - u).powf(1.0 / shape);
+        }
+        let d = shape - 1.0 / 3.0;
+        let c = 1.0 / (9.0 * d).sqrt();
+        loop {
+            let x = self.gaussian();
+            let v = 1.0 + c * x;
+            if v <= 0.0 {
+                continue;
+            }
+            let v = v * v * v;
+            let u = 1.0 - self.uniform();
+            if u < 1.0 - 0.0331 * x * x * x * x || u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln()) {
+                return d * v;
+            }
+        }
     }
 
     /// A unit-energy QPSK point $e^{j\pi(2i + 1)/4}$, $i$ uniform in `0..4` (pilots and

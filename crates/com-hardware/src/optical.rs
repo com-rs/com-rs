@@ -20,7 +20,11 @@
 //!   [`Photodiode::ideal`] keeps `R|E|²` only;
 //! - [`hybrid_2x4`]: the 90° optical hybrid of OptiCommPy (`opticalHybrid2x4`);
 //! - [`coherent_receiver`]: hybrid and two balanced photodiode pairs; with ideal
-//!   photodiodes its output is exactly `R E_s E_LO*`.
+//!   photodiodes its output is exactly `R E_s E_LO*`;
+//! - [`PinFetReceiver`]: the p-i-n photodiode and FET transimpedance amplifier of the
+//!   optical wireless receivers, the variances of its shot noise (signal and ambient
+//!   light) and thermal noise (feedback resistor and FET channel), and the SNR of on–off
+//!   keying with intersymbol interference (Komine & Nakagawa 2004, eqs. (16)–(21)).
 //!
 //! # Examples
 //! ```
@@ -278,6 +282,101 @@ impl Photodiode {
             i = fir_filter(&h, &c).into_iter().map(|v| v.re).collect();
         }
         Ok(i)
+    }
+}
+
+/// A p-i-n photodiode followed by a FET transimpedance amplifier, the receiver of
+/// indoor optical wireless links: shot noise of the received and ambient light, and
+/// thermal noise of the feedback resistor and of the FET channel (Komine & Nakagawa
+/// 2004, eqs. (18), (20)–(21), after Kahn & Barry 1997):
+///
+/// $$
+/// \sigma_{\mathrm{shot}}^{2} = 2q\gamma (P_{s} + P_{\mathrm{ISI}}) B + 2 q I_{bg} I_{2} B,
+/// \qquad
+/// \sigma_{\mathrm{th}}^{2} = \frac{8\pi k T}{G} \eta A I_{2} B^{2} +
+///   \frac{16 \pi^{2} k T \Gamma}{g_{m}} \eta^{2} A^{2} I_{3} B^{3},
+/// $$
+///
+/// and the SNR of on–off keying $\gamma^{2} P_{s}^{2} / (\sigma_{\mathrm{shot}}^{2} +
+/// \sigma_{\mathrm{th}}^{2} + \gamma^{2} P_{\mathrm{ISI}}^{2})$ (their eqs. (16)–(18)), with
+/// the powers $P_{s}$ and $P_{\mathrm{ISI}}$ inside the bit and spilled out of it
+/// (`com_channel::owc::indoor::ImpulseResponse::bit_split`).
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::PinFetReceiver;
+/// let rx = PinFetReceiver::komine2004();
+/// // 1 mW on 1 cm² at 100 Mb/s: the ambient light dominates the noise
+/// let (a, b) = (1e-4, 100e6);
+/// let ambient = 2.0 * com_math::ELEMENTARY_CHARGE * rx.background_current_a * rx.i2 * b;
+/// assert!(ambient > 0.5 * (rx.shot_variance(1e-3, 0.0, b) + rx.thermal_variance(a, b)));
+/// // doubling the power gains a little less than 6 dB: the shot noise of the signal grows
+/// let gain = rx.ook_snr_db(2e-3, 0.0, a, b) - rx.ook_snr_db(1e-3, 0.0, a, b);
+/// assert!(gain > 5.0 && gain < 6.0);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PinFetReceiver {
+    /// Responsivity $\gamma$ (A/W).
+    pub responsivity: f64,
+    /// Background current $I_{bg}$ of the ambient light (A).
+    pub background_current_a: f64,
+    /// Open-loop voltage gain $G$.
+    pub open_loop_gain: f64,
+    /// Fixed capacitance of the photodiode per unit area $\eta$ (F/m²).
+    pub capacitance_f_per_m2: f64,
+    /// FET channel noise factor $\Gamma$.
+    pub channel_noise_factor: f64,
+    /// FET transconductance $g_{m}$ (S).
+    pub transconductance_s: f64,
+    /// Absolute temperature $T$ (K).
+    pub temperature_k: f64,
+    /// Noise bandwidth factor $I_{2}$.
+    pub i2: f64,
+    /// Noise bandwidth factor $I_{3}$.
+    pub i3: f64,
+}
+
+impl PinFetReceiver {
+    /// The receiver of Komine & Nakagawa (2004), Tables II–III: 0.53 A/W, 5100 µA of
+    /// background current, $G = 10$, 112 pF/cm², $\Gamma = 1.5$, 30 mS, 298 K,
+    /// $I_{2} = 0.562$, $I_{3} = 0.0868$ (their text quotes 0.54 A/W and 295 K).
+    pub fn komine2004() -> PinFetReceiver {
+        PinFetReceiver {
+            responsivity: 0.53,
+            background_current_a: 5100e-6,
+            open_loop_gain: 10.0,
+            capacitance_f_per_m2: 112e-12 / 1e-4,
+            channel_noise_factor: 1.5,
+            transconductance_s: 30e-3,
+            temperature_k: 298.0,
+            i2: 0.562,
+            i3: 0.0868,
+        }
+    }
+
+    /// The variance of the shot noise (A²) for the received powers `signal_w` and
+    /// `isi_w` and the noise bandwidth `bandwidth_hz`.
+    pub fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
+        let q = ELEMENTARY_CHARGE;
+        2.0 * q * self.responsivity * (signal_w + isi_w) * bandwidth_hz
+            + 2.0 * q * self.background_current_a * self.i2 * bandwidth_hz
+    }
+
+    /// The variance of the thermal noise (A²) of a photodiode of area `area_m2`.
+    pub fn thermal_variance(&self, area_m2: f64, bandwidth_hz: f64) -> f64 {
+        let (k_t, b) = (BOLTZMANN * self.temperature_k, bandwidth_hz);
+        let c = self.capacitance_f_per_m2 * area_m2;
+        8.0 * PI * k_t / self.open_loop_gain * c * self.i2 * b * b
+            + 16.0 * PI * PI * k_t * self.channel_noise_factor / self.transconductance_s * c * c * self.i3 * b * b * b
+    }
+
+    /// The SNR (dB) of on–off keying for the received powers `signal_w` and `isi_w`.
+    pub fn ook_snr_db(&self, signal_w: f64, isi_w: f64, area_m2: f64, bandwidth_hz: f64) -> f64 {
+        let s = (self.responsivity * signal_w).powi(2);
+        let n = self.shot_variance(signal_w, isi_w, bandwidth_hz)
+            + self.thermal_variance(area_m2, bandwidth_hz)
+            + (self.responsivity * isi_w).powi(2);
+        com_math::lin2db(s / n)
     }
 }
 
