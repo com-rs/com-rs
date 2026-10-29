@@ -346,6 +346,7 @@ figure, table or equation:
 | `com_mimo::stbc` | Tarokh, Jafarkhani & Calderbank, IEEE Trans. Inf. Theory 45(5), 1999, eqs. (39)–(40) | the rate-3/4 designs of the paper are orthogonal and decoded exactly |
 | `com_waveform::papr` | Ochiai & Imai, IEEE Trans. Commun. 49(2), 2001, eqs. (11) and (27) | the Nyquist-rate and asymptotic CCDFs of the PAPR |
 | `com_waveform::ce_ofdm` | Thompson et al., IEEE Trans. Commun. 56(8), 2008, eq. (15); Ahmed & Zeidler, IEEE Trans. Signal Process. 63(17), 2015, eqs. (8), (17), (26); Ahmed et al., MILCOM 2012, eqs. (13)–(14), Fig. 6; Guerreiro et al., VTC Fall 2015, eq. (13), Fig. 4, and IEEE Commun. Lett. 20(11), 2016; Pacheco & Hatzinakos, ICASSP 2006, Fig. 1 | the BER of the linear regime; the series of the receivers of Ahmed & Zeidler (a misprint in eq. (8)); the effect of a cycle slip on each subcarrier; the powers of the intermodulation products and the carrier line; the optimum gains of 1.9 and 3.5 dB; the 99 % bandwidth |
+| `com_waveform::css` | Chiani & Elzanaty, IEEE Internet Things J. 6(5), 2019, Table I, eq. (7), Property 4; Afisiadis et al., IEEE Trans. Wireless Commun. 19(2), 2020, Fig. 2, eqs. (16)–(18), (38)–(43), (58); Vangelista, IEEE Signal Process. Lett. 24(12), 2017, Fig. 1 | the cross-correlation, the 99 % band and the lines of the LoRa spectrum; the exact SER and its approximations; the interference pattern in closed form (a sign misprint in eq. (58)); the AWGN curves of FSCM and FSK |
 | `com_mapping::theory` | Cho & Yoon, IEEE Trans. Commun. 50(7), 2002, Table I, eqs. (9)–(22), Fig. 2 | the coefficients of Table I verbatim; the exact Gray BER of PAM, square and rectangular QAM against an enumeration of the decision regions; 4–5 dB per extra bit |
 | `com_channel::optical::raman` | Semrau & Bayvel, J. Lightw. Technol. 36(14), 2018, eq. (10) | the ISRS power transfer of a 10 THz band over 100 km, within 5 % |
 | `com_channel::cdl` | 3GPP TR 38.901 V17.0.0, Tables 7.7.1-1 to 7.7.1-5, 7.5-3, Sec. 7.7.3 | the CDL-A to CDL-E clusters verbatim, the unit delay spread of the normalised profiles (1.000 for A, B, C, E; 0.994 for D), the K-factors 13.3 and 22 dB of D and E within 0.2 dB |
@@ -432,6 +433,7 @@ the regimes not covered yet are in
 | OFDM synchronisation (Schmidl–Cox) | C | the error falls with the SNR |
 | PAPR: distribution and reduction | B | Ochiai & Imai 2001 eqs. (11), (27) |
 | Constant-envelope OFDM | A | Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1 |
+| Chirp spread spectrum (LoRa modulation) | A | Chiani & Elzanaty 2019 Table I; Afisiadis et al. 2020 Figs. 2, 7; Vangelista 2017 Fig. 1 |
 | Continuous-phase modulation | A | Murota & Hirade 1981 Table I; MSK of Proakis & Salehi |
 | MIMO detection | A | Yang & Hanzo 2015 Table X; MRC closed forms |
 | Message-passing detection of large MIMO (LAMA, OAMP) | A | Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3 |

@@ -120,6 +120,14 @@ PyPI and the command line `comrs`.
   Reproduced against Figs. 1 of Guerreiro et al. 2016 and Pacheco & Hatzinakos 2006,
   Fig. 3 of López Morales et al. 2022 and Fig. 6 of Ahmed & Zeidler 2015
   (`validation/tests/ce_ofdm.rs`); a misprint in eq. (8) of Ahmed & Zeidler 2015.
+- Chirp spread spectrum, the modulation of LoRa (`com_waveform::css`, Python `Css`):
+  the chirps of Chiani & Elzanaty (2019) at any oversampling, with the waveform of
+  Vangelista (2017) and FSK for comparison, the noncoherent DFT receiver, a same-SF
+  interferer; the exact SER and its approximations, the cross-correlation, the spectrum
+  in Fresnel functions and its lines, the interference pattern in closed form and the
+  SER and FER under interference (Afisiadis et al. 2020). Reproduces Table I of Chiani
+  & Elzanaty, Figs. 2 and 7 of Afisiadis et al. and Fig. 1 of Vangelista; a sign
+  misprint in eq. (58) of Afisiadis et al. Adds `com_math::bessel_i0e`.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.

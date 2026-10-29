@@ -1,0 +1,19 @@
+id: vangelista2017_fig1
+title: Bit error rate of frequency-shift chirp modulation (SF 7) over AWGN
+function: comrs.css_ber
+source:
+  kind: paper
+  reference: "L. Vangelista, Frequency shift chirp modulation: the LoRa modulation, IEEE Signal Process. Lett. 24(12), 1818-1821, 2017"
+  locator: "Fig. 1, flat channel (FSCM and FSK coincide), read at -10, -9, -8, -7 dB (SNR per sample)"
+  file: 2017_vangelista_frequency-shift-chirp-modulation-lora_spl.pdf
+tolerance: {rel: 0.15}
+note: "values read on the figure; the BER of 128 orthogonal signals detected noncoherently"
+cases:
+  - inputs: {sf: 7, snr_db: -10.0}
+    expected: 2.0e-2
+  - inputs: {sf: 7, snr_db: -9.0}
+    expected: 4.7e-3
+  - inputs: {sf: 7, snr_db: -8.0}
+    expected: 8.0e-4
+  - inputs: {sf: 7, snr_db: -7.0}
+    expected: 7.5e-5

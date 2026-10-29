@@ -89,6 +89,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - Constant-envelope OFDM
      - A
      - Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1
+   * - Chirp spread spectrum (LoRa modulation)
+     - A
+     - Chiani & Elzanaty 2019 Table I; Afisiadis et al. 2020 Figs. 2, 7; Vangelista 2017 Fig. 1
    * - Continuous-phase modulation
      - A
      - Murota & Hirade 1981 Table I; MSK of Proakis & Salehi

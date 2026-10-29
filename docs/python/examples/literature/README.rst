@@ -46,6 +46,12 @@ equations they use; the table below gathers every comparison of this documentati
        the arctangent, basic linear and enhanced receivers at 0.7; the 99 % bandwidth;
        the spectrum at :math:`2\pi h = 2`
      - :ref:`sphx_glr_auto_examples_literature_plot_06_ce_ofdm_receivers.py`
+   * - O. Afisiadis et al., *IEEE Trans. Wireless Commun.* 19(2), 2020, Figs. 2 and 7;
+       L. Vangelista, *IEEE Signal Process. Lett.* 24(12), 2017, Fig. 1; M. Chiani,
+       A. Elzanaty, *IEEE Internet Things J.* 6(5), 2019, Fig. 3a
+     - The LoRa modulation: the SER over AWGN for SF 7 to 12, FSCM against FSK over a
+       frequency-selective channel, the continuous spectrum, a same-SF interferer
+     - :ref:`sphx_glr_auto_examples_literature_plot_07_lora.py`
    * - ETSI EN 302 307-1 V1.4.1, Table 13
      - The :math:`E_s/N_0` thresholds of the 28 DVB-S2 MODCODs against the simulated
        frame error rates

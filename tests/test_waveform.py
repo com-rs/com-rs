@@ -261,3 +261,43 @@ def test_exact_gray_ber_and_phase_density():
     assert np.trapezoid(pdf, theta) == pytest.approx(1.0, abs=1e-6)
     tail = np.trapezoid(np.where(np.abs(theta) > np.pi / 2, pdf, 0.0), theta)
     assert tail == pytest.approx(comrs.qfunc(2.0), abs=1e-4)
+
+
+# --------------------------------------------------------------- chirp spread spectrum
+
+
+def test_css_round_trip_orthogonality_and_simulated_ser():
+    css = comrs.Css(7)
+    assert (css.m, css.symbol_len) == (128, 128)
+    s = css.modulate(np.arange(128))
+    np.testing.assert_allclose(np.abs(s), 1.0, atol=1e-12)
+    np.testing.assert_array_equal(css.demodulate(s), np.arange(128))
+    # orthogonal at one sample per chip (Chiani and Elzanaty 2019, Property 3)
+    x = s.reshape(128, 128)
+    np.testing.assert_allclose(x @ x.conj().T / 128, np.eye(128), atol=1e-10)
+    # the simulated SER against the exact eq. (16) of Afisiadis et al. 2020
+    rng = comrs.Rng(4)
+    sym = rng.integers(128, 20_000)
+    y = css.modulate(sym)
+    y = y + rng.complex_noise(y.size, 1 / comrs.db2lin(-9.0))
+    ser = float(np.mean(css.demodulate(y) != sym))
+    assert ser == pytest.approx(comrs.css_ser(7, -9.0), rel=0.15)
+    assert comrs.css_ber(7, -9.0) == pytest.approx(comrs.css_ser(7, -9.0) * 128 / 254)
+    with pytest.raises(ValueError, match="one sample per chip"):
+        comrs.Css(7, oversampling=2, waveform="fsk")
+
+
+def test_css_waveforms_spectrum_and_interference():
+    # Chiani and Elzanaty 2019, Table I and Property 4
+    assert comrs.css_max_cross_correlation(5) == pytest.approx(0.091, abs=5e-4)
+    assert abs(comrs.css_cross_correlation(4, 3, 3) - 1) < 1e-15
+    f, p = comrs.css_spectral_lines(3, 40 * 8)
+    assert p.sum() == pytest.approx(1 / 8, abs=1e-4) and f.size == p.size
+    g = comrs.css_continuous_spectrum(3, np.array([0.0, 0.25, 2.0]))
+    assert g[0] > g[2] > 0
+    # Afisiadis et al. 2020: the strongest interference bin is -round(τ) mod M
+    r = comrs.css_interference_pattern(7, 40, 0, 10.4)
+    assert int(np.argmax(np.abs(r))) == 128 - 10
+    ser = comrs.css_ser_interference(9, -12.0, -3.0)
+    assert comrs.css_ser(9, -12.0) < ser < 1e-2
+    assert comrs.css_ser_interference(9, -12.0, -3.0, frame=10) > ser

@@ -9,6 +9,7 @@
 //! | [`ofdm`] | OFDM and DFT-spread OFDM: oversampled modulator, cyclic prefix, demodulator; resource grid and pilots, LS/LMMSE channel estimation, Schmidl & Cox synchronisation, MIMO-OFDM detection |
 //! | [`papr`] | peak-to-average power ratio: theory of its distribution, clipping (Bussgang), and the reduction techniques (clipping and filtering, SLM, PTS, tone reservation, ACE, companding) |
 //! | [`ce_ofdm`] | constant-envelope OFDM (Thompson et al. 2008): modulator, phase demodulator (principal or unwrapped phase), and the error rates of its linear regime |
+//! | [`css`] | chirp spread spectrum (the frequency-shift chirp modulation of LoRa): modulator at any oversampling, noncoherent DFT receiver, exact error rates, cross-correlation, spectrum in Fresnel functions, same-SF interference (Chiani & Elzanaty 2019, Afisiadis et al. 2020) |
 //! | [`cpm`] | continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses): modulator with an exact phase state, coherent maximum-likelihood sequence detector, quadrature detector of MSK, differential detector, the MSK spectrum and the Gaussian pulse in closed form, minimum distance |
 //!
 //! Single-carrier waveforms and the OFDM resource grid (pilots, channel estimation)
@@ -16,5 +17,6 @@
 
 pub mod ce_ofdm;
 pub mod cpm;
+pub mod css;
 pub mod ofdm;
 pub mod papr;

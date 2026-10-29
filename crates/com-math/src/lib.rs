@@ -29,7 +29,8 @@
 //!   [`np2db`] (attenuation per unit length);
 //! - [`sinc`], `sin(πx)/(πx)`, and [`effective_length`], `(1 - e^{-αL})/α`;
 //! - special functions: [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
-//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$), [`bessel_j0`];
+//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$), [`bessel_j0`],
+//!   [`bessel_i0e`];
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
 //! - quadrature: [`gauss_hermite`], the nodes and weights of `∫ f(t) e^{-t²} dt`;
@@ -272,6 +273,44 @@ pub fn bessel_j0(x: f64) -> f64 {
     (0..n).map(|k| (x * (h * (k as f64 + 0.5)).sin()).cos()).sum::<f64>() / n as f64
 }
 
+/// The scaled modified Bessel function of the first kind of order zero,
+/// $e^{-|x|} I_{0}(x)$, with $I_{0}(x) = \frac{1}{\pi} \int_{0}^{\pi} e^{x\cos\theta}
+/// \, d\theta$: the midpoint rule on the periodic integrand
+/// $e^{|x|(\cos\theta - 1)}$ for $|x| \le 60$ (exponentially convergent), and the
+/// asymptotic series $\frac{1}{\sqrt{2\pi x}} \sum_{k} \frac{((2k-1)!!)^{2}}{k!
+/// \, (8x)^{k}}$ beyond; to about $10^{-14}$ relative. The density of the Rice
+/// distribution, $y e^{-(y - v)^{2}/2} \, e^{-yv} I_{0}(yv)$, needs the scaled form.
+///
+/// # Examples
+/// ```
+/// use com_math::bessel_i0e;
+/// // I₀(1) = 1.266065877752008, I₀(10) = 2815.716628466254
+/// assert!((bessel_i0e(1.0) * 1f64.exp() - 1.266_065_877_752_008).abs() < 1e-13);
+/// assert!((bessel_i0e(10.0) * 10f64.exp() / 2815.716_628_466_254 - 1.0).abs() < 1e-13);
+/// assert!((bessel_i0e(1e4) * (2.0 * std::f64::consts::PI * 1e4).sqrt() - 1.0).abs() < 2e-5);
+/// ```
+pub fn bessel_i0e(x: f64) -> f64 {
+    let ax = x.abs();
+    if ax <= 60.0 {
+        let n = 32 + 8 * ax.sqrt().ceil() as usize + ax.ceil() as usize;
+        let h = std::f64::consts::PI / n as f64;
+        (0..n).map(|k| (ax * ((h * (k as f64 + 0.5)).cos() - 1.0)).exp()).sum::<f64>() / n as f64
+    } else {
+        // Σ_k ((2k-1)!!)² / (k! (8x)^k): the terms fall fast for x > 60
+        let mut term = 1.0;
+        let mut sum = 1.0;
+        for k in 1..30 {
+            let odd = (2 * k - 1) as f64;
+            term *= odd * odd / (k as f64 * 8.0 * ax);
+            sum += term;
+            if term < 1e-17 * sum {
+                break;
+            }
+        }
+        sum / (std::f64::consts::TAU * ax).sqrt()
+    }
+}
+
 /// Peak-to-average power ratio `max|x|² / mean|x|²` in dB (`-inf` for an empty or
 /// zero block).
 ///
@@ -443,6 +482,29 @@ pub fn log_sum_exp_iter<I: Iterator<Item = f64> + Clone>(v: I) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bessel_i0e_matches_scipy() {
+        // scipy.special.i0e (SciPy 1.11), on both sides of the switch at 60
+        let table = [
+            (0.0, 1.0),
+            (0.5, 0.645_035_270_449_150_1),
+            (1.0, 0.465_759_607_593_640_43),
+            (5.0, 0.183_540_812_609_328_34),
+            (10.0, 0.127_833_337_163_428_6),
+            (30.0, 0.073_145_946_482_237_3),
+            (59.9, 0.051_654_795_368_473_484),
+            (60.1, 0.051_568_411_420_294_53),
+            (100.0, 0.039_944_379_299_096_68),
+            (1e3, 0.012_617_240_455_891_257),
+            (1e5, 0.001_261_567_837_976_776_6),
+        ];
+        for (x, want) in table {
+            let got = bessel_i0e(x);
+            assert!((got / want - 1.0).abs() < 1e-13, "{x}: {got} vs {want}");
+            assert_eq!(bessel_i0e(-x), got);
+        }
+    }
 
     #[test]
     #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]

@@ -1,0 +1,19 @@
+id: chiani2019_table1
+title: Maximum real cross-correlation of the continuous-time LoRa waveforms
+function: comrs.css_max_cross_correlation
+source:
+  kind: paper
+  reference: "M. Chiani, A. Elzanaty, On the LoRa modulation for IoT: waveform properties and spectral analysis, IEEE Internet Things J. 6(5), 8463-8470, 2019"
+  locator: "Table I, column max Re{C_l,m}, M = 2^3, 2^5, 2^7, 2^10"
+  file: 2019_chiani_lora-waveform-spectral-analysis_iotj_arxiv.pdf
+tolerance: {abs: 5.0e-4}
+note: "printed to three decimals"
+cases:
+  - inputs: {sf: 3}
+    expected: 0.212
+  - inputs: {sf: 5}
+    expected: 0.091
+  - inputs: {sf: 7}
+    expected: 0.045
+  - inputs: {sf: 10}
+    expected: 0.015
