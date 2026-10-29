@@ -90,7 +90,7 @@ use crate::detection::MimoDetector;
 use com_core::{Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::linalg::svd;
-use com_math::{C64, gauss_hermite, golden_max};
+use com_math::{C64, golden_max};
 use ndarray::ArrayView2;
 
 /// Nodes of the Gauss–Hermite rule per dimension of the expectations over the noise.
@@ -322,19 +322,7 @@ struct Quadrature {
 
 impl Quadrature {
     fn new(field: Field) -> Quadrature {
-        let (t, w) = gauss_hermite(NODES);
-        let pi = std::f64::consts::PI;
-        let nodes = match field {
-            // Z = X + iY, X and Y of variance 1/2: E f = (1/π) Σ w_i w_j f(t_i + i t_j)
-            Field::Complex => t
-                .iter()
-                .zip(&w)
-                .flat_map(|(ti, wi)| t.iter().zip(&w).map(move |(tj, wj)| (C64::new(*ti, *tj), wi * wj / pi)))
-                .filter(|(_, w)| *w > 1e-300)
-                .collect(),
-            Field::Real => t.iter().zip(&w).map(|(ti, wi)| (C64::new(2f64.sqrt() * ti, 0.0), wi / pi.sqrt())).collect(),
-        };
-        Quadrature { nodes }
+        Quadrature { nodes: com_math::gaussian_nodes(1.0, field == Field::Complex, NODES) }
     }
 
     fn for_each(&self, mut f: impl FnMut(C64, f64)) {

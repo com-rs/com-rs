@@ -62,29 +62,38 @@ pub fn ccdf(values: &[f64], thresholds: &[f64]) -> Vec<f64> {
 pub fn psd(x: &[C64], fs: f64, nfft: usize) -> Result<(Vec<f64>, Vec<f64>)> {
     ensure(nfft >= 2 && x.len() >= nfft, || format!("{} samples for segments of {nfft}", x.len()))?;
     ensure(fs > 0.0, || format!("the sampling rate must be positive, got {fs}"))?;
-    let w = hann(nfft);
-    let u: f64 = w.iter().map(|v| v * v).sum();
+    Ok(averaged_periodogram(x, fs, nfft, Some(&hann(nfft)), nfft / 2))
+}
+
+/// The averaged periodogram of the segments of `nfft` samples every `hop` samples,
+/// weighted by `window` (rectangular if `None`): the centred frequencies and the density
+/// normalised by the energy of the window.
+fn averaged_periodogram(x: &[C64], fs: f64, nfft: usize, window: Option<&[f64]>, hop: usize) -> (Vec<f64>, Vec<f64>) {
+    let u: f64 = window.map_or(nfft as f64, |w| w.iter().map(|v| v * v).sum());
     let p = fft::plan(nfft);
     let mut acc = vec![0.0; nfft];
     let mut k = 0usize;
     let mut start = 0;
     let mut seg = vec![C64::new(0.0, 0.0); nfft];
     while start + nfft <= x.len() {
-        for (s, (v, wi)) in seg.iter_mut().zip(x[start..start + nfft].iter().zip(&w)) {
-            *s = v * wi;
+        seg.copy_from_slice(&x[start..start + nfft]);
+        if let Some(w) = window {
+            for (s, wi) in seg.iter_mut().zip(w) {
+                *s *= wi;
+            }
         }
         p.forward(&mut seg);
         for (a, s) in acc.iter_mut().zip(&seg) {
             *a += s.norm_sqr();
         }
         k += 1;
-        start += nfft / 2;
+        start += hop;
     }
     let scale = 1.0 / (k as f64 * fs * u);
     let half = nfft / 2;
-    let freqs: Vec<f64> = (0..nfft).map(|i| (i as f64 - half as f64) * fs / nfft as f64).collect();
-    let dens: Vec<f64> = (0..nfft).map(|i| acc[(i + nfft - half) % nfft] * scale).collect();
-    Ok((freqs, dens))
+    let freqs = (0..nfft).map(|i| (i as f64 - half as f64) * fs / nfft as f64).collect();
+    let dens = (0..nfft).map(|i| acc[(i + nfft - half) % nfft] * scale).collect();
+    (freqs, dens)
 }
 
 /// The power of a density in the band $[f_{\mathrm{lo}}, f_{\mathrm{hi}})$.
@@ -103,22 +112,7 @@ pub fn band_power(freqs: &[f64], density: &[f64], f_lo: f64, f_hi: f64) -> f64 {
 pub fn periodogram(x: &[C64], fs: f64, nfft: usize) -> Result<(Vec<f64>, Vec<f64>)> {
     ensure(nfft >= 1 && x.len() >= nfft, || format!("{} samples for segments of {nfft}", x.len()))?;
     ensure(fs > 0.0, || format!("the sampling rate must be positive, got {fs}"))?;
-    let p = fft::plan(nfft);
-    let mut acc = vec![0.0; nfft];
-    let mut k = 0usize;
-    for seg in x.chunks_exact(nfft) {
-        let mut v = seg.to_vec();
-        p.forward(&mut v);
-        for (a, s) in acc.iter_mut().zip(&v) {
-            *a += s.norm_sqr();
-        }
-        k += 1;
-    }
-    let scale = 1.0 / (k as f64 * fs * nfft as f64);
-    let half = nfft / 2;
-    let freqs = (0..nfft).map(|i| (i as f64 - half as f64) * fs / nfft as f64).collect();
-    let dens = (0..nfft).map(|i| acc[(i + nfft - half) % nfft] * scale).collect();
-    Ok((freqs, dens))
+    Ok(averaged_periodogram(x, fs, nfft, None, nfft))
 }
 
 /// The adjacent channel leakage ratio (dB) of a density: the power of the channel

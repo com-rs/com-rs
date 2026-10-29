@@ -123,6 +123,9 @@ PyPI and the command line `comrs`.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.
+- DRY pass: `com_math::{gaussian_nodes, log_sum_exp_iter, normal_pdf, simpson}`,
+  `com_math::fft::filter`, `com_dsp::signal::map_envelope` and
+  `com_dsp::compensation::dpd::polynomial_term` replace copies across the crates.
 - Comparisons with other libraries: the reference vectors of Sionna (CRC, convolutional
   and turbo codes, bit for bit), py3gpp (5G NR), sigmf-python, next to OptiCommPy,
   GNPy and AFF3CT; a documentation page gathers them.

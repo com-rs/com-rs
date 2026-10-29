@@ -108,6 +108,26 @@ pub fn ifft(x: &[C64]) -> Vec<C64> {
     y
 }
 
+/// Filter a periodic block by its frequency response: `IFFT(FFT(x) · H)`, `H` one
+/// value per DFT bin in the order of [`fftfreq`] (a circular convolution).
+///
+/// # Examples
+/// ```
+/// use com_math::{C64, fft};
+/// // a delay of one sample: H_k = e^{-j2πk/N}
+/// let x = vec![C64::new(1.0, 0.0), C64::new(2.0, 0.0), C64::new(3.0, 0.0), C64::new(4.0, 0.0)];
+/// let h = (0..4).map(|k| com_math::cis(-std::f64::consts::TAU * k as f64 / 4.0));
+/// let y = fft::filter(&x, h);
+/// assert!((y[1] - x[0]).norm() < 1e-12 && (y[0] - x[3]).norm() < 1e-12);
+/// ```
+pub fn filter(x: &[C64], h: impl IntoIterator<Item = C64>) -> Vec<C64> {
+    let mut y = fft(x);
+    for (v, hk) in y.iter_mut().zip(h) {
+        *v *= hk;
+    }
+    ifft(&y)
+}
+
 /// Frequencies of the DFT bins for a sample spacing `d` (`numpy.fft.fftfreq`):
 /// `[0, 1, …, ⌈N/2⌉-1, -⌊N/2⌋, …, -1] / (N d)`.
 pub fn fftfreq(n: usize, d: f64) -> Vec<f64> {

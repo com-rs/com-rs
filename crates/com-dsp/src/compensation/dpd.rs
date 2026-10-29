@@ -59,6 +59,21 @@ use com_math::C64;
 use com_math::linalg::{hermitian, identity, solve_hpd};
 use ndarray::{Array1, Array2};
 
+/// The term of order `k` of a memory polynomial, $x\[n\] \lvert x\[n\] \rvert^{k-1}$,
+/// shared by the predistorter and the amplifier model of `com-hardware`.
+///
+/// # Examples
+/// ```
+/// use com_dsp::compensation::dpd::polynomial_term;
+/// use com_math::C64;
+/// let t = polynomial_term(&[C64::new(0.0, 2.0)], 3);
+/// assert_eq!(t[0], C64::new(0.0, 8.0));
+/// ```
+pub fn polynomial_term(x: &[C64], k: u32) -> Vec<C64> {
+    let p = i32::try_from(k.saturating_sub(1)).unwrap_or(0);
+    x.iter().map(|v| v * v.norm().powi(p)).collect()
+}
+
 /// A memory-polynomial predistorter.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemoryPolynomialDpd {
@@ -86,8 +101,7 @@ impl MemoryPolynomialDpd {
         let cols = self.orders.len() * self.memory;
         let mut phi = Array2::<C64>::zeros((u.len(), cols));
         for (j, k) in self.orders.iter().enumerate() {
-            let p = i32::try_from(k.saturating_sub(1)).unwrap_or(0);
-            let b: Vec<C64> = u.iter().map(|v| v * v.norm().powi(p)).collect();
+            let b = polynomial_term(u, *k);
             for m in 0..self.memory {
                 for n in m..u.len() {
                     phi[[n, j * self.memory + m]] = b[n - m];

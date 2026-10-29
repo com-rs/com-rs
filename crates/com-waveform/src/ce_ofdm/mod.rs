@@ -202,21 +202,31 @@ impl CeOfdm {
         self.check()?;
         let (k, n) = (self.n_data, self.n_fft());
         ensure_shape(d.len() % k == 0, || format!("{} symbols is not a multiple of K = {k}", d.len()))?;
-        let scale = n as f64 / (2.0 * k as f64).sqrt();
         let mut out = Vec::with_capacity(d.len() / k * n);
-        let mut spec = vec![C64::new(0.0, 0.0); n];
         for block in d.chunks(k) {
-            for v in &mut spec {
-                *v = C64::new(0.0, 0.0);
-            }
-            for (i, &v) in block.iter().enumerate() {
-                spec[i + 1] = v;
-                spec[n - 1 - i] = v.conj();
-            }
-            // ifft divides by N: x = N/√(2K) · ifft
-            out.extend(fft::ifft(&spec).into_iter().map(|v| v.re * scale));
+            out.extend(self.synthesize(block));
         }
         Ok(out)
+    }
+
+    /// The real OFDM signal `x = (F d + F* d*)/√(2K)` of one block of `K` symbols.
+    fn synthesize(&self, d: &[C64]) -> Vec<f64> {
+        let (k, n) = (self.n_data, self.n_fft());
+        let mut spec = vec![C64::new(0.0, 0.0); n];
+        for (i, &v) in d.iter().enumerate() {
+            spec[i + 1] = v;
+            spec[n - 1 - i] = v.conj();
+        }
+        // ifft divides by N: x = N/√(2K) · ifft
+        let scale = n as f64 / (2.0 * k as f64).sqrt();
+        fft::ifft(&spec).into_iter().map(|v| v.re * scale).collect()
+    }
+
+    /// The DFT bins `1 … K` of one block of `N` real samples: `F^H x` on the data
+    /// subcarriers.
+    fn data_bins(&self, x: &[f64]) -> Vec<C64> {
+        let spec = fft::fft(&x.iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
+        spec[1..=self.n_data].to_vec()
     }
 
     /// The transmitted samples `exp(j2πh x)`, with the cyclic prefix of every block.
@@ -284,8 +294,7 @@ impl CeOfdm {
         let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h * gain);
         let mut out = Vec::with_capacity(psi.len() / l * k);
         for block in psi.chunks(l) {
-            let spec = fft::fft(&block[self.n_cp..].iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
-            out.extend(spec[1..=k].iter().map(|v| v * scale));
+            out.extend(self.data_bins(&block[self.n_cp..]).into_iter().map(|v| v * scale));
         }
         Ok(out)
     }

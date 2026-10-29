@@ -562,18 +562,9 @@ impl Block for PasDecode {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{BuildContext, build};
     use super::*;
+    use crate::blocks::tests::run;
     use serde_json::json;
-
-    fn run(link: &[Json], seed: u64) -> Frame {
-        let mut rng = Rng::new(seed);
-        let mut s = Frame::default();
-        for b in link {
-            build(b, &BuildContext::default()).unwrap().apply(&mut s, &mut rng).unwrap();
-        }
-        s
-    }
 
     #[test]
     fn the_ldpc_defaults_are_those_of_com_fec() {

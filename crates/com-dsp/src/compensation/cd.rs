@@ -84,24 +84,21 @@
 use com_core::{Result, ensure};
 use com_math::fft;
 use com_math::linalg::solve_hpd;
+use com_math::nlse::Medium;
 use com_math::{C64, cis, fresnel};
 use ndarray::Array2;
 use std::f64::consts::PI;
 
 /// Compensate the dispersion `beta2_s2_km` of `length_km` on a block sampled at `fs`.
 pub fn cdc(x: &[C64], beta2_s2_km: f64, length_km: f64, fs: f64) -> Vec<C64> {
-    let mut y = fft::fft(x);
-    for (v, h) in y.iter_mut().zip(inverse_dispersion(x.len(), beta2_s2_km, length_km, fs)) {
-        *v *= h;
-    }
-    fft::ifft(&y)
+    fft::filter(x, inverse_dispersion(x.len(), beta2_s2_km, length_km, fs))
 }
 
 /// The inverse dispersion `e^{-jβ₂ω²L/2}` on the `n` angular frequencies of a block
-/// sampled at `fs`.
+/// sampled at `fs`: the linear response of a lossless medium of dispersion `-β₂`.
 fn inverse_dispersion(n: usize, beta2_s2_km: f64, length_km: f64, fs: f64) -> Vec<C64> {
-    let w = fft::angular_frequencies(n, fs);
-    w.iter().map(|wk| cis(-beta2_s2_km / 2.0 * wk * wk * length_km)).collect()
+    let inverse = Medium { alpha_np_km: 0.0, beta2_s2_km: -beta2_s2_km, gamma_w_km: 0.0 };
+    inverse.linear_response(&fft::angular_frequencies(n, fs), length_km)
 }
 
 /// Number of taps of the dispersion-compensating FIR (OptiCommPy `edc` rule).

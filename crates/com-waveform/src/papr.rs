@@ -101,6 +101,7 @@
 use crate::ofdm::{Ofdm, PaprReduction};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
+use com_dsp::signal::map_envelope;
 use com_mapping::constellation::Constellation;
 use com_math::{C64, cis, db2lin, erfc, papr_db};
 use std::f64::consts::PI;
@@ -161,12 +162,7 @@ pub fn clipping_bussgang(ratio_db: f64) -> Bussgang {
 
 /// Limit the envelope to `a`, keeping the phase.
 fn limit(x: &mut [C64], a: f64) {
-    for v in x {
-        let r = v.norm();
-        if r > a {
-            *v *= a / r;
-        }
-    }
+    map_envelope(x, |r| C64::new(if r > a { a / r } else { 1.0 }, 0.0));
 }
 
 fn amplitude(ratio_db: f64) -> f64 {
@@ -521,17 +517,7 @@ impl Companding {
     fn mu_law_scale(mu: f64, v: f64) -> f64 {
         // E[c(r)²] for r² ~ Exp(1), by Simpson's rule on [0, 60]
         let c = |t: f64| v * (1.0 + mu * t.sqrt() / v).ln() / (1.0 + mu).ln();
-        let n = 6000;
-        let h = 60.0 / f64::from(n);
-        let f = |i: i32| {
-            let t = f64::from(i) * h;
-            c(t).powi(2) * (-t).exp()
-        };
-        let mut s = f(0) + f(n);
-        for i in 1..n {
-            s += if i % 2 == 1 { 4.0 } else { 2.0 } * f(i);
-        }
-        1.0 / (s * h / 3.0).sqrt()
+        1.0 / com_math::simpson(|t| c(t).powi(2) * (-t).exp(), 0.0, 60.0, 6000).sqrt()
     }
 
     /// Compress an envelope.
@@ -565,12 +551,7 @@ impl Companding {
     }
 
     fn apply(x: &mut [C64], f: impl Fn(f64) -> f64) {
-        for v in x {
-            let r = v.norm();
-            if r > 0.0 {
-                *v *= f(r) / r;
-            }
-        }
+        map_envelope(x, |r| C64::new(f(r) / r, 0.0));
     }
 }
 

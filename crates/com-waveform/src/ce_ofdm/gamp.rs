@@ -44,7 +44,7 @@
 use super::{CeOfdm, TAU};
 use com_core::{Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
-use com_math::{C64, fft};
+use com_math::C64;
 
 /// The GAMP receiver (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -197,19 +197,9 @@ impl Gamp {
         let kappa = TAU * ce.h;
         let a = 2.0 / (2.0 * k as f64).sqrt();
         let beta = self.damping;
-        // A u through the inverse FFT, Aᵀ y through the FFT (see the module)
-        let forward = |u: &[C64]| -> Vec<f64> {
-            let mut spec = vec![C64::new(0.0, 0.0); n];
-            for (i, &v) in u.iter().enumerate() {
-                spec[i + 1] = v;
-                spec[n - 1 - i] = v.conj();
-            }
-            fft::ifft(&spec).into_iter().map(|v| v.re * n as f64 / 2.0 * a).collect()
-        };
-        let adjoint = |y: &[f64]| -> Vec<C64> {
-            let spec = fft::fft(&y.iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
-            spec[1..=k].iter().map(|v| v * a).collect()
-        };
+        // A u is the modulator's OFDM signal; Aᵀ y the data bins of the DFT, scaled
+        let forward = |u: &[C64]| ce.synthesize(u);
+        let adjoint = |y: &[f64]| -> Vec<C64> { ce.data_bins(y).into_iter().map(|v| v * a).collect() };
         let prior = |levels: &[f64]| input_moments(levels, 0.0, f64::INFINITY);
         let (m_re, v_re) = prior(re);
         let (m_im, v_im) = prior(im);

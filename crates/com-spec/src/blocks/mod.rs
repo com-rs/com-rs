@@ -84,7 +84,7 @@ pub mod systems;
 pub mod wireless;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use crate::params::parse;
 pub use context::BuildContext;

@@ -221,12 +221,10 @@ pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> R
             let mut total = 0.0;
             let mut d = vec![0.0; pts.len()];
             for &y in r {
-                let mut best = f64::NEG_INFINITY;
                 for (v, p) in d.iter_mut().zip(pts) {
                     *v = -(y - p).norm_sqr() / noise_var;
-                    best = best.max(*v);
                 }
-                total += best + d.iter().map(|v| (v - best).exp()).sum::<f64>().ln() - ln_m;
+                total += com_math::log_sum_exp(&d) - ln_m;
             }
             total / r.len() as f64
         })

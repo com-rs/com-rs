@@ -624,7 +624,7 @@ impl Block for OfdmRx {
         let receiver = self.detection.receiver(s.constellation("ofdm_rx")?)?;
         let streams = s.take_streams();
         let (nr, nt) = (streams.len(), f.n_ports);
-        let noise_var = s.channel.noise_var.unwrap_or(1e-12).max(1e-12);
+        let noise_var = s.channel.detector_noise_var();
         let method = match self.estimation {
             Estimation::Perfect => None,
             Estimation::Ls => Some(FrequencyInterpolation::Linear),
@@ -665,7 +665,7 @@ impl Block for MimoRx {
         })?;
         let streams = s.take_streams();
         let n = streams[0].len();
-        let noise_var = s.channel.noise_var.unwrap_or(1e-12).max(1e-12);
+        let noise_var = s.channel.detector_noise_var();
         let mut out = SoftOutput::default();
         let a = layer_gain(s, csi.flat(0).map_or(1, ndarray::ArrayBase::ncols));
         receiver
@@ -684,18 +684,9 @@ impl Block for MimoRx {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{BuildContext, build};
     use super::*;
+    use crate::blocks::tests::run;
     use serde_json::json;
-
-    fn run(link: &[Json], seed: u64) -> Frame {
-        let mut rng = Rng::new(seed);
-        let mut s = Frame::default();
-        for b in link {
-            build(b, &BuildContext::default()).unwrap().apply(&mut s, &mut rng).unwrap();
-        }
-        s
-    }
 
     fn max_error(s: &Frame) -> f64 {
         assert_eq!(s.samples.len(), s.symbols.len());

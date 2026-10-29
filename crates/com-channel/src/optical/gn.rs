@@ -742,20 +742,8 @@ mod tests {
         let eta = |egn| {
             let m = GnModel { egn, resolution_hz: Some(rs / 64.0), ..GnModel::new(fiber.clone()) };
             // Simpson over the band
-            let k = 8;
-            let acc: f64 = (0..=k)
-                .map(|i| {
-                    let w = if i == 0 || i == k {
-                        1.0
-                    } else if i % 2 == 1 {
-                        4.0
-                    } else {
-                        2.0
-                    };
-                    w * m.nli_psd(&s, -rs / 2.0 + rs * f64::from(i) / f64::from(k)).unwrap()
-                })
-                .sum();
-            10.0 * (acc * rs / f64::from(k) / 3.0).log10()
+            let p = com_math::simpson(|f| m.nli_psd(&s, f).unwrap(), -rs / 2.0, rs / 2.0, 8);
+            10.0 * p.log10()
         };
         let (gn, egn) = (eta(None), eta(Some(FormatMoments { phi: -1.0, psi: 4.0 })));
         assert!((gn - 22.3).abs() < 0.15 && (egn - 18.1).abs() < 0.25, "GN {gn} EGN {egn}");

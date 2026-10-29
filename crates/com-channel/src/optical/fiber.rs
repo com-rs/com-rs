@@ -172,11 +172,7 @@ impl FiberParams {
 /// (OptiCommPy `linearFiberChannel`).
 pub fn linear_fiber_channel(x: &[C64], fiber: &FiberParams, length_km: f64, fs: f64) -> Vec<C64> {
     let w = fft::angular_frequencies(x.len(), fs);
-    let mut y = fft::fft(x);
-    for (v, h) in y.iter_mut().zip(fiber.medium().linear_response(&w, length_km)) {
-        *v *= h;
-    }
-    fft::ifft(&y)
+    fft::filter(x, fiber.medium().linear_response(&w, length_km))
 }
 
 /// The amplification after every span of a split-step simulation.
@@ -438,23 +434,19 @@ impl Propagate for Ssfm {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use com_math::power;
 
-    fn signal(n: usize, seed: u64, p: f64) -> Vec<C64> {
+    /// `n` samples of complex Gaussian noise limited to half the band (so that the split
+    /// step is accurate) and scaled to the power `p` (for the tests of the optical
+    /// channels).
+    pub(crate) fn signal(n: usize, seed: u64, p: f64) -> Vec<C64> {
         let mut r = Rng::new(seed);
         let x: Vec<C64> = (0..n).map(|_| r.complex_gaussian()).collect();
-        // band-limit to half the band, so that the split step is accurate
-        let mut xs = fft::fft(&x);
-        let f = fft::fftfreq(n, 1.0);
-        for (v, fk) in xs.iter_mut().zip(f) {
-            if fk.abs() > 0.25 {
-                *v = C64::new(0.0, 0.0);
-            }
-        }
-        let y = fft::ifft(&xs);
+        let mask = fft::fftfreq(n, 1.0).into_iter().map(|f| C64::new(if f.abs() > 0.25 { 0.0 } else { 1.0 }, 0.0));
+        let y = fft::filter(&x, mask);
         let s = (p / power(&y)).sqrt();
         y.iter().map(|v| v * s).collect()
     }

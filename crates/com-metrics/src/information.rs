@@ -306,8 +306,7 @@ pub fn posterior_rates(
         // log Σ_{j: bit of j = val} e^{-s d_j}
         let lse = |row: &[f64], bit: usize, val: usize| -> f64 {
             let has = |j: &usize| (j >> (b - 1 - bit)) & 1 == val;
-            let mx = (0..m).filter(has).map(|j| lp[j] - s * row[j]).fold(f64::NEG_INFINITY, f64::max);
-            mx + (0..m).filter(has).map(|j| (lp[j] - s * row[j] - mx).exp()).sum::<f64>().ln()
+            com_math::log_sum_exp_iter((0..m).filter(has).map(|j| lp[j] - s * row[j]))
         };
         for k in 0..z.len() {
             let row = &d[k * m..(k + 1) * m];

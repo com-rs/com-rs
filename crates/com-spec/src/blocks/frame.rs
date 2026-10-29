@@ -77,6 +77,14 @@ pub struct ChannelState {
     pub faded_power: Option<f64>,
 }
 
+impl ChannelState {
+    /// The noise variance per sample for the detectors, floored at `1e-12` (and `1e-12`
+    /// when no noise block ran).
+    pub fn detector_noise_var(&self) -> f64 {
+        self.noise_var.unwrap_or(1e-12).max(1e-12)
+    }
+}
+
 /// What the receiver declares about its outputs.
 #[derive(Clone, Debug, Default)]
 pub struct ReceiverState {

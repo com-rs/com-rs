@@ -2,7 +2,7 @@
 //! power spectral density of MSK.
 
 use com_core::{Error, Result};
-use com_math::qfunc;
+use com_math::{normal_pdf, qfunc};
 use std::f64::consts::{PI, TAU};
 
 /// The frequency pulse $g(t)$ of a CPM signal (see the module documentation).
@@ -76,11 +76,6 @@ impl FrequencyPulse {
             other => Err(Error::Config(format!("pulse must be rec, rc or gmsk, got {other:?}"))),
         }
     }
-}
-
-/// The standard normal density $\phi(x) = e^{-x^{2}/2} / \sqrt{2 \pi}$.
-fn normal_pdf(x: f64) -> f64 {
-    (-0.5 * x * x).exp() / TAU.sqrt()
 }
 
 /// $\int Q(x) \\, dx = x Q(x) - \phi(x)$.

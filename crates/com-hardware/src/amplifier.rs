@@ -37,16 +37,15 @@
 //!    *IEEE Trans. Commun.*, 52(1), 159–165, 2004.
 
 use com_core::prelude::*;
+use com_dsp::compensation::dpd::polynomial_term;
+use com_dsp::signal::map_envelope;
 use com_math::cis;
 
 /// Apply a memoryless AM/AM, AM/PM conversion.
 fn memoryless(x: &[C64], am_am: impl Fn(f64) -> f64, am_pm: impl Fn(f64) -> f64) -> Vec<C64> {
-    x.iter()
-        .map(|v| {
-            let r = v.norm();
-            if r == 0.0 { C64::new(0.0, 0.0) } else { v / r * am_am(r) * cis(am_pm(r)) }
-        })
-        .collect()
+    let mut y = x.to_vec();
+    map_envelope(&mut y, |r| am_am(r) / r * cis(am_pm(r)));
+    y
 }
 
 /// Rapp's model of a solid-state amplifier: a smooth envelope limiter.
@@ -185,8 +184,7 @@ impl MemoryPolynomial {
     pub fn amplify(&self, x: &[C64]) -> Vec<C64> {
         let mut y = vec![C64::new(0.0, 0.0); x.len()];
         for (k, taps) in &self.terms {
-            let p = i32::try_from(k.saturating_sub(1)).unwrap_or(0);
-            let basis: Vec<C64> = x.iter().map(|v| v * v.norm().powi(p)).collect();
+            let basis = polynomial_term(x, *k);
             for (m, a) in taps.iter().enumerate() {
                 for n in m..x.len() {
                     y[n] += a * basis[n - m];

@@ -65,8 +65,8 @@ use com_core::{Result, ensure, expect_len};
 use com_fec::block::BlockCode;
 use com_fec::ccdm::Ccdm;
 use com_fec::ldpc::LdpcCode;
-use com_mapping::constellation::Constellation;
-use com_math::{bits_to_index, gray, gray_inverse, index_to_bits};
+use com_mapping::constellation::{Constellation, log_priors};
+use com_math::{bits_to_index, gray, gray_inverse, index_to_bits, log_sum_exp_iter};
 
 /// A PAS transceiver of one real dimension (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -240,7 +240,7 @@ impl Pas {
         expect_len(noise_var.len(), self.n_symbols(), "noise variances")?;
         let na = 1 << (self.m - 1);
         let mb = self.m - 1;
-        let lp: Vec<f64> = self.dm.distribution().iter().map(|p| p.max(1e-300).ln()).collect();
+        let lp = log_priors(&self.dm.distribution());
         let mut out = vec![0.0; self.code.n()];
         let mut metric = vec![0.0; 2 * na];
         for (i, (&yi, &v)) in y.iter().zip(noise_var).enumerate() {
@@ -253,9 +253,7 @@ impl Pas {
                 }
             }
             let lse = |keep: &dyn Fn(usize, usize) -> bool| -> f64 {
-                let mx =
-                    (0..2 * na).filter(|&j| keep(j / na, j % na)).map(|j| metric[j]).fold(f64::NEG_INFINITY, f64::max);
-                mx + (0..2 * na).filter(|&j| keep(j / na, j % na)).map(|j| (metric[j] - mx).exp()).sum::<f64>().ln()
+                log_sum_exp_iter((0..2 * na).filter(|&j| keep(j / na, j % na)).map(|j| metric[j]))
             };
             out[self.sign_positions[i]] = lse(&|s, _| s == 0) - lse(&|s, _| s == 1);
             for j in 0..mb {

@@ -65,7 +65,7 @@ use com_core::ensure;
 use com_core::prelude::*;
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
 use com_math::fft::{fft, fftfreq, ifft};
-use com_math::{erfc, golden_max};
+use com_math::golden_max;
 use std::f64::consts::PI;
 
 /// A uniform mid-rise quantiser of `bits` bits over $[-A, A]$ (see the module).
@@ -154,7 +154,7 @@ pub fn zero_order_hold_gain(f: f64, fs: f64, hold: usize) -> f64 {
 
 /// $\Phi(u)$ and $\varphi(u)$ of the standard normal distribution.
 fn normal(u: f64) -> (f64, f64) {
-    (0.5 * erfc(-u / std::f64::consts::SQRT_2), (-0.5 * u * u).exp() / (2.0 * PI).sqrt())
+    (com_math::qfunc(-u), com_math::normal_pdf(u))
 }
 
 /// The exact mean squared error of `q` (one dimension) for $X \sim \mathcal{N}(0, \sigma^{2})$:

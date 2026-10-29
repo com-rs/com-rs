@@ -161,8 +161,7 @@ pub struct BerSerSnr {
 /// zero received symbol (phase ambiguity).
 pub fn fast_ber_calc(rx: &[C64], tx: &[C64], c: &Constellation) -> Result<BerSerSnr> {
     let (r, t) = preprocess(rx, tx, c.kind())?;
-    let e: Vec<C64> = r.iter().zip(&t).map(|(a, b)| a - b).collect();
-    let snr_db = 10.0 * (power(&t) / power(&e)).log10();
+    let snr_db = snr_db(&r, &t)?;
     let cn = c.normalized();
     let (ir, it) = (cn.decide(&r), cn.decide(&t));
     let b = cn.bits_per_symbol();

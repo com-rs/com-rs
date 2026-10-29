@@ -307,24 +307,7 @@ impl Manakov {
 mod tests {
     use super::*;
     use crate::optical::fiber::linear_fiber_channel;
-
-    use com_math::power;
-
-    fn signal(n: usize, seed: u64, p: f64) -> Vec<C64> {
-        let mut r = Rng::new(seed);
-        let x: Vec<C64> = (0..n).map(|_| r.complex_gaussian()).collect();
-        // band-limit to half the band, so that the split step is accurate
-        let mut xs = fft::fft(&x);
-        let f = fft::fftfreq(n, 1.0);
-        for (v, fk) in xs.iter_mut().zip(f) {
-            if fk.abs() > 0.25 {
-                *v = C64::new(0.0, 0.0);
-            }
-        }
-        let y = fft::ifft(&xs);
-        let s = (p / power(&y)).sqrt();
-        y.iter().map(|v| v * s).collect()
-    }
+    use crate::optical::fiber::tests::signal;
 
     #[test]
     fn manakov_round_trip_and_pmd_equaliser() {

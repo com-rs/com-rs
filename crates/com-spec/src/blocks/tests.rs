@@ -9,6 +9,17 @@ fn link(blocks: &[Json]) -> Vec<Box<dyn Block>> {
     blocks.iter().map(|b| build(b, &BuildContext::default()).unwrap()).collect()
 }
 
+/// The frame after the blocks of `link` with the generator seeded by `seed` (for the
+/// tests of the block modules).
+pub(super) fn run(link: &[Json], seed: u64) -> Frame {
+    let mut rng = Rng::new(seed);
+    let mut s = Frame::default();
+    for b in link {
+        build(b, &BuildContext::default()).unwrap().apply(&mut s, &mut rng).unwrap();
+    }
+    s
+}
+
 #[test]
 fn ce_ofdm_blocks_round_trip_and_record_the_theory() {
     let blocks = link(&[

@@ -175,28 +175,6 @@ pub fn ber_rayleigh_mrc(mean_ebn0: f64, branches: usize) -> f64 {
     ((1.0 - mu) / 2.0).powi(l as i32) * sum
 }
 
-/// Quadrature nodes `(w, weight)` of the noise, `E f(w) ≈ Σ weight f(w)`.
-///
-/// Complex channel: `w ~ CN(0, σ²)`, product rule on the two dimensions; real channel:
-/// `w ~ N(0, σ²)` on the real axis.
-fn noise_nodes(sigma2: f64, real: bool, points: usize) -> Vec<(C64, f64)> {
-    let (t, a) = com_math::gauss_hermite(points.max(2));
-    let pi = std::f64::consts::PI;
-    if real {
-        let s = (2.0 * sigma2).sqrt();
-        t.iter().zip(&a).map(|(t, a)| (C64::new(s * t, 0.0), a / pi.sqrt())).collect()
-    } else {
-        let s = sigma2.sqrt();
-        let mut v = Vec::with_capacity(t.len() * t.len());
-        for (tr, ar) in t.iter().zip(&a) {
-            for (ti, ai) in t.iter().zip(&a) {
-                v.push((C64::new(s * tr, s * ti), ar * ai / pi));
-            }
-        }
-        v
-    }
-}
-
 /// Normalised points, probabilities, `N_0` and quadrature nodes of a theory function.
 type TheorySetup = (Vec<C64>, Vec<f64>, f64, Vec<(C64, f64)>);
 
@@ -210,13 +188,12 @@ fn theory_setup(
 ) -> Result<TheorySetup> {
     let c = Constellation::new(kind, m)?;
     let p = c.priors(px)?;
-    let es: f64 = c.points().iter().zip(&p).map(|(x, q)| q * x.norm_sqr()).sum();
-    let pts: Vec<C64> = c.points().iter().map(|x| x / es.sqrt()).collect();
+    let pts = c.normalized_under(&p)?.points().to_vec();
     // OptiCommPy: a real constellation sees a real channel of variance 1/SNR, a complex
     // one a complex channel of variance 1/SNR (1/(2 SNR) per dimension)
     let sigma2 = db2lin(-snr_db);
     let n0 = if kind.is_real() { 2.0 * sigma2 } else { sigma2 };
-    Ok((pts, p, n0, noise_nodes(sigma2, kind.is_real(), points)))
+    Ok((pts, p, n0, com_math::gaussian_nodes(sigma2, !kind.is_real(), points)))
 }
 
 /// Mutual information (bits/symbol) of a constellation over AWGN, by Gauss–Hermite
@@ -339,18 +316,12 @@ pub fn differential_phase_tail(psi: f64, es_n0: f64) -> f64 {
         return 1.0;
     }
     let (s, c) = psi.sin_cos();
-    let n = 2000usize;
-    let h = std::f64::consts::PI / n as f64;
     let f = |t: f64| {
         let d = 1.0 - c * t.cos();
         (-es_n0 * d).exp() / d
     };
-    let mut acc = f(-std::f64::consts::FRAC_PI_2) + f(std::f64::consts::FRAC_PI_2);
-    for k in 1..n {
-        let t = -std::f64::consts::FRAC_PI_2 + k as f64 * h;
-        acc += if k % 2 == 1 { 4.0 } else { 2.0 } * f(t);
-    }
-    s / (2.0 * std::f64::consts::PI) * acc * h / 3.0
+    let half = std::f64::consts::FRAC_PI_2;
+    s / (2.0 * std::f64::consts::PI) * com_math::simpson(f, -half, half, 2000)
 }
 
 /// The terms of eq. (9) of Cho and Yoon for the bit `k` (1 = most significant) of

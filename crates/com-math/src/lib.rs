@@ -178,6 +178,37 @@ pub fn qfunc(x: f64) -> f64 {
     0.5 * erfc(x / std::f64::consts::SQRT_2)
 }
 
+/// Composite Simpson's rule $\int_{a}^{b} f(t)\, dt$ on `n` intervals (`n` even, at
+/// least 2), exact for cubics.
+///
+/// # Examples
+/// ```
+/// use com_math::simpson;
+/// assert!((simpson(|t| t * t * t, 0.0, 2.0, 2) - 4.0).abs() < 1e-15);
+/// assert!((simpson(f64::sin, 0.0, std::f64::consts::PI, 200) - 2.0).abs() < 1e-8);
+/// ```
+pub fn simpson(f: impl Fn(f64) -> f64, a: f64, b: f64, n: usize) -> f64 {
+    let n = n.max(2).div_ceil(2) * 2;
+    let h = (b - a) / n as f64;
+    let mut acc = f(a) + f(b);
+    for k in 1..n {
+        acc += if k % 2 == 1 { 4.0 } else { 2.0 } * f(a + k as f64 * h);
+    }
+    acc * h / 3.0
+}
+
+/// The standard normal density $\varphi(x) = e^{-x^{2}/2}/\sqrt{2\pi}$ (its
+/// distribution function is $1 - Q(x)$, [`qfunc`]).
+///
+/// # Examples
+/// ```
+/// use com_math::normal_pdf;
+/// assert!((normal_pdf(0.0) - 0.398_942_280_401_432_7).abs() < 1e-16);
+/// ```
+pub fn normal_pdf(x: f64) -> f64 {
+    (-0.5 * x * x).exp() / std::f64::consts::TAU.sqrt()
+}
+
 /// The Fresnel integrals $C(x) = \int_{0}^{x} \cos(\pi t^{2}/2)\, dt$ and
 /// $S(x) = \int_{0}^{x} \sin(\pi t^{2}/2)\, dt$, as `(C, S)`, to about $10^{-15}$.
 ///
@@ -312,6 +343,36 @@ pub fn gauss_hermite(n: usize) -> (Vec<f64>, Vec<f64>) {
     (x, w)
 }
 
+/// Quadrature nodes `(w, weight)` of Gaussian noise, `E f(W) ≈ Σ weight f(w)`, from the
+/// `n`-point [`gauss_hermite`] rule: `W ~ CN(0, σ²)` by the product rule on the two
+/// dimensions (`complex`), or `W ~ N(0, σ²)` on the real axis. The nodes of negligible
+/// weight (below `1e-300`) are left out.
+///
+/// # Examples
+/// ```
+/// use com_math::gaussian_nodes;
+/// // E|W|² = σ² for W ~ CN(0, σ²); E W² = σ² for W ~ N(0, σ²)
+/// for complex in [true, false] {
+///     let m2: f64 = gaussian_nodes(0.3, complex, 16).iter().map(|(w, p)| p * w.norm_sqr()).sum();
+///     assert!((m2 - 0.3).abs() < 1e-12);
+/// }
+/// ```
+pub fn gaussian_nodes(sigma2: f64, complex: bool, n: usize) -> Vec<(C64, f64)> {
+    let (t, a) = gauss_hermite(n.max(2));
+    let pi = std::f64::consts::PI;
+    if complex {
+        let s = sigma2.sqrt();
+        t.iter()
+            .zip(&a)
+            .flat_map(|(tr, ar)| t.iter().zip(&a).map(move |(ti, ai)| (C64::new(s * tr, s * ti), ar * ai / pi)))
+            .filter(|(_, w)| *w > 1e-300)
+            .collect()
+    } else {
+        let s = (2.0 * sigma2).sqrt();
+        t.iter().zip(&a).map(|(t, a)| (C64::new(s * t, 0.0), a / pi.sqrt())).collect()
+    }
+}
+
 /// `ln(1 + e^x)` (the softplus) without overflow.
 ///
 /// # Examples
@@ -358,11 +419,25 @@ pub fn entropy(p: &[f64]) -> f64 {
 /// assert_eq!(log_sum_exp(&[]), f64::NEG_INFINITY);
 /// ```
 pub fn log_sum_exp(v: &[f64]) -> f64 {
-    let m = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    log_sum_exp_iter(v.iter().copied())
+}
+
+/// [`log_sum_exp`] of the values of an iterator, traversed twice (no allocation).
+///
+/// # Examples
+/// ```
+/// use com_math::{log_sum_exp, log_sum_exp_iter};
+/// let v = [0.5, -2.0, 3.0, 1.0];
+/// // the terms of even index only
+/// let even = log_sum_exp_iter(v.iter().step_by(2).copied());
+/// assert_eq!(even, log_sum_exp(&[0.5, 3.0]));
+/// ```
+pub fn log_sum_exp_iter<I: Iterator<Item = f64> + Clone>(v: I) -> f64 {
+    let m = v.clone().fold(f64::NEG_INFINITY, f64::max);
     if !m.is_finite() {
         return m;
     }
-    m + v.iter().map(|x| (x - m).exp()).sum::<f64>().ln()
+    m + v.map(|x| (x - m).exp()).sum::<f64>().ln()
 }
 
 #[cfg(test)]
