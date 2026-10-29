@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "com-rs validation card",
+  "type": "object",
+  "required": ["id", "title", "function", "source", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+    "title": {"type": "string"},
+    "function": {"type": "string", "pattern": "^comrs\\.[A-Za-z_][A-Za-z0-9_]*$"},
+    "note": {"type": "string"},
+    "output": {"type": ["string", "integer"]},
+    "source": {
+      "type": "object",
+      "required": ["kind", "reference", "locator"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["paper", "standard", "tool", "closed_form"]},
+        "reference": {"type": "string"},
+        "locator": {"type": "string"},
+        "file": {"type": "string"},
+        "version": {"type": "string"}
+      }
+    },
+    "tolerance": {"$ref": "#/$defs/tolerance"},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["inputs", "expected"],
+        "additionalProperties": false,
+        "properties": {
+          "inputs": {"type": "object"},
+          "expected": {},
+          "output": {"type": ["string", "integer"]},
+          "tolerance": {"$ref": "#/$defs/tolerance"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "tolerance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "abs": {"type": "number", "minimum": 0},
+        "rel": {"type": "number", "minimum": 0},
+        "exact": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -527,6 +527,58 @@ fn theory_ber(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
     map_real(ebn0_db, |e| metrics::theory_ber(k, m, e).py())
 }
 
+/// Exact BER of Gray-mapped PAM, square QAM or rectangular QAM over AWGN (K. Cho and
+/// D. Yoon, *IEEE Trans. Commun.* 50(7), 2002, eqs. (9)–(22)).
+///
+/// Args:
+///     m (int): order of the PAM (`kind="pam"`), of the square QAM (`kind="qam"`), or the
+///         number of in-phase levels of a rectangular QAM (`kind="qam"` with `mq`).
+///     ebn0_db (float | array_like): `E_b/N_0` (dB).
+///     kind (str): `"pam"` or `"qam"`.
+///     mq (int | None): the number of quadrature levels of a rectangular `m × mq` QAM.
+///
+/// Returns:
+///     float | numpy.ndarray: the bit error probability at every `E_b/N_0`.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.theory_ber_gray(4, 0.0, "qam"), 6)
+///     0.07865
+///     >>> bool(comrs.theory_ber_gray(8, 12.0, "qam", mq=4) < comrs.theory_ber_gray(64, 12.0))
+///     True
+#[pyfunction]
+#[pyo3(signature = (m, ebn0_db, kind = "qam", *, mq = None))]
+fn theory_ber_gray(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str, mq: Option<usize>) -> PyResult<Py<PyAny>> {
+    use comrs::mapping::theory as th;
+    match (kind.to_ascii_lowercase().as_str(), mq) {
+        ("pam", None) => map_real(ebn0_db, |e| th::ber_gray_pam(m, e).py()),
+        ("qam", None) => map_real(ebn0_db, |e| th::ber_gray_qam(m, e).py()),
+        ("qam", Some(j)) => map_real(ebn0_db, |e| th::ber_gray_rect_qam(m, j, e).py()),
+        _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "the exact Gray BER is for kind \"pam\" or \"qam\" (mq with qam only), got {kind:?}"
+        ))),
+    }
+}
+
+/// Density of the phase error of a carrier in circular Gaussian noise (S. O. Rice 1948;
+/// eq. (8) of Ahmed, Thompson and Zeidler, MILCOM 2007).
+///
+/// Args:
+///     theta (float | array_like): phase error (rad), in `(-π, π]`.
+///     snr (float): `A²/E|w|²` (linear).
+///
+/// Returns:
+///     float | numpy.ndarray: the density at every `theta`.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> round(comrs.theory_phase_pdf(1.0, 0.0) * 2 * math.pi, 12)
+///     1.0
+#[pyfunction]
+fn theory_phase_pdf(theta: &Bound<'_, PyAny>, snr: f64) -> PyResult<Py<PyAny>> {
+    map_real(theta, |t| Ok(comrs::mapping::theory::phase_pdf(t, snr)))
+}
+
 /// Theoretical SER over AWGN (exact for square QAM and PAM, a tight bound for PSK).
 ///
 /// Args:
@@ -709,6 +761,8 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(monte_carlo_mi, m)?,
         wrap_pyfunction!(theory_ber, m)?,
         wrap_pyfunction!(theory_ser, m)?,
+        wrap_pyfunction!(theory_ber_gray, m)?,
+        wrap_pyfunction!(theory_phase_pdf, m)?,
         wrap_pyfunction!(theory_mi, m)?,
         wrap_pyfunction!(theory_gmi, m)?,
         wrap_pyfunction!(information_rates, m)?,

@@ -345,7 +345,8 @@ figure, table or equation:
 | `com_fec::ldpc` | Hu, Eleftheriou & Arnold, IEEE Trans. Inf. Theory 51(1), 2005, Sec. VI | the (504, 252) PEG code has girth 8 and the check degrees of the paper |
 | `com_mimo::stbc` | Tarokh, Jafarkhani & Calderbank, IEEE Trans. Inf. Theory 45(5), 1999, eqs. (39)–(40) | the rate-3/4 designs of the paper are orthogonal and decoded exactly |
 | `com_waveform::papr` | Ochiai & Imai, IEEE Trans. Commun. 49(2), 2001, eqs. (11) and (27) | the Nyquist-rate and asymptotic CCDFs of the PAPR |
-| `com_waveform::ce_ofdm` | Thompson et al., IEEE Trans. Commun. 56(8), 2008, eq. (15) | the BER of the linear regime of CE-OFDM |
+| `com_waveform::ce_ofdm` | Thompson et al., IEEE Trans. Commun. 56(8), 2008, eq. (15); Ahmed & Zeidler, IEEE Trans. Signal Process. 63(17), 2015, eqs. (8), (17), (26); Ahmed et al., MILCOM 2012, eqs. (13)–(14), Fig. 6; Guerreiro et al., VTC Fall 2015, eq. (13), Fig. 4, and IEEE Commun. Lett. 20(11), 2016; Pacheco & Hatzinakos, ICASSP 2006, Fig. 1 | the BER of the linear regime; the series of the receivers of Ahmed & Zeidler (a misprint in eq. (8)); the effect of a cycle slip on each subcarrier; the powers of the intermodulation products and the carrier line; the optimum gains of 1.9 and 3.5 dB; the 99 % bandwidth |
+| `com_mapping::theory` | Cho & Yoon, IEEE Trans. Commun. 50(7), 2002, Table I, eqs. (9)–(22), Fig. 2 | the coefficients of Table I verbatim; the exact Gray BER of PAM, square and rectangular QAM against an enumeration of the decision regions; 4–5 dB per extra bit |
 | `com_channel::optical::raman` | Semrau & Bayvel, J. Lightw. Technol. 36(14), 2018, eq. (10) | the ISRS power transfer of a 10 THz band over 100 km, within 5 % |
 | `com_channel::cdl` | 3GPP TR 38.901 V17.0.0, Tables 7.7.1-1 to 7.7.1-5, 7.5-3, Sec. 7.7.3 | the CDL-A to CDL-E clusters verbatim, the unit delay spread of the normalised profiles (1.000 for A, B, C, E; 0.994 for D), the K-factors 13.3 and 22 dB of D and E within 0.2 dB |
 | `com_waveform::cpm` | Proakis & Salehi, Digital Communications, 5th ed., Secs. 3.3-2 and 3.4-3; Murota & Hirade, IEEE Trans. Commun. 29(7), 1981, Table I; Aulin & Sundberg, IEEE Trans. Commun. 29(3), 1981 | MSK detected coherently has the BER of BPSK (4 and 6 dB, 2·10⁵ bits), its spectrum follows the closed form (null at 0.75/T, 3 dB bandwidth 0.60/T), the 99 % bandwidths of GMSK (0.86/T at BT = 0.25, 1.03/T at 0.5, 1.20/T for MSK), the minimum distances d²_min = 2 of MSK and 2(1 − sinc 2h) of CPFSK |
@@ -377,6 +378,26 @@ The validation found two problems, both fixed:
   the least-squares channel gain (`information_rates`), and the OptiCommPy-compatible
   functions are kept for the oracle tests.
 
+### Validation cards
+
+A validation card states, for one algorithm, its inputs, the outputs it must give with
+their tolerance, and the exact source of the expectation (a paper with its equation,
+table or figure; a standard with its section; a reference implementation with its
+version). The cards of [`validation/cards/`](validation/cards/) are data, not code:
+`tests/test_cards.py` runs every case against the Python interface, a JSON Schema checks
+their structure, and another library can run the same cards by mapping the function
+names to its own.
+
+```yaml
+id: chang2002_fig4_floors
+function: comrs.theory_ber_imperfect_csi
+source: {kind: paper, reference: "Chang & Su, IEEE TWC 1(4), 2002", locator: "Fig. 4, read at 50 dB"}
+tolerance: {rel: 0.3}
+cases:
+  - inputs: {modulation: 16qam, ebn0_db: 50.0, rho1: 0.999}
+    expected: 3.5e-3
+```
+
 ## Maturity
 
 The strongest evidence of every module: **A**, validated against an external reference
@@ -396,7 +417,7 @@ the regimes not covered yet are in
 | Turbo codes (LTE) | A | AFF3CT, K = 40 and 1024 |
 | LDPC codes | A | AFF3CT, PEG and DVB-S2 short code; Hu et al. 2005 |
 | Polar codes (SC, CA-SCL) | A | AFF3CT, SC and CA-SCL |
-| 5G NR LDPC and polar codes with rate matching | A | Sionna vectors bit for bit; TS 38.212 tables |
+| 5G NR channel codes: LDPC and polar with rate matching | A | Sionna vectors bit for bit; TS 38.212 tables |
 | Reed–Solomon codes | A | AFF3CT; Lin & Costello; ETSI EN 300 744, CCSDS 131.0-B |
 | BCH codes | A | AFF3CT; generators of EN 302 307-1 Table 6a |
 | CRC | A | CRC polynomials of TS 38.212 |
@@ -405,12 +426,12 @@ the regimes not covered yet are in
 | Distribution matching and probabilistic amplitude shaping | A | Schulte & Böcherer 2016 Fig. 2; Böcherer et al. 2015 Tables VI–X |
 | DVB-S2 | A | EN 302 307-1 Table 13 and the tables of the standard |
 | OFDM and channel estimation | B | flat Rayleigh fading per subcarrier |
-| 5G NR numerology, SSB, cell search, PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
-| Error rates with an imperfect channel estimate, DPSK over Jakes' fading | A | Chang & Su 2002 eqs. 31–53, Figs. 3–4 |
+| 5G NR numerology, SSB, cell search and PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
+| Error rates with an imperfect channel estimate and over Jakes' fading | A | Chang & Su 2002 eqs. 31–53, Figs. 3–4 |
 | Nonlinear amplifier driven by OFDM | A | Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5 |
 | OFDM synchronisation (Schmidl–Cox) | C | the error falls with the SNR |
 | PAPR: distribution and reduction | B | Ochiai & Imai 2001 eqs. (11), (27) |
-| Constant-envelope OFDM | B | Thompson et al. 2008 eq. (15) |
+| Constant-envelope OFDM | A | Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1 |
 | Continuous-phase modulation | A | Murota & Hirade 1981 Table I; MSK of Proakis & Salehi |
 | MIMO detection | A | Yang & Hanzo 2015 Table X; MRC closed forms |
 | Message-passing detection of large MIMO (LAMA, OAMP) | A | Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3 |

@@ -1,0 +1,21 @@
+id: pacheco2006_pm_bandwidth
+title: 99 % bandwidth of a carrier phase-modulated by a flat Gaussian message
+function: comrs.pm_occupied_bandwidth
+source:
+  kind: paper
+  reference: "R. A. Pacheco, D. Hatzinakos, Error rate analysis of phase-modulated OFDM (OFDM-PM) in AWGN channels, Proc. IEEE ICASSP, 2006"
+  locator: "Fig. 1 (Analysis), read at sigma_m = 0.5 ... 3; Sec. 2.1.1: sigma_m = 1.1 gives By/2Bx = 2"
+  file: 2006_pacheco_ofdm-pm-error-rate_icassp.pdf
+tolerance: {rel: 0.04}
+note: "values read on the figure, to about 0.05; the paper approximates the convolutions of order j >= 3 by Gaussians (eq. (5)), the library convolves exactly"
+cases:
+  - inputs: {sigma: 0.5}
+    expected: 1.5
+  - inputs: {sigma: 1.0}
+    expected: 1.88
+  - inputs: {sigma: 1.1}
+    expected: 2.0
+  - inputs: {sigma: 2.0}
+    expected: 3.2
+  - inputs: {sigma: 3.0}
+    expected: 4.65

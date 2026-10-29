@@ -188,3 +188,76 @@ def test_ce_ofdm_16qam_link_follows_eq_15_of_thompson_2008():
     assert errors > 1000
     ser = errors / d.size
     assert ser == pytest.approx(ce.ser(16, 20.0), rel=0.15)
+
+
+def test_ce_ofdm_low_complexity_receivers_follow_the_bussgang_analysis():
+    # the basic linear (Im r) and enhanced (Im r (2 - Re r)) receivers of Ahmed and
+    # Zeidler (2015): the simulated BER of QPSK within 10 % of the theory, the enhanced
+    # receiver ahead at 2πh = 0.7
+    ce = comrs.CeOfdm(32, h=0.7 / (2 * np.pi), oversampling=2)
+    c = comrs.Constellation("qam", 4).normalized()
+    rng = comrs.Rng(15)
+    _, d = comrs.symbols(c, 32 * 3000, rng)
+    esn0_db = 8.0 + 10 * np.log10(2)
+    s = ce.modulate(d)
+    r = s + rng.complex_noise(s.size, ce.noise_variance(esn0_db))
+    rates = {}
+    for receiver in ["linear", "enhanced"]:
+        e = ce.demodulate(r, receiver=receiver)
+        wrong = np.bitwise_xor(c.decide(e), c.decide(d))
+        ber = float(sum(bin(int(v)).count("1") for v in wrong)) / (2 * d.size)
+        assert ber == pytest.approx(ce.ber_receiver(4, esn0_db, receiver=receiver), rel=0.1)
+        rates[receiver] = ber
+    assert rates["enhanced"] < 0.8 * rates["linear"]
+    snr = ce.subcarrier_snr(esn0_db, "enhanced")
+    assert snr.shape == (32,) and snr.min() > 0
+    with pytest.raises(ValueError, match="receiver"):
+        ce.demodulate(r, receiver="pll")
+
+
+def test_ce_ofdm_gamp_decodes_where_the_phase_wraps():
+    # 2πh = 1.4 (López Morales et al. 2022): the phase detector errs on wraps, GAMP not
+    ce = comrs.CeOfdm(63, h=1.4 / (2 * np.pi), oversampling=4)
+    c = comrs.Constellation("qam", 4).normalized()
+    rng = comrs.Rng(22)
+    _, d = comrs.symbols(c, 63 * 4, rng)
+    s = ce.modulate(d)
+    sigma2 = ce.noise_variance(10.0 + 10 * np.log10(2))
+    r = s + rng.complex_noise(s.size, sigma2)
+    np.testing.assert_array_equal(c.decide(ce.gamp(r, sigma2, c)), c.decide(d))
+    assert (c.decide(ce.demodulate(r)) != c.decide(d)).mean() > 0.05
+
+
+def test_ce_ofdm_spectrum_gain_and_cycle_slips():
+    # the intermodulation powers sum to 1 and give the carrier line of the spectrum
+    ce = comrs.CeOfdm(32, h=1.0 / (2 * np.pi), oversampling=4)
+    p = comrs.ce_ofdm_imp_powers(1.0, 40)
+    assert p.sum() == pytest.approx(1.0) and p[0] == pytest.approx(np.exp(-1.0))
+    psd = ce.psd()
+    assert psd.size == ce.n_fft and psd.mean() == pytest.approx(1.0)
+    assert psd[0] > ce.n_fft * p[0]
+    # Guerreiro et al. 2016: G = (2πh)², 3.5 dB at 2πh = 1.5; eq. (8) is the linear
+    # theory of QPSK
+    assert 10 * np.log10(comrs.ce_ofdm_optimum_gain(1.5)) == pytest.approx(3.52, abs=0.01)
+    assert comrs.ce_ofdm_optimum_gain(1.5, np.pi) < comrs.ce_ofdm_optimum_gain(1.5)
+    lin = comrs.CeOfdm(32, h=0.6 / (2 * np.pi)).ber(4, 6.0 + 10 * np.log10(2))
+    assert comrs.ce_ofdm_ber_optimum(0.6, 6.0) == pytest.approx(lin, rel=1e-9)
+    # Pacheco and Hatzinakos 2006: σ = 1.1 doubles the band of the message
+    assert comrs.pm_occupied_bandwidth(1.1) == pytest.approx(2.0, abs=0.1)
+    # a cycle slip weighs as 1/k on the subcarriers (Ahmed et al. 2012)
+    resp = np.abs(ce.cycle_slip_response(ce.n_fft // 2))
+    assert resp.shape == (32,) and resp[0] > 10 * resp[-1]
+
+
+def test_exact_gray_ber_and_phase_density():
+    # Cho and Yoon 2002: 4-PAM (3Q(x) + 2Q(3x) - Q(5x))/4 with x = √(4/5 E_b/N_0)
+    x = np.sqrt(0.8 * comrs.db2lin(10.0))
+    want = (3 * comrs.qfunc(x) + 2 * comrs.qfunc(3 * x) - comrs.qfunc(5 * x)) / 4
+    assert comrs.theory_ber_gray(4, 10.0, "pam") == pytest.approx(want, rel=1e-12)
+    assert comrs.theory_ber_gray(4, 4, "qam", mq=4) == pytest.approx(comrs.theory_ber_gray(16, 4))
+    # the phase of a carrier in noise: BPSK errs when |θ| > π/2, Q(√(2ρ))
+    theta = np.linspace(-np.pi, np.pi, 200_001)
+    pdf = comrs.theory_phase_pdf(theta, 2.0)
+    assert np.trapezoid(pdf, theta) == pytest.approx(1.0, abs=1e-6)
+    tail = np.trapezoid(np.where(np.abs(theta) > np.pi / 2, pdf, 0.0), theta)
+    assert tail == pytest.approx(comrs.qfunc(2.0), abs=1e-4)

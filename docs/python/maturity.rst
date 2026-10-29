@@ -44,7 +44,7 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - Polar codes (SC, CA-SCL)
      - A
      - AFF3CT, SC and CA-SCL
-   * - 5G NR LDPC and polar codes with rate matching
+   * - 5G NR channel codes: LDPC and polar with rate matching
      - A
      - Sionna vectors bit for bit; TS 38.212 tables
    * - Reed–Solomon codes
@@ -71,13 +71,13 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - OFDM and channel estimation
      - B
      - flat Rayleigh fading per subcarrier
-   * - Error rates with an imperfect channel estimate, DPSK over Jakes' fading
+   * - Error rates with an imperfect channel estimate and over Jakes' fading
      - A
      - Chang & Su 2002 eqs. 31–53, Figs. 3–4
    * - Nonlinear amplifier driven by OFDM
      - A
      - Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5
-   * - 5G NR numerology, SSB, cell search, PDSCH DMRS
+   * - 5G NR numerology, SSB, cell search and PDSCH DMRS
      - A
      - py3gpp outputs; Lin et al. 2019
    * - OFDM synchronisation (Schmidl–Cox)
@@ -87,8 +87,8 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
      - B
      - Ochiai & Imai 2001 eqs. (11), (27)
    * - Constant-envelope OFDM
-     - B
-     - Thompson et al. 2008 eq. (15)
+     - A
+     - Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1
    * - Continuous-phase modulation
      - A
      - Murota & Hirade 1981 Table I; MSK of Proakis & Salehi

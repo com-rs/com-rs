@@ -38,6 +38,14 @@ equations they use; the table below gathers every comparison of this documentati
      - MSK detected by maximum-likelihood sequence detection has the BER of BPSK
        once precoded; without precoding, that of differentially decoded BPSK
      - :ref:`sphx_glr_auto_examples_literature_plot_05_proakis_msk.py`
+   * - J. Guerreiro et al., *IEEE Commun. Lett.* 20(11), 2016, Fig. 1 and eq. (8);
+       M. J. López Morales et al., *Globecom Workshops* 2022, Fig. 3; A. U. Ahmed,
+       J. R. Zeidler, *IEEE Trans. Signal Process.* 63(17), 2015, Fig. 6; R. A. Pacheco,
+       D. Hatzinakos, *ICASSP* 2006, Fig. 1; J. Guerreiro et al., *VTC Fall* 2015, Fig. 3
+     - CE-OFDM: the phase detector, GAMP and the optimum BER at :math:`2\pi h = 1.4`;
+       the arctangent, basic linear and enhanced receivers at 0.7; the 99 % bandwidth;
+       the spectrum at :math:`2\pi h = 2`
+     - :ref:`sphx_glr_auto_examples_literature_plot_06_ce_ofdm_receivers.py`
    * - ETSI EN 302 307-1 V1.4.1, Table 13
      - The :math:`E_s/N_0` thresholds of the 28 DVB-S2 MODCODs against the simulated
        frame error rates

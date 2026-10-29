@@ -808,7 +808,7 @@ class CeOfdmTx(Native):
 
 
 class CeOfdmRx(Native):
-    """CE-OFDM phase demodulator back to the symbols; records ser_theory and ber_theory, the error rates of the linear regime, when esn0_db is given.
+    """CE-OFDM receiver back to the symbols: the arctangent phase demodulator, the linear and enhanced receivers of Ahmed and Zeidler (2015) or GAMP (López Morales et al. 2022); records ser_theory and ber_theory when esn0_db is given.
 
     Needs: samples, constellation. Gives: nothing.
 
@@ -818,12 +818,13 @@ class CeOfdmRx(Native):
         h (float): modulation index (as the modulator); required
         n_cp (int): cyclic prefix (as the modulator) [samples]; default 0
         unwrap (str): none (principal phase) or stream (unwrapped along the stream, the phase unwrapper of the paper); one of none, stream; default none
-        esn0_db (float): E_s/N_0 of the channel per data symbol: records ser_theory and ber_theory, the error rates of the constellation of the source at the SNR of the linear regime [dB]; default none
+        receiver (str): arctangent (phase demodulator), linear (Im r) or enhanced (Im r (2 - Re r)) of Ahmed and Zeidler 2015, or gamp (near-optimum message passing, needs esn0_db); one of arctangent, linear, enhanced, gamp; default arctangent
+        esn0_db (float): E_s/N_0 of the channel per data symbol: records ser_theory and ber_theory (the linear regime for arctangent and gamp, where it is the optimum asymptotic rate of QPSK; Bussgang's analysis for linear and enhanced), and sets the noise variance of gamp [dB]; default none
     """
 
     needs = ("samples", "constellation")
     gives = ()
-    param_names = ("n_data", "oversampling", "h", "n_cp", "unwrap", "esn0_db")
+    param_names = ("n_data", "oversampling", "h", "n_cp", "unwrap", "receiver", "esn0_db")
 
     def __init__(
         self,
@@ -833,6 +834,7 @@ class CeOfdmRx(Native):
         h: float | Var,
         n_cp: int | Var = 0,
         unwrap: str | Var | None = None,
+        receiver: str | Var = "arctangent",
         esn0_db: float | Var | None = None,
     ) -> None:
         _init(
@@ -843,6 +845,7 @@ class CeOfdmRx(Native):
             h=h,
             n_cp=n_cp,
             unwrap=unwrap,
+            receiver=receiver,
             esn0_db=esn0_db,
         )
 

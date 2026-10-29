@@ -719,11 +719,13 @@ mod literature {
     #[test]
     fn ochiai_2001_eqs_11_and_27() {
         let lambda = db2lin(10.0);
+        // a relative tolerance: powi rounds differently when the compiler folds it
+        // (found under the instrumentation of code coverage)
         let nyquist = 1.0 - (1.0 - (-lambda).exp()).powi(256);
-        assert!((ccdf_nyquist(256, 10.0) - nyquist).abs() < 1e-15);
+        assert!((ccdf_nyquist(256, 10.0) / nyquist - 1.0).abs() < 1e-12);
         let r = lambda.sqrt();
         let crest = (-(PI / 3.0).sqrt() * 256.0 * r * (-r * r).exp()).exp();
-        assert!((ccdf_oversampled(256, 10.0) - (1.0 - crest)).abs() < 1e-15);
+        assert!((ccdf_oversampled(256, 10.0) / (1.0 - crest) - 1.0).abs() < 1e-12);
         let p15 = ccdf_oversampled(100_000, 15.0);
         assert!(p15 > 3e-9 && p15 < 3e-8, "{p15:e}");
     }

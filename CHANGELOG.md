@@ -109,7 +109,20 @@ PyPI and the command line `comrs`.
 - Link theory: the bit error rates of equalisation with an imperfect channel estimate
   and of DPSK over Jakes' fading (Chang & Su 2002); the output series and in-band
   distortion of a nonlinear amplifier driven by OFDM (Banelli & Cacopardi 2000); the
-  Bessel function J0.
+  Bessel function J0; the exact Gray BER of PAM and rectangular QAM (Cho & Yoon 2002)
+  and the density of the phase of a carrier in noise.
+- CE-OFDM receivers and theory: the basic linear and enhanced receivers of Ahmed &
+  Zeidler (2015) and the near-optimum GAMP receiver of López Morales et al. (2022); the
+  spectrum and the powers of the intermodulation products (Guerreiro et al. 2015), the
+  99 % bandwidth (Pacheco & Hatzinakos 2006), the optimum asymptotic gain (Guerreiro et
+  al. 2016), the Bussgang analysis of the linear receivers per subcarrier and the effect
+  of a cycle slip (Ahmed et al. 2012); the block `ce_ofdm_rx` takes a `receiver`.
+  Reproduced against Figs. 1 of Guerreiro et al. 2016 and Pacheco & Hatzinakos 2006,
+  Fig. 3 of López Morales et al. 2022 and Fig. 6 of Ahmed & Zeidler 2015
+  (`validation/tests/ce_ofdm.rs`); a misprint in eq. (8) of Ahmed & Zeidler 2015.
+- Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
+  expected outputs and their tolerance, and the exact source of the expectation, run by
+  `tests/test_cards.py` and checked by a JSON Schema.
 - Comparisons with other libraries: the reference vectors of Sionna (CRC, convolutional
   and turbo codes, bit for bit), py3gpp (5G NR), sigmf-python, next to OptiCommPy,
   GNPy and AFF3CT; a documentation page gathers them.

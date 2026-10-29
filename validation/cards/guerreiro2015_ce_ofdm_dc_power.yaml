@@ -1,0 +1,24 @@
+id: guerreiro2015_ce_ofdm_dc_power
+title: Power of the DC component (carrier line) of CE-OFDM against the modulation index
+function: comrs.ce_ofdm_imp_powers
+source:
+  kind: paper
+  reference: "J. Guerreiro, R. Dinis, P. Montezuma, Optimum performance and spectral characterization of CE-OFDM signals, Proc. IEEE VTC Fall, 2015"
+  locator: "Fig. 4, read at 2*pi*h = 0.25 ... 1.75 (closed form P0 = exp(-(2*pi*h)^2) of eq. (13))"
+  file: 2015_guerreiro_ce-ofdm-optimum-performance-spectrum_vtc.pdf
+output: 0
+tolerance: {abs: 0.015}
+note: "values read on the figure, to about 0.01"
+cases:
+  - inputs: {two_pi_h: 0.25, n: 1}
+    expected: 0.94
+  - inputs: {two_pi_h: 0.5, n: 1}
+    expected: 0.785
+  - inputs: {two_pi_h: 1.0, n: 1}
+    expected: 0.375
+  - inputs: {two_pi_h: 1.25, n: 1}
+    expected: 0.22
+  - inputs: {two_pi_h: 1.5, n: 1}
+    expected: 0.11
+  - inputs: {two_pi_h: 1.75, n: 1}
+    expected: 0.05

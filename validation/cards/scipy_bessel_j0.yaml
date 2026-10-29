@@ -1,0 +1,18 @@
+id: scipy_bessel_j0
+title: Bessel function of the first kind and order zero
+function: comrs.bessel_j0
+source:
+  kind: tool
+  reference: "SciPy, scipy.special.j0"
+  locator: "values recorded from scipy.special.j0"
+  version: "1.x"
+tolerance: {abs: 1.0e-14}
+cases:
+  - inputs: {x: 1.0}
+    expected: 0.7651976865579665
+  - inputs: {x: 5.0}
+    expected: -0.1775967713143383
+  - inputs: {x: 10.0}
+    expected: -0.2459357644513483
+  - inputs: {x: 30.0}
+    expected: -0.08636798358104023

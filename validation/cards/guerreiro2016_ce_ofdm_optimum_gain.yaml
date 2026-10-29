@@ -1,0 +1,15 @@
+id: guerreiro2016_ce_ofdm_optimum_gain
+title: Optimum asymptotic gain of CE-OFDM over linear OFDM in AWGN
+function: comrs.ce_ofdm_optimum_gain
+source:
+  kind: paper
+  reference: "J. Guerreiro, R. Dinis, P. Montezuma, On the detection of CE-OFDM signals, IEEE Commun. Lett. 20(11), 2165-2168, 2016"
+  locator: "Sec. III-A: G = (2*pi*h)^2, 'when 2*pi*h = 1.25, G = 1.9 dB and when 2*pi*h = 1.5, G = 3.5 dB'"
+  file: 2016_guerreiro_ce-ofdm-detection_comml.pdf
+tolerance: {rel: 0.012}
+note: "the gains printed in dB to 0.1 dB (1.55 and 2.24 in linear scale); 0.05 dB is 1.2 %"
+cases:
+  - inputs: {two_pi_h: 1.25}
+    expected: 1.549
+  - inputs: {two_pi_h: 1.5}
+    expected: 2.239

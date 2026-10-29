@@ -55,6 +55,18 @@
 //! eq. (15) by the test `literature`). Below the threshold the demodulator fails and
 //! the error rate stays above this theory, as in Fig. 2 of the paper.
 //!
+//! # Receivers
+//!
+//! [`CeOfdm::demodulate_with`] takes a [`Receiver`]: the arctangent phase demodulator
+//! above, or the low-complexity receivers of Ahmed and Zeidler (2015), which replace
+//! $\arg r$ by $\operatorname{Im} r$ (basic linear receiver) or by
+//! $\operatorname{Im} r \\, (2 - \operatorname{Re} r)$ (enhanced receiver) and avoid the
+//! threshold and the wraps of the phase at the price of a distortion. [`gamp::Gamp`] is
+//! the near-optimum receiver of López Morales et al. (2022), by message passing, which
+//! decodes beyond $2\pi h \approx 0.7$ where the phase leaves $(-\pi, \pi]$.
+//! [`theory`] gives the error rates of the receivers, the spectrum, the optimum
+//! asymptotic gain and the effect of a cycle slip.
+//!
 //! # Examples
 //! ```
 //! use com_waveform::ce_ofdm::{CeOfdm, Unwrap};
@@ -99,6 +111,44 @@ impl std::str::FromStr for Unwrap {
             "none" => Ok(Unwrap::None),
             "stream" => Ok(Unwrap::Stream),
             _ => Err(com_core::Error::Config(format!("unwrap must be none or stream, got {s:?}"))),
+        }
+    }
+}
+
+/// The receiver: how the samples become a proxy of the phase before the DFT.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Receiver {
+    /// The arctangent phase demodulator, $\arg r$, with the given unwrapping (Thompson et
+    /// al. 2008, Fig. 1; Ahmed et al. 2007, Fig. 6).
+    Arctangent(Unwrap),
+    /// The basic linear receiver of A. U. Ahmed and J. R. Zeidler, "Novel low-complexity
+    /// receivers for constant envelope OFDM," *IEEE Trans. Signal Process.* 63(17), 2015,
+    /// Fig. 4: the quadrature component $\operatorname{Im} r = \sin\varphi + \ldots$,
+    /// the first term of its Taylor series in $\varphi$.
+    Linear,
+    /// The enhanced receiver of Ahmed and Zeidler (2015), Fig. 5 and eq. (8):
+    /// $\operatorname{Im} r \\, (2 - \operatorname{Re} r) = \varphi + \varphi^{3}/3 + \ldots$,
+    /// whose cubic term adds to the signal.
+    Enhanced,
+}
+
+impl std::str::FromStr for Receiver {
+    type Err = com_core::Error;
+
+    /// `arctangent` (with the principal phase), `linear` or `enhanced`
+    /// (case-insensitive).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<Receiver> {
+        match s.to_ascii_lowercase().as_str() {
+            "arctangent" | "atan" => Ok(Receiver::Arctangent(Unwrap::None)),
+            "linear" => Ok(Receiver::Linear),
+            "enhanced" => Ok(Receiver::Enhanced),
+            _ => {
+                Err(com_core::Error::Config(format!("the receiver must be arctangent, linear or enhanced, got {s:?}")))
+            }
         }
     }
 }
@@ -192,11 +242,47 @@ impl CeOfdm {
     /// a number of samples that is not a multiple of `N + N_cp`.
     pub fn demodulate(&self, r: &[C64], unwrap: Unwrap) -> Result<Vec<C64>> {
         self.check()?;
-        let (k, n, l) = (self.n_data, self.n_fft(), self.block_len());
+        let l = self.block_len();
         ensure_shape(r.len() % l == 0, || format!("{} samples is not a multiple of N + N_cp = {l}", r.len()))?;
-        let psi = self.received_phase(r, unwrap);
-        let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h);
-        let mut out = Vec::with_capacity(r.len() / l * k);
+        self.project(&self.received_phase(r, unwrap), 1.0)
+    }
+
+    /// The symbol estimates of every block with the receiver: the projection of its proxy
+    /// of the phase on the data bins, divided by $2\pi h$ and by Bussgang's gain of the
+    /// receiver ([`theory::receiver_gain`]), so that the estimates are unbiased. With
+    /// [`Receiver::Arctangent`] it is [`CeOfdm::demodulate`].
+    ///
+    /// # Errors
+    /// As [`CeOfdm::demodulate`].
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ce_ofdm::{CeOfdm, Receiver};
+    /// use com_mapping::constellation::Constellation;
+    /// use com_core::rng::Rng;
+    /// let ce = CeOfdm { n_data: 64, oversampling: 2, h: 0.02, n_cp: 0 };
+    /// let c = Constellation::qam(16).unwrap().normalized();
+    /// let (_, d) = com_mapping::source::symbols(&c, 64, None, &mut Rng::new(1)).unwrap();
+    /// // without noise the linear receivers err only by their distortion, small at a small h
+    /// let e = ce.demodulate_with(&ce.modulate(&d).unwrap(), Receiver::Enhanced).unwrap();
+    /// assert_eq!(c.decide(&e), c.decide(&d));
+    /// ```
+    pub fn demodulate_with(&self, r: &[C64], receiver: Receiver) -> Result<Vec<C64>> {
+        let proxy: Vec<f64> = match receiver {
+            Receiver::Arctangent(unwrap) => return self.demodulate(r, unwrap),
+            Receiver::Linear => r.iter().map(|v| v.im).collect(),
+            Receiver::Enhanced => r.iter().map(|v| v.im * (2.0 - v.re)).collect(),
+        };
+        self.project(&proxy, theory::receiver_gain(self, receiver))
+    }
+
+    /// The projection `G ψ/(2πh g)` of the per-sample proxy `ψ` of every block.
+    fn project(&self, psi: &[f64], gain: f64) -> Result<Vec<C64>> {
+        self.check()?;
+        let (k, n, l) = (self.n_data, self.n_fft(), self.block_len());
+        ensure_shape(psi.len() % l == 0, || format!("{} samples is not a multiple of N + N_cp = {l}", psi.len()))?;
+        let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h * gain);
+        let mut out = Vec::with_capacity(psi.len() / l * k);
         for block in psi.chunks(l) {
             let spec = fft::fft(&block[self.n_cp..].iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
             out.extend(spec[1..=k].iter().map(|v| v * scale));
@@ -215,55 +301,8 @@ impl CeOfdm {
     }
 }
 
-/// The error rates of the linear regime (see the module documentation).
-pub mod theory {
-    use super::{CeOfdm, TAU};
-    use com_core::Result;
-    use com_mapping::constellation::ConstellationKind;
-
-    /// The SNR of every data subcarrier (linear scale) at `E_s/N_0` (dB) per data
-    /// symbol: `(2πh)² E_s/N_0 · N/(N + N_cp)`.
-    ///
-    /// # Errors
-    /// [`com_core::Error::Config`] for invalid parameters.
-    pub fn snr(ce: &CeOfdm, esn0_db: f64) -> Result<f64> {
-        ce.check()?;
-        let (k, n) = (ce.n_data, ce.n_fft());
-        Ok((TAU * ce.h).powi(2) * n as f64 / (k as f64 * ce.noise_variance(esn0_db)))
-    }
-
-    /// `E_b/N_0` (dB) of a constellation of `m` points at the SNR of the linear regime.
-    fn ebn0_db(ce: &CeOfdm, m: usize, esn0_db: f64) -> Result<f64> {
-        Ok(10.0 * (snr(ce, esn0_db)? / (m as f64).log2()).max(1e-300).log10())
-    }
-
-    /// The SER of a constellation of `m` points of `kind` over AWGN at the SNR of the
-    /// linear regime ([`com_mapping::theory::ser`]).
-    ///
-    /// # Errors
-    /// As [`snr`] and [`com_mapping::theory::ser`].
-    pub fn ser(ce: &CeOfdm, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
-        com_mapping::theory::ser(kind, m, ebn0_db(ce, m, esn0_db)?)
-    }
-
-    /// The BER of a Gray-mapped constellation of `m` points of `kind` over AWGN at the
-    /// SNR of the linear regime: the exact Gray BER of a square QAM
-    /// ([`com_mapping::theory::ber_gray_qam`]), eq. (15) of Thompson et al. with its
-    /// further neighbours, else the nearest-neighbour approximation of
-    /// [`com_mapping::theory::ber`].
-    ///
-    /// # Errors
-    /// As [`snr`] and [`com_mapping::theory::ber`].
-    pub fn ber(ce: &CeOfdm, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
-        let e = ebn0_db(ce, m, esn0_db)?;
-        if kind == ConstellationKind::Qam {
-            if let Ok(exact) = com_mapping::theory::ber_gray_qam(m, e) {
-                return Ok(exact);
-            }
-        }
-        com_mapping::theory::ber(kind, m, e)
-    }
-}
+pub mod gamp;
+pub mod theory;
 
 #[cfg(test)]
 mod tests {
@@ -325,6 +364,59 @@ mod tests {
         let ser = errors as f64 / d.len() as f64;
         let want = theory::ser(&ce, 16, esn0_db, ConstellationKind::Qam).unwrap();
         assert!((ser / want - 1.0).abs() < 0.15, "{ser} vs {want}");
+    }
+
+    #[test]
+    fn a_cycle_slip_adds_the_response_of_the_theory() {
+        let ce = CeOfdm { n_data: 31, oversampling: 2, h: 0.8 / TAU, n_cp: 6 };
+        let c = Constellation::qam(4).unwrap().normalized();
+        let (_, d) = com_mapping::source::symbols(&c, 31, None, &mut Rng::new(4)).unwrap();
+        let s = ce.modulate(&d).unwrap();
+        let clean = ce.demodulate(&s, Unwrap::Stream).unwrap();
+        for start in [0usize, 1, 40, 127] {
+            // the phase gains 2π from `start`: the unwrapped phase of the samples rotated by a
+            // full turn in small steps over one sample would do the same; add it to the phase
+            let mut psi = ce.received_phase(&s, Unwrap::Stream);
+            for v in &mut psi[ce.n_cp + start..] {
+                *v += TAU;
+            }
+            let slipped = ce.project(&psi, 1.0).unwrap();
+            let want = theory::cycle_slip_response(&ce, start).unwrap();
+            for ((a, b), w) in slipped.iter().zip(&clean).zip(&want) {
+                assert!((a - b - w).norm() < 1e-9, "{start}: {} vs {w}", a - b);
+            }
+        }
+        assert!(theory::cycle_slip_response(&ce, ce.n_fft()).is_err());
+    }
+
+    #[test]
+    fn the_linear_receivers_follow_the_bussgang_analysis() {
+        // QPSK, K = 32 and J = 2 (the 2X sampling of Ahmed and Zeidler 2015)
+        let c = Constellation::qam(4).unwrap().normalized();
+        let mut rng = Rng::new(9);
+        let (_, d) = com_mapping::source::symbols(&c, 32 * 3000, None, &mut rng).unwrap();
+        for (two_pi_h, ebn0_db) in [(0.3, 15.0), (0.5, 10.5), (0.7, 8.0)] {
+            let ce = CeOfdm { n_data: 32, oversampling: 2, h: two_pi_h / TAU, n_cp: 0 };
+            let esn0_db = ebn0_db + 10.0 * 2f64.log10();
+            let sigma = ce.noise_variance(esn0_db).sqrt();
+            let r: Vec<C64> =
+                ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
+            for receiver in [Receiver::Linear, Receiver::Enhanced] {
+                let e = ce.demodulate_with(&r, receiver).unwrap();
+                let bits: usize =
+                    c.decide(&e).iter().zip(c.decide(&d)).map(|(a, b)| (a ^ b).count_ones() as usize).sum();
+                let ber = bits as f64 / (2.0 * d.len() as f64);
+                let want = theory::ber_receiver(&ce, receiver, 4, esn0_db, ConstellationKind::Qam).unwrap();
+                // BER about 1e-2, 2000 errors: a 10 % band for the sampling error and the
+                // Gaussian model of the distortion (simulation and theory agree to 4 %)
+                assert!((ber / want - 1.0).abs() < 0.1, "2πh = {two_pi_h}, {receiver:?}: {ber:e} vs {want:e}");
+            }
+        }
+        // at a small index the linear receiver is the arctangent one (eq. (20) of the paper)
+        let ce = CeOfdm { n_data: 32, oversampling: 2, h: 0.01 / TAU, n_cp: 0 };
+        let lin = theory::subcarrier_snr(&ce, Receiver::Linear, 30.0).unwrap();
+        let flat = theory::snr(&ce, 30.0).unwrap();
+        assert!(lin.iter().all(|s| (s / flat - 1.0).abs() < 1e-3), "{lin:?} vs {flat}");
     }
 }
 

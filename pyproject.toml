@@ -50,8 +50,10 @@ Issues = "https://github.com/com-rs/com-rs/issues"
 # `pip install --group <name>` (pip >= 25.1) installs one of them.
 [dependency-groups]
 # sigmf: the reference implementation of SigMF (LGPL-3.0), which tests/test_sigmf.py
-# reads and writes recordings with (the test is skipped without it)
-test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9", "sigmf>=1.2"]
+# reads and writes recordings with (the test is skipped without it); pyyaml and
+# jsonschema: the validation cards of validation/cards/ and their schema
+# (tests/test_cards.py)
+test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9", "sigmf>=1.2", "pyyaml>=6", "jsonschema>=4.18"]
 lint = ["ruff"]
 # The test oracles, OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause, the Raman
 # amplification) and py3gpp (AGPL-3.0, 5G NR), are never imported by the package. Their outputs are recorded

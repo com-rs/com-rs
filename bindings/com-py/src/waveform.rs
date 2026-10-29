@@ -1,9 +1,10 @@
 //! Constant-envelope waveforms: continuous-phase modulation (CPFSK, MSK, GMSK) and
 //! constant-envelope OFDM.
 
+use crate::comm::PyConstellation;
 use crate::kind;
 use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, cvec, farr, iarr, map_real, uvec};
-use comrs::waveform::ce_ofdm::{CeOfdm, Unwrap, theory};
+use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
 use comrs::waveform::cpm::{self, Cpm, CpmConfig, FrequencyPulse};
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
@@ -442,6 +443,15 @@ fn unwrap(name: &str) -> PyResult<Unwrap> {
     name.parse::<Unwrap>().py()
 }
 
+/// The receiver of a name (`arctangent`, `linear`, `enhanced`), the arctangent one with
+/// the given unwrapping.
+fn receiver(name: &str, unwrap: &str) -> PyResult<Receiver> {
+    Ok(match name.parse::<Receiver>().py()? {
+        Receiver::Arctangent(_) => Receiver::Arctangent(self::unwrap(unwrap)?),
+        other => other,
+    })
+}
+
 #[pymethods]
 impl PyCeOfdm {
     #[new]
@@ -529,20 +539,60 @@ impl PyCeOfdm {
         Ok(carr(py, self.inner.modulate(&cvec(symbols)?).py()?))
     }
 
-    /// The symbol estimates `d̂ = G ψ/(2πh)` of every block.
+    /// The symbol estimates of every block.
     ///
     /// Args:
     ///     samples (array_like): a multiple of `N + N_cp` received samples.
-    ///     unwrap (str): `"none"` (the principal phase, wraps are errors) or
-    ///         `"stream"` (the phase unwrapped along the stream, the phase unwrapper of
-    ///         the paper).
+    ///     unwrap (str): for the arctangent receiver, `"none"` (the principal phase, wraps
+    ///         are errors) or `"stream"` (the phase unwrapped along the stream, the phase
+    ///         unwrapper of the paper).
+    ///     receiver (str): `"arctangent"` (`d̂ = G ψ/(2πh)`, Thompson et al. 2008),
+    ///         `"linear"` (`Im r`) or `"enhanced"` (`Im r (2 - Re r)`), the low-complexity
+    ///         receivers of Ahmed and Zeidler (2015), divided by their Bussgang gain.
     ///
     /// Returns:
     ///     numpy.ndarray: `K` complex estimates per block.
-    #[pyo3(signature = (samples, *, unwrap="none"))]
-    fn demodulate<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>, unwrap: &str) -> PyResult<CArr<'py>> {
-        let u = self::unwrap(unwrap)?;
-        Ok(carr(py, self.inner.demodulate(&cvec(samples)?, u).py()?))
+    #[pyo3(signature = (samples, *, unwrap="none", receiver="arctangent"))]
+    fn demodulate<'py>(
+        &self,
+        py: Python<'py>,
+        samples: &Bound<'py, PyAny>,
+        unwrap: &str,
+        receiver: &str,
+    ) -> PyResult<CArr<'py>> {
+        let r = self::receiver(receiver, unwrap)?;
+        Ok(carr(py, self.inner.demodulate_with(&cvec(samples)?, r).py()?))
+    }
+
+    /// The posterior means of the symbols of every block by the GAMP receiver of López
+    /// Morales, Dinis and García Armada (2022), near the optimum where the phase leaves
+    /// `(-π, π]`.
+    ///
+    /// Args:
+    ///     samples (array_like): a multiple of `N + N_cp` received samples.
+    ///     noise_variance (float): `σ²` per sample (:meth:`noise_variance`).
+    ///     constellation (Constellation): the symbols as transmitted (square QAM, PAM or
+    ///         BPSK).
+    ///     iterations (int): iterations per block.
+    ///     damping (float): damping factor in `(0, 1]`.
+    ///     points (int): points of the quadrature of the output step.
+    ///
+    /// Returns:
+    ///     numpy.ndarray: `K` complex estimates per block.
+    #[pyo3(signature = (samples, noise_variance, constellation, *, iterations=50, damping=0.5, points=64))]
+    #[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python method")]
+    fn gamp<'py>(
+        &self,
+        py: Python<'py>,
+        samples: &Bound<'py, PyAny>,
+        noise_variance: f64,
+        constellation: &PyConstellation,
+        iterations: usize,
+        damping: f64,
+        points: usize,
+    ) -> PyResult<CArr<'py>> {
+        let g = Gamp { iterations, damping, points };
+        Ok(carr(py, g.detect(&self.inner, &cvec(samples)?, &constellation.inner, noise_variance).py()?))
     }
 
     /// The phase of the receiver before the DFT, prefix included.
@@ -604,16 +654,151 @@ impl PyCeOfdm {
         map_real(esn0_db, |e| theory::ber(&self.inner, m, e, k).py())
     }
 
+    /// The expected periodogram `E|S_k|²/N` of a transmitted block under the Gaussian
+    /// model (Guerreiro et al. 2015): the bins average to 1, bin 0 holds the carrier line.
+    ///
+    /// Returns:
+    ///     numpy.ndarray: `N` values, in the order of the DFT.
+    fn psd<'py>(&self, py: Python<'py>) -> PyResult<FArr<'py>> {
+        Ok(farr(py, theory::psd(&self.inner).py()?))
+    }
+
+    /// The SNR of every data subcarrier with the receiver: flat for the arctangent receiver
+    /// above its threshold, Bussgang's analysis for the linear receivers.
+    ///
+    /// Args:
+    ///     esn0_db (float): `E_s/N_0` (dB) per data symbol.
+    ///     receiver (str): `"arctangent"`, `"linear"` or `"enhanced"`.
+    ///
+    /// Returns:
+    ///     numpy.ndarray: `K` SNRs (linear).
+    #[pyo3(signature = (esn0_db, receiver="arctangent"))]
+    fn subcarrier_snr<'py>(&self, py: Python<'py>, esn0_db: f64, receiver: &str) -> PyResult<FArr<'py>> {
+        let r = self::receiver(receiver, "none")?;
+        Ok(farr(py, theory::subcarrier_snr(&self.inner, r, esn0_db).py()?))
+    }
+
+    /// The BER of a Gray-mapped constellation with the receiver, averaged over the
+    /// subcarriers of :meth:`subcarrier_snr`.
+    ///
+    /// Args:
+    ///     m (int): constellation order.
+    ///     esn0_db (float | array_like): `E_s/N_0` (dB) per data symbol.
+    ///     kind (str): `"qam"`, `"psk"` or `"pam"`.
+    ///     receiver (str): `"arctangent"`, `"linear"` or `"enhanced"`.
+    ///
+    /// Returns:
+    ///     float | numpy.ndarray: the BER.
+    #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
+    fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
+        let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
+        map_real(esn0_db, |e| theory::ber_receiver(&self.inner, r, m, e, k).py())
+    }
+
+    /// The change of the estimates of the arctangent receiver caused by a cycle slip of
+    /// `+2π` from sample `start` (after the prefix) to the end of the block (Ahmed et al.
+    /// 2012, eqs. (11)–(14)).
+    ///
+    /// Args:
+    ///     start (int): first sample of the slip, `0 ≤ start < N`.
+    ///
+    /// Returns:
+    ///     numpy.ndarray: `K` complex changes.
+    fn cycle_slip_response<'py>(&self, py: Python<'py>, start: usize) -> PyResult<CArr<'py>> {
+        Ok(carr(py, theory::cycle_slip_response(&self.inner, start).py()?))
+    }
+
     fn __repr__(&self) -> String {
         let c = &self.inner;
         format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_data, c.h, c.oversampling, c.n_cp)
     }
 }
 
+/// The powers `e^{-φ²} φ^{2i}/i!` of the intermodulation products of a phase modulator
+/// driven by a Gaussian signal of standard deviation `φ = 2πh` (Guerreiro et al. 2015,
+/// eqs. (12)–(14); Pacheco and Hatzinakos 2006, eq. (2)): the carrier line, the useful
+/// term, then the products of order `i`.
+///
+/// Args:
+///     two_pi_h (float): `2πh`.
+///     n (int): number of powers.
+///
+/// Returns:
+///     numpy.ndarray: `P_0 … P_{n-1}`.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> round(float(comrs.ce_ofdm_imp_powers(1.0, 3)[0]), 6) == round(math.exp(-1), 6)
+///     True
+#[pyfunction]
+fn ce_ofdm_imp_powers<'py>(py: Python<'py>, two_pi_h: f64, n: usize) -> FArr<'py> {
+    farr(py, theory::imp_powers(two_pi_h, n))
+}
+
+/// The optimum asymptotic gain `G` of CE-OFDM over linear OFDM in AWGN, `(2πh)²`, or
+/// `(2πh)² erf(θ_max/(√2 · 2πh))` with the phase clipped to `±θ_max` (Guerreiro et al.
+/// 2015, eq. (20); 2016, eq. (7)).
+///
+/// Args:
+///     two_pi_h (float): `2πh`.
+///     theta_max (float | None): phase clipping (rad).
+///
+/// Returns:
+///     float: `G` (linear).
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> round(10 * math.log10(comrs.ce_ofdm_optimum_gain(1.5)), 2)
+///     3.52
+#[pyfunction]
+#[pyo3(signature = (two_pi_h, theta_max=None))]
+fn ce_ofdm_optimum_gain(two_pi_h: f64, theta_max: Option<f64>) -> f64 {
+    theory::optimum_gain(two_pi_h, theta_max)
+}
+
+/// The optimum asymptotic BER of QPSK CE-OFDM in AWGN, `Q(√(G 2E_b/N_0))` (Guerreiro et
+/// al. 2016, eq. (8)).
+///
+/// Args:
+///     two_pi_h (float): `2πh`.
+///     ebn0_db (float | array_like): `E_b/N_0` (dB).
+///
+/// Returns:
+///     float | numpy.ndarray: the BER.
+#[pyfunction]
+fn ce_ofdm_ber_optimum(two_pi_h: f64, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    map_real(ebn0_db, |e| Ok(theory::ber_optimum(two_pi_h, e)))
+}
+
+/// The occupied bandwidth `B_y/(2B_m)` of a carrier phase-modulated by a Gaussian message
+/// of standard deviation `sigma` with a flat spectrum (Pacheco and Hatzinakos 2006,
+/// eqs. (2)–(5), Fig. 1), the carrier line removed.
+///
+/// Args:
+///     sigma (float): standard deviation of the phase (rad).
+///     fraction (float): fraction of the power in the band.
+///
+/// Returns:
+///     float: `B_y/(2B_m)`.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.pm_occupied_bandwidth(1.1), 1)
+///     2.0
+#[pyfunction]
+#[pyo3(signature = (sigma, fraction=0.99))]
+fn pm_occupied_bandwidth(sigma: f64, fraction: f64) -> PyResult<f64> {
+    theory::occupied_bandwidth(sigma, fraction).py()
+}
+
 /// Register the constant-envelope waveform bindings.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCpm>()?;
     m.add_class::<PyCeOfdm>()?;
+    m.add_function(wrap_pyfunction!(ce_ofdm_imp_powers, m)?)?;
+    m.add_function(wrap_pyfunction!(ce_ofdm_optimum_gain, m)?)?;
+    m.add_function(wrap_pyfunction!(ce_ofdm_ber_optimum, m)?)?;
+    m.add_function(wrap_pyfunction!(pm_occupied_bandwidth, m)?)?;
     m.add_function(wrap_pyfunction!(msk_precode, m)?)?;
     m.add_function(wrap_pyfunction!(msk_bits, m)?)?;
     m.add_function(wrap_pyfunction!(msk_psd, m)?)?;
