@@ -52,6 +52,7 @@ pub mod detection;
 pub mod estimation;
 pub mod grid;
 pub mod link;
+pub mod nr;
 pub mod sync;
 
 use com_core::signal::{Signal, Symbols};

@@ -35,7 +35,7 @@ PyPI and the command line `comrs`.
   the information rates (MI, GMI, with priors).
 - Coding: CRCs and the Gold scrambler of 5G NR; block, random and QPP interleavers;
   convolutional codes (Viterbi, BCJR) and their puncturing (IEEE 802.11, DVB-S); LTE
-  turbo codes; LDPC codes (PEG, repeat-accumulate, alist files; sum-product,
+  turbo codes with the 188 QPP interleavers of TS 36.212; LDPC codes (PEG, repeat-accumulate, alist files; sum-product,
   normalised and offset min-sum, flooding or layered); polar codes (SC, CRC-aided
   SCL); Reed–Solomon codes over any field with erasures; shortened binary BCH codes;
   constant-composition distribution matching; BI-AWGN capacity and the normal
@@ -43,7 +43,10 @@ PyPI and the command line `comrs`.
 - Waveforms: OFDM and DFT-spread OFDM with resource grids, pilots, LS and LMMSE
   channel estimation, Schmidl–Cox synchronisation and MIMO-OFDM detection; the
   distribution of the PAPR and its reduction (clipping and filtering, SLM, PTS, tone
-  reservation, ACE, companding); constant-envelope OFDM (Thompson et al. 2008);
+  reservation, ACE, companding); constant-envelope OFDM (Thompson et al. 2008); 5G NR
+  (and LTE) numerologies and slot modulation, the synchronisation signal block (PSS,
+  SSS, PBCH DMRS), the cell search and the DMRS of the PDSCH over a slot, checked
+  against py3gpp;
   continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses) with sequence,
   quadrature and differential detection.
 - MIMO: ZF, MMSE, SIC, ML, sphere and K-best detection with soft outputs; message
@@ -94,8 +97,15 @@ PyPI and the command line `comrs`.
   metrics, stopping rule, outputs), 54 blocks with typed parameters and ports,
   expectations checked against closed forms and published curves, the search of
   operating points, the time of every block (`profile`), recordings (SigMF, raw IQ,
-  NPY) as sources and as dumps, and a JSON Schema of the blocks.
+  NPY) as sources and as dumps, and a JSON Schema of the blocks. SigMF 1.x: every
+  sample format (little and big endian; unsigned types centred by 2^(b-1), as
+  sigmf-python), several channels, capture headers, trailing bytes, non-conforming
+  datasets, `.sigmf` archives, centre frequencies and annotations; checked against
+  sigmf-python.
 - Blocks of other crates join the registry with `com_spec::blocks::register` (ADR 0006).
+- Comparisons with other libraries: the reference vectors of Sionna (CRC, convolutional
+  and turbo codes, bit for bit), py3gpp (5G NR), sigmf-python, next to OptiCommPy,
+  GNPy and AFF3CT; a documentation page gathers them.
 - The command `comrs` (`cargo install com-spec`): `run`, `check`, `verify`,
   `conditions`, `blocks`, `schema`.
 - `specs/`: the example campaigns, and `specs/validation/` checked against the

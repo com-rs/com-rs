@@ -125,7 +125,8 @@ impl Block for Source {
 block_params! {
     struct CaptureSpec {
         file: String [required],
-            "SigMF (.sigmf-meta/.sigmf-data), NPY (.npy) or raw samples, relative to the specification";
+            "SigMF (.sigmf-meta/.sigmf-data or a .sigmf archive), NPY (.npy) or raw samples, relative to the specification";
+        channel: usize [0], "the channel of a multi-channel SigMF recording";
         datatype: Option<String> [absent], "data type of a raw file: cf32_le, ci16_le, cf64_le, ci8, cu8, …";
         fs: Option<f64> [absent "from file"] "Hz" > 0,
             "sampling rate; required when the file does not record it";
@@ -180,7 +181,7 @@ fn read_reference(path: &std::path::Path, c: &Constellation) -> Result<Vec<usize
 impl Capture {
     fn new(p: &CaptureSpec, ctx: &BuildContext) -> Result<Capture> {
         let dt = p.datatype.as_deref().map(crate::io::Datatype::parse).transpose()?;
-        let (samples, fs_file) = crate::io::read_samples(ctx.path(&p.file), dt)?;
+        let (samples, fs_file) = crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
         let fs =
             p.fs.or(fs_file)
                 .ok_or_else(|| Error::Config(format!("capture {}: the file has no sampling rate, give fs", p.file)))?;

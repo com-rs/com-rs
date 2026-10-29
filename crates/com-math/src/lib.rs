@@ -17,6 +17,7 @@
 //! | [`bigint`] | unsigned integers of arbitrary size, for enumerative coding |
 //! | [`bits`] | the Gray code [`gray`], [`gray_inverse`], and the conversions [`bits_to_index`], [`index_to_bits`] (most significant bit first) |
 //! | [`search`] | [`bisect`], [`golden_max`] and [`gcd`] |
+//! | [`sequences`] | linear-feedback shift registers and the Gold sequence of 3GPP |
 //!
 //! At the root:
 //!
@@ -54,6 +55,7 @@ pub mod linalg;
 pub mod nearest;
 pub mod nlse;
 pub mod search;
+pub mod sequences;
 
 pub use bits::{bits_to_index, gray, gray_inverse, index_to_bits};
 pub use search::{bisect, gcd, golden_max};

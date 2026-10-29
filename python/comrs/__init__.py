@@ -109,6 +109,10 @@ declarative campaigns  :func:`run_spec` (a YAML specification on the parallel Ru
                        :func:`spec_conditions`, :func:`spec_blocks`,
                        :func:`spec_schema`, :func:`spec_check_link`
 recordings             :func:`read_sigmf`, :func:`write_sigmf`
+5G NR                  :func:`nr_numerology`, :func:`nr_ofdm_modulate`, :func:`nr_pss`,
+                       :func:`nr_sss`, :func:`nr_pbch_dmrs`, :func:`nr_ssb_indices`,
+                       :func:`nr_ssb_grid`, :func:`nr_detect_cell_id`,
+                       :func:`nr_pdsch_dmrs`
 =====================  ===============================================================
 
 Example:
@@ -241,6 +245,15 @@ from comrs._comrs import (
     msk_psd,
     mzm,
     normal_approximation,
+    nr_detect_cell_id,
+    nr_numerology,
+    nr_ofdm_modulate,
+    nr_pbch_dmrs,
+    nr_pdsch_dmrs,
+    nr_pss,
+    nr_ssb_grid,
+    nr_ssb_indices,
+    nr_sss,
     oamp_state_evolution,
     ofdm_estimate,
     ofdm_preamble,
@@ -433,6 +446,15 @@ __all__ = [
     "msk_psd",
     "mzm",
     "normal_approximation",
+    "nr_detect_cell_id",
+    "nr_numerology",
+    "nr_ofdm_modulate",
+    "nr_pbch_dmrs",
+    "nr_pdsch_dmrs",
+    "nr_pss",
+    "nr_ssb_grid",
+    "nr_ssb_indices",
+    "nr_sss",
     "oamp_state_evolution",
     "ofdm_estimate",
     "ofdm_preamble",

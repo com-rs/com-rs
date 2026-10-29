@@ -1,0 +1,347 @@
+{
+ "data": {
+  "1_2_0_0_0": {
+   "indices": {
+    "__npz__": "data.1_2_0_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_0_0_0.values"
+   }
+  },
+  "1_2_0_1007_19": {
+   "indices": {
+    "__npz__": "data.1_2_0_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_0_1007_19.values"
+   }
+  },
+  "1_2_0_417_5": {
+   "indices": {
+    "__npz__": "data.1_2_0_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_0_417_5.values"
+   }
+  },
+  "1_2_1_0_0": {
+   "indices": {
+    "__npz__": "data.1_2_1_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_1_0_0.values"
+   }
+  },
+  "1_2_1_1007_19": {
+   "indices": {
+    "__npz__": "data.1_2_1_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_1_1007_19.values"
+   }
+  },
+  "1_2_1_417_5": {
+   "indices": {
+    "__npz__": "data.1_2_1_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_1_417_5.values"
+   }
+  },
+  "1_2_2_0_0": {
+   "indices": {
+    "__npz__": "data.1_2_2_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_2_0_0.values"
+   }
+  },
+  "1_2_2_1007_19": {
+   "indices": {
+    "__npz__": "data.1_2_2_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_2_1007_19.values"
+   }
+  },
+  "1_2_2_417_5": {
+   "indices": {
+    "__npz__": "data.1_2_2_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_2_417_5.values"
+   }
+  },
+  "1_2_3_0_0": {
+   "indices": {
+    "__npz__": "data.1_2_3_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_3_0_0.values"
+   }
+  },
+  "1_2_3_1007_19": {
+   "indices": {
+    "__npz__": "data.1_2_3_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_3_1007_19.values"
+   }
+  },
+  "1_2_3_417_5": {
+   "indices": {
+    "__npz__": "data.1_2_3_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_2_3_417_5.values"
+   }
+  },
+  "1_3_0_0_0": {
+   "indices": {
+    "__npz__": "data.1_3_0_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_0_0_0.values"
+   }
+  },
+  "1_3_0_1007_19": {
+   "indices": {
+    "__npz__": "data.1_3_0_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_0_1007_19.values"
+   }
+  },
+  "1_3_0_417_5": {
+   "indices": {
+    "__npz__": "data.1_3_0_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_0_417_5.values"
+   }
+  },
+  "1_3_1_0_0": {
+   "indices": {
+    "__npz__": "data.1_3_1_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_1_0_0.values"
+   }
+  },
+  "1_3_1_1007_19": {
+   "indices": {
+    "__npz__": "data.1_3_1_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_1_1007_19.values"
+   }
+  },
+  "1_3_1_417_5": {
+   "indices": {
+    "__npz__": "data.1_3_1_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_1_417_5.values"
+   }
+  },
+  "1_3_2_0_0": {
+   "indices": {
+    "__npz__": "data.1_3_2_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_2_0_0.values"
+   }
+  },
+  "1_3_2_1007_19": {
+   "indices": {
+    "__npz__": "data.1_3_2_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_2_1007_19.values"
+   }
+  },
+  "1_3_2_417_5": {
+   "indices": {
+    "__npz__": "data.1_3_2_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.1_3_2_417_5.values"
+   }
+  },
+  "2_2_0_0_0": {
+   "indices": {
+    "__npz__": "data.2_2_0_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_0_0_0.values"
+   }
+  },
+  "2_2_0_1007_19": {
+   "indices": {
+    "__npz__": "data.2_2_0_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_0_1007_19.values"
+   }
+  },
+  "2_2_0_417_5": {
+   "indices": {
+    "__npz__": "data.2_2_0_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_0_417_5.values"
+   }
+  },
+  "2_2_1_0_0": {
+   "indices": {
+    "__npz__": "data.2_2_1_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_1_0_0.values"
+   }
+  },
+  "2_2_1_1007_19": {
+   "indices": {
+    "__npz__": "data.2_2_1_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_1_1007_19.values"
+   }
+  },
+  "2_2_1_417_5": {
+   "indices": {
+    "__npz__": "data.2_2_1_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_1_417_5.values"
+   }
+  },
+  "2_2_2_0_0": {
+   "indices": {
+    "__npz__": "data.2_2_2_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_2_0_0.values"
+   }
+  },
+  "2_2_2_1007_19": {
+   "indices": {
+    "__npz__": "data.2_2_2_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_2_1007_19.values"
+   }
+  },
+  "2_2_2_417_5": {
+   "indices": {
+    "__npz__": "data.2_2_2_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_2_417_5.values"
+   }
+  },
+  "2_2_3_0_0": {
+   "indices": {
+    "__npz__": "data.2_2_3_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_3_0_0.values"
+   }
+  },
+  "2_2_3_1007_19": {
+   "indices": {
+    "__npz__": "data.2_2_3_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_3_1007_19.values"
+   }
+  },
+  "2_2_3_417_5": {
+   "indices": {
+    "__npz__": "data.2_2_3_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_2_3_417_5.values"
+   }
+  },
+  "2_3_0_0_0": {
+   "indices": {
+    "__npz__": "data.2_3_0_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_0_0_0.values"
+   }
+  },
+  "2_3_0_1007_19": {
+   "indices": {
+    "__npz__": "data.2_3_0_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_0_1007_19.values"
+   }
+  },
+  "2_3_0_417_5": {
+   "indices": {
+    "__npz__": "data.2_3_0_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_0_417_5.values"
+   }
+  },
+  "2_3_1_0_0": {
+   "indices": {
+    "__npz__": "data.2_3_1_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_1_0_0.values"
+   }
+  },
+  "2_3_1_1007_19": {
+   "indices": {
+    "__npz__": "data.2_3_1_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_1_1007_19.values"
+   }
+  },
+  "2_3_1_417_5": {
+   "indices": {
+    "__npz__": "data.2_3_1_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_1_417_5.values"
+   }
+  },
+  "2_3_2_0_0": {
+   "indices": {
+    "__npz__": "data.2_3_2_0_0.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_2_0_0.values"
+   }
+  },
+  "2_3_2_1007_19": {
+   "indices": {
+    "__npz__": "data.2_3_2_1007_19.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_2_1007_19.values"
+   }
+  },
+  "2_3_2_417_5": {
+   "indices": {
+    "__npz__": "data.2_3_2_417_5.indices"
+   },
+   "values": {
+    "__npz__": "data.2_3_2_417_5.values"
+   }
+  }
+ },
+ "name": "nr_pdsch_dmrs",
+ "npz": "nr_pdsch_dmrs.npz",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-29",
+ "tool": "py3gpp",
+ "version": "0.6.0"
+}

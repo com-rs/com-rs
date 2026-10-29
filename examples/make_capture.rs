@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     write_sigmf(
         out.join("synthetic_16qam"),
         &adc,
-        Datatype::Ci16,
+        Datatype::CI16,
         80e9,
         Some(&json!({
             "core:description": "synthetic capture: 32 GBd 16-QAM, 200 km SSMF, 18 dB SNR, 100 kHz lasers, 300 MHz LO offset, 80 GS/s",

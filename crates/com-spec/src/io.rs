@@ -21,10 +21,10 @@
 //! use com_math::C64;
 //! let dir = std::env::temp_dir().join("comrs-doc-io");
 //! let x: Vec<C64> = (0..8).map(|k| C64::new(k as f64, -(k as f64))).collect();
-//! write_sigmf(dir.join("capture"), &x, Datatype::Ci16, 64e9, None).unwrap();
+//! write_sigmf(dir.join("capture"), &x, Datatype::CI16, 64e9, None).unwrap();
 //! let c = read_sigmf(dir.join("capture.sigmf-meta")).unwrap();
 //! assert_eq!(c.samples, x);
-//! assert_eq!((c.sample_rate, c.datatype), (Some(64e9), Datatype::Ci16));
+//! assert_eq!((c.sample_rate, c.datatype), (Some(64e9), Datatype::CI16));
 //! ```
 
 use com_core::{Error, Result};
@@ -33,125 +33,200 @@ use com_sim::loggers::create_parent_dir;
 use serde_json::{Value as Json, json};
 use std::path::{Path, PathBuf};
 
-/// A sample format of SigMF (little endian).
+/// The scalar type of the components of a SigMF sample.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Datatype {
-    /// Complex, two `f32` (`cf32_le`, GNU Radio `.cfile`).
-    Cf32,
-    /// Complex, two `f64` (`cf64_le`).
-    Cf64,
-    /// Complex, two `i32` (`ci32_le`).
-    Ci32,
-    /// Complex, two `i16` (`ci16_le`).
-    Ci16,
-    /// Complex, two `i8` (`ci8`).
-    Ci8,
-    /// Complex, two `u8` offset by 127.5 (`cu8`, RTL-SDR).
-    Cu8,
-    /// Real `f32` (`rf32_le`).
-    Rf32,
-    /// Real `f64` (`rf64_le`).
-    Rf64,
-    /// Real `i16` (`ri16_le`).
-    Ri16,
+pub enum Scalar {
+    /// `f32`.
+    F32,
+    /// `f64`.
+    F64,
+    /// `i32`.
+    I32,
+    /// `i16`.
+    I16,
+    /// `i8`.
+    I8,
+    /// `u32`.
+    U32,
+    /// `u16`.
+    U16,
+    /// `u8`.
+    U8,
+}
+
+impl Scalar {
+    /// Bytes per component.
+    pub fn bytes(self) -> usize {
+        match self {
+            Scalar::F64 => 8,
+            Scalar::F32 | Scalar::I32 | Scalar::U32 => 4,
+            Scalar::I16 | Scalar::U16 => 2,
+            Scalar::I8 | Scalar::U8 => 1,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Scalar::F32 => "f32",
+            Scalar::F64 => "f64",
+            Scalar::I32 => "i32",
+            Scalar::I16 => "i16",
+            Scalar::I8 => "i8",
+            Scalar::U32 => "u32",
+            Scalar::U16 => "u16",
+            Scalar::U8 => "u8",
+        }
+    }
+
+    fn is_integer(self) -> bool {
+        !matches!(self, Scalar::F32 | Scalar::F64)
+    }
+
+    /// $2^{b-1}$ for an integer of $b$ bits: the full scale, and the offset of the
+    /// unsigned types.
+    fn half_range(self) -> f64 {
+        2f64.powi(8 * self.bytes() as i32 - 1)
+    }
+}
+
+/// A sample format of SigMF: `[c|r][f32|f64|i32|i16|i8|u32|u16|u8][_le|_be]` (the
+/// 8-bit types without endianness).
+///
+/// Integer samples are converted to floating point without scaling; the unsigned types
+/// are centred by $2^{b-1}$ (128 for `cu8`), as the reference implementation
+/// `sigmf-python` does. [`SigMF::full_scale`] gives the scale of its `autoscale`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Datatype {
+    /// Complex (interleaved I and Q) or real.
+    pub complex: bool,
+    /// The type of a component.
+    pub scalar: Scalar,
+    /// Big-endian components.
+    pub big_endian: bool,
 }
 
 impl Datatype {
-    /// Parse a SigMF data type (`cf32_le`, `ci16_le`, `cu8`, …).
+    /// `cf32_le`, the `.cfile` of GNU Radio.
+    pub const CF32: Datatype = Datatype { complex: true, scalar: Scalar::F32, big_endian: false };
+    /// `cf64_le`.
+    pub const CF64: Datatype = Datatype { complex: true, scalar: Scalar::F64, big_endian: false };
+    /// `ci32_le`.
+    pub const CI32: Datatype = Datatype { complex: true, scalar: Scalar::I32, big_endian: false };
+    /// `ci16_le`, the IQ format of most SDRs.
+    pub const CI16: Datatype = Datatype { complex: true, scalar: Scalar::I16, big_endian: false };
+    /// `ci8`.
+    pub const CI8: Datatype = Datatype { complex: true, scalar: Scalar::I8, big_endian: false };
+    /// `cu8` (RTL-SDR).
+    pub const CU8: Datatype = Datatype { complex: true, scalar: Scalar::U8, big_endian: false };
+    /// `rf32_le`.
+    pub const RF32: Datatype = Datatype { complex: false, scalar: Scalar::F32, big_endian: false };
+    /// `rf64_le`.
+    pub const RF64: Datatype = Datatype { complex: false, scalar: Scalar::F64, big_endian: false };
+    /// `ri16_le`.
+    pub const RI16: Datatype = Datatype { complex: false, scalar: Scalar::I16, big_endian: false };
+
+    /// Parse a SigMF data type (`cf32_le`, `ci16_be`, `cu8`, `ri8`, …; the endianness
+    /// may be omitted, little endian then).
     ///
     /// # Errors
-    /// [`Error::Config`] for an unknown or big-endian type.
+    /// [`Error::Config`] for an unknown type.
     pub fn parse(s: &str) -> Result<Datatype> {
-        Ok(match s {
-            "cf32_le" | "cf32" => Datatype::Cf32,
-            "cf64_le" | "cf64" => Datatype::Cf64,
-            "ci32_le" | "ci32" => Datatype::Ci32,
-            "ci16_le" | "ci16" => Datatype::Ci16,
-            "ci8" => Datatype::Ci8,
-            "cu8" => Datatype::Cu8,
-            "rf32_le" | "rf32" => Datatype::Rf32,
-            "rf64_le" | "rf64" => Datatype::Rf64,
-            "ri16_le" | "ri16" => Datatype::Ri16,
-            other => {
-                return Err(Error::Config(format!(
-                    "unsupported data type {other:?} (cf32_le, cf64_le, ci32_le, ci16_le, ci8, cu8, rf32_le, rf64_le, ri16_le)"
-                )));
-            }
-        })
+        let bad = || {
+            Error::Config(format!(
+                "unsupported data type {s:?}: [c|r][f32|f64|i32|i16|i8|u32|u16|u8][_le|_be] (cf32_le, ci16_le, cu8, …)"
+            ))
+        };
+        let (complex, rest) = match s.split_at_checked(1) {
+            Some(("c", r)) => (true, r),
+            Some(("r", r)) => (false, r),
+            _ => return Err(bad()),
+        };
+        let (body, big_endian) = match rest.rsplit_once('_') {
+            Some((b, "le")) => (b, false),
+            Some((b, "be")) => (b, true),
+            Some(_) => return Err(bad()),
+            None => (rest, false),
+        };
+        let scalar = match body {
+            "f32" => Scalar::F32,
+            "f64" => Scalar::F64,
+            "i32" => Scalar::I32,
+            "i16" => Scalar::I16,
+            "i8" => Scalar::I8,
+            "u32" => Scalar::U32,
+            "u16" => Scalar::U16,
+            "u8" => Scalar::U8,
+            _ => return Err(bad()),
+        };
+        Ok(Datatype { complex, scalar, big_endian: big_endian && scalar.bytes() > 1 })
     }
 
     /// The SigMF name.
-    pub fn name(self) -> &'static str {
-        match self {
-            Datatype::Cf32 => "cf32_le",
-            Datatype::Cf64 => "cf64_le",
-            Datatype::Ci32 => "ci32_le",
-            Datatype::Ci16 => "ci16_le",
-            Datatype::Ci8 => "ci8",
-            Datatype::Cu8 => "cu8",
-            Datatype::Rf32 => "rf32_le",
-            Datatype::Rf64 => "rf64_le",
-            Datatype::Ri16 => "ri16_le",
-        }
+    pub fn name(self) -> String {
+        let end = match (self.scalar.bytes(), self.big_endian) {
+            (1, _) => "",
+            (_, false) => "_le",
+            (_, true) => "_be",
+        };
+        format!("{}{}{end}", if self.complex { "c" } else { "r" }, self.scalar.name())
     }
 
     /// Bytes per sample (both components for a complex type).
     pub fn sample_bytes(self) -> usize {
-        match self {
-            Datatype::Cf64 => 16,
-            Datatype::Cf32 | Datatype::Ci32 | Datatype::Rf64 => 8,
-            Datatype::Ci16 | Datatype::Rf32 => 4,
-            Datatype::Ci8 | Datatype::Cu8 | Datatype::Ri16 => 2,
+        self.scalar.bytes() * if self.complex { 2 } else { 1 }
+    }
+
+    fn component(self, b: &[u8]) -> f64 {
+        macro_rules! num {
+            ($t:ty, $n:expr) => {{
+                let a: [u8; $n] = b[..$n].try_into().unwrap_or([0; $n]);
+                if self.big_endian { <$t>::from_be_bytes(a) } else { <$t>::from_le_bytes(a) }
+            }};
+        }
+        let h = self.scalar.half_range();
+        match self.scalar {
+            Scalar::F32 => f64::from(num!(f32, 4)),
+            Scalar::F64 => num!(f64, 8),
+            Scalar::I32 => f64::from(num!(i32, 4)),
+            Scalar::I16 => f64::from(num!(i16, 2)),
+            Scalar::I8 => f64::from(b[0] as i8),
+            Scalar::U32 => f64::from(num!(u32, 4)) - h,
+            Scalar::U16 => f64::from(num!(u16, 2)) - h,
+            Scalar::U8 => f64::from(b[0]) - h,
         }
     }
 
     fn decode(self, b: &[u8]) -> C64 {
-        let f32_at = |i: usize| f32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as f64;
-        let f64_at = |i: usize| f64::from_le_bytes(b[i..i + 8].try_into().unwrap_or([0; 8]));
-        let i16_at = |i: usize| i16::from_le_bytes([b[i], b[i + 1]]) as f64;
-        let i32_at = |i: usize| i32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as f64;
-        match self {
-            Datatype::Cf32 => C64::new(f32_at(0), f32_at(4)),
-            Datatype::Cf64 => C64::new(f64_at(0), f64_at(8)),
-            Datatype::Ci32 => C64::new(i32_at(0), i32_at(4)),
-            Datatype::Ci16 => C64::new(i16_at(0), i16_at(2)),
-            Datatype::Ci8 => C64::new(b[0] as i8 as f64, b[1] as i8 as f64),
-            Datatype::Cu8 => C64::new(b[0] as f64 - 127.5, b[1] as f64 - 127.5),
-            Datatype::Rf32 => C64::new(f32_at(0), 0.0),
-            Datatype::Rf64 => C64::new(f64_at(0), 0.0),
-            Datatype::Ri16 => C64::new(i16_at(0), 0.0),
+        let k = self.scalar.bytes();
+        C64::new(self.component(b), if self.complex { self.component(&b[k..]) } else { 0.0 })
+    }
+
+    fn put(self, x: f64, out: &mut Vec<u8>) {
+        macro_rules! put {
+            ($v:expr) => {{
+                let v = $v;
+                if self.big_endian { out.extend(v.to_be_bytes()) } else { out.extend(v.to_le_bytes()) }
+            }};
+        }
+        let h = self.scalar.half_range();
+        // integers: rounded and saturated
+        let sat = |lo: f64, hi: f64| x.round().clamp(lo, hi);
+        match self.scalar {
+            Scalar::F32 => put!(x as f32),
+            Scalar::F64 => put!(x),
+            Scalar::I32 => put!(sat(-h, h - 1.0) as i32),
+            Scalar::I16 => put!(sat(-h, h - 1.0) as i16),
+            Scalar::I8 => put!(sat(-h, h - 1.0) as i8),
+            Scalar::U32 => put!((sat(-h, h - 1.0) + h) as u32),
+            Scalar::U16 => put!((sat(-h, h - 1.0) + h) as u16),
+            Scalar::U8 => put!((sat(-h, h - 1.0) + h) as u8),
         }
     }
 
     fn encode(self, v: C64, out: &mut Vec<u8>) {
-        let sat16 = |x: f64| x.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-        let sat32 = |x: f64| x.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32;
-        let sat8 = |x: f64| x.round().clamp(i8::MIN as f64, i8::MAX as f64) as i8;
-        match self {
-            Datatype::Cf32 => {
-                out.extend((v.re as f32).to_le_bytes());
-                out.extend((v.im as f32).to_le_bytes());
-            }
-            Datatype::Cf64 => {
-                out.extend(v.re.to_le_bytes());
-                out.extend(v.im.to_le_bytes());
-            }
-            Datatype::Ci32 => {
-                out.extend(sat32(v.re).to_le_bytes());
-                out.extend(sat32(v.im).to_le_bytes());
-            }
-            Datatype::Ci16 => {
-                out.extend(sat16(v.re).to_le_bytes());
-                out.extend(sat16(v.im).to_le_bytes());
-            }
-            Datatype::Ci8 => out.extend([sat8(v.re) as u8, sat8(v.im) as u8]),
-            Datatype::Cu8 => out.extend([
-                (v.re + 127.5).round().clamp(0.0, 255.0) as u8,
-                (v.im + 127.5).round().clamp(0.0, 255.0) as u8,
-            ]),
-            Datatype::Rf32 => out.extend((v.re as f32).to_le_bytes()),
-            Datatype::Rf64 => out.extend(v.re.to_le_bytes()),
-            Datatype::Ri16 => out.extend(sat16(v.re).to_le_bytes()),
+        self.put(v.re, out);
+        if self.complex {
+            self.put(v.im, out);
         }
     }
 }
@@ -178,11 +253,15 @@ pub fn read_raw(path: impl AsRef<Path>, datatype: Datatype) -> Result<Vec<C64>> 
 /// # Errors
 /// [`Error::Io`].
 pub fn write_raw(path: impl AsRef<Path>, x: &[C64], datatype: Datatype) -> Result<()> {
+    write_creating_dirs(path.as_ref(), &encode_all(x, datatype))
+}
+
+fn encode_all(x: &[C64], datatype: Datatype) -> Vec<u8> {
     let mut out = Vec::with_capacity(x.len() * datatype.sample_bytes());
     for &v in x {
         datatype.encode(v, &mut out);
     }
-    write_creating_dirs(path.as_ref(), &out)
+    out
 }
 
 fn write_creating_dirs(path: &Path, data: &[u8]) -> Result<()> {
@@ -191,19 +270,107 @@ fn write_creating_dirs(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// A capture segment of a SigMF recording.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Capture {
+    /// `core:sample_start`: the first sample of the segment.
+    pub sample_start: usize,
+    /// `core:frequency`: the centre frequency (Hz).
+    pub frequency: Option<f64>,
+    /// `core:datetime` (ISO 8601).
+    pub datetime: Option<String>,
+}
+
+/// An annotation of a SigMF recording.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Annotation {
+    /// `core:sample_start`.
+    pub sample_start: usize,
+    /// `core:sample_count` (to the end of the recording when absent).
+    pub sample_count: Option<usize>,
+    /// `core:label` (a short name: the modulation, the emitter, …).
+    pub label: Option<String>,
+    /// `core:comment`.
+    pub comment: Option<String>,
+    /// `core:freq_lower_edge` (Hz).
+    pub freq_lower_edge: Option<f64>,
+    /// `core:freq_upper_edge` (Hz).
+    pub freq_upper_edge: Option<f64>,
+}
+
+impl Annotation {
+    fn from_json(a: &Json) -> Annotation {
+        let s = |k: &str| a[k].as_str().map(str::to_string);
+        Annotation {
+            sample_start: a["core:sample_start"].as_u64().unwrap_or(0) as usize,
+            sample_count: a["core:sample_count"].as_u64().map(|v| v as usize),
+            label: s("core:label"),
+            comment: s("core:comment"),
+            freq_lower_edge: a["core:freq_lower_edge"].as_f64(),
+            freq_upper_edge: a["core:freq_upper_edge"].as_f64(),
+        }
+    }
+
+    fn to_json(&self) -> Json {
+        let mut m = serde_json::Map::new();
+        m.insert("core:sample_start".into(), json!(self.sample_start));
+        if let Some(v) = self.sample_count {
+            m.insert("core:sample_count".into(), json!(v));
+        }
+        for (k, v) in [("core:label", &self.label), ("core:comment", &self.comment)] {
+            if let Some(v) = v {
+                m.insert(k.into(), json!(v));
+            }
+        }
+        for (k, v) in [("core:freq_lower_edge", self.freq_lower_edge), ("core:freq_upper_edge", self.freq_upper_edge)] {
+            if let Some(v) = v {
+                m.insert(k.into(), json!(v));
+            }
+        }
+        Json::Object(m)
+    }
+}
+
 /// A SigMF recording.
 #[derive(Clone, Debug)]
 pub struct SigMF {
-    /// The samples.
+    /// The samples, the channels interleaved (`num_channels` per instant).
     pub samples: Vec<C64>,
+    /// `core:num_channels` (1 when absent).
+    pub num_channels: usize,
     /// `core:sample_rate` (Hz).
     pub sample_rate: Option<f64>,
     /// `core:frequency` of the first capture (Hz).
     pub frequency: Option<f64>,
     /// `core:datatype`.
     pub datatype: Datatype,
+    /// The capture segments, in the order of their first sample.
+    pub captures: Vec<Capture>,
+    /// The annotations, in the order of their first sample.
+    pub annotations: Vec<Annotation>,
     /// The whole metadata document.
     pub meta: Json,
+}
+
+impl SigMF {
+    /// The samples of channel `k`.
+    pub fn channel(&self, k: usize) -> Vec<C64> {
+        self.samples.iter().skip(k).step_by(self.num_channels.max(1)).copied().collect()
+    }
+
+    /// The full scale of an integer type, $2^{b-1}$ for $b$ bits (`None` for floating
+    /// point): dividing by it gives the samples of `sigmf-python` with `autoscale`.
+    pub fn full_scale(&self) -> Option<f64> {
+        self.datatype.scalar.is_integer().then(|| self.datatype.scalar.half_range())
+    }
+
+    /// The samples of channel `k` covered by an annotation.
+    pub fn annotated(&self, a: &Annotation, k: usize) -> Vec<C64> {
+        let x = self.channel(k);
+        let start = a.sample_start.min(x.len());
+        let end = a.sample_count.map_or(x.len(), |c| (start + c).min(x.len()));
+        x[start..end].to_vec()
+    }
 }
 
 /// The paths `(name.sigmf-meta, name.sigmf-data)` of a SigMF recording given either.
@@ -213,28 +380,141 @@ fn sigmf_paths(path: &Path) -> (PathBuf, PathBuf) {
     (PathBuf::from(format!("{base}.sigmf-meta")), PathBuf::from(format!("{base}.sigmf-data")))
 }
 
-/// Read a SigMF recording from its `.sigmf-meta` or `.sigmf-data` file (or their
-/// common base name).
+/// The files of a tar archive (POSIX ustar, as written by `sigmf-python` and GNU tar):
+/// `(name, content)`.
+fn untar(bytes: &[u8]) -> Result<Vec<(String, &[u8])>> {
+    let mut files = Vec::new();
+    let mut at = 0;
+    let octal = |f: &[u8]| -> Result<usize> {
+        let s: String = f.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect();
+        usize::from_str_radix(s.trim(), 8).map_err(|_| Error::Config(format!("tar: bad size field {s:?}")))
+    };
+    let text = |f: &[u8]| f.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>();
+    while at + 512 <= bytes.len() {
+        let h = &bytes[at..at + 512];
+        if h.iter().all(|&c| c == 0) {
+            break;
+        }
+        let size = octal(&h[124..136])?;
+        let (prefix, name) = (text(&h[345..500]), text(&h[..100]));
+        let name = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+        let start = at + 512;
+        let end = start + size;
+        if end > bytes.len() {
+            return Err(Error::Config(format!("tar: {name} ends after the archive")));
+        }
+        // regular files only ('0' or NUL)
+        if matches!(h[156], b'0' | 0) {
+            files.push((name, &bytes[start..end]));
+        }
+        at = start + size.div_ceil(512) * 512;
+    }
+    Ok(files)
+}
+
+/// Read a SigMF recording from its `.sigmf-meta` or `.sigmf-data` file, their common
+/// base name, or a `.sigmf` archive (the first recording of the archive).
+///
+/// The reader follows SigMF 1.x: every data type ([`Datatype`]), interleaved channels
+/// (`core:num_channels`), the header bytes of the captures (`core:header_bytes`) and the
+/// trailing bytes of the file (`core:trailing_bytes`) removed, a non-conforming dataset
+/// (`core:dataset`, a data file of another name next to the metadata).
 ///
 /// # Errors
-/// [`Error::Io`] for a missing file, [`Error::Config`] for invalid metadata.
+/// [`Error::Io`] for a missing file, [`Error::Config`] for invalid metadata,
+/// [`Error::Shape`] for a data file that is not a whole number of samples.
 pub fn read_sigmf(path: impl AsRef<Path>) -> Result<SigMF> {
-    let (meta_path, data_path) = sigmf_paths(path.as_ref());
+    let path = path.as_ref();
+    if path.extension().is_some_and(|e| e == "sigmf") {
+        let bytes = std::fs::read(path)?;
+        let files = untar(&bytes)?;
+        let (meta_name, meta) = files
+            .iter()
+            .find(|(n, _)| n.ends_with(".sigmf-meta"))
+            .ok_or_else(|| Error::Config(format!("{}: no .sigmf-meta in the archive", path.display())))?;
+        let data_name = format!("{}.sigmf-data", meta_name.trim_end_matches(".sigmf-meta"));
+        let data = files.iter().find(|(n, _)| *n == data_name).map_or(&[][..], |(_, d)| *d);
+        let meta: Json =
+            serde_json::from_slice(meta).map_err(|e| Error::Config(format!("{}/{meta_name}: {e}", path.display())))?;
+        return parse_sigmf(meta, data, &format!("{}/{meta_name}", path.display()));
+    }
+    let (meta_path, mut data_path) = sigmf_paths(path);
     let meta: Json = serde_json::from_str(&std::fs::read_to_string(&meta_path)?)
         .map_err(|e| Error::Config(format!("{}: {e}", meta_path.display())))?;
+    if let Some(d) = meta["global"]["core:dataset"].as_str() {
+        data_path = meta_path.with_file_name(d);
+    }
+    let data = std::fs::read(&data_path)?;
+    parse_sigmf(meta, &data, &meta_path.display().to_string())
+}
+
+fn parse_sigmf(meta: Json, data: &[u8], name: &str) -> Result<SigMF> {
     let global = &meta["global"];
-    let dt = global["core:datatype"]
-        .as_str()
-        .ok_or_else(|| Error::Config(format!("{}: no global core:datatype", meta_path.display())))?;
+    let dt =
+        global["core:datatype"].as_str().ok_or_else(|| Error::Config(format!("{name}: no global core:datatype")))?;
     let datatype = Datatype::parse(dt)?;
-    let samples = read_raw(&data_path, datatype)?;
+    let num_channels = global["core:num_channels"].as_u64().unwrap_or(1).max(1) as usize;
+    let trailing = global["core:trailing_bytes"].as_u64().unwrap_or(0) as usize;
+    let data = &data[..data.len().saturating_sub(trailing)];
+    let mut captures: Vec<(Capture, usize)> = meta["captures"]
+        .as_array()
+        .map(|cs| {
+            cs.iter()
+                .map(|c| {
+                    let cap = Capture {
+                        sample_start: c["core:sample_start"].as_u64().unwrap_or(0) as usize,
+                        frequency: c["core:frequency"].as_f64(),
+                        datetime: c["core:datetime"].as_str().map(str::to_string),
+                    };
+                    (cap, c["core:header_bytes"].as_u64().unwrap_or(0) as usize)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    captures.sort_by_key(|(c, _)| c.sample_start);
+    // drop the header bytes in front of every capture
+    let frame = datatype.sample_bytes() * num_channels;
+    let mut body = Vec::with_capacity(data.len());
+    let mut at = 0;
+    for (i, (c, header)) in captures.iter().enumerate() {
+        let skip_to = at + header;
+        ensure_le(skip_to, data.len(), name)?;
+        let samples = captures.get(i + 1).map(|(n, _)| (n.sample_start - c.sample_start) * frame);
+        let end = samples.map_or(data.len(), |b| (skip_to + b).min(data.len()));
+        body.extend_from_slice(&data[skip_to..end]);
+        at = end;
+    }
+    if captures.is_empty() {
+        body.extend_from_slice(data);
+    }
+    let samples = decode_all(&body, datatype)?;
+    if samples.len() % num_channels != 0 {
+        return Err(Error::Shape(format!(
+            "{name}: {} samples is not a whole number of {num_channels} channels",
+            samples.len()
+        )));
+    }
+    let mut annotations: Vec<Annotation> =
+        meta["annotations"].as_array().map(|a| a.iter().map(Annotation::from_json).collect()).unwrap_or_default();
+    annotations.sort_by_key(|a| a.sample_start);
+    let captures: Vec<Capture> = captures.into_iter().map(|(c, _)| c).collect();
     Ok(SigMF {
         samples,
+        num_channels,
         sample_rate: global["core:sample_rate"].as_f64(),
-        frequency: meta["captures"].get(0).and_then(|c| c["core:frequency"].as_f64()),
+        frequency: captures.first().and_then(|c| c.frequency),
         datatype,
+        captures,
+        annotations,
         meta,
     })
+}
+
+fn ensure_le(a: usize, b: usize, name: &str) -> Result<()> {
+    if a > b {
+        return Err(Error::Config(format!("{name}: the header bytes of a capture go beyond the data file")));
+    }
+    Ok(())
 }
 
 /// Write a SigMF recording `base.sigmf-meta` and `base.sigmf-data`.
@@ -251,18 +531,42 @@ pub fn write_sigmf(
     sample_rate: f64,
     global: Option<&Json>,
 ) -> Result<()> {
+    write_sigmf_annotated(base, x, datatype, sample_rate, None, global, &[])
+}
+
+/// Write a SigMF recording with the centre frequency of its capture (`core:frequency`)
+/// and annotations (see [`write_sigmf`]).
+///
+/// # Errors
+/// [`Error::Io`].
+pub fn write_sigmf_annotated(
+    base: impl AsRef<Path>,
+    x: &[C64],
+    datatype: Datatype,
+    sample_rate: f64,
+    frequency: Option<f64>,
+    global: Option<&Json>,
+    annotations: &[Annotation],
+) -> Result<()> {
     let (meta_path, data_path) = sigmf_paths(base.as_ref());
     write_raw(&data_path, x, datatype)?;
     let mut g = json!({
         "core:datatype": datatype.name(),
         "core:sample_rate": sample_rate,
-        "core:version": "1.0.0",
+        "core:version": "1.2.0",
         "core:recorder": format!("comrs {}", env!("CARGO_PKG_VERSION")),
     });
     if let (Some(Json::Object(extra)), Json::Object(gm)) = (global, &mut g) {
         gm.extend(extra.clone());
     }
-    let meta = json!({"global": g, "captures": [{"core:sample_start": 0}], "annotations": []});
+    let mut capture = json!({"core:sample_start": 0});
+    if let (Some(f), Json::Object(c)) = (frequency, &mut capture) {
+        c.insert("core:frequency".into(), json!(f));
+    }
+    let mut annotations = annotations.to_vec();
+    annotations.sort_by_key(|a| a.sample_start);
+    let annotations: Vec<Json> = annotations.iter().map(Annotation::to_json).collect();
+    let meta = json!({"global": g, "captures": [capture], "annotations": annotations});
     write_creating_dirs(&meta_path, (serde_json::to_string_pretty(&meta).unwrap_or_default() + "\n").as_bytes())
 }
 
@@ -348,8 +652,8 @@ pub fn read_npy(path: impl AsRef<Path>) -> Result<Npy> {
         return Err(bad(&format!("big-endian or unknown dtype {descr:?}")));
     }
     let data = match &descr[1..] {
-        "c16" => NpyData::Complex(decode_all(need(16)?, Datatype::Cf64)?),
-        "c8" => NpyData::Complex(decode_all(need(8)?, Datatype::Cf32)?),
+        "c16" => NpyData::Complex(decode_all(need(16)?, Datatype::CF64)?),
+        "c8" => NpyData::Complex(decode_all(need(8)?, Datatype::CF32)?),
         "f8" => NpyData::Real(
             need(8)?.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap_or([0; 8]))).collect(),
         ),
@@ -394,7 +698,7 @@ fn write_npy_bytes(path: &Path, descr: &str, n: usize, payload: &[u8]) -> Result
 pub fn write_npy(path: impl AsRef<Path>, x: &[C64]) -> Result<()> {
     let mut p = Vec::with_capacity(16 * x.len());
     for &v in x {
-        Datatype::Cf64.encode(v, &mut p);
+        Datatype::CF64.encode(v, &mut p);
     }
     write_npy_bytes(path.as_ref(), "<c16", x.len(), &p)
 }
@@ -408,19 +712,33 @@ pub fn write_npy_i64(path: impl AsRef<Path>, x: &[i64]) -> Result<()> {
     write_npy_bytes(path.as_ref(), "<i8", x.len(), &p)
 }
 
-/// Read samples from a SigMF recording (`.sigmf-meta`, `.sigmf-data`), an NPY array
-/// (`.npy`) or a raw file of the given data type; returns the samples and the sampling
-/// rate when the file records it.
+/// Read samples from a SigMF recording (`.sigmf-meta`, `.sigmf-data`, `.sigmf`), an NPY
+/// array (`.npy`) or a raw file of the given data type; returns the samples of `channel`
+/// and the sampling rate when the file records it.
 ///
 /// # Errors
-/// [`Error::Config`] for a raw file without a data type; the errors of the readers.
-pub fn read_samples(path: impl AsRef<Path>, datatype: Option<Datatype>) -> Result<(Vec<C64>, Option<f64>)> {
+/// [`Error::Config`] for a raw file without a data type, or a channel that the recording
+/// does not have; the errors of the readers.
+pub fn read_samples(
+    path: impl AsRef<Path>,
+    datatype: Option<Datatype>,
+    channel: usize,
+) -> Result<(Vec<C64>, Option<f64>)> {
     let path = path.as_ref();
     let name = path.to_string_lossy();
-    if name.ends_with(".sigmf-meta") || name.ends_with(".sigmf-data") {
+    let channels = |n: usize| {
+        if channel < n {
+            Ok(())
+        } else {
+            Err(Error::Config(format!("{}: channel {channel} of a recording of {n}", path.display())))
+        }
+    };
+    if name.ends_with(".sigmf-meta") || name.ends_with(".sigmf-data") || name.ends_with(".sigmf") {
         let s = read_sigmf(path)?;
-        return Ok((s.samples, s.sample_rate));
+        channels(s.num_channels)?;
+        return Ok((s.channel(channel), s.sample_rate));
     }
+    channels(1)?;
     if name.ends_with(".npy") {
         return Ok((read_npy(path)?.to_complex(), None));
     }
@@ -441,17 +759,88 @@ mod tests {
     #[test]
     fn raw_round_trips_for_every_type() {
         let x: Vec<C64> = (0..50).map(|k| C64::new(k as f64 - 25.0, (3.0 - k as f64 / 2.0).round())).collect();
-        for dt in [Datatype::Cf32, Datatype::Cf64, Datatype::Ci32, Datatype::Ci16, Datatype::Ci8] {
-            let p = tmp(dt.name());
+        for dt in [Datatype::CF32, Datatype::CF64, Datatype::CI32, Datatype::CI16, Datatype::CI8] {
+            let p = tmp(&dt.name());
             write_raw(&p, &x, dt).unwrap();
             assert_eq!(read_raw(&p, dt).unwrap(), x, "{}", dt.name());
             assert_eq!(std::fs::metadata(&p).unwrap().len() as usize, x.len() * dt.sample_bytes());
             std::fs::remove_file(p).ok();
         }
         let p = tmp("rf32");
-        write_raw(&p, &x, Datatype::Rf32).unwrap();
-        assert!(read_raw(&p, Datatype::Rf32).unwrap().iter().zip(&x).all(|(a, b)| a.re == b.re && a.im == 0.0));
+        write_raw(&p, &x, Datatype::RF32).unwrap();
+        assert!(read_raw(&p, Datatype::RF32).unwrap().iter().zip(&x).all(|(a, b)| a.re == b.re && a.im == 0.0));
         std::fs::remove_file(p).ok();
+    }
+
+    #[test]
+    fn every_sigmf_type_round_trips() {
+        let x: Vec<C64> = (0..40).map(|k| C64::new(k as f64 - 20.0, (5.0 - k as f64 / 3.0).round())).collect();
+        for c in ["c", "r"] {
+            for t in ["f32", "f64", "i32", "i16", "i8", "u32", "u16", "u8"] {
+                for e in ["_le", "_be"] {
+                    let name = format!("{c}{t}{e}");
+                    let dt = Datatype::parse(&name).unwrap();
+                    let p = tmp(&format!("all-{name}"));
+                    write_raw(&p, &x, dt).unwrap();
+                    let y = read_raw(&p, dt).unwrap();
+                    let want: Vec<C64> = x.iter().map(|v| if dt.complex { *v } else { C64::new(v.re, 0.0) }).collect();
+                    assert_eq!(y, want, "{name}");
+                    std::fs::remove_file(p).ok();
+                    // the 8-bit types have no endianness
+                    assert_eq!(dt.name(), if t.ends_with('8') { format!("{c}{t}") } else { name });
+                }
+            }
+        }
+        // big endian: 1.0 as f32 is 3f 80 00 00
+        let dt = Datatype::parse("rf32_be").unwrap();
+        assert_eq!(dt.decode(&[0x3f, 0x80, 0, 0]), C64::new(1.0, 0.0));
+        // unsigned: centred by 2^(b-1)
+        assert_eq!(Datatype::CU8.decode(&[128, 0]), C64::new(0.0, -128.0));
+        assert!(Datatype::parse("cx16").is_err() && Datatype::parse("ci16_xx").is_err());
+    }
+
+    #[test]
+    fn sigmf_headers_channels_and_annotations() {
+        // two channels of ci16, two captures each preceded by a header, trailing bytes
+        let dir = tmp("ncd");
+        std::fs::create_dir_all(&dir).unwrap();
+        let x: Vec<C64> = (0..12).map(|k| C64::new(k as f64, -(k as f64))).collect();
+        let raw = encode_all(&x, Datatype::CI16);
+        // capture 0: samples 0..3 (6 values, 24 bytes) after 5 header bytes; capture 1:
+        // samples 3..6 after 7 header bytes; then 3 trailing bytes
+        let mut data = vec![9u8; 5];
+        data.extend_from_slice(&raw[..24]);
+        data.extend(vec![8u8; 7]);
+        data.extend_from_slice(&raw[24..]);
+        data.extend([1, 2, 3]);
+        std::fs::write(dir.join("other.bin"), &data).unwrap();
+        let meta = json!({
+            "global": {"core:datatype": "ci16_le", "core:num_channels": 2, "core:sample_rate": 1e6,
+                       "core:trailing_bytes": 3, "core:dataset": "other.bin", "core:version": "1.2.0"},
+            "captures": [{"core:sample_start": 3, "core:header_bytes": 7, "core:frequency": 2.4e9},
+                         {"core:sample_start": 0, "core:header_bytes": 5, "core:frequency": 2.4e9}],
+            "annotations": [{"core:sample_start": 4, "core:sample_count": 2, "core:label": "QPSK"}]
+        });
+        std::fs::write(dir.join("rec.sigmf-meta"), meta.to_string()).unwrap();
+        let r = read_sigmf(dir.join("rec.sigmf-meta")).unwrap();
+        assert_eq!(r.samples, x);
+        assert_eq!((r.num_channels, r.frequency, r.captures.len()), (2, Some(2.4e9), 2));
+        assert_eq!(r.channel(1), x.iter().skip(1).step_by(2).copied().collect::<Vec<_>>());
+        let a = &r.annotations[0];
+        assert_eq!((a.label.as_deref(), r.annotated(a, 0)), (Some("QPSK"), vec![x[8], x[10]]));
+        assert_eq!(r.full_scale(), Some(32768.0));
+        // written annotations come back
+        let base = dir.join("w");
+        let ann = Annotation {
+            sample_start: 2,
+            sample_count: Some(3),
+            label: Some("16-QAM".into()),
+            ..Annotation::default()
+        };
+        write_sigmf_annotated(&base, &x, Datatype::CF32, 1e6, Some(915e6), None, std::slice::from_ref(&ann)).unwrap();
+        let w = read_sigmf(&base).unwrap();
+        assert_eq!((w.annotations, w.frequency), (vec![ann], Some(915e6)));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -474,12 +863,13 @@ mod tests {
     fn sigmf_keeps_the_metadata() {
         let x = vec![C64::new(0.25, -0.5); 16];
         let base = tmp("rec");
-        write_sigmf(&base, &x, Datatype::Cf32, 80e9, Some(&json!({"comrs:symbol_rate": 32e9}))).unwrap();
+        write_sigmf(&base, &x, Datatype::CF32, 80e9, Some(&json!({"comrs:symbol_rate": 32e9}))).unwrap();
         let r = read_sigmf(format!("{}.sigmf-data", base.display())).unwrap();
         assert_eq!(r.samples, x);
         assert_eq!(r.meta["global"]["comrs:symbol_rate"], json!(32e9));
-        let (s, fs) = read_samples(format!("{}.sigmf-meta", base.display()), None).unwrap();
+        let (s, fs) = read_samples(format!("{}.sigmf-meta", base.display()), None, 0).unwrap();
         assert_eq!((s.len(), fs), (16, Some(80e9)));
-        assert!(read_samples(&base, None).is_err());
+        assert!(read_samples(&base, None, 0).is_err());
+        assert!(read_samples(format!("{}.sigmf-meta", base.display()), None, 1).is_err());
     }
 }

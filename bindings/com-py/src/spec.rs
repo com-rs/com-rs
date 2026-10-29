@@ -387,20 +387,52 @@ fn search_spec<'py>(
     PyList::new(py, items)
 }
 
-/// Read a SigMF recording.
+/// Read a SigMF recording (SigMF 1.x: every data type, little or big endian, several
+/// channels, capture headers, trailing bytes, `.sigmf` archives).
 ///
 /// Args:
-///     path (str | os.PathLike): the `.sigmf-meta` or `.sigmf-data` file, or their
-///         base name.
+///     path (str | os.PathLike): the `.sigmf-meta` or `.sigmf-data` file, their base
+///         name, or a `.sigmf` archive.
+///     channel (int | None): the channel to read; None: every channel (an array of
+///         shape `(num_channels, n)` when there are several).
+///     autoscale (bool): divide integer samples by their full scale `2^(b-1)` (the
+///         values of `sigmf-python`); otherwise integers are converted without scaling
+///         (unsigned types centred by `2^(b-1)`).
 ///
 /// Returns:
-///     tuple[numpy.ndarray, float | None, dict]: the samples (complex128, integers
-///     converted without scaling), the sampling rate `fs` (Hz) and the metadata.
+///     tuple[numpy.ndarray, float | None, dict]: the samples (complex128), the sampling
+///     rate `fs` (Hz) and the metadata (``meta["captures"]``,
+///     ``meta["annotations"]``…).
+///
+/// Examples:
+///     >>> import comrs, numpy as np, tempfile, os
+///     >>> base = os.path.join(tempfile.mkdtemp(), "x")
+///     >>> comrs.write_sigmf(base, np.array([1, 1j]), 1e6, frequency=2.4e9,
+///     ...                   annotations=[{"sample_start": 1, "label": "QPSK"}])
+///     >>> x, fs, meta = comrs.read_sigmf(base)
+///     >>> meta["captures"][0]["core:frequency"], meta["annotations"][0]["core:label"]
+///     (2400000000.0, 'QPSK')
 #[pyfunction]
-fn read_sigmf(py: Python<'_>, path: PathBuf) -> PyResult<(crate::CArr<'_>, Option<f64>, Bound<'_, PyAny>)> {
+#[pyo3(signature = (path, *, channel = None, autoscale = false))]
+fn read_sigmf(
+    py: Python<'_>,
+    path: PathBuf,
+    channel: Option<usize>,
+    autoscale: bool,
+) -> PyResult<(Py<PyAny>, Option<f64>, Bound<'_, PyAny>)> {
     let r = comrs::io::read_sigmf(&path).py()?;
+    let scale = if autoscale { r.full_scale().unwrap_or(1.0) } else { 1.0 };
+    let get = |k: usize| r.channel(k).into_iter().map(|v| v / scale).collect::<Vec<_>>();
+    let x = match channel {
+        Some(k) if k >= r.num_channels => {
+            return Err(PyValueError::new_err(format!("channel {k} of a recording of {}", r.num_channels)));
+        }
+        Some(k) => crate::carr(py, get(k)).into_any().unbind(),
+        None if r.num_channels == 1 => crate::carr(py, get(0)).into_any().unbind(),
+        None => crate::mat(py, (0..r.num_channels).map(get).collect())?.into_any().unbind(),
+    };
     let meta = from_json(py, &r.meta)?;
-    Ok((crate::carr(py, r.samples), r.sample_rate, meta))
+    Ok((x, r.sample_rate, meta))
 }
 
 /// Write a SigMF recording `base.sigmf-meta` and `base.sigmf-data`.
@@ -410,9 +442,13 @@ fn read_sigmf(py: Python<'_>, path: PathBuf) -> PyResult<(crate::CArr<'_>, Optio
 ///     samples (array_like): complex samples.
 ///     fs (float): sampling rate (Hz).
 ///     datatype (str): the sample format, as the ``dump`` block: ``cf64`` (the
-///         default), ``cf32`` or ``ci16``; the SigMF names (``cf64_le``…) and the other
-///         formats (``ci32``, ``ci8``, ``cu8``, ``rf32``, ``rf64``, ``ri16``) are
-///         accepted (integers are rounded and saturated: scale the samples first).
+///         default), ``cf32`` or ``ci16``; every SigMF type is accepted
+///         (``[c|r][f32|f64|i32|i16|i8|u32|u16|u8][_le|_be]``; integers are rounded and
+///         saturated: scale the samples first).
+///     frequency (float | None): the centre frequency of the capture (Hz).
+///     annotations (list[dict] | None): annotations, with the keys ``sample_start``,
+///         and optionally ``sample_count``, ``label``, ``comment``,
+///         ``freq_lower_edge``, ``freq_upper_edge``.
 ///     global_meta (dict, optional): keys added to the ``global`` object of the
 ///         metadata (a description, the symbol rate, …).
 ///
@@ -424,13 +460,16 @@ fn read_sigmf(py: Python<'_>, path: PathBuf) -> PyResult<(crate::CArr<'_>, Optio
 ///     >>> x.tolist(), fs, meta["global"]["core:datatype"]
 ///     ([(1+0j), 1j], 1000000.0, 'cf64_le')
 #[pyfunction]
-#[pyo3(signature = (base, samples, fs, *, datatype = "cf64", global_meta = None))]
+#[pyo3(signature = (base, samples, fs, *, datatype = "cf64", frequency = None, annotations = None, global_meta = None))]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
 fn write_sigmf(
     py: Python<'_>,
     base: PathBuf,
     samples: &Bound<'_, PyAny>,
     fs: f64,
     datatype: &str,
+    frequency: Option<f64>,
+    annotations: Option<&Bound<'_, PyList>>,
     global_meta: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<()> {
     let dt = comrs::io::Datatype::parse(datatype).py()?;
@@ -438,7 +477,26 @@ fn write_sigmf(
         Some(d) => Some(json(py, d)?),
         None => None,
     };
-    comrs::io::write_sigmf(&base, &crate::cvec(samples)?, dt, fs, extra.as_ref()).py()
+    let mut ann = Vec::new();
+    for a in annotations.iter().flat_map(|l| l.iter()) {
+        let a = json(py, &a)?;
+        let known = ["sample_start", "sample_count", "label", "comment", "freq_lower_edge", "freq_upper_edge"];
+        if let Some(k) = a.as_object().and_then(|o| o.keys().find(|k| !known.contains(&k.as_str()))) {
+            return Err(PyValueError::new_err(format!("unknown annotation key {k:?} (one of {known:?})")));
+        }
+        let start = a["sample_start"]
+            .as_u64()
+            .ok_or_else(|| PyValueError::new_err("every annotation needs a non-negative integer sample_start"))?;
+        ann.push(comrs::io::Annotation {
+            sample_start: start as usize,
+            sample_count: a["sample_count"].as_u64().map(|v| v as usize),
+            label: a["label"].as_str().map(str::to_string),
+            comment: a["comment"].as_str().map(str::to_string),
+            freq_lower_edge: a["freq_lower_edge"].as_f64(),
+            freq_upper_edge: a["freq_upper_edge"].as_f64(),
+        });
+    }
+    comrs::io::write_sigmf_annotated(&base, &crate::cvec(samples)?, dt, fs, frequency, extra.as_ref(), &ann).py()
 }
 
 /// Register the declarative functions.

@@ -69,7 +69,8 @@ class Capture(Native):
     Needs: nothing. Gives: bits, symbols, constellation, samples, capture.
 
     Args:
-        file (str): SigMF (.sigmf-meta/.sigmf-data), NPY (.npy) or raw samples, relative to the specification; required
+        file (str): SigMF (.sigmf-meta/.sigmf-data or a .sigmf archive), NPY (.npy) or raw samples, relative to the specification; required
+        channel (int): the channel of a multi-channel SigMF recording; default 0
         datatype (str): data type of a raw file: cf32_le, ci16_le, cf64_le, ci8, cu8, …; default none
         fs (float): sampling rate; required when the file does not record it [Hz]; default from file
         symbol_rate (float): symbol rate [Bd]; required
@@ -83,6 +84,7 @@ class Capture(Native):
     gives = ("bits", "symbols", "constellation", "samples", "capture")
     param_names = (
         "file",
+        "channel",
         "datatype",
         "fs",
         "symbol_rate",
@@ -96,6 +98,7 @@ class Capture(Native):
         self,
         *,
         file: str | Var,
+        channel: int | Var = 0,
         datatype: str | Var | None = None,
         fs: float | Var | None = None,
         symbol_rate: float | Var,
@@ -108,6 +111,7 @@ class Capture(Native):
             self,
             "capture",
             file=file,
+            channel=channel,
             datatype=datatype,
             fs=fs,
             symbol_rate=symbol_rate,

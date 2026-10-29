@@ -49,16 +49,18 @@ Issues = "https://github.com/com-rs/com-rs/issues"
 # The development dependencies (PEP 735): not published as extras of the package.
 # `pip install --group <name>` (pip >= 25.1) installs one of them.
 [dependency-groups]
-test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9"]
+# sigmf: the reference implementation of SigMF (LGPL-3.0), which tests/test_sigmf.py
+# reads and writes recordings with (the test is skipped without it)
+test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9", "sigmf>=1.2"]
 lint = ["ruff"]
-# The test oracles, OptiCommPy (GPL-3.0) and GNPy (BSD-3-Clause, the Raman
-# amplification), are never imported by the package. Their outputs are recorded
+# The test oracles, OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause, the Raman
+# amplification) and py3gpp (AGPL-3.0, 5G NR), are never imported by the package. Their outputs are recorded
 # fixtures (tests/oracle/*.json and *.npz, with the version of the tool) that the tests
 # of tests/test_oracle.py and tests/test_gnpy_oracle.py read; the tools are only needed
 # to re-record them, a deliberate act named in the commit message:
 #   pip install --group oracle
 #   COMRS_RECORD_ORACLE=1 python -m pytest tests/test_oracle.py tests/test_gnpy_oracle.py
-oracle = ["OptiCommPy>=0.11", "gnpy>=3.0"]
+oracle = ["OptiCommPy>=0.11", "gnpy>=3.0", "py3gpp>=0.6"]
 # the documentation of the Python package (docs/python, `just docs-py`)
 docs = [
     "sphinx>=8",

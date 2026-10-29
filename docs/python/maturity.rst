@@ -68,6 +68,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - OFDM and channel estimation
      - B
      - flat Rayleigh fading per subcarrier
+   * - 5G NR numerology, SSB, cell search, PDSCH DMRS
+     - A
+     - py3gpp outputs; Lin et al. 2019
    * - OFDM synchronisation (Schmidl–Cox)
      - C
      - the error falls with the SNR
@@ -165,5 +168,5 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
      - B
      - the search against the inverted closed forms
    * - Recordings (SigMF, raw IQ, NPY)
-     - C
-     - round trips
+     - A
+     - sigmf-python, the reference implementation, both ways

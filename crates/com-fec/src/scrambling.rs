@@ -23,29 +23,7 @@
 //!
 //! 1. 3GPP TS 38.211, *NR; Physical channels and modulation*, Sec. 5.2.1.
 
-/// The sequence of a linear-feedback shift register of order `order`: the first
-/// `order` bits are `init` (zero-padded), then $x_{i + \mathrm{order}} = \sum_{t} x_{i + t}
-/// \bmod 2$ over the `taps`, up to `len` bits in all (the Fibonacci form of every
-/// m-sequence, Gold sequence and PRBS of the standards).
-///
-/// # Examples
-/// ```
-/// use com_fec::scrambling::lfsr;
-/// // x³ + x + 1: the m-sequence of period 7
-/// let x = lfsr(&[0, 1], 3, &[1, 0, 0], 10);
-/// assert_eq!(x, vec![1, 0, 0, 1, 0, 1, 1, 1, 0, 0]);
-/// ```
-pub fn lfsr(taps: &[usize], order: usize, init: &[u8], len: usize) -> Vec<u8> {
-    let mut x = vec![0u8; len.max(order)];
-    for (v, &b) in x.iter_mut().zip(init.iter().take(order)) {
-        *v = b & 1;
-    }
-    for i in 0..len.saturating_sub(order) {
-        x[i + order] = taps.iter().fold(0, |acc, &t| acc ^ x[i + t]);
-    }
-    x.truncate(len);
-    x
-}
+pub use com_math::sequences::lfsr;
 
 /// The Gold scrambler of 3GPP with the initial value `c_init`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,12 +35,7 @@ pub struct Scrambler {
 impl Scrambler {
     /// The first `n` bits of $c$.
     pub fn sequence(&self, n: usize) -> Vec<u8> {
-        const NC: usize = 1600;
-        let len = n + NC + 31;
-        let init2: Vec<u8> = (0..31).map(|i| ((self.c_init >> i) & 1) as u8).collect();
-        let x1 = lfsr(&[0, 3], 31, &[1], len);
-        let x2 = lfsr(&[0, 1, 2, 3], 31, &init2, len);
-        (0..n).map(|i| x1[i + NC] ^ x2[i + NC]).collect()
+        com_math::sequences::gold_3gpp(self.c_init, n)
     }
 
     /// Scramble (or descramble) bits.

@@ -16,7 +16,8 @@ fixed timestamp in the archive, the date kept when nothing else changed), so tha
 re-recording an unchanged oracle produces no diff.
 
 The outputs of a program are not covered by its licence: the fixtures are results of
-OptiCommPy (GPL-3.0) and GNPy (BSD-3-Clause), not their code nor their data files.
+OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause) and py3gpp (AGPL-3.0), not their code nor their
+data files.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ import pytest
 DIR = Path(__file__).parent / "oracle"
 RECORD = os.environ.get("COMRS_RECORD_ORACLE", "") not in ("", "0")
 INLINE = 64  # arrays of at most this many values stay in the JSON document
-DISTRIBUTIONS = {"OptiCommPy": "OptiCommPy", "GNPy": "gnpy"}
+DISTRIBUTIONS = {"OptiCommPy": "OptiCommPy", "GNPy": "gnpy", "py3gpp": "py3gpp"}
 # a fixed timestamp for the entries of the archive: `np.savez` would stamp the time
 STAMP = (1980, 1, 1, 0, 0, 0)
 

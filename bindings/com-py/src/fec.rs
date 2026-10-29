@@ -407,7 +407,8 @@ impl PyConv {
 
 /// The turbo code of LTE: two (13, 15) recursive systematic codes in parallel, rate
 /// about 1/3, decoded by iterative log-MAP (Berrou, Glavieux & Thitimajshima 1993).
-/// The interleaver is the QPP `(f1, f2)` if given, else a random permutation.
+/// The interleaver is the QPP `(f1, f2)` if given (`"lte"`: the coefficients of LTE for
+/// `k`, TS 36.212 Table 5.1.3-3), else a random permutation.
 /// `puncture` punctures the systematic and the two parity streams by a pattern of
 /// three rows applied at every information index (the tail bits are kept): the name
 /// `"turbo_1_2"` (systematic 1 1, parity 1: 1 0, parity 2: 0 1, the rate-1/2 code of
@@ -417,7 +418,7 @@ impl PyConv {
 ///     k (int): information bits per block.
 ///     iterations (int): decoding iterations.
 ///     exact (bool): log-MAP (else max-log-MAP).
-///     qpp (tuple[int, int] | None): the QPP interleaver `(f1, f2)`.
+///     qpp (str | tuple[int, int] | None): the QPP interleaver `(f1, f2)`, or `"lte"`.
 ///     seed (int): seed of the random interleaver.
 ///     puncture (str | list[list[int]] | None): the puncturing pattern (three rows).
 ///
@@ -468,12 +469,22 @@ impl PyTurbo {
         k: usize,
         iterations: usize,
         exact: bool,
-        qpp: Option<(usize, usize)>,
+        qpp: Option<&Bound<'_, PyAny>>,
         seed: u64,
         puncture: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let il = match qpp {
-            Some((f1, f2)) => Interleaver::qpp(k, f1, f2).py()?,
+            Some(q) if q.extract::<String>().is_ok_and(|s| s == "lte") => {
+                let (f1, f2) = comrs::fec::turbo::lte_qpp(k).ok_or_else(|| {
+                    PyValueError::new_err(format!("K = {k} is not a block size of LTE (TS 36.212, Table 5.1.3-3)"))
+                })?;
+                Interleaver::qpp(k, f1, f2).py()?
+            }
+            Some(q) => {
+                let (f1, f2): (usize, usize) =
+                    q.extract().map_err(|_| PyValueError::new_err("qpp is \"lte\" or a pair (f1, f2)"))?;
+                Interleaver::qpp(k, f1, f2).py()?
+            }
             None => Interleaver::random(k, seed),
         };
         let mut code = TurboCode::with_interleaver(il);

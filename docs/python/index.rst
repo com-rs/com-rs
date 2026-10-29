@@ -62,6 +62,13 @@ reproducible random streams, and their results come with confidence intervals.
       The evidence behind every module: validated against a publication, a standard
       or a reference implementation, against a closed form, or self-consistent only.
 
+   .. grid-item-card:: Comparisons with other libraries
+      :link: comparisons
+      :link-type: doc
+
+      OptiCommPy, GNPy, AFF3CT, Sionna, py3gpp, sigmf-python: what is compared, how
+      closely, and the differences found.
+
    .. grid-item-card:: API reference
       :link: api/index
       :link-type: doc
@@ -77,5 +84,6 @@ reproducible random streams, and their results come with confidence intervals.
    user_guide/index
    auto_examples/index
    performance
+   comparisons
    maturity
    api/index

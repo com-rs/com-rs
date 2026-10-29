@@ -38,6 +38,7 @@ mod fec_codes;
 mod fiber;
 mod gn;
 mod mimo;
+mod nr;
 mod ofdm;
 mod ofdm_link;
 mod rng;
@@ -254,6 +255,7 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     rng::register(m)?;
     comm::register(m)?;
     blind::register(m)?;
+    nr::register(m)?;
     converter::register(m)?;
     dsp::register(m)?;
     fiber::register(m)?;

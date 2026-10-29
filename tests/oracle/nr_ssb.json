@@ -1,0 +1,186 @@
+{
+ "data": {
+  "0": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.0.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.0.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.0.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.0.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.0.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.0.pss"
+   },
+   "sss": {
+    "__npz__": "data.0.sss"
+   }
+  },
+  "1": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.1.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.1.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.1.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.1.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.1.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.1.pss"
+   },
+   "sss": {
+    "__npz__": "data.1.sss"
+   }
+  },
+  "1000": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.1000.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.1000.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.1000.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.1000.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.1000.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.1000.pss"
+   },
+   "sss": {
+    "__npz__": "data.1000.sss"
+   }
+  },
+  "1007": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.1007.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.1007.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.1007.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.1007.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.1007.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.1007.pss"
+   },
+   "sss": {
+    "__npz__": "data.1007.sss"
+   }
+  },
+  "2": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.2.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.2.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.2.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.2.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.2.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.2.pss"
+   },
+   "sss": {
+    "__npz__": "data.2.sss"
+   }
+  },
+  "3": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.3.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.3.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.3.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.3.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.3.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.3.pss"
+   },
+   "sss": {
+    "__npz__": "data.3.sss"
+   }
+  },
+  "417": {
+   "pbch_dmrs": {
+    "0": {
+     "__npz__": "data.417.pbch_dmrs.0"
+    },
+    "3": {
+     "__npz__": "data.417.pbch_dmrs.3"
+    },
+    "7": {
+     "__npz__": "data.417.pbch_dmrs.7"
+    }
+   },
+   "pbch_dmrs_indices": {
+    "__npz__": "data.417.pbch_dmrs_indices"
+   },
+   "pbch_indices": {
+    "__npz__": "data.417.pbch_indices"
+   },
+   "pss": {
+    "__npz__": "data.417.pss"
+   },
+   "sss": {
+    "__npz__": "data.417.sss"
+   }
+  }
+ },
+ "name": "nr_ssb",
+ "npz": "nr_ssb.npz",
+ "numpy": "2.5.4",
+ "python": "3.12.15",
+ "recorded": "2026-10-29",
+ "tool": "py3gpp",
+ "version": "0.6.0"
+}

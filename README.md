@@ -404,6 +404,7 @@ the regimes not covered yet are in
 | Distribution matching and probabilistic amplitude shaping | A | Schulte & Böcherer 2016 Fig. 2; Böcherer et al. 2015 Tables VI–X |
 | DVB-S2 | A | EN 302 307-1 Table 13 and the tables of the standard |
 | OFDM and channel estimation | B | flat Rayleigh fading per subcarrier |
+| 5G NR numerology, SSB, cell search, PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
 | OFDM synchronisation (Schmidl–Cox) | C | the error falls with the SNR |
 | PAPR: distribution and reduction | B | Ochiai & Imai 2001 eqs. (11), (27) |
 | Constant-envelope OFDM | B | Thompson et al. 2008 eq. (15) |
@@ -436,7 +437,7 @@ the regimes not covered yet are in
 | Spectral metrics (PSD, ACLR, PAPR, CCDF) | C | a tone lands in its bin |
 | Monte Carlo runner | C | thread independence, stopping rules |
 | Specifications, verification and operating-point search | B | the search against the inverted closed forms |
-| Recordings (SigMF, raw IQ, NPY) | C | round trips |
+| Recordings (SigMF, raw IQ, NPY) | A | sigmf-python, the reference implementation, both ways |
 
 ## Operating points
 
