@@ -17,7 +17,7 @@ The last column lists the inconsistencies found in the documents (misprints, fig
 that contradict the text); they do not lower the badge when the corrected result is
 reproduced.
 
-Summary: 78 documents, 42 🟢, 26 🟠, 10 🔴; 34 inconsistencies found.
+Summary: 79 documents, 43 🟢, 26 🟠, 10 🔴; 34 inconsistencies found.
 
 ## Foundations
 
@@ -118,6 +118,7 @@ Summary: 78 documents, 42 🟢, 26 🟠, 10 🔴; 34 inconsistencies found.
 
 | | Document | Module | Compared | Tests | Not covered | Inconsistencies in the document |
 |---|---|---|---|---|---|---|
+| 🟢 | D. R. Pauluzzi, N. C. Beaulieu, A comparison of SNR estimation techniques for the AWGN channel, TCOM 48(10), 2000 | `com_metrics::blind::{snr_m2m4, snr_crb_nmse}` | eq. (37) with complex noise (eq. (39) for PSK); the normalised MSE and bias of M2M4 for 8-PSK on 64 symbols of Figs. 9-10 (within 15 % and 0.02); the Cramer-Rao bound of eqs. (65) and (67) | `validation/tests/blind.rs::pauluzzi_beaulieu_2000_figs_9_10_m2m4_of_8psk` | the real channel (Figs. 6-8); the ML, SSME, SVR and SNV estimators (Figs. 2-10), not implemented | — |
 | 🔴 | E. Ip, J. M. Kahn, Compensation of dispersion and nonlinear impairments using digital backpropagation, JLT 26(20), 2008 | `com_dsp::compensation::dbp` | - | — | DBP with few steps per span is compared with Häger & Pfister, not with this paper | — |
 | 🟢 | A. Eghbali et al., Optimal least-squares FIR filters for compensation of chromatic dispersion, JLT 32(8), 2014 | `com_dsp::compensation::cd` | Table I (exact), eqs. 12-19, Figs. 5, 8 and 9 | `validation/tests/cd_filters.rs`<br>`validation/cards/eghbali2014_table1.yaml` | — | • Sec. IV-A quotes E = -220 and -63 dB; the computed energies are -113 and -34 dB, i.e. the paper seems to quote 20 log10 of the energy |
 | 🟠 | K. Kikuchi, Performance analyses of polarization demultiplexing based on the constant-modulus algorithm, Opt. Express 16(2), 2008 | `com_dsp::equalizer` | the singularity of the blind 2 x 2 equaliser at 45 degrees (48 % of the trials) and its initialisation | `specs/polmux_cma_45deg.yaml`<br>`crates/com-dsp/src/equalizer.rs::kikuchi_initialisation_avoids_the_singularity_of_the_45_degree_rotation` | compared with a qualitative statement (about half of the trials), not a table | — |

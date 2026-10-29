@@ -2,7 +2,7 @@
 //! rate by cyclostationarity.
 
 use crate::comm::PyConstellation;
-use crate::{IntoPy, cvec};
+use crate::{IntoPy, cvec, map_real};
 use comrs::dsp::cyclo;
 use comrs::metrics::blind::{self, Cumulants};
 use num_complex::Complex64 as C64;
@@ -143,6 +143,37 @@ fn snr_m2m4_db(x: &Bound<'_, PyAny>, constellation: &PyConstellation) -> PyResul
     Ok(comrs::math::lin2db(snr))
 }
 
+/// The Cramér–Rao bound on the normalised mean squared error of an unbiased SNR
+/// estimator from known PSK symbols (Pauluzzi & Beaulieu 2000, eq. (65) in complex AWGN,
+/// eq. (67), twice it, in real AWGN).
+///
+/// Args:
+///     snr_db (float | array_like): the true SNR (dB).
+///     n_symbols (int): the symbols of a block.
+///     samples_per_symbol (int): independent samples per symbol.
+///     real (bool): real AWGN instead of complex.
+///
+/// Returns:
+///     float | numpy.ndarray: the bound on ``E[(ρ̂ - ρ)²] / ρ²``.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.snr_crb_nmse(30.0, 64), 4)  # tends to 1/64
+///     0.0157
+#[pyfunction]
+#[pyo3(signature = (snr_db, n_symbols, *, samples_per_symbol=1, real=false))]
+fn snr_crb_nmse(
+    snr_db: &Bound<'_, PyAny>,
+    n_symbols: usize,
+    samples_per_symbol: usize,
+    real: bool,
+) -> PyResult<Py<PyAny>> {
+    if n_symbols == 0 || samples_per_symbol == 0 {
+        return Err(PyValueError::new_err("n_symbols and samples_per_symbol must be positive"));
+    }
+    map_real(snr_db, |s| Ok(blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real)))
+}
+
 /// The symbol rate of a linearly modulated signal from the strongest line of the
 /// spectrum of its instantaneous power (cyclostationarity, Gardner 1991); the pulse must
 /// have an excess bandwidth.
@@ -194,6 +225,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(theory_cumulants, m)?)?;
     m.add_function(wrap_pyfunction!(classify_modulation, m)?)?;
     m.add_function(wrap_pyfunction!(snr_m2m4_db, m)?)?;
+    m.add_function(wrap_pyfunction!(snr_crb_nmse, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_symbol_rate, m)?)?;
     m.add_function(wrap_pyfunction!(cyclic_autocorrelation, m)?)?;
     Ok(())

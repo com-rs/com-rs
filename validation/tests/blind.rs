@@ -9,16 +9,19 @@
 //!   ones in Gaussian noise whatever the SNR, the noise variance known;
 //! - the likelihood classifier of Wei & Mendel (*IEEE Trans. Commun.* 48(2), 2000), the
 //!   optimal one, classifies at least as well as the cumulant classifier;
-//! - the M2M4 estimator of Pauluzzi & Beaulieu (*IEEE Trans. Commun.* 48(10), 2000) is
-//!   consistent, its mean squared error falling as $1/N$, for PSK at every SNR and for
-//!   QAM at low SNR; for QAM at high SNR its error is large;
+//! - the M2M4 estimator of D. R. Pauluzzi and N. C. Beaulieu, "A comparison of SNR
+//!   estimation techniques for the AWGN channel," *IEEE Trans. Commun.* 48(10), 2000:
+//!   the normalised mean squared error and bias of 8-PSK on 64 symbols in complex AWGN
+//!   of their Figs. 9 and 10, and the Cramér–Rao bound of their eq. (65) plotted there;
+//!   the estimator is consistent, its mean squared error falling as $1/N$, for PSK at
+//!   every SNR and for QAM at low SNR; for QAM at high SNR its error is large;
 //! - the symbol rate of root-raised-cosine signals is found by the line of $|x|^{2}$
 //!   (Gardner, *IEEE Signal Process. Mag.* 8(2), 1991) at fractional oversampling.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use comrs::dsp::cyclo::estimate_symbol_rate;
 use comrs::dsp::filter::rrc_taps;
-use comrs::metrics::blind::{Cumulants, classify_cumulants, classify_ml, snr_m2m4};
+use comrs::metrics::blind::{Cumulants, classify_cumulants, classify_ml, snr_crb_nmse, snr_m2m4};
 use comrs::prelude::*;
 
 fn noisy(c: &Constellation, n: usize, s2: f64, rng: &mut Rng) -> Vec<C64> {
@@ -138,6 +141,46 @@ fn m2m4_is_consistent_and_its_error_falls_as_one_over_n() {
         (0..200).map(|_| snr_m2m4(&noisy(&c, 4000, 1.0 / snr, &mut rng), &c).unwrap() / snr - 1.0).collect();
     let rms = (e.iter().filter(|v| v.is_finite()).map(|v| v * v).sum::<f64>() / e.len() as f64).sqrt();
     assert!(rms > 0.2 || e.iter().any(|v| !v.is_finite()), "16-QAM at 20 dB: RMS error {rms}");
+}
+
+/// Pauluzzi & Beaulieu (2000), Figs. 9 and 10: M2M4 on blocks of 64 8-PSK symbols in
+/// complex AWGN, one sample per symbol, 20 000 blocks per SNR. The points read on the
+/// figures: the normalised mean squared error 0.17, 0.11, 0.062, 0.045 and 0.040 at 3,
+/// 5, 9, 15 and 30 dB (within 15 %), the normalised bias 0.10, 0.06, 0.05 and 0.05 at 3,
+/// 9, 15 and 30 dB (within 0.02), and the bound of eq. (65), 0.032 at 3 dB and 0.0156 at
+/// 30 dB. The estimator stays 2.5 times above the bound at high SNR.
+#[test]
+fn pauluzzi_beaulieu_2000_figs_9_10_m2m4_of_8psk() {
+    let c = Constellation::psk(8).unwrap().normalized();
+    let (n, blocks) = (64, 20_000);
+    let mut rng = Rng::new(2000);
+    let mut stats = |snr_db: f64| {
+        let rho = db2lin(snr_db);
+        let (mut bias, mut mse) = (0.0, 0.0);
+        for _ in 0..blocks {
+            let est = snr_m2m4(&noisy(&c, n, 1.0 / rho, &mut rng), &c).unwrap();
+            assert!(est.is_finite(), "{snr_db} dB: the moments gave no noise");
+            bias += (est - rho) / rho;
+            mse += ((est - rho) / rho).powi(2);
+        }
+        (bias / blocks as f64, mse / blocks as f64)
+    };
+    let fig_9 = [(3.0, 0.17), (5.0, 0.11), (9.0, 0.062), (15.0, 0.045), (30.0, 0.040)];
+    let fig_10 = [(3.0, 0.10), (9.0, 0.06), (15.0, 0.05), (30.0, 0.05)];
+    let mut at_30 = 0.0;
+    for (snr_db, want) in fig_9 {
+        let (_, nmse) = stats(snr_db);
+        assert!((nmse / want - 1.0).abs() < 0.15, "NMSE at {snr_db} dB: {nmse} vs {want}");
+        at_30 = nmse;
+    }
+    for (snr_db, want) in fig_10 {
+        let (bias, _) = stats(snr_db);
+        assert!((bias - want).abs() < 0.02, "bias at {snr_db} dB: {bias} vs {want}");
+    }
+    let crb = |snr_db: f64| snr_crb_nmse(db2lin(snr_db), n, 1, false);
+    assert!((crb(3.0) - 0.032).abs() < 0.002 && (crb(30.0) - 0.0156).abs() < 5e-4);
+    let ratio = at_30 / crb(30.0);
+    assert!(ratio > 2.0 && ratio < 3.0, "M2M4 / CRB at 30 dB: {ratio}");
 }
 
 #[test]

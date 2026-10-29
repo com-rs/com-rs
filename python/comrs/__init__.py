@@ -106,7 +106,7 @@ amplifiers and DPD     :func:`pa_rapp`, :func:`pa_saleh`, :func:`pa_memory_polyn
                        :func:`rapp_predistort`, :class:`MemoryPolynomialDpd`,
                        :func:`amplifier_bussgang`
 blind estimation       :func:`cumulants`, :func:`theory_cumulants`,
-                       :func:`classify_modulation`, :func:`snr_m2m4_db`,
+                       :func:`classify_modulation`, :func:`snr_m2m4_db`, :func:`snr_crb_nmse`,
                        :func:`estimate_symbol_rate`, :func:`cyclic_autocorrelation`
 converters             :func:`adc`, :func:`dac`, :func:`theory_sqnr_sine_db`,
                        :func:`theory_quantization_mse`, :func:`optimal_loading`,
@@ -362,6 +362,7 @@ from comrs._comrs import (
     sdr_optimum_correction,
     search_spec,
     shannon_limit_ebn0_db,
+    snr_crb_nmse,
     snr_db,
     snr_m2m4_db,
     spec_blocks,
@@ -618,6 +619,7 @@ __all__ = [
     "search_spec",
     "shannon_limit_ebn0_db",
     "sim",
+    "snr_crb_nmse",
     "snr_db",
     "snr_m2m4_db",
     "spec_blocks",

@@ -1,5 +1,6 @@
 //! Blind estimates from the received samples alone: higher-order cumulants, automatic
-//! modulation classification and the M2M4 estimator of the SNR.
+//! modulation classification, the M2M4 estimator of the SNR and the Cramér–Rao bound
+//! of SNR estimators.
 //!
 //! # Model
 //!
@@ -44,7 +45,11 @@
 //! \hat{S} = \sqrt{\frac{2 M_{2}^{2} - M_{4}}{2 - k_{a}}}, \qquad \hat{N} = M_{2} - \hat{S}
 //! $$
 //!
-//! ([`snr_m2m4`]; Pauluzzi & Beaulieu 2000 for PSK, where $\hat{S} = \sqrt{2 M_{2}^{2} - M_{4}}$).
+//! ([`snr_m2m4`]; the eq. (37) of Pauluzzi & Beaulieu 2000 with the kurtosis 2 of
+//! complex noise, and their eq. (39) for PSK, where $\hat{S} = \sqrt{2 M_{2}^{2} - M_{4}}$).
+//! Its bias and normalised mean squared error tend to constants at high SNR (8-PSK on
+//! 64 symbols: 5 % and 0.040, their Figs. 9–10), about 2.5 times the Cramér–Rao bound
+//! [`snr_crb_nmse`] of the estimators that know the symbols.
 //! For an alphabet of several amplitudes (QAM) the estimate degrades at high SNR: the
 //! noise is then a small difference of moments that the sample kurtosis of the symbols
 //! themselves makes fluctuate (16-QAM at 20 dB: errors beyond 20 % with 4000 samples,
@@ -295,6 +300,34 @@ pub fn classify_ml_blind(r: &[C64], candidates: &[Constellation]) -> Result<Clas
 pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
     let (s, noise) = m2m4(r, c)?;
     Ok(if noise <= 0.0 { f64::INFINITY } else { s / noise })
+}
+
+/// The Cramér–Rao bound on the normalised mean squared error
+/// $\mathbb{E}[(\hat{\rho} - \rho)^{2}]/\rho^{2}$ of an unbiased estimator of the SNR
+/// $\rho$ (`snr`, linear) from $N_{\mathrm{sym}}$ known PSK symbols (`n_symbols`) and
+/// $N_{\mathrm{ss}}$ independent samples per symbol (`samples_per_symbol`) in complex AWGN
+/// (Pauluzzi & Beaulieu 2000, eq. (65)), or twice it in real AWGN (`real`, their eq. (67)):
+///
+/// $$
+/// \mathrm{NMSE}(\hat{\rho}) \ge \frac{2}{\rho N_{\mathrm{sym}}} +
+/// \frac{1}{N_{\mathrm{ss}} N_{\mathrm{sym}}} .
+/// $$
+///
+/// It tends to $1/(N_{\mathrm{ss}} N_{\mathrm{sym}})$ at high SNR: the noise power must
+/// still be estimated.
+///
+/// # Examples
+/// ```
+/// use com_metrics::blind::snr_crb_nmse;
+/// // 64 symbols at 3 dB: the lowest point of the bound of Pauluzzi & Beaulieu, Fig. 9
+/// let crb = snr_crb_nmse(10f64.powf(0.3), 64, 1, false);
+/// assert!((crb - 0.0313).abs() < 1e-4);
+/// assert_eq!(snr_crb_nmse(1.0, 64, 1, true), 2.0 * snr_crb_nmse(1.0, 64, 1, false));
+/// ```
+pub fn snr_crb_nmse(snr: f64, n_symbols: usize, samples_per_symbol: usize, real: bool) -> f64 {
+    let n = n_symbols as f64;
+    let complex = 2.0 / (snr * n) + 1.0 / (samples_per_symbol as f64 * n);
+    if real { 2.0 * complex } else { complex }
 }
 
 #[cfg(test)]

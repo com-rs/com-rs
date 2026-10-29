@@ -616,6 +616,15 @@
   tests: []
   badge: red
   not_covered: "the memory polynomial and its indirect learning against the results of the paper"
+- id: pauluzzi2000
+  area: Receiver DSP
+  ref: "D. R. Pauluzzi, N. C. Beaulieu, A comparison of SNR estimation techniques for the AWGN channel, TCOM 48(10), 2000"
+  module: com_metrics::blind::{snr_m2m4, snr_crb_nmse}
+  tested: "eq. (37) with complex noise (eq. (39) for PSK); the normalised MSE and bias of M2M4 for 8-PSK on 64 symbols of Figs. 9-10 (within 15 % and 0.02); the Cramer-Rao bound of eqs. (65) and (67)"
+  tests:
+    - validation/tests/blind.rs::pauluzzi_beaulieu_2000_figs_9_10_m2m4_of_8psk
+  badge: green
+  not_covered: "the real channel (Figs. 6-8); the ML, SSME, SVR and SNV estimators (Figs. 2-10), not implemented"
 - id: ip2008
   area: Receiver DSP
   ref: "E. Ip, J. M. Kahn, Compensation of dispersion and nonlinear impairments using digital backpropagation, JLT 26(20), 2008"

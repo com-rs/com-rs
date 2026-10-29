@@ -470,6 +470,7 @@ Modulation recognition, SNR and symbol rate without a reference.
    theory_cumulants
    classify_modulation
    snr_m2m4_db
+   snr_crb_nmse
    cyclic_autocorrelation
    estimate_symbol_rate
 
