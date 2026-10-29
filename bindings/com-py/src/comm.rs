@@ -2,6 +2,7 @@
 
 use crate::rng::PyRng;
 use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, count, cvec, farr, iarr, kind, map_real, uvec};
+use comrs::mapping::bicm;
 use comrs::mapping::constellation::{self as modulation, Constellation};
 use comrs::mapping::source as sources;
 use comrs::metrics;
@@ -57,6 +58,26 @@ impl PyConstellation {
     #[staticmethod]
     fn from_points(points: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(PyConstellation { inner: Constellation::from_points(cvec(points)?).py()? })
+    }
+
+    /// The points of `Constellation(kind, m)` with a set-partitioning labelling
+    /// (Ungerboeck): natural labels for PSK, Fig. 2(a) of Caire, Taricco & Biglieri
+    /// (1998) for 16-QAM.
+    ///
+    /// Args:
+    ///     kind (str): `"psk"` or `"qam"` (16-QAM only).
+    ///     m (int): the order.
+    ///
+    /// Returns:
+    ///     Constellation: the constellation (kind `"custom"`).
+    ///
+    /// Examples:
+    ///     >>> import comrs
+    ///     >>> comrs.Constellation.set_partitioning("qam", 16).points[0b1001]
+    ///     np.complex128(-3+3j)
+    #[staticmethod]
+    fn set_partitioning(kind: &str, m: usize) -> PyResult<Self> {
+        Ok(PyConstellation { inner: Constellation::set_partitioning(self::kind(kind)?, m).py()? })
     }
 
     /// A constellation from the name the specifications use (``"16-QAM"``, ``"QPSK"``,
@@ -660,6 +681,114 @@ fn theory_gmi(
     map_real(snr_db, |s| metrics::theory_gmi(k, m, s, px.as_deref(), points).py())
 }
 
+fn fading(name: &str) -> PyResult<bicm::Fading> {
+    match name {
+        "awgn" => Ok(bicm::Fading::Awgn),
+        "rayleigh" => Ok(bicm::Fading::Rayleigh),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!("unknown fading {other:?}: awgn, rayleigh"))),
+    }
+}
+
+/// The CM capacity (bits per channel use) of a constellation with uniform inputs over
+/// AWGN or Rayleigh fading known at the receiver (Caire, Taricco & Biglieri 1998, eq.
+/// (10)): the mutual information, by Gauss–Hermite quadrature.
+///
+/// Args:
+///     constellation (Constellation): the points (normalised inside).
+///     snr_db (float | array_like): `E_s/σ²` (dB).
+///     fading (str): `"awgn"` or `"rayleigh"`.
+///     points (int): quadrature nodes per dimension.
+///
+/// Returns:
+///     float | numpy.ndarray: the capacity at every SNR.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.cm_capacity(comrs.Constellation("qam", 4), 30.0), 6)
+///     2.0
+#[pyfunction]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+fn cm_capacity(
+    constellation: &PyConstellation,
+    snr_db: &Bound<'_, PyAny>,
+    fading: &str,
+    points: usize,
+) -> PyResult<Py<PyAny>> {
+    let f = self::fading(fading)?;
+    map_real(snr_db, |s| bicm::cm_capacity(&constellation.inner, s, f, points).py())
+}
+
+/// The BICM capacity (bits per channel use) of a labelled constellation with uniform
+/// inputs (Caire, Taricco & Biglieri 1998, eq. (14)): the GMI of the bit-wise decoder,
+/// labels as `constellation` gives them (Gray, or `Constellation.set_partitioning`).
+///
+/// Args:
+///     constellation (Constellation): the labelled points.
+///     snr_db (float | array_like): `E_s/σ²` (dB).
+///     fading (str): `"awgn"` or `"rayleigh"`.
+///     points (int): quadrature nodes per dimension.
+///
+/// Returns:
+///     float | numpy.ndarray: the capacity at every SNR.
+#[pyfunction]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+fn bicm_capacity(
+    constellation: &PyConstellation,
+    snr_db: &Bound<'_, PyAny>,
+    fading: &str,
+    points: usize,
+) -> PyResult<Py<PyAny>> {
+    let f = self::fading(fading)?;
+    map_real(snr_db, |s| bicm::bicm_capacity(&constellation.inner, s, f, points).py())
+}
+
+/// The CM cutoff rate (bits per channel use) with uniform inputs, in closed form
+/// (Caire, Taricco & Biglieri 1998, eq. (17)).
+///
+/// Args:
+///     constellation (Constellation): the points.
+///     snr_db (float | array_like): `E_s/σ²` (dB).
+///     fading (str): `"awgn"` or `"rayleigh"`.
+///
+/// Returns:
+///     float | numpy.ndarray: the cutoff rate at every SNR.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> r0 = comrs.cm_cutoff_rate(comrs.Constellation("psk", 2), 0.0)
+///     >>> round(r0 - (1 - math.log2(1 + math.exp(-1))), 12)
+///     0.0
+#[pyfunction]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn"))]
+fn cm_cutoff_rate(constellation: &PyConstellation, snr_db: &Bound<'_, PyAny>, fading: &str) -> PyResult<Py<PyAny>> {
+    let f = self::fading(fading)?;
+    map_real(snr_db, |s| Ok(bicm::cm_cutoff_rate(&constellation.inner, s, f)))
+}
+
+/// The BICM cutoff rate (bits per channel use) of a labelled constellation, `m(1 -
+/// log2(1 + B))` with the Bhattacharyya factor `B` (Caire, Taricco & Biglieri 1998,
+/// eqs. (19), (21)).
+///
+/// Args:
+///     constellation (Constellation): the labelled points.
+///     snr_db (float | array_like): `E_s/σ²` (dB).
+///     fading (str): `"awgn"` or `"rayleigh"`.
+///     points (int): quadrature nodes per dimension.
+///
+/// Returns:
+///     float | numpy.ndarray: the cutoff rate at every SNR.
+#[pyfunction]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+fn bicm_cutoff_rate(
+    constellation: &PyConstellation,
+    snr_db: &Bound<'_, PyAny>,
+    fading: &str,
+    points: usize,
+) -> PyResult<Py<PyAny>> {
+    let f = self::fading(fading)?;
+    map_real(snr_db, |s| bicm::bicm_cutoff_rate(&constellation.inner, s, f, points).py())
+}
+
 /// Achievable rates of a receiver with its own posterior `q(x|z) ∝ e^{-|z - x|²/σ̂²}`.
 ///
 /// The rate of a decoder that uses the receiver's beliefs (mismatched decoding), not a
@@ -765,6 +894,10 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(theory_phase_pdf, m)?,
         wrap_pyfunction!(theory_mi, m)?,
         wrap_pyfunction!(theory_gmi, m)?,
+        wrap_pyfunction!(cm_capacity, m)?,
+        wrap_pyfunction!(bicm_capacity, m)?,
+        wrap_pyfunction!(cm_cutoff_rate, m)?,
+        wrap_pyfunction!(bicm_cutoff_rate, m)?,
         wrap_pyfunction!(information_rates, m)?,
         wrap_pyfunction!(posterior_rates, m)?,
     ] {

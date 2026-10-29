@@ -176,7 +176,7 @@ pub fn ber_rayleigh_mrc(mean_ebn0: f64, branches: usize) -> f64 {
 }
 
 /// Normalised points, probabilities, `N_0` and quadrature nodes of a theory function.
-type TheorySetup = (Vec<C64>, Vec<f64>, f64, Vec<(C64, f64)>);
+pub(crate) type TheorySetup = (Vec<C64>, Vec<f64>, f64, Vec<(C64, f64)>);
 
 /// The normalised points, the probabilities and the quadrature of a theory function.
 fn theory_setup(
@@ -186,14 +186,20 @@ fn theory_setup(
     px: Option<&[f64]>,
     points: usize,
 ) -> Result<TheorySetup> {
-    let c = Constellation::new(kind, m)?;
+    setup(&Constellation::new(kind, m)?, px, snr_db, points)
+}
+
+/// [`theory_setup`] of a constellation, its labels included (`points()[i]` carries the
+/// bits of `i`).
+pub(crate) fn setup(c: &Constellation, px: Option<&[f64]>, snr_db: f64, points: usize) -> Result<TheorySetup> {
     let p = c.priors(px)?;
     let pts = c.normalized_under(&p)?.points().to_vec();
     // OptiCommPy: a real constellation sees a real channel of variance 1/SNR, a complex
     // one a complex channel of variance 1/SNR (1/(2 SNR) per dimension)
+    let real = c.kind().is_real();
     let sigma2 = db2lin(-snr_db);
-    let n0 = if kind.is_real() { 2.0 * sigma2 } else { sigma2 };
-    Ok((pts, p, n0, com_math::gaussian_nodes(sigma2, !kind.is_real(), points)))
+    let n0 = if real { 2.0 * sigma2 } else { sigma2 };
+    Ok((pts, p, n0, com_math::gaussian_nodes(sigma2, !real, points)))
 }
 
 /// Mutual information (bits/symbol) of a constellation over AWGN, by Gauss–Hermite
@@ -220,8 +226,12 @@ fn theory_setup(
 /// assert!((hi - 4.0).abs() < 1e-6);
 /// ```
 pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, points: usize) -> Result<f64> {
-    let (x, p, n0, nodes) = theory_setup(kind, m, snr_db, px, points)?;
-    let lp = log_priors(&p);
+    Ok(mi_of(&theory_setup(kind, m, snr_db, px, points)?))
+}
+
+/// The kernel of [`mi`].
+pub(crate) fn mi_of((x, p, n0, nodes): &TheorySetup) -> f64 {
+    let (n0, lp) = (*n0, log_priors(p));
     let mut acc = 0.0;
     let mut terms = vec![0.0; x.len()];
     for (i, xi) in x.iter().enumerate() {
@@ -229,7 +239,7 @@ pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, po
             continue;
         }
         let mut e = 0.0;
-        for (w, a) in &nodes {
+        for (w, a) in nodes {
             for (j, xj) in x.iter().enumerate() {
                 terms[j] = lp[j] - ((xi - xj + w).norm_sqr() - w.norm_sqr()) / n0;
             }
@@ -237,7 +247,7 @@ pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, po
         }
         acc += p[i] * e;
     }
-    Ok(-acc / std::f64::consts::LN_2)
+    -acc / std::f64::consts::LN_2
 }
 
 /// Generalised mutual information (bits/symbol) of the bit-wise decoder of a Gray-labelled
@@ -257,35 +267,53 @@ pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, po
 /// # Errors
 /// [`Error::Config`] for an invalid constellation or probabilities.
 pub fn gmi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, points: usize) -> Result<f64> {
-    let (x, p, n0, nodes) = theory_setup(kind, m, snr_db, px, points)?;
-    let b = m.trailing_zeros() as usize;
-    let lp = log_priors(&p);
+    Ok(gmi_of(&theory_setup(kind, m, snr_db, px, points)?))
+}
+
+/// The kernel of [`gmi`].
+pub(crate) fn gmi_of(s: &TheorySetup) -> f64 {
     // GMI = H(X) - Σ_k H(B_k | Y): with shaped (dependent) bits, the sum of the
     // bit-wise mutual informations Σ_k I(B_k; Y) can exceed H(X) and is not achievable
-    let mut gmi = entropy(&p);
-    let mut all = vec![0.0; m];
-    for k in 0..b {
-        let bit = |j: usize| (j >> (b - 1 - k)) & 1;
-        let mut h_cond = 0.0;
-        for (i, xi) in x.iter().enumerate() {
-            if p[i] == 0.0 {
-                continue;
-            }
-            let bi = bit(i);
-            let mut e = 0.0;
-            for (w, a) in &nodes {
-                for (j, xj) in x.iter().enumerate() {
-                    all[j] = lp[j] - ((xi - xj + w).norm_sqr() - w.norm_sqr()) / n0;
-                }
-                let same: Vec<f64> = (0..m).filter(|&j| bit(j) == bi).map(|j| all[j]).collect();
-                // -log2 P(b_k = b_k(i) | y)
-                e += a * (log_sum_exp(&all) - log_sum_exp(&same));
-            }
-            h_cond += p[i] * e;
-        }
+    let mut gmi = entropy(&s.1);
+    // -log2 P(b_k = b_k(i) | y)
+    for h_cond in bit_expectations(s, |all, same| log_sum_exp(all) - same) {
         gmi -= h_cond / std::f64::consts::LN_2;
     }
-    Ok(gmi)
+    gmi
+}
+
+/// For every bit position `k`, $\sum_{i} p_{i} E_{w} f(\ell, \ell_{k})$ with
+/// `ℓ[j] = ln p_j - (|x_i - x_j + w|² - |w|²)/N_0` (the log-metrics of $y = x_{i} + w$,
+/// up to a common term) and $\ell_{k}$ their log-sum over the points whose bit `k`
+/// equals that of `i`; the metrics of a noise sample are computed once for all bits.
+pub(crate) fn bit_expectations((x, p, n0, nodes): &TheorySetup, f: impl Fn(&[f64], f64) -> f64) -> Vec<f64> {
+    let m = x.len();
+    let b = m.trailing_zeros() as usize;
+    let lp = log_priors(p);
+    let mut all = vec![0.0; m];
+    let mut out = vec![0.0; b];
+    let mut e = vec![0.0; b];
+    for (i, xi) in x.iter().enumerate() {
+        if p[i] == 0.0 {
+            continue;
+        }
+        e.fill(0.0);
+        for (w, a) in nodes {
+            for (j, xj) in x.iter().enumerate() {
+                all[j] = lp[j] - ((xi - xj + w).norm_sqr() - w.norm_sqr()) / n0;
+            }
+            for (k, ek) in e.iter_mut().enumerate() {
+                let shift = b - 1 - k;
+                let bi = (i >> shift) & 1;
+                let same = com_math::log_sum_exp_iter((0..m).filter(|&j| (j >> shift) & 1 == bi).map(|j| all[j]));
+                *ek += a * f(&all, same);
+            }
+        }
+        for (o, ek) in out.iter_mut().zip(&e) {
+            *o += p[i] * ek;
+        }
+    }
+    out
 }
 
 /// The probability that the phase angle between two vectors of the same SNR `es_n0`

@@ -359,7 +359,9 @@ impl PyGrid {
 ///     rx (array_like): the received grid (the demodulated active subcarriers, symbol
 ///         after symbol).
 ///     noise_var (float): noise variance per resource element.
-///     method (str): `"linear"` or `"lmmse"`.
+///     method (str): `"linear"`, `"lmmse"`, or the interpolations compared by Coleri et
+///         al. (2002): `"second_order"`, `"spline"`, `"lowpass"` (MATLAB `interp`) and
+///         `"time_domain"` (zero padding of the IDFT, pilots on 0, L, 2L, …).
 ///     delays (array_like, optional): delays of the profile (samples of the IFFT of
 ///         `fft_len`).
 ///     powers (array_like, optional): powers of the profile (linear).
@@ -393,7 +395,15 @@ fn ofdm_estimate<'py>(
             };
             FrequencyInterpolation::Lmmse(pdp)
         }
-        other => return Err(PyValueError::new_err(format!("unknown method {other:?}: linear, lmmse"))),
+        "second_order" => FrequencyInterpolation::SecondOrder,
+        "spline" => FrequencyInterpolation::Spline,
+        "lowpass" => FrequencyInterpolation::LowPass { half: 4, alpha: 0.5 },
+        "time_domain" => FrequencyInterpolation::TimeDomain,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown method {other:?}: linear, lmmse, second_order, spline, lowpass, time_domain"
+            )));
+        }
     };
     let r = cvec(rx)?;
     Ok(carr(py, py.detach(|| estimate(&grid.inner, &r, noise_var, &m)).py()?))

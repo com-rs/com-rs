@@ -5,6 +5,7 @@ use crate::{CArr, FArr, IArr, IntoPy, carr, cvec, farr, fvec, iarr, map_real, uv
 use comrs::dsp::compensation::dpd::MemoryPolynomialDpd;
 use comrs::hardware::amplifier::{MemoryPolynomial, Rapp, Saleh};
 use comrs::metrics::spectrum;
+use comrs::waveform::ofdm::correction;
 use comrs::waveform::ofdm::{NoReduction, Ofdm, PaprReduction};
 use comrs::waveform::papr::{self, Ace, Clip, ClipFilter, Companding, Partition, Pts, Slm, ToneReservation};
 use num_complex::Complex64 as C64;
@@ -721,6 +722,62 @@ impl PyDpd {
 }
 
 /// Register the OFDM bindings.
+/// Pilot-based gain correction limited to `eps` (Cimini 1985, eq. (16)): `r / (max(|p|,
+/// ε) e^{j arg p})` for every sample.
+///
+/// Args:
+///     r (array_like): the received samples.
+///     pilot (array_like): the complex envelope given by the pilot.
+///     eps_db (float): the limit, an amplitude relative to the RMS gain (dB, `20 log10`);
+///         `-inf` for unlimited correction.
+///
+/// Returns:
+///     numpy.ndarray: the corrected samples (complex128).
+#[pyfunction]
+fn gain_limited_correction<'py>(
+    py: Python<'py>,
+    r: &Bound<'py, PyAny>,
+    pilot: &Bound<'py, PyAny>,
+    eps_db: f64,
+) -> PyResult<CArr<'py>> {
+    Ok(carr(py, correction::gain_limited(&cvec(r)?, &cvec(pilot)?, 10f64.powf(eps_db / 20.0))))
+}
+
+/// The signal-to-distortion ratio (dB) of gain-limited correction against a cochannel
+/// interferer in Rayleigh fading (Cimini 1985, eq. (25); eq. (20) for an ideal pilot).
+///
+/// Args:
+///     sir_db (float | array_like): the signal-to-interference ratio (dB).
+///     eps_db (float): the gain limit relative to the RMS gain (dB, `20 log10`).
+///     rho (complex): the correlation `E[Z_d Z_p*]` of the data and pilot envelopes.
+///
+/// Returns:
+///     float | numpy.ndarray: the SDR (dB) at every SIR.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.sdr_gain_limited(25.0, -17.0), 1)
+///     17.7
+#[pyfunction]
+#[pyo3(signature = (sir_db, eps_db, rho = C64::new(1.0, 0.0)))]
+fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResult<Py<PyAny>> {
+    let eps = 10f64.powf(eps_db / 20.0);
+    map_real(sir_db, |s| Ok(10.0 * correction::sdr_gain_limited(10f64.powf(s / 10.0), eps, rho).log10()))
+}
+
+/// The signal-to-distortion ratio (dB) of the optimum gain correction against a
+/// cochannel interferer in Rayleigh fading (Cimini 1985, eq. (21)).
+///
+/// Args:
+///     sir_db (float | array_like): the signal-to-interference ratio (dB).
+///
+/// Returns:
+///     float | numpy.ndarray: the SDR (dB) at every SIR.
+#[pyfunction]
+fn sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    map_real(sir_db, |s| Ok(10.0 * correction::sdr_optimum(10f64.powf(s / 10.0)).log10()))
+}
+
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOfdm>()?;
     m.add_class::<PyPaprReduction>()?;
@@ -736,5 +793,8 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rapp_predistort, m)?)?;
     m.add_function(wrap_pyfunction!(pa_saleh, m)?)?;
     m.add_function(wrap_pyfunction!(pa_memory_polynomial, m)?)?;
+    m.add_function(wrap_pyfunction!(gain_limited_correction, m)?)?;
+    m.add_function(wrap_pyfunction!(sdr_gain_limited, m)?)?;
+    m.add_function(wrap_pyfunction!(sdr_optimum_correction, m)?)?;
     Ok(())
 }

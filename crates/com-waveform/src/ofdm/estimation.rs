@@ -6,6 +6,12 @@
 //! the first and last pilot symbols).
 //!
 //! - [`FrequencyInterpolation::Linear`]: linear between pilot subcarriers;
+//! - [`FrequencyInterpolation::SecondOrder`], [`FrequencyInterpolation::Spline`],
+//!   [`FrequencyInterpolation::LowPass`] and [`FrequencyInterpolation::TimeDomain`]: the
+//!   interpolations compared by Coleri et al. (2002), the quadratic through three
+//!   pilots, the not-a-knot cubic spline, the band-limited interpolator of MATLAB
+//!   `interp` and the zero padding of the IDFT of the pilot estimates (a comb of
+//!   pilots on subcarriers $0, L, \dots$ of a grid of a multiple of $L$ subcarriers);
 //! - [`FrequencyInterpolation::Lmmse`]: the linear MMSE estimator of
 //!   `com_dsp::estimation` with the frequency correlation of a power-delay profile,
 //!   $R(\Delta k) = \sum_{l} p_{l}\, e^{-j 2\pi \Delta k\, d_{l} / N}$ — the true profile, or the
@@ -41,7 +47,10 @@
 
 use super::grid::ResourceGrid;
 use com_core::{Error, Result, ensure_shape};
-use com_dsp::estimation::{linear_interpolation, lmmse};
+use com_dsp::estimation::{
+    linear_interpolation, lmmse, lowpass_interpolation, quadratic_interpolation, spline_interpolation,
+};
+use com_dsp::resample::resample_fft;
 use com_math::{C64, cis};
 use ndarray::Array2;
 
@@ -88,6 +97,22 @@ pub enum FrequencyInterpolation {
     Linear,
     /// Linear MMSE with the frequency correlation of a power-delay profile.
     Lmmse(PowerDelayProfile),
+    /// The parabola through the three nearest pilots (Coleri et al. 2002, eq. (19)).
+    SecondOrder,
+    /// The cubic spline through the pilots, not-a-knot ends (MATLAB `spline`).
+    Spline,
+    /// The band-limited interpolator of MATLAB `interp` over `2 * half` pilots, for a
+    /// spectrum over the fraction `alpha` of the band of the pilots (`interp`: 4, 0.5).
+    LowPass {
+        /// Half the number of pilots combined.
+        half: usize,
+        /// The fraction of the band of the pilots the channel occupies.
+        alpha: f64,
+    },
+    /// Zero padding of the IDFT of the pilot estimates ("time-domain" interpolation,
+    /// Coleri et al. 2002, eqs. (20)–(22)): pilots on the subcarriers $0, L, \dots$ of a
+    /// grid of $N_{p} L$ subcarriers.
+    TimeDomain,
 }
 
 /// The channel at every RE of the grid (symbol after symbol) from the received grid
@@ -131,6 +156,18 @@ pub fn estimate_port(
         let hp: Vec<C64> = ks.iter().zip(&pilots).map(|(&k, p)| rx[l * k_n + k] / p).collect();
         let full = match method {
             FrequencyInterpolation::Linear => linear_interpolation(&ks, &hp, k_n),
+            FrequencyInterpolation::SecondOrder => quadratic_interpolation(&ks, &hp, k_n),
+            FrequencyInterpolation::Spline => spline_interpolation(&ks, &hp, k_n),
+            FrequencyInterpolation::LowPass { half, alpha } => lowpass_interpolation(&ks, &hp, k_n, *half, *alpha)?,
+            FrequencyInterpolation::TimeDomain => {
+                let spacing = k_n / ks.len();
+                if ks.iter().enumerate().any(|(i, &k)| k != i * spacing) || spacing * ks.len() != k_n {
+                    return Err(Error::Config(format!(
+                        "time-domain interpolation needs pilots on 0, L, 2L, … of the {k_n} subcarriers"
+                    )));
+                }
+                resample_fft(&hp, k_n)
+            }
             FrequencyInterpolation::Lmmse(pdp) => {
                 let r_pp =
                     Array2::from_shape_fn((ks.len(), ks.len()), |(i, j)| pdp.correlation(ks[i] as f64 - ks[j] as f64));

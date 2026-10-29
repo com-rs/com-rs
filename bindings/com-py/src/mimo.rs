@@ -700,6 +700,61 @@ fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_fillin
     }
 }
 
+/// The ergodic capacity (bits per channel use) of the i.i.d. Rayleigh MIMO channel with
+/// equal power on the transmit antennas, in closed form (Telatar 1999, Theorem 2): the
+/// mean of `mimo_capacity` over the realisations.
+///
+/// Args:
+///     n_rx (int): receive antennas.
+///     n_tx (int): transmit antennas.
+///     snr_db (float | array_like): total transmit power over the noise variance per
+///         receive antenna (dB).
+///
+/// Returns:
+///     float | numpy.ndarray: the capacity at every SNR.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.ergodic_capacity(1, 1, 10.0), 4)   # log2(e) e^0.1 E1(0.1)
+///     2.9065
+#[pyfunction]
+fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    crate::map_real(snr_db, |s| capacity::ergodic_rayleigh(n_rx, n_tx, 10f64.powf(s / 10.0)).py())
+}
+
+/// The probability that a Rayleigh channel drawn once cannot carry `rate` bits per
+/// channel use with equal power, one antenna on one side (Telatar 1999, eq. (16) and
+/// Example 7).
+///
+/// Args:
+///     n_rx (int): receive antennas.
+///     n_tx (int): transmit antennas (`n_rx` or `n_tx` is 1).
+///     snr_db (float): the SNR (dB).
+///     rate (float | array_like): the rate (bits per channel use).
+///
+/// Returns:
+///     float | numpy.ndarray: the outage probability at every rate.
+#[pyfunction]
+fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    crate::map_real(rate, |r| capacity::outage_rayleigh(n_rx, n_tx, 10f64.powf(snr_db / 10.0), r).py())
+}
+
+/// The ε-capacity (bits per channel use): the rate of outage probability `eps` over a
+/// Rayleigh channel drawn once, one antenna on one side (Telatar 1999, eqs. (17), (18)).
+///
+/// Args:
+///     n_rx (int): receive antennas.
+///     n_tx (int): transmit antennas (`n_rx` or `n_tx` is 1).
+///     snr_db (float | array_like): the SNR (dB).
+///     eps (float): the outage probability, in (0, 1).
+///
+/// Returns:
+///     float | numpy.ndarray: the rate at every SNR.
+#[pyfunction]
+fn outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64) -> PyResult<Py<PyAny>> {
+    crate::map_real(snr_db, |s| capacity::outage_capacity_rayleigh(n_rx, n_tx, 10f64.powf(s / 10.0), eps).py())
+}
+
 /// Eigenmode (SVD) transmission over `h`: precoder `V P^(1/2)`, receive filter `Uᴴ`,
 /// gains and powers of the active modes (water-filling of `total_power` against
 /// `noise_var`, or equal power).
@@ -779,6 +834,9 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(oamp_state_evolution, m)?)?;
     m.add_function(wrap_pyfunction!(water_filling, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(ergodic_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(outage_probability, m)?)?;
+    m.add_function(wrap_pyfunction!(outage_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(eigenmode, m)?)?;
     m.add_function(wrap_pyfunction!(zf_precoder, m)?)?;
     Ok(())

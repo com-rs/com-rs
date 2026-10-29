@@ -28,9 +28,10 @@
 //! - decibels: [`db2lin`], [`lin2db`] (power ratios), [`dbm2w`], [`w2dbm`], [`db2np`],
 //!   [`np2db`] (attenuation per unit length);
 //! - [`sinc`], `sin(πx)/(πx)`, and [`effective_length`], `(1 - e^{-αL})/α`;
-//! - special functions: [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
+//! - special functions: [`erf`], [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
 //!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$), [`bessel_j0`],
-//!   [`bessel_i0e`];
+//!   [`bessel_i0e`], [`ln_gamma`], [`gamma_p`] (the regularized incomplete gamma
+//!   function), [`expint_e1`] (the exponential integral);
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
 //! - quadrature: [`gauss_hermite`], the nodes and weights of `∫ f(t) e^{-t²} dt`;
@@ -311,6 +312,181 @@ pub fn bessel_i0e(x: f64) -> f64 {
     }
 }
 
+/// The error function $\operatorname{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x}
+/// e^{-t^{2}}\, dt$: its Maclaurin series $\frac{2}{\sqrt{\pi}} \sum_{k} \frac{(-1)^{k}
+/// x^{2k+1}}{k!\,(2k+1)}$ for $|x| < 2$ (relative error about $10^{-15}$, small
+/// arguments included), $1 - \operatorname{erfc}(x)$ beyond (absolute error below
+/// $10^{-9}$). Odd.
+///
+/// # Examples
+/// ```
+/// use com_math::erf;
+/// assert!((erf(1e-4) / 1.128_379_163_334_248_7e-4 - 1.0).abs() < 1e-14);
+/// assert!((erf(0.9) - 0.796_908_212_422_831_9).abs() < 1e-15);
+/// ```
+pub fn erf(x: f64) -> f64 {
+    if x.abs() >= 2.0 {
+        return (1.0 - erfc(x.abs())).copysign(x);
+    }
+    let x2 = x * x;
+    let (mut term, mut sum) = (x, x);
+    for k in 1..60 {
+        term *= -x2 / k as f64;
+        let t = term / (2 * k + 1) as f64;
+        sum += t;
+        if t.abs() < 1e-17 * sum.abs() {
+            break;
+        }
+    }
+    sum * std::f64::consts::FRAC_2_SQRT_PI
+}
+
+/// The logarithm of the gamma function, $\ln \Gamma(x)$ for $x > 0$, by the Lanczos
+/// approximation ($g = 7$, nine coefficients; relative error about $10^{-15}$) and the
+/// reflection formula $\Gamma(x)\Gamma(1-x) = \pi / \sin(\pi x)$ below $1/2$.
+///
+/// # Examples
+/// ```
+/// use com_math::ln_gamma;
+/// // Γ(10) = 9! = 362 880, Γ(1/2) = √π
+/// assert!((ln_gamma(10.0) - 362_880f64.ln()).abs() < 1e-13);
+/// assert!((ln_gamma(0.5) - std::f64::consts::PI.sqrt().ln()).abs() < 1e-14);
+/// ```
+#[allow(clippy::unreadable_literal, reason = "the Lanczos coefficients, digit for digit")]
+pub fn ln_gamma(x: f64) -> f64 {
+    const G: f64 = 7.0;
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.984_369_578_019_572e-6,
+        1.5056327351493116e-7,
+    ];
+    if x < 0.5 {
+        let pi = std::f64::consts::PI;
+        return (pi / (pi * x).sin()).ln() - ln_gamma(1.0 - x);
+    }
+    let x = x - 1.0;
+    let t = x + G + 0.5;
+    let a = C[0] + C.iter().enumerate().skip(1).map(|(i, c)| c / (x + i as f64)).sum::<f64>();
+    0.5 * std::f64::consts::TAU.ln() + (x + 0.5) * t.ln() - t + a.ln()
+}
+
+/// The regularized lower incomplete gamma function
+/// $P(a, x) = \frac{1}{\Gamma(a)} \int_{0}^{x} u^{a-1} e^{-u}\, du$, $a > 0$, $x \ge 0$:
+/// the distribution function of a gamma variable of shape $a$ and unit scale (a
+/// $\chi^{2}$ variable with $2a$ degrees of freedom, halved). The series
+/// $e^{-x} x^{a} \sum_{k} x^{k} / \Gamma(a + k + 1)$ for $x < a + 1$, and $1 - Q(a, x)$
+/// with the continued fraction of $Q$ (modified Lentz) beyond (Press et al., *Numerical
+/// Recipes*, §6.2); relative error about $10^{-14}$ on the side computed directly.
+///
+/// # Examples
+/// ```
+/// use com_math::gamma_p;
+/// // P(1, x) = 1 - e^{-x}
+/// assert!((gamma_p(1.0, 0.5) - (1.0 - (-0.5f64).exp())).abs() < 1e-15);
+/// assert!((gamma_p(20.0, 5.0) / 3.452_135_820_914_455e-7 - 1.0).abs() < 1e-12);
+/// ```
+pub fn gamma_p(a: f64, x: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    let ln_front = a * x.ln() - x - ln_gamma(a);
+    if x < a + 1.0 {
+        let (mut ap, mut term) = (a, 1.0 / a);
+        let mut sum = term;
+        for _ in 0..10_000 {
+            ap += 1.0;
+            term *= x / ap;
+            sum += term;
+            if term < sum * 1e-17 {
+                break;
+            }
+        }
+        sum * ln_front.exp()
+    } else {
+        // Q(a, x) = e^{-x} x^a / Γ(a) · 1/(x+1-a- 1·(1-a)/(x+3-a- 2(2-a)/(x+5-a- …)))
+        let tiny = 1e-300;
+        let mut b = x + 1.0 - a;
+        let mut c = 1.0 / tiny;
+        let mut d = 1.0 / b;
+        let mut h = d;
+        for i in 1..10_000 {
+            let an = -(i as f64) * (i as f64 - a);
+            b += 2.0;
+            d = an * d + b;
+            if d.abs() < tiny {
+                d = tiny;
+            }
+            c = b + an / c;
+            if c.abs() < tiny {
+                c = tiny;
+            }
+            d = 1.0 / d;
+            let delta = d * c;
+            h *= delta;
+            if (delta - 1.0).abs() < 1e-16 {
+                break;
+            }
+        }
+        1.0 - ln_front.exp() * h
+    }
+}
+
+/// The exponential integral $E_{1}(x) = \int_{x}^{\infty} \frac{e^{-t}}{t}\, dt$,
+/// $x > 0$: the series $-\gamma - \ln x - \sum_{k \ge 1} \frac{(-x)^{k}}{k\, k!}$ for
+/// $x \le 1$, the continued fraction $\cfrac{e^{-x}}{x + 1 - \cfrac{1}{x + 3 -
+/// \cfrac{4}{x + 5 - \dotsb}}}$ beyond (Press et al., *Numerical Recipes*, §6.3);
+/// relative error about $10^{-15}$. $e^{1/\rho} E_{1}(1/\rho)$ is the ergodic capacity
+/// (nats) of the Rayleigh channel at the mean SNR $\rho$.
+///
+/// # Examples
+/// ```
+/// use com_math::expint_e1;
+/// assert!((expint_e1(1.0) - 0.219_383_934_395_520_5).abs() < 1e-15);
+/// assert!((expint_e1(10.0) / 4.156_968_929_685_325e-6 - 1.0).abs() < 1e-14);
+/// ```
+pub fn expint_e1(x: f64) -> f64 {
+    if x <= 0.0 {
+        return f64::INFINITY;
+    }
+    if x <= 1.0 {
+        const EULER: f64 = 0.577_215_664_901_532_9;
+        let (mut term, mut sum) = (1.0, 0.0);
+        for k in 1..60 {
+            term *= -x / k as f64;
+            let t = term / k as f64;
+            sum += t;
+            if t.abs() < 1e-17 * sum.abs() {
+                break;
+            }
+        }
+        -EULER - x.ln() - sum
+    } else {
+        let tiny = 1e-300;
+        let mut b = x + 1.0;
+        let mut c = 1.0 / tiny;
+        let mut d = 1.0 / b;
+        let mut h = d;
+        for i in 1..10_000 {
+            let an = -((i * i) as f64);
+            b += 2.0;
+            d = 1.0 / (an * d + b);
+            c = b + an / c;
+            let delta = c * d;
+            h *= delta;
+            if (delta - 1.0).abs() < 1e-16 {
+                break;
+            }
+        }
+        h * (-x).exp()
+    }
+}
+
 /// Peak-to-average power ratio `max|x|² / mean|x|²` in dB (`-inf` for an empty or
 /// zero block).
 ///
@@ -482,6 +658,41 @@ pub fn log_sum_exp_iter<I: Iterator<Item = f64> + Clone>(v: I) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]
+    fn gamma_e1_and_erf_against_scipy() {
+        // scipy.special.gammaln, gammainc, exp1, erf (SciPy 1.18)
+        for (x, v) in
+            [(0.5, 0.5723649429247), (3.7, 1.428072326665388), (10.0, 12.801827480081469), (100.5, 361.43554046777757)]
+        {
+            assert!((ln_gamma(x) - v).abs() < 1e-13 * v.abs().max(1.0), "lgamma {x}");
+        }
+        assert!(ln_gamma(1.0).abs() < 1e-15 && ln_gamma(2.0).abs() < 1e-15);
+        for (a, x, v) in [
+            (2.5, 1.0, 0.15085496391539038),
+            (10.0, 6.2, 0.09837933549011063),
+            (10.0, 20.0, 0.9950045876916924),
+            (20.0, 5.0, 3.452135820914455e-7),
+            (0.5, 30.0, 0.9999999999999906),
+        ] {
+            assert!((gamma_p(a, x) / v - 1.0).abs() < 1e-12, "P({a}, {x}) = {} vs {v}", gamma_p(a, x));
+        }
+        for (x, v) in [
+            (1e-3, 6.331539364136149),
+            (0.3, 0.9056766516758468),
+            (2.5, 0.024914917870269736),
+            (50.0, 3.783264029550459e-24),
+        ] {
+            assert!((expint_e1(x) / v - 1.0).abs() < 1e-13, "E1({x})");
+        }
+        for (x, v) in
+            [(0.1, 0.1124629160182849), (1.9, 0.9927904292352575), (2.1, 0.997020533343667), (3.5, 0.9999992569016276)]
+        {
+            assert!((erf(x) - v).abs() < 1e-9, "erf({x})");
+            assert_eq!(erf(-x), -erf(x));
+        }
+    }
 
     #[test]
     fn bessel_i0e_matches_scipy() {

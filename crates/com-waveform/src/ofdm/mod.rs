@@ -25,8 +25,9 @@
 //!
 //! The submodules build the rest of an OFDM link: [`grid`] (data and pilot resource
 //! elements), [`estimation`] (LS and LMMSE channel estimation on the grid), [`sync`]
-//! (Schmidl & Cox timing and frequency synchronisation) and [`detection`] (MIMO-OFDM,
-//! per-subcarrier detection).
+//! (Schmidl & Cox timing and frequency synchronisation), [`detection`] (MIMO-OFDM,
+//! per-subcarrier detection) and [`correction`] (pilot-based gain correction against a
+//! cochannel interferer, Cimini 1985).
 //!
 //! # Examples
 //! ```
@@ -48,6 +49,7 @@
 //! 2. H. G. Myung, J. Lim and D. J. Goodman, "Single carrier FDMA for uplink wireless
 //!    transmission," *IEEE Veh. Technol. Mag.*, 1(3), 30–38, 2006.
 
+pub mod correction;
 pub mod detection;
 pub mod estimation;
 pub mod grid;

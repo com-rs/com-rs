@@ -23,6 +23,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - Constellations, mapping, demapping and closed-form error rates
      - A
      - OptiCommPy outputs; closed forms of Proakis & Salehi
+   * - Capacity and cutoff rate of CM and BICM
+     - A
+     - Caire, Taricco & Biglieri 1998 Figs. 4–7
    * - Sources (bits, PRBS, uniform and shaped symbols)
      - C
      - periods and distributions
@@ -68,9 +71,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - DVB-S2
      - A
      - EN 302 307-1 Table 13 and the tables of the standard
-   * - OFDM and channel estimation
-     - B
-     - flat Rayleigh fading per subcarrier
+   * - OFDM, channel estimation and gain correction
+     - A
+     - Cimini 1985 Figs. 3–7; Coleri et al. 2002 Sec. VI-B (with an oversampled comb)
    * - Error rates with an imperfect channel estimate and over Jakes' fading
      - A
      - Chang & Su 2002 eqs. 31–53, Figs. 3–4
@@ -111,8 +114,8 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
      - B
      - Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999
    * - Capacity and precoding
-     - B
-     - the ergodic capacity of Rayleigh fading
+     - A
+     - Telatar 1999 Theorem 2, eqs. (13), (16)–(18), Figs. 1–4
    * - AWGN
      - B
      - closed forms of the error rates

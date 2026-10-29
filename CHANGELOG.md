@@ -128,6 +128,29 @@ PyPI and the command line `comrs`.
   SER and FER under interference (Afisiadis et al. 2020). Reproduces Table I of Chiani
   & Elzanaty, Figs. 2 and 7 of Afisiadis et al. and Fig. 1 of Vangelista; a sign
   misprint in eq. (58) of Afisiadis et al. Adds `com_math::bessel_i0e`.
+- Ergodic and outage capacity of Rayleigh MIMO channels in closed form
+  (`com_mimo::capacity::{ergodic_rayleigh, ergodic_rayleigh_limit, outage_rayleigh,
+  outage_capacity_rayleigh, wishart_eigenvalue_density}`, Python `ergodic_capacity`,
+  `outage_probability`, `outage_capacity`), after Telatar (1999): Theorem 2, eqs. (13)
+  and (16)–(18), Figs. 1–4. Adds `com_math::{erf, ln_gamma, gamma_p, expint_e1}`.
+- Capacity and cutoff rate of CM and BICM over AWGN and Rayleigh fading
+  (`com_mapping::bicm`, Python `cm_capacity`, `bicm_capacity`, `cm_cutoff_rate`,
+  `bicm_cutoff_rate`) and set-partitioning labels (`Constellation::set_partitioning`),
+  after Caire, Taricco & Biglieri (1998): Figs. 4–7; the "more than 3 dB" of Sec. III-C
+  is 2.55 dB. The kernels of `theory::mi` and `theory::gmi` are shared with it.
+- Pilot-based gain correction of OFDM against a cochannel interferer
+  (`com_waveform::ofdm::correction`, Python `gain_limited_correction`,
+  `sdr_gain_limited`, `sdr_optimum_correction`), after Cimini (1985): eqs. (20), (21),
+  (25), Figs. 3–7 by simulation of his system; eq. (19) lacks a $-1$, the coherence
+  bandwidth of eq. (23) is $1/(4\Delta)$, and the "6–7 dB" of the text is 4.5 dB on
+  Fig. 5.
+- The comb interpolations of Coleri et al. (2002): second order (eq. (19), with
+  $\alpha = l/L$), not-a-knot cubic spline, the band-limited interpolator of MATLAB
+  `interp` and the time-domain interpolation (`com_dsp::estimation::{
+  quadratic_interpolation, spline_interpolation, lowpass_interpolation}`,
+  `FrequencyInterpolation::{SecondOrder, Spline, LowPass, TimeDomain}`, Python
+  `ofdm_estimate(method=...)`); their ranking of Sec. VI-B holds only when the comb
+  oversamples the channel.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.

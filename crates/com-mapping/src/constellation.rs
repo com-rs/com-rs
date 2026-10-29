@@ -258,6 +258,54 @@ impl Constellation {
         Ok(Constellation::assemble(ConstellationKind::Custom, points, m.trailing_zeros() as usize))
     }
 
+    /// The same points as [`Constellation::new`] with a set-partitioning labelling
+    /// (Ungerboeck 1982): fixing the last bits of the label leaves subsets whose minimum
+    /// distance grows. PSK gets the natural labelling, the point $e^{j2\pi k/M}$ carrying
+    /// the bits of $k$; 16-QAM the labelling of Caire, Taricco & Biglieri (*IEEE Trans.
+    /// Inf. Theory* 44(3), 1998, Fig. 2(a)). The family of the result is
+    /// [`ConstellationKind::Custom`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another family or order.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_mapping::constellation::{Constellation, ConstellationKind};
+    /// use com_math::C64;
+    /// let c = Constellation::set_partitioning(ConstellationKind::Qam, 16)?;
+    /// assert_eq!(c.points()[0b1001], C64::new(-3.0, 3.0));
+    /// // the points ending in 00 form a 4-QAM of side 4
+    /// let sub: Vec<C64> = (0..16).filter(|i| i & 3 == 0).map(|i| c.points()[i]).collect();
+    /// assert!(sub.iter().all(|a| sub.iter().all(|b| a == b || (a - b).norm() >= 4.0)));
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn set_partitioning(kind: ConstellationKind, m: usize) -> Result<Constellation> {
+        let points = match (kind, m) {
+            (ConstellationKind::Psk, _) => {
+                ensure(m >= 2 && m.is_power_of_two(), || format!("the order must be a power of two ≥ 2, got {m}"))?;
+                (0..m).map(|k| cis(2.0 * std::f64::consts::PI * k as f64 / m as f64)).collect()
+            }
+            (ConstellationKind::Qam, 16) => {
+                // Caire et al. 1998, Fig. 2(a), row by row from the top, left to right
+                let rows: [[usize; 4]; 4] = [
+                    [0b1001, 0b1100, 0b1101, 0b1000],
+                    [0b1110, 0b1011, 0b1010, 0b1111],
+                    [0b0101, 0b0000, 0b0001, 0b0100],
+                    [0b0010, 0b0111, 0b0110, 0b0011],
+                ];
+                let mut pts = vec![C64::new(0.0, 0.0); 16];
+                for (r, row) in rows.iter().enumerate() {
+                    for (c, &label) in row.iter().enumerate() {
+                        pts[label] = C64::new(2.0 * c as f64 - 3.0, 3.0 - 2.0 * r as f64);
+                    }
+                }
+                pts
+            }
+            _ => return Err(Error::Config(format!("no set-partitioning labelling for {}-{}", m, kind.name()))),
+        };
+        Constellation::from_points(points)
+    }
+
     /// The family.
     pub fn kind(&self) -> ConstellationKind {
         self.kind
@@ -280,7 +328,7 @@ impl Constellation {
 
     /// Average energy `Σ |x_i|² / M` (uniform probabilities).
     pub fn energy(&self) -> f64 {
-        self.points.iter().map(C64::norm_sqr).sum::<f64>() / self.order() as f64
+        com_math::power(&self.points)
     }
 
     /// Average energy `Σ p_i |x_i|²` under the probabilities `px`.
