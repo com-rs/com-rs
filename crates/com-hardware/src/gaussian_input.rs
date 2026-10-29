@@ -74,6 +74,51 @@ const SERIES_PANELS: usize = 40_000;
 /// [`output_series`] from the values of $f$ on [`series_grid`] (values beyond the grid
 /// are ignored, missing ones count as zero).
 pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
+    let h = SERIES_MAX / SERIES_PANELS as f64;
+    laguerre_projections(values, n_terms)
+        .iter()
+        .enumerate()
+        .map(|(n, a)| (a * (h / 3.0)).norm_sqr() / (n as f64 + 1.0))
+        .collect()
+}
+
+/// Bussgang's decomposition $y = K x + d$ of the envelope nonlinearity `f` (AM/AM and
+/// AM/PM, $y = f(|x|) e^{j \arg x}$) driven by a circular complex Gaussian input of
+/// power `power`: the complex gain $K = \mathbb{E}[y x^{*}] / \mathbb{E}|x|^{2}$ and the
+/// power of the distortion $\sigma_{d}^{2} = \mathbb{E}|y|^{2} - |K|^{2}\, \mathbb{E}|x|^{2}$,
+/// uncorrelated with the input, as `(K, σ_d²)`. $K$ is the projection of [`output_series`]
+/// on $L_{0}^{(1)}$ (the term $c_{0} = |K|^{2}$ at unit power), equivalently
+/// $K = \frac{1}{2}\mathbb{E}\left[f'(\rho) + f(\rho)/\rho\right]$ (Banelli & Cacopardi
+/// 2000; Bouhadda et al. 2014, eqs. (20)–(21)); the same quadrature, to about
+/// $10^{-8}$ (a kink of $f$, as that of a limiter, limits Simpson's rule).
+///
+/// # Examples
+/// ```
+/// use com_hardware::gaussian_input::bussgang;
+/// use com_math::C64;
+/// // a soft limiter at 3 dB of input back-off: K = 1 - e^{-γ} + ½ √(πγ) erfc √γ
+/// let (k, d) = bussgang(|r| C64::new(r.min(1.0), 0.0), 0.5);
+/// let g = 2.0f64;
+/// let want = 1.0 - (-g).exp() + 0.5 * (std::f64::consts::PI * g).sqrt() * com_math::erfc(g.sqrt());
+/// assert!((k.re - want).abs() < 1e-6 && k.im.abs() < 1e-15); // erfc: 1.2e-7
+/// // σ_d² = P (1 - e^{-γ} - K²)
+/// assert!((d - 0.5 * (1.0 - (-g).exp() - want * want)).abs() < 1e-6);
+/// ```
+pub fn bussgang(f: impl Fn(f64) -> C64, power: f64) -> (C64, f64) {
+    let scale = power.sqrt();
+    // the nonlinearity seen by an input of unit power
+    let g = |u: f64| f(u * scale) / scale;
+    let values: Vec<C64> = series_grid().into_iter().map(g).collect();
+    let h = SERIES_MAX / SERIES_PANELS as f64;
+    let gain = laguerre_projections(&values, 1)[0] * (h / 3.0);
+    let out = com_math::simpson(|u| g(u).norm_sqr() * 2.0 * u * (-u * u).exp(), 0.0, SERIES_MAX, SERIES_PANELS);
+    (gain, power * (out - gain.norm_sqr()))
+}
+
+/// The projections $\int_{0}^{\infty} f(r)\, 2r^{2} e^{-r^{2}} L_{n}^{(1)}(r^{2})\, dr$,
+/// $n = 0, \dots, N - 1$, of the samples of $f$ on [`series_grid`], before the factor $h/3$
+/// of Simpson's rule.
+fn laguerre_projections(values: &[C64], n_terms: usize) -> Vec<C64> {
     let (panels, h) = (SERIES_PANELS, SERIES_MAX / SERIES_PANELS as f64);
     let mut acc = vec![C64::new(0.0, 0.0); n_terms];
     let mut lag = vec![0.0; n_terms];
@@ -103,7 +148,7 @@ pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
             *a += common * *l;
         }
     }
-    acc.iter().enumerate().map(|(n, a)| (a * (h / 3.0)).norm_sqr() / (n as f64 + 1.0)).collect()
+    acc
 }
 
 /// The power on each of `bins` frequency bins (a circular grid) of the useful term and
@@ -139,5 +184,49 @@ mod tests {
         assert!((c[0] - 4.0).abs() < 1e-9 && c[1..].iter().all(|v| v.abs() < 1e-9), "{c:?}");
         let (u, d) = distortion_spectrum(&[1.0, 0.0], 8, 32);
         assert!((u.iter().sum::<f64>() - 1.0).abs() < 1e-12 && d.iter().all(|v| v.abs() < 1e-15));
+    }
+}
+
+#[cfg(test)]
+mod literature {
+    use super::*;
+    use crate::amplifier::{Rapp, Saleh};
+
+    /// H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi and R. Bouallegue,
+    /// "Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and
+    /// OFDM signals," EURASIP J. Adv. Signal Process. 2014:60, Tables 2 and 3: Bussgang's
+    /// gain and the distortion power of the SSPA (Rapp, $v = 1$) and of the TWTA (Saleh
+    /// with $A_{\mathrm{sat}} = 1$, $\phi_{0} = 0$ and $\pi/6$) at input back-offs of 4, 6
+    /// and 8 dB from the saturation, against their "simulation" columns (10⁶ symbols):
+    /// the gains within 2·10⁻³, the distortion powers within 1.5 %. Their "theoretical"
+    /// columns, from a polynomial fit of order 10 (eqs. (33)–(34)), are further from the
+    /// exact values (0.5904 + 0.1068j against 0.5917 + 0.1106j at 4 dB).
+    #[test]
+    fn bouhadda_2014_tables_2_3() {
+        let sspa = Rapp { gain: 1.0, saturation: 1.0, smoothness: 1.0 };
+        let twta = |phi0: f64| Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
+        let rows: [(&str, f64, f64, C64, f64); 9] = [
+            ("SSPA", 4.0, 0.0, C64::new(0.7699, 0.0), 4.4759e-3),
+            ("SSPA", 6.0, 0.0, C64::new(0.8307, 0.0), 1.8950e-3),
+            ("SSPA", 8.0, 0.0, C64::new(0.8798, 0.0), 7.0742e-4),
+            ("TWTA", 4.0, 0.0, C64::new(0.6042, 0.0), 1.0330e-2),
+            ("TWTA", 6.0, 0.0, C64::new(0.6976, 0.0), 4.9589e-3),
+            ("TWTA", 8.0, 0.0, C64::new(0.7784, 0.0), 2.1228e-3),
+            ("TWTA", 4.0, std::f64::consts::FRAC_PI_6, C64::new(0.5917, 0.1106), 1.1339e-2),
+            ("TWTA", 6.0, std::f64::consts::FRAC_PI_6, C64::new(0.6887, 0.0995), 5.5901e-3),
+            ("TWTA", 8.0, std::f64::consts::FRAC_PI_6, C64::new(0.7727, 0.0830), 2.4194e-3),
+        ];
+        for (model, ibo, phi0, k_table, d_table) in rows {
+            // IBO = A_sat² / σ² with A_sat = 1 (eq. (14))
+            let power = 10f64.powf(-ibo / 10.0);
+            let (k, d) = if model == "SSPA" {
+                bussgang(|r| C64::new(sspa.am_am(r), 0.0), power)
+            } else {
+                let t = twta(phi0);
+                bussgang(|r| C64::from_polar(t.am_am(r), t.am_pm(r)), power)
+            };
+            assert!((k - k_table).norm() < 2e-3, "{model} {ibo} dB: K = {k}");
+            assert!((d / d_table - 1.0).abs() < 0.015, "{model} {ibo} dB: σ_d² = {d}");
+        }
     }
 }

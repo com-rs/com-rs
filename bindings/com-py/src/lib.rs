@@ -39,6 +39,7 @@ mod fiber;
 mod gn;
 mod link_theory;
 mod mimo;
+mod multicarrier;
 mod nr;
 mod ofdm;
 mod ofdm_link;
@@ -265,6 +266,7 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     devices::register(m)?;
     mimo::register(m)?;
     ofdm::register(m)?;
+    multicarrier::register(m)?;
     ofdm_link::register(m)?;
     cdl::register(m)?;
     differential::register(m)?;

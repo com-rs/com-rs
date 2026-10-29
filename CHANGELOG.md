@@ -151,6 +151,17 @@ PyPI and the command line `comrs`.
   `FrequencyInterpolation::{SecondOrder, Spline, LowPass, TimeDomain}`, Python
   `ofdm_estimate(method=...)`); their ranking of Sec. VI-B holds only when the comb
   oversamples the channel.
+- Filtered multicarrier: FBMC/OQAM with the PHYDYAS prototype, polyphase modulator and
+  demodulator, OQAM staggering and the intrinsic interference (`com_waveform::fbmc`,
+  Python `Fbmc`, `oqam_stagger`, `oqam_destagger`), and UFMC with Dolph–Chebyshev
+  sub-band filters (`com_waveform::ufmc`, `com_dsp::window::chebyshev`, Python `Ufmc`,
+  `chebyshev_window`), after Farhang-Boroujeny (2011) and Schaich & Wild (2014).
+  Bussgang's complex gain and distortion power of any memoryless amplifier
+  (`com_hardware::gaussian_input::bussgang`, Python `amplifier_bussgang`). Reproduces
+  Tables 1–3 and Figs. 7, 10, 11 of Bouhadda et al. (2014) (the curves of their Fig. 7
+  are at an input back-off of 8 dB, not 4 dB) and Figs. 2 and 4 of Nissel & Rupp
+  (2017) for OFDM and CP-OFDM; their eqs. (16)–(17) are the Rayleigh closed forms
+  already in `com_mapping`.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.

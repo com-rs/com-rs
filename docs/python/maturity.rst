@@ -83,6 +83,12 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - 5G NR numerology, SSB, cell search and PDSCH DMRS
      - A
      - py3gpp outputs; Lin et al. 2019
+   * - FBMC/OQAM
+     - A
+     - Bouhadda et al. 2014 Table 1, Figs. 7, 10, 11; Nissel & Rupp 2017 eq. (17)
+   * - UFMC
+     - C
+     - orthogonality of the sub-bands; sidelobes against OFDM
    * - OFDM synchronisation (Schmidl–Cox)
      - C
      - the error falls with the SNR
