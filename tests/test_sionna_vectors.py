@@ -10,7 +10,13 @@ pinned commit in ``tests/oracle/sionna_vectors.npz`` (provenance in the ``.json`
   noisy observations;
 - the turbo code of LTE (TS 36.212), K = 40, 112, 168 and 432, terminated: the
   codewords, and the decisions of 10 iterations of log-MAP at Eb/N0 = 0 dB, errors
-  included.
+  included;
+- the polar code of the 5G uplink control information (TS 38.212, CRC11, rate matching
+  by puncturing, shortening and repetition, the triangular interleaver): the codewords
+  of five (A, E);
+- the LDPC code of 5G NR with its rate matching (TS 38.212): the codewords of two
+  messages through the generator matrices of 28 (K', E), from 64 to 8448 bits, both
+  base graphs.
 
 Conventions: Sionna writes the turbo codeword symbol by symbol (systematic, parity 1,
 parity 2 at every index, then the 12 tail bits), comrs stream by stream; its
@@ -78,3 +84,30 @@ def test_lte_turbo_code(k):
         # the same decisions, the same errors
         np.testing.assert_array_equal(code.decode(streams(4.0 * y[i] / 3.0, k)), uhat[i])
     assert META["license"] == "Apache-2.0"
+
+
+POLAR = ["E45_k30_K41", "E70_k32_K43", "E127_k29_K40", "E1023_k400_K411", "E70_k28_K39"]
+
+
+@pytest.mark.parametrize("name", POLAR)
+def test_nr_polar_uplink(name):
+    u, c = get(f"polar/{name}/u"), get(f"polar/{name}/c")
+    code = comrs.NrPolar(u.shape[1], c.shape[1], list_size=8)
+    for i in range(len(u)):
+        np.testing.assert_array_equal(code.encode(u[i]), c[i])
+    # and back from the noiseless codeword
+    np.testing.assert_array_equal(code.decode(3.0 - 6.0 * c[0]), u[0])
+
+
+LDPC = sorted(
+    {tuple(int(x) for x in k.split(".")[1][1:].split("_n")) for k in V if k.startswith("ldpc.")}
+)
+
+
+@pytest.mark.parametrize("k,n", LDPC)
+def test_nr_ldpc(k, n):
+    u, c = get(f"ldpc/k{k}_n{n}/u"), get(f"ldpc/k{k}_n{n}/c")
+    code = comrs.NrLdpc(k, n)
+    np.testing.assert_array_equal(code.encode(u.ravel()).reshape(c.shape), c)
+    if k <= 1024:
+        np.testing.assert_array_equal(code.decode(4.0 - 8.0 * c[0]), u[0])

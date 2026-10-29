@@ -90,9 +90,12 @@ is implemented from its text.
 (NVIDIA, <https://github.com/NVlabs/sionna>, Copyright (c) 2021-2026 NVIDIA CORPORATION
 & AFFILIATES, Apache License 2.0), downloaded at the commit named in
 `tests/oracle/sionna_vectors.json` by `tools/record_sionna_vectors.py`: the CRC, the
-convolutional and the turbo codes of its `test/codes/` folder, unmodified except for the
-selection of blocks and the conversion of bits to `uint8`. They are redistributed under
+convolutional, turbo and 5G polar codes of its `test/codes/` folder, unmodified except
+for the selection of blocks and the conversion of bits to `uint8`, and, for its
+generator matrices of the 5G LDPC code (not redistributed), the codewords of two random
+messages through each. They are redistributed under
 the Apache License 2.0 (<https://www.apache.org/licenses/LICENSE-2.0>). The QPP
 coefficients of `com_fec::turbo::lte_qpp` (3GPP TS 36.212, Table 5.1.3-3) were
-transcribed from Sionna's `turbo_coeffs.csv` under the same licence; no code of Sionna
-is copied.
+transcribed from Sionna's `turbo_coeffs.csv` under the same licence, and the row
+assignment of the LDPC base graphs of `com_fec::nr::tables` follows its `5G_bg1.csv` and
+`5G_bg2.csv` (every entry is checked against TS 38.212); no code of Sionna is copied.

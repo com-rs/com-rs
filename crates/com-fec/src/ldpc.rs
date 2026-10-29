@@ -145,6 +145,13 @@ enum Encoder {
     /// $p_{r}$ (position $k + r$) closes check $r$ with $p_{r-1}$ (the dual-diagonal part
     /// of $H$): $p_{r} = p_{r-1} \oplus \bigoplus_{v \in r,\, v < k} c_{v}$.
     Accumulate,
+    /// A core and an extension (the structure of the codes of 5G NR): the information
+    /// bits are the first $k$; the first `core` checks involve the bits below
+    /// $k + \mathrm{core}$ only, and core parity bit $j$ is the sum of the syndromes of
+    /// the information bits over the checks `solve[j]` (the inverse of the core); check
+    /// $r \ge \mathrm{core}$ then closes on its own parity bit $k + r$, the last of its
+    /// row.
+    Core { core: usize, solve: Vec<Vec<usize>> },
 }
 
 /// An LDPC code with its systematic encoder and its decoder settings.
@@ -224,6 +231,70 @@ impl LdpcCode {
             rows,
             info: (0..k).collect(),
             encoder: Encoder::Accumulate,
+            rule: DEFAULT_RULE,
+            layered: DEFAULT_LAYERED,
+            max_iterations: DEFAULT_MAX_ITERATIONS,
+        })
+    }
+
+    /// A code whose $m$ checks have a core and an extension, the structure of the LDPC
+    /// codes of 5G NR (TS 38.212, Sec. 5.3.2): the information bits are the first $k$;
+    /// the first `core` checks involve the bits below $k + \mathrm{core}$ only, with an
+    /// invertible square block on the core parity bits $k, \dots, k + \mathrm{core} - 1$;
+    /// every other check $r$ contains the parity bit $k + r$ and no bit above it. The
+    /// encoder inverts the core block once, by Gauss–Jordan elimination over GF(2), then
+    /// computes the extension parity bits one after the other, without the elimination of
+    /// the whole matrix of [`LdpcCode::from_rows`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] if the checks do not have this structure or the core block is
+    /// singular.
+    pub fn from_core_rows(n: usize, rows: Vec<Vec<usize>>, k: usize, core: usize) -> Result<LdpcCode> {
+        let m = rows.len();
+        ensure(k > 0 && k + m == n && core <= m, || format!("{m} checks, {core} in the core, for k = {k}, n = {n}"))?;
+        ensure(rows.iter().flatten().all(|v| *v < n), || "a check refers to a missing variable".into())?;
+        for (r, row) in rows.iter().enumerate() {
+            let top = row.iter().copied().max().unwrap_or(0);
+            if r < core {
+                ensure(top < k + core, || format!("core check {r} reaches bit {top} beyond the core"))?;
+            } else {
+                ensure(top == k + r && row.iter().filter(|&&v| v == k + r).count() == 1, || {
+                    format!("extension check {r} does not close on its parity bit {}", k + r)
+                })?;
+            }
+        }
+        // the core block B (core × core) and its inverse, by Gauss–Jordan on [B | I]
+        let words = core.div_ceil(64);
+        let mut a: Vec<Vec<u64>> = vec![vec![0; 2 * words]; core];
+        for (r, row) in rows.iter().take(core).enumerate() {
+            for &v in row.iter().filter(|&&v| v >= k) {
+                a[r][(v - k) / 64] ^= 1 << ((v - k) % 64);
+            }
+            a[r][words + r / 64] |= 1 << (r % 64);
+        }
+        for col in 0..core {
+            let (w, b) = (col / 64, 1u64 << (col % 64));
+            let pivot = (col..core)
+                .find(|&r| a[r][w] & b != 0)
+                .ok_or_else(|| Error::Config(format!("the core block is singular (column {col})")))?;
+            a.swap(col, pivot);
+            let prow = a[col].clone();
+            for (r, row) in a.iter_mut().enumerate() {
+                if r != col && row[w] & b != 0 {
+                    for (x, y) in row.iter_mut().zip(&prow) {
+                        *x ^= y;
+                    }
+                }
+            }
+        }
+        // parity bit j = (B^-1 s)_j: the checks of row j of the inverse
+        let solve: Vec<Vec<usize>> =
+            a.iter().map(|row| (0..core).filter(|&c| row[words + c / 64] & (1 << (c % 64)) != 0).collect()).collect();
+        Ok(LdpcCode {
+            n,
+            rows,
+            info: (0..k).collect(),
+            encoder: Encoder::Core { core, solve },
             rule: DEFAULT_RULE,
             layered: DEFAULT_LAYERED,
             max_iterations: DEFAULT_MAX_ITERATIONS,
@@ -647,6 +718,19 @@ impl BlockCode for LdpcCode {
                     let s = row.iter().filter(|&&v| v < k).fold(0, |a, &v| a ^ c[v]);
                     prev ^= s;
                     c[k + r] = prev;
+                }
+            }
+            Encoder::Core { core, solve } => {
+                let k = self.info.len();
+                let syndrome: Vec<u8> = self.rows[..*core]
+                    .iter()
+                    .map(|row| row.iter().filter(|&&v| v < k).fold(0, |a, &v| a ^ c[v]))
+                    .collect();
+                for (j, checks) in solve.iter().enumerate() {
+                    c[k + j] = checks.iter().fold(0, |a, &r| a ^ syndrome[r]);
+                }
+                for (r, row) in self.rows.iter().enumerate().skip(*core) {
+                    c[k + r] = row.iter().filter(|&&v| v != k + r).fold(0, |a, &v| a ^ c[v]);
                 }
             }
         }

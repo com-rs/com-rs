@@ -18,6 +18,7 @@
 //! | [`rs`] | Reed–Solomon codes: systematic encoding, errors-and-erasures decoding, shortening, closed-form error rates |
 //! | [`puncture`] | puncturing of the convolutional and turbo codes (802.11, DVB-S patterns), free distance of punctured codes |
 //! | [`polar`] | polar codes: Gaussian-approximation construction, SC and CRC-aided SC-list decoding |
+//! | [`nr`] | the codes of 5G NR (TS 38.212): the LDPC code of the data channels and the polar code of the control channels, with their rate matching |
 //! | [`bounds`] | the capacity of the binary-input AWGN channel and the normal approximation of the error probability at finite length |
 //! | [`block`] | the [`BlockCode`](block::BlockCode) interface, BPSK LLRs, hard decisions |
 
@@ -30,6 +31,7 @@ pub mod conv;
 pub mod crc;
 pub mod interleaving;
 pub mod ldpc;
+pub mod nr;
 pub mod polar;
 pub mod puncture;
 pub mod rs;

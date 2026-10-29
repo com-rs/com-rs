@@ -35,7 +35,10 @@ PyPI and the command line `comrs`.
   the information rates (MI, GMI, with priors).
 - Coding: CRCs and the Gold scrambler of 5G NR; block, random and QPP interleavers;
   convolutional codes (Viterbi, BCJR) and their puncturing (IEEE 802.11, DVB-S); LTE
-  turbo codes with the 188 QPP interleavers of TS 36.212; LDPC codes (PEG, repeat-accumulate, alist files; sum-product,
+  turbo codes with the 188 QPP interleavers of TS 36.212; the LDPC code of 5G NR (both base
+  graphs, lifting, filler bits, the circular buffer and the bit interleaver) and its
+  polar code (the polar sequence, puncturing, shortening, repetition, parity-check bits,
+  the input and coded-bit interleavers), from the tables of TS 38.212; LDPC codes (PEG, repeat-accumulate, alist files; sum-product,
   normalised and offset min-sum, flooding or layered); polar codes (SC, CRC-aided
   SCL); Reed–Solomon codes over any field with erasures; shortened binary BCH codes;
   constant-composition distribution matching; BI-AWGN capacity and the normal
@@ -103,6 +106,10 @@ PyPI and the command line `comrs`.
   datasets, `.sigmf` archives, centre frequencies and annotations; checked against
   sigmf-python.
 - Blocks of other crates join the registry with `com_spec::blocks::register` (ADR 0006).
+- Link theory: the bit error rates of equalisation with an imperfect channel estimate
+  and of DPSK over Jakes' fading (Chang & Su 2002); the output series and in-band
+  distortion of a nonlinear amplifier driven by OFDM (Banelli & Cacopardi 2000); the
+  Bessel function J0.
 - Comparisons with other libraries: the reference vectors of Sionna (CRC, convolutional
   and turbo codes, bit for bit), py3gpp (5G NR), sigmf-python, next to OptiCommPy,
   GNPy and AFF3CT; a documentation page gathers them.

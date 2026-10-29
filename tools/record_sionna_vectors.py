@@ -4,7 +4,10 @@
 Sionna (NVIDIA, Apache-2.0, <https://github.com/NVlabs/sionna>) ships test vectors of
 its channel codes, most of them generated with a reference implementation (MATLAB):
 the CRCs of 3GPP, convolutional codes encoded and Viterbi-decoded, the turbo code of
-LTE encoded and decoded at Eb/N0 = 0 dB. This script downloads them at the pinned
+LTE encoded and decoded at Eb/N0 = 0 dB, the polar code of the 5G uplink control
+information (CRC, rate matching), and the generator matrices of the 5G LDPC code with
+its rate matching. The generator matrices (19 MB) are not kept: two random messages
+per matrix (seed ``SEED``) and their codewords ``u G`` are. This script downloads them at the pinned
 commit ``COMMIT``, keeps the first ``ROWS`` blocks of every set, and writes
 ``tests/oracle/sionna_vectors.npz`` and ``tests/oracle/sionna_vectors.json`` (the
 provenance: the repository, the commit, the files, the licence), read by
@@ -39,6 +42,38 @@ CONV = [
     "conv_rate_onefourth_5777_",
 ]
 TURBO = [40, 112, 168, 432]
+POLAR = ["E45_k30_K41", "E70_k32_K43", "E127_k29_K40", "E1023_k400_K411", "E70_k28_K39"]
+LDPC = [
+    (64, 128),
+    (64, 160),
+    (75, 210),
+    (200, 220),
+    (256, 412),
+    (256, 480),
+    (257, 871),
+    (275, 510),
+    (364, 547),
+    (562, 871),
+    (698, 878),
+    (784, 985),
+    (948, 1024),
+    (1347, 1554),
+    (1487, 3554),
+    (2657, 3754),
+    (5478, 6045),
+    (5478, 7525),
+    (5781, 8962),
+    (5874, 10255),
+    (6479, 13235),
+    (7854, 9754),
+    (7854, 12354),
+    (8445, 18665),
+    (8446, 15874),
+    (8448, 12354),
+    (8448, 23540),
+    (8448, 25344),
+]
+SEED = 5
 
 
 def files() -> dict[str, str]:
@@ -53,13 +88,27 @@ def files() -> dict[str, str]:
     for k in TURBO:
         for part in ("u", "x", "y", "uhat"):
             out[f"turbo/k{k}/{part}"] = f"test/codes/turbo/ref_k{k}_{part}.npy"
+    for name in POLAR:
+        for part in ("u", "c"):
+            out[f"polar/{name}/{part}"] = f"test/codes/polar/{name}_{part}.npy"
     return out
+
+
+def generator_files() -> dict[str, str]:
+    return {f"ldpc/k{k}_n{n}": f"test/codes/ldpc/k{k}_n{n}_G.npy" for k, n in LDPC}
 
 
 def fetch(path: str) -> np.ndarray:
     url = f"https://raw.githubusercontent.com/{REPO}/{COMMIT}/{path}"
     with urllib.request.urlopen(url, timeout=60) as r:
         return np.load(io.BytesIO(r.read()), allow_pickle=False)
+
+
+def fetch_pickled(path: str) -> np.ndarray:
+    # the generator matrices are object arrays: loaded once here, never redistributed
+    url = f"https://raw.githubusercontent.com/{REPO}/{COMMIT}/{path}"
+    with urllib.request.urlopen(url, timeout=120) as r:
+        return np.array(np.load(io.BytesIO(r.read()), allow_pickle=True))
 
 
 def main() -> None:
@@ -70,6 +119,15 @@ def main() -> None:
             a = a[:ROWS]
         # bits as uint8, soft values as float64
         arrays[key] = a.astype(np.float64) if key.endswith("/y") else np.rint(a).astype(np.uint8)
+    rng = np.random.default_rng(SEED)
+    for key, path in sorted(generator_files().items()):
+        k, n = (int(x) for x in key.split("/k")[1].split("_n"))
+        sparse = fetch_pickled(path)
+        g = np.zeros((k, n), np.uint8)
+        g[sparse[0] - 1, sparse[1] - 1] = 1
+        u = rng.integers(0, 2, (2, k), dtype=np.uint8)
+        arrays[f"{key}/u"] = u
+        arrays[f"{key}/c"] = (u.astype(np.int64) @ g % 2).astype(np.uint8)
     OUT.mkdir(parents=True, exist_ok=True)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -87,6 +145,8 @@ def main() -> None:
         "license": "Apache-2.0",
         "rows": ROWS,
         "files": dict(sorted(files().items())),
+        "generator_matrices": dict(sorted(generator_files().items())),
+        "generator_seed": SEED,
     }
     (OUT / "sionna_vectors.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
 

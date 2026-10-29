@@ -53,10 +53,13 @@ standard or the paper, and documented.
    * - `Sionna <https://github.com/NVlabs/sionna>`_ (Apache-2.0), its test vectors
      - the CRCs of 3GPP (CRC6 to CRC24C); convolutional codes of rates 1/2, 1/3, 1/4,
        encoded and Viterbi-decoded; the LTE turbo code at K = 40, 112, 168, 432,
-       encoded and decoded at 0 dB (``tests/test_sionna_vectors.py``)
+       encoded and decoded at 0 dB; the 5G LDPC code with rate matching (28 sizes, 64
+       to 8448 bits, both base graphs) and the 5G polar code of the uplink control
+       information (``tests/test_sionna_vectors.py``)
      - bit for bit, the decisions included (errors and all)
      - none; the vectors brought the full QPP table of LTE (188 block sizes) to
-       ``TurboCode.lte``
+       ``TurboCode.lte``; its tables of the LDPC base graphs and of the polar
+       sequence are identical to those extracted from TS 38.212
    * - `py3gpp <https://github.com/catkira/py3gpp>`_ 0.6 (AGPL-3.0)
      - 5G NR: PSS, SSS, PBCH DMRS and their positions, the PDSCH DMRS of 42
        configurations, the OFDM modulation of a subframe

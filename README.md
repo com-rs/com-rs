@@ -160,7 +160,7 @@ is published on crates.io and re-exported by the facade `comrs`, so Rust users w
 | 2 | `com-hardware` (`hardware`) | `pa_rapp`, `pa_saleh`, `pa_memory_polynomial`, `rapp_predistort`, `phase_noise`, `laser`, `phase_modulator`, `mzm`, `iqm`, `Photodiode`, `balanced_photodiode`, `hybrid_2x4`, `coherent_receiver`, `wdm_grid` | power amplifiers (Rapp, Saleh, memory polynomial of Ding et al. 2004); Wiener phase noise and frequency offset; transmitter and receiver IQ imbalance; transmitter and receiver optical front ends, the WDM transmitter |
 | 2 | `com-metrics` (`metrics`) | `ber`, `snr_db`, `fast_ber_calc`, `evm`, `ber_to_q_db`, `monte_carlo_gmi`, `monte_carlo_mi`, `information_rates`, `posterior_rates`, `papr_db`, `ccdf`, `psd`, `periodogram`, `aclr_db` | error rates, SNR, EVM, generalised and symbol-wise mutual information, the rates of a receiver's posterior, PAPR and CCDF, power spectral density (Welch, aligned periodogram), ACLR |
 | 2 | `com-mimo` (`mimo`) | `mimo_detect`, `mimo_llr`, `mimo_estimate`, `Ostbc`, `mimo_capacity`, `water_filling`, `eigenmode`, `zf_precoder` | MIMO detection (ZF, MMSE, V-BLAST SIC, ML, sphere decoder, K-best) with soft outputs, the receiver of a link, orthogonal space-time block codes (Alamouti, rate 3/4), eigenmode and zero-forcing precoding, capacity |
-| 2 | `com-fec` (`fec`) | `Crc`, `Scrambler`, `Interleaver`, `ConvolutionalCode`, `TurboCode`, `LdpcCode`, `PolarCode`, `ReedSolomonCode`, `BchCode`, `Ccdm`, `free_distance`, `theory_rs_wer`, `theory_rs_ser`, `theory_rs_ber`, `pack_symbols`, `unpack_symbols`, `biawgn_capacity`, `normal_approximation`, `shannon_limit_ebn0_db` | CRC and scrambling of 5G NR, block, random and QPP interleavers, convolutional codes (Viterbi, BCJR) and their puncturing (802.11, DVB-S patterns), LTE turbo codes, Reed–Solomon codes (any field, shortening, erasures, closed-form error rates), LDPC codes (PEG construction, repeat-accumulate codes, alist files, sum-product, min-sum, layered), shortened binary BCH codes, polar codes (SC, CRC-aided SCL), constant-composition distribution matching, BI-AWGN capacity and the normal approximation |
+| 2 | `com-fec` (`fec`) | `Crc`, `Scrambler`, `Interleaver`, `ConvolutionalCode`, `TurboCode`, `LdpcCode`, `PolarCode`, `NrLdpc`, `NrPolar`, `ReedSolomonCode`, `BchCode`, `Ccdm`, `free_distance`, `theory_rs_wer`, `theory_rs_ser`, `theory_rs_ber`, `pack_symbols`, `unpack_symbols`, `biawgn_capacity`, `normal_approximation`, `shannon_limit_ebn0_db` | CRC and scrambling of 5G NR, block, random and QPP interleavers, convolutional codes (Viterbi, BCJR) and their puncturing (802.11, DVB-S patterns), LTE turbo codes, Reed–Solomon codes (any field, shortening, erasures, closed-form error rates), LDPC codes (PEG construction, repeat-accumulate codes, alist files, sum-product, min-sum, layered), shortened binary BCH codes, polar codes (SC, CRC-aided SCL), the LDPC and polar codes of 5G NR with their rate matching, constant-composition distribution matching, BI-AWGN capacity and the normal approximation |
 | 3 | `com-sim` (`sim`) | `comrs.sim` | the Monte Carlo framework (below) |
 | 4 | `com-spec` (`spec`, `io`) | `run_spec`, `verify_spec`, `search_spec`, `spec_blocks`, `spec_conditions`, `spec_schema`, `spec_check_link`, `read_sigmf`, `write_sigmf` | declarative campaigns from YAML, JSON or TOML files and their validation against the literature, SigMF recordings, raw IQ files (`cf32_le`, `ci16_le`, …) and NPY arrays, the `comrs` command |
 | 4 | `com-systems` (`systems`) | `Dvbs2`, `dvbs2_bbframe`, `dvbs2_bbframe_data`, `dvbs2_decode_plheader` | reference chains of standards: DVB-S2 (ETSI EN 302 307-1), from the BBFRAME to the scrambled PLFRAME and back, its BCH and LDPC codes, the 28 MODCODs, normal and short frames, pilots; probabilistic amplitude shaping (Böcherer, Steiner & Schulte 2015) with the DVB-S2 codes and the bit mapper of the paper |
@@ -396,6 +396,7 @@ the regimes not covered yet are in
 | Turbo codes (LTE) | A | AFF3CT, K = 40 and 1024 |
 | LDPC codes | A | AFF3CT, PEG and DVB-S2 short code; Hu et al. 2005 |
 | Polar codes (SC, CA-SCL) | A | AFF3CT, SC and CA-SCL |
+| 5G NR LDPC and polar codes with rate matching | A | Sionna vectors bit for bit; TS 38.212 tables |
 | Reed–Solomon codes | A | AFF3CT; Lin & Costello; ETSI EN 300 744, CCSDS 131.0-B |
 | BCH codes | A | AFF3CT; generators of EN 302 307-1 Table 6a |
 | CRC | A | CRC polynomials of TS 38.212 |
@@ -405,6 +406,8 @@ the regimes not covered yet are in
 | DVB-S2 | A | EN 302 307-1 Table 13 and the tables of the standard |
 | OFDM and channel estimation | B | flat Rayleigh fading per subcarrier |
 | 5G NR numerology, SSB, cell search, PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
+| Error rates with an imperfect channel estimate, DPSK over Jakes' fading | A | Chang & Su 2002 eqs. 31–53, Figs. 3–4 |
+| Nonlinear amplifier driven by OFDM | A | Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5 |
 | OFDM synchronisation (Schmidl–Cox) | C | the error falls with the SNR |
 | PAPR: distribution and reduction | B | Ochiai & Imai 2001 eqs. (11), (27) |
 | Constant-envelope OFDM | B | Thompson et al. 2008 eq. (15) |

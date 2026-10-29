@@ -29,7 +29,7 @@
 //!   [`np2db`] (attenuation per unit length);
 //! - [`sinc`], `sin(πx)/(πx)`, and [`effective_length`], `(1 - e^{-αL})/α`;
 //! - special functions: [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
-//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$);
+//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$), [`bessel_j0`];
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
 //! - quadrature: [`gauss_hermite`], the nodes and weights of `∫ f(t) e^{-t²} dt`;
@@ -231,6 +231,16 @@ pub fn fresnel(x: f64) -> (f64, f64) {
     (v.re.copysign(x), v.im.copysign(x))
 }
 
+/// The Bessel function of the first kind of order zero, $J_{0}(x) = \frac{1}{\pi}
+/// \int_{0}^{\pi} \cos(x \sin\theta)\, d\theta$, by the midpoint rule on that
+/// periodic integrand (exponentially convergent: $64 + 2|x|$ points give the machine
+/// precision), as for the correlation $J_{0}(2\pi f_{D} \tau)$ of Jakes' fading.
+pub fn bessel_j0(x: f64) -> f64 {
+    let n = 64 + 2 * x.abs().ceil() as usize;
+    let h = std::f64::consts::PI / n as f64;
+    (0..n).map(|k| (x * (h * (k as f64 + 0.5)).sin()).cos()).sum::<f64>() / n as f64
+}
+
 /// Peak-to-average power ratio `max|x|² / mean|x|²` in dB (`-inf` for an empty or
 /// zero block).
 ///
@@ -358,6 +368,24 @@ pub fn log_sum_exp(v: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]
+    fn bessel_j0_against_scipy() {
+        // scipy.special.j0
+        for (x, v) in [
+            (0.0, 1.0),
+            (0.0628, 0.9990142830026578),
+            (1.0, 0.7651976865579665),
+            (2.404825557695773, 0.0),
+            (5.0, -0.1775967713143383),
+            (10.0, -0.2459357644513483),
+            (30.0, -0.08636798358104023),
+            (-3.0, -0.2600519549019335),
+        ] {
+            assert!((bessel_j0(x) - v).abs() < 1e-14, "J0({x}) = {} vs {v}", bessel_j0(x));
+        }
+    }
 
     #[test]
     #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]

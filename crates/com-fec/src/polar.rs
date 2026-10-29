@@ -147,6 +147,23 @@ pub struct PolarCode {
     pub crc: Option<Crc>,
     /// List size $L$ (1: successive cancellation).
     pub list: usize,
+    /// The parity-check positions of a PC-polar code (see [`PolarCode::with_positions`]).
+    pc_positions: Vec<usize>,
+}
+
+/// The parity-check bits of PC-polar codes (TS 38.212, Sec. 5.3.1.2): a cyclic register
+/// of length 5 runs over $u_{0}, u_{1}, \dots$; a parity-check position takes its first
+/// cell, an information position adds its bit to it.
+fn pc_register(u: &[u8], info: &[bool], pc: &[bool], upto: usize) -> u8 {
+    let mut y = [0u8; 5];
+    for i in 0..upto {
+        y.rotate_left(1);
+        if info[i] && !pc[i] {
+            y[0] ^= u[i];
+        }
+    }
+    y.rotate_left(1);
+    y[0]
 }
 
 impl PolarCode {
@@ -158,7 +175,15 @@ impl PolarCode {
     pub fn new(n: usize, k: usize, design_ebn0_db: f64) -> Result<PolarCode> {
         ensure(n.is_power_of_two() && n >= 2, || format!("the length must be a power of two, got {n}"))?;
         ensure(k >= 1 && k <= n, || format!("0 < K ≤ N, got K = {k}"))?;
-        let mut code = PolarCode { n, k, info_positions: Vec::new(), design_ebn0_db, crc: None, list: 1 };
+        let mut code = PolarCode {
+            n,
+            k,
+            info_positions: Vec::new(),
+            design_ebn0_db,
+            crc: None,
+            list: 1,
+            pc_positions: Vec::new(),
+        };
         code.construct()?;
         Ok(code)
     }
@@ -196,16 +221,74 @@ impl PolarCode {
         self
     }
 
+    /// The code of length `n` (a power of two) whose information (and CRC) bits sit at
+    /// `info_positions` and parity-check bits at `pc_positions`, all other positions
+    /// frozen to zero: the codes of a standard whose construction is a table (5G NR,
+    /// [`crate::nr::NrPolar`]). A parity-check bit is the first cell of a cyclic
+    /// register of length 5 that every information bit before it updates (TS 38.212,
+    /// Sec. 5.3.1.2); the list decoder sets it from the decisions of its path.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] unless $N$ is a power of two and the positions are
+    /// distinct and below $N$.
+    pub fn with_positions(n: usize, info_positions: &[usize], pc_positions: &[usize]) -> Result<PolarCode> {
+        ensure(n.is_power_of_two() && n >= 2, || format!("the length must be a power of two, got {n}"))?;
+        let mut seen = vec![false; n];
+        for &p in info_positions.iter().chain(pc_positions) {
+            ensure(p < n && !seen[p], || format!("position {p} repeated or beyond N = {n}"))?;
+            seen[p] = true;
+        }
+        let mut info = info_positions.to_vec();
+        info.sort_unstable();
+        let mut pc = pc_positions.to_vec();
+        pc.sort_unstable();
+        ensure(!info.is_empty(), || "the code has no information positions".to_string())?;
+        Ok(PolarCode {
+            n,
+            k: info.len(),
+            info_positions: info,
+            design_ebn0_db: f64::NAN,
+            crc: None,
+            list: 1,
+            pc_positions: pc,
+        })
+    }
+
     /// The positions carrying information and CRC bits.
     pub fn info_positions(&self) -> &[usize] {
         &self.info_positions
     }
 
-    fn decode_paths(&self, llr: &[f64]) -> Vec<(Vec<u8>, f64)> {
+    /// The parity-check positions (empty but for [`PolarCode::with_positions`]).
+    pub fn pc_positions(&self) -> &[usize] {
+        &self.pc_positions
+    }
+
+    /// The information (and CRC) bits of the surviving paths of the list decoder, the
+    /// most likely first, for a CRC checked outside the code (after a deinterleaver).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `llr` does not have $N$ values.
+    pub fn decode_list(&self, llr: &[f64]) -> Result<Vec<Vec<u8>>> {
+        expect_len(llr.len(), self.n, "LLRs")?;
+        Ok(self.decode_paths(llr).iter().map(|(u, _)| self.info_positions.iter().map(|&p| u[p]).collect()).collect())
+    }
+
+    fn masks(&self) -> (Vec<bool>, Vec<bool>) {
         let mut info = vec![false; self.n];
+        let mut pc = vec![false; self.n];
         for &p in &self.info_positions {
             info[p] = true;
         }
+        for &p in &self.pc_positions {
+            info[p] = true;
+            pc[p] = true;
+        }
+        (info, pc)
+    }
+
+    fn decode_paths(&self, llr: &[f64]) -> Vec<(Vec<u8>, f64)> {
+        let (info, pc) = self.masks();
         let mut paths: Vec<(Vec<u8>, f64)> = vec![(Vec::with_capacity(self.n), 0.0)];
         for i in 0..self.n {
             let mut next = Vec::with_capacity(paths.len() * 2);
@@ -217,7 +300,12 @@ impl PolarCode {
                     let s = if bit == 0 { lam } else { -lam };
                     pm + ln_1p_exp(-s)
                 };
-                if info[i] {
+                if pc[i] {
+                    let mut v = u.clone();
+                    let bit = pc_register(&full, &info, &pc, i);
+                    v.push(bit);
+                    next.push((v, cost(bit)));
+                } else if info[i] {
                     for bit in 0..2u8 {
                         let mut v = u.clone();
                         v.push(bit);
@@ -255,6 +343,12 @@ impl BlockCode for PolarCode {
         let mut u = vec![0u8; self.n];
         for (&p, &b) in self.info_positions.iter().zip(&payload) {
             u[p] = b & 1;
+        }
+        if !self.pc_positions.is_empty() {
+            let (info, pc) = self.masks();
+            for &p in &self.pc_positions {
+                u[p] = pc_register(&u, &info, &pc, p);
+            }
         }
         transform(&mut u);
         Ok(u)
