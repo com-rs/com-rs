@@ -86,6 +86,9 @@ module in `docs/MATURITY.md <https://github.com/com-rs/com-rs/blob/main/docs/MAT
    * - FBMC/OQAM
      - A
      - Bouhadda et al. 2014 Table 1, Figs. 7, 10, 11; Nissel & Rupp 2017 eq. (17)
+   * - OTFS and the delay–Doppler channel (Rust only)
+     - A
+     - Raviteja et al. 2019 Theorem 1 and its example; Hadani et al. 2017 Fig. 5 qualitatively
    * - UFMC
      - C
      - orthogonality of the sub-bands; sidelobes against OFDM

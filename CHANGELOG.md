@@ -162,6 +162,11 @@ PyPI and the command line `comrs`.
   are at an input back-off of 8 dB, not 4 dB) and Figs. 2 and 4 of Nissel & Rupp
   (2017) for OFDM and CP-OFDM; their eqs. (16)–(17) are the Rayleigh closed forms
   already in `com_mapping`.
+- OTFS with rectangular pulses and one prefix per frame (`com_waveform::otfs`: ISFFT
+  and Heisenberg transform, the sparse effective channel of Theorem 1 of Raviteja et al.
+  2019 and the general one of their eq. (13)), and the delay–Doppler channel of
+  discrete paths with one Doppler shift each (`com_channel::multipath::DelayDoppler`,
+  realised as `Taps`); detection with the MMSE detector of `com-mimo`. Rust only.
 - Validation cards (`validation/cards/`): one file per algorithm with its inputs, the
   expected outputs and their tolerance, and the exact source of the expectation, run by
   `tests/test_cards.py` and checked by a JSON Schema.

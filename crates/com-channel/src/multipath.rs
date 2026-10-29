@@ -16,6 +16,9 @@
 //! (2003), with random arrival angles and phases. With MIMO dimensions every tap is an
 //! $n_{r} \times n_{t}$ matrix of independent such processes.
 //!
+//! [`DelayDoppler`] is the channel of a few discrete paths, each with one delay and one
+//! Doppler shift, the model of OTFS.
+//!
 //! [`Profile`] lists the power-delay profiles of 3GPP TS 36.101 (EPA, EVA, ETU) and of
 //! ITU-R M.1225 (Pedestrian A, Vehicular A), and an exponential profile of a given RMS
 //! delay spread.
@@ -43,6 +46,9 @@
 //!    1974.
 //! 4. Y. R. Zheng and C. Xiao, "Simulation models with correct statistical properties for
 //!    Rayleigh fading channels," *IEEE Trans. Commun.*, 51(6), 920–928, 2003.
+//! 5. P. Raviteja, Y. Hong, E. Viterbo and E. Biglieri, "Practical pulse-shaping
+//!    waveforms for reduced-cyclic-prefix OTFS," *IEEE Trans. Veh. Technol.*, 68(1),
+//!    957–961, 2019.
 
 use com_core::prelude::*;
 use com_core::{ensure, same_len};
@@ -396,6 +402,122 @@ impl Tdl {
     pub fn apply(&self, x: &[Vec<C64>], taps: &Taps) -> Result<Vec<Vec<C64>>> {
         same_len(x.len(), self.n_tx, "streams and transmit antennas")?;
         taps.apply(x)
+    }
+}
+
+/// One path of a [`DelayDoppler`] channel: a complex gain, a delay (samples) and a
+/// single Doppler shift (Hz).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Path {
+    /// Complex gain $h_{i}$.
+    pub gain: C64,
+    /// Delay $l_{i}$ (samples).
+    pub delay: usize,
+    /// Doppler shift $\nu_{i}$ (Hz).
+    pub doppler: f64,
+}
+
+/// A doubly-dispersive channel of a few discrete paths, each with its own delay and a
+/// single Doppler shift: the channel of OTFS (Raviteja et al. 2019, eqs. (3)–(6);
+/// Hadani et al. 2017),
+///
+/// $$
+/// r\[n\] = \sum_{i=1}^{P} h_{i}\, e^{j 2\pi \nu_{i} (n - l_{i}) / f_{s}}\, s\[n - l_{i}\],
+/// $$
+///
+/// $n$ counted from the first sample of the signal. [`DelayDoppler::from_profile`]
+/// gives one path per tap of a power-delay profile, of Rayleigh gain and Doppler shift
+/// $\nu_{\max} \cos\theta$ with $\theta$ uniform (Jakes' angle of arrival, as in
+/// Raviteja et al., Sec. III-A); unlike [`Tdl`], whose every tap is a sum of many
+/// sinusoids, every path here is one. [`DelayDoppler::taps`] gives the realisation as
+/// [`Taps`], which applies it.
+///
+/// # Examples
+/// ```
+/// use com_channel::multipath::{DelayDoppler, Path};
+/// use com_math::C64;
+/// // one path, 2 samples late, 1 kHz of Doppler at 1 MHz
+/// let ch = DelayDoppler::new(vec![Path { gain: C64::new(1.0, 0.0), delay: 2, doppler: 1e3 }], 1e6)?;
+/// let x = vec![C64::new(1.0, 0.0); 8];
+/// let y = ch.taps(8).apply(&[x])?.remove(0);
+/// assert_eq!(y[1], C64::new(0.0, 0.0));
+/// assert!((y[5] - com_math::cis(2.0 * std::f64::consts::PI * 1e3 * 3.0 / 1e6)).norm() < 1e-12);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct DelayDoppler {
+    paths: Vec<Path>,
+    sample_rate: f64,
+}
+
+impl DelayDoppler {
+    /// The channel of `paths` at `sample_rate`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for no path or a non-positive sampling rate.
+    pub fn new(paths: Vec<Path>, sample_rate: f64) -> Result<DelayDoppler> {
+        ensure(!paths.is_empty(), || "a channel needs at least one path".into())?;
+        ensure(sample_rate > 0.0, || format!("the sampling rate must be positive, got {sample_rate}"))?;
+        Ok(DelayDoppler { paths, sample_rate })
+    }
+
+    /// One path per tap `(delay in s, power in dB)` of a profile (powers normalised to a
+    /// unit sum, delays rounded to the sampling grid), of gain $\mathcal{CN}(0, p_{i})$
+    /// and Doppler shift `max_doppler` $\cos\theta_{i}$, $\theta_{i}$ uniform on
+    /// $[-\pi, \pi)$.
+    ///
+    /// # Errors
+    /// As [`DelayDoppler::new`], and for a negative delay.
+    pub fn from_profile(
+        taps: &[(f64, f64)],
+        max_doppler: f64,
+        sample_rate: f64,
+        rng: &mut SimRng,
+    ) -> Result<DelayDoppler> {
+        ensure(taps.iter().all(|(d, _)| *d >= 0.0), || "negative delay".into())?;
+        let total: f64 = taps.iter().map(|(_, db)| db2lin(*db)).sum();
+        let paths = taps
+            .iter()
+            .map(|&(d, db)| {
+                let gain = rng.complex_gaussian() * (db2lin(db) / total).sqrt();
+                let theta = rng.uniform() * 2.0 * PI - PI;
+                Path { gain, delay: (d * sample_rate).round() as usize, doppler: max_doppler * theta.cos() }
+            })
+            .collect();
+        DelayDoppler::new(paths, sample_rate)
+    }
+
+    /// The paths.
+    pub fn paths(&self) -> &[Path] {
+        &self.paths
+    }
+
+    /// The sampling rate (Hz).
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
+    }
+
+    /// The realisation over `n_samples` samples (paths of the same delay summed into one
+    /// tap).
+    pub fn taps(&self, n_samples: usize) -> Taps {
+        let mut delays: Vec<usize> = self.paths.iter().map(|p| p.delay).collect();
+        delays.sort_unstable();
+        delays.dedup();
+        let coeffs = delays
+            .iter()
+            .map(|&d| {
+                (0..n_samples)
+                    .map(|n| {
+                        self.paths
+                            .iter()
+                            .filter(|p| p.delay == d)
+                            .map(|p| p.gain * cis(2.0 * PI * p.doppler * (n as f64 - d as f64) / self.sample_rate))
+                            .sum()
+                    })
+                    .collect()
+            })
+            .collect();
+        Taps { delays, n_rx: 1, n_tx: 1, n_samples, coeffs }
     }
 }
 
