@@ -435,11 +435,16 @@ mod tests {
     /// The two-sided bandwidth holding the `fraction` of the power of a centred density.
     pub(super) fn power_bandwidth(freqs: &[f64], dens: &[f64], fraction: f64) -> f64 {
         let df = freqs[1] - freqs[0];
-        let mut inside = 0.0;
-        let mut b = 0.0;
-        while inside < fraction {
+        // the bins by distance to the carrier, added as the band widens by `df`
+        let mut bins: Vec<(f64, f64)> = freqs.iter().zip(dens).map(|(f, d)| (f.abs(), d * df)).collect();
+        bins.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (mut inside, mut next, mut b) = (0.0, 0, 0.0);
+        while inside < fraction && next < bins.len() {
             b += df;
-            inside = freqs.iter().zip(dens).filter(|(f, _)| f.abs() <= b / 2.0).map(|(_, d)| d * df).sum();
+            while next < bins.len() && bins[next].0 <= b / 2.0 {
+                inside += bins[next].1;
+                next += 1;
+            }
         }
         b
     }
@@ -545,39 +550,61 @@ mod literature {
 
     /// K. Murota and K. Hirade, "GMSK modulation for digital mobile radio telephony,"
     /// IEEE Trans. Commun. 29(7), 1981: §II gives the Gaussian frequency pulse (area
-    /// 1/2); Fig. 3 and Table I give the occupied bandwidths, the two-sided 99 %
-    /// power bandwidth being `0.86/T` for `BT = 0.25`, `1.04/T` for `BT = 0.5` and `1.20/T`
-    /// for MSK (the closed form [`msk_psd`] gives 1.18, within 2 %). The pulse of the
-    /// library is truncated to 5 symbols and the spectra are estimated (Hann window,
-    /// segments of 128 symbols, 400 segments; the pulse of the table is not truncated),
-    /// so the tolerance is loose: 5 % on the tabulated values, and `BT = 0.3`, absent
-    /// from the table, must fall between `BT = 0.25` and `BT = 0.5`.
+    /// 1/2); Table I gives the two-sided bandwidths (`× 1/T`) holding 90, 99, 99.9 and
+    /// 99.99 % of the power, for `BT = 0.2`, 0.25, 0.5 and MSK. The spectra of GMSK are
+    /// estimated (pulse truncated to 5 symbols, Hann window, segments of 128 symbols, 400
+    /// segments): the whole table within 3 %. MSK uses its closed form [`msk_psd`]: 0.777,
+    /// 1.182 and 2.735 against 0.78, 1.20 and 2.76 (within 2 %); its 99.99 % bandwidth is
+    /// 5.67, where the table prints 6.00 (6 % more; the estimated spectrum cannot settle
+    /// it, its window leaks into the tails in `1/f^4`). `BT = 0.3`, absent from the
+    /// table, falls between `BT = 0.25` and `BT = 0.5`.
     #[test]
     fn murota_hirade_1981_gmsk_bandwidths() {
         let sps = 8;
         let nfft = 128 * sps;
         let n_seg = 400;
-        let bandwidth = |cfg: CpmConfig, seed: u64| {
+        let fractions = [0.90, 0.99, 0.999, 0.9999];
+        let bandwidths = |cfg: CpmConfig, seed: u64| {
             let cpm = cfg.build().unwrap();
             let mut rng = Rng::new(seed);
             let a: Vec<usize> = (0..n_seg * 128).map(|_| rng.below(2)).collect();
             let (f, d) = welch(&cpm.modulate(&a).unwrap(), sps, nfft);
-            power_bandwidth(&f, &d, 0.99)
+            fractions.map(|q| power_bandwidth(&f, &d, q))
         };
-        let b025 = bandwidth(CpmConfig::gmsk(0.25, 5, sps), 1);
-        let b03 = bandwidth(CpmConfig::gmsk(0.3, 5, sps), 2);
-        let b05 = bandwidth(CpmConfig::gmsk(0.5, 5, sps), 3);
-        let msk = bandwidth(CpmConfig::msk(sps), 4);
-        // the closed form of MSK
+        // Table I: BT, then 90, 99, 99.9 and 99.99 %
+        let table_1 =
+            [(0.2, [0.52, 0.79, 0.99, 1.22]), (0.25, [0.57, 0.86, 1.09, 1.37]), (0.5, [0.69, 1.04, 1.33, 2.08])];
+        let mut b99 = Vec::new();
+        for (seed, (bt, want)) in table_1.into_iter().enumerate() {
+            let got = bandwidths(CpmConfig::gmsk(bt, 5, sps), seed as u64 + 1);
+            for ((q, g), w) in fractions.iter().zip(got).zip(want) {
+                assert!((g / w - 1.0).abs() < 0.03, "BT = {bt}, {q}: {g} vs {w}");
+            }
+            b99.push(got[1]);
+        }
+        let b03 = bandwidths(CpmConfig::gmsk(0.3, 5, sps), 9)[1];
+        assert!(b03 > b99[1] && b03 < b99[2], "BT = 0.3: {b03} between {} and {}", b99[1], b99[2]);
+        // MSK, from its closed form
         let df = 1e-4;
-        let f: Vec<f64> = (-40_000..40_000).map(|i| i as f64 * df).collect();
+        let f: Vec<f64> = (-400_000..400_000).map(|i| i as f64 * df).collect();
         let d: Vec<f64> = f.iter().map(|v| msk_psd(*v)).collect();
-        let closed = power_bandwidth(&f, &d, 0.99);
-        assert!((closed / 1.20 - 1.0).abs() < 0.02, "closed form: {closed}");
-        assert!((b025 / 0.86 - 1.0).abs() < 0.05, "BT = 0.25: {b025}");
-        assert!((b05 / 1.04 - 1.0).abs() < 0.05, "BT = 0.5: {b05}");
-        assert!((msk / 1.20 - 1.0).abs() < 0.05, "MSK: {msk}");
-        assert!(b03 > b025 && b03 < b05, "BT = 0.3: {b03} between {b025} and {b05}");
+        for (q, w) in [(0.90, 0.78), (0.99, 1.20), (0.999, 2.76)] {
+            let g = power_bandwidth(&f, &d, q);
+            assert!((g / w - 1.0).abs() < 0.02, "MSK, {q}: {g} vs {w}");
+        }
+        let g = power_bandwidth(&f, &d, 0.9999);
+        assert!((g - 5.67).abs() < 0.03, "MSK, 99.99 %: {g} (printed 6.00)");
+    }
+
+    /// K. Murota and K. Hirade (1981), Fig. 5: the minimum distance of GMSK (normalised
+    /// so that MSK has 2) against `BT`, read on the figure within 0.02: 1.53 at
+    /// `BT = 0.2`, 1.89 at 0.4, 1.96 at 0.6 and 1.99 at 0.8.
+    #[test]
+    fn murota_hirade_1981_fig_5_minimum_distance() {
+        for (bt, want) in [(0.2, 1.53), (0.4, 1.89), (0.6, 1.96), (0.8, 1.99)] {
+            let got = CpmConfig::gmsk(bt, 5, 8).build().unwrap().min_distance2(3);
+            assert!((got - want).abs() < 0.02, "BT = {bt}: {got} vs {want}");
+        }
     }
 
     /// M. K. Simon and C. C. Wang, "Differential detection of Gaussian MSK in a mobile
@@ -620,6 +647,35 @@ mod literature {
             gmsk05 > msk && gmsk03 > gmsk05 && gmsk03 < 0.1,
             "GMSK: {gmsk03:e} (0.3), {gmsk05:e} (0.5), MSK {msk:e}"
         );
+    }
+
+    /// C.-E. Sundberg, "Continuous phase modulation," IEEE Commun. Mag. 24(4), 25–38,
+    /// 1986, Fig. 5: the upper bound $d_{B}^{2}$ of binary LRC against $h$, read on the
+    /// figure (within 0.05): at `h = 1/2`, 2 for 1RC (the MSK point, where 2RC lies just
+    /// below) and the dots 1.78, 1.53, 1.32 and 1.15 of 3RC to 6RC; the peaks 2.11 of 1RC
+    /// near `h = 0.6`, 2.66 of 2RC near `h = 0.8` and 3.52 of 3RC near `h = 0.96`.
+    #[test]
+    fn sundberg_1986_fig_5_distance_of_binary_lrc() {
+        let d2 = |length: usize, h_num: u32, h_den: u32| {
+            let cfg = CpmConfig { h_num, h_den, pulse: FrequencyPulse::RaisedCosine, length, ..CpmConfig::msk(8) };
+            cfg.build().unwrap().min_distance2(3)
+        };
+        let read = [
+            (1, 1, 2, 2.0),
+            (3, 1, 2, 1.78),
+            (4, 1, 2, 1.53),
+            (5, 1, 2, 1.32),
+            (6, 1, 2, 1.15),
+            (1, 3, 5, 2.11),
+            (2, 4, 5, 2.66),
+            (3, 19, 20, 3.52),
+        ];
+        for (l, p, q, want) in read {
+            let got = d2(l, p, q);
+            assert!((got - want).abs() < 0.05, "{l}RC, h = {p}/{q}: {got} vs {want}");
+        }
+        let two = d2(2, 1, 2);
+        assert!(two < 2.0 && two > 1.9, "2RC, h = 1/2: {two}");
     }
 
     /// J. B. Anderson, T. Aulin and C.-E. Sundberg, *Digital Phase Modulation*, Plenum,

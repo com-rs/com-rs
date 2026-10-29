@@ -171,9 +171,9 @@
   name: "Continuous-phase modulation"
   modules: "`com_waveform::cpm`"
   level: A
-  summary: "Murota & Hirade 1981 Table I; MSK of Proakis & Salehi"
-  evidence: "• `crates/com-waveform/src/cpm/mod.rs`, `literature::murota_hirade_1981_gmsk_bandwidths` (the 99 % bandwidths of GMSK, Murota & Hirade, *IEEE Trans. Commun.* 29(7), 1981, Table I)<br>• `crates/com-waveform/src/cpm/mod.rs`, `literature::proakis_msk_as_oqpsk_coherent_ber`, `literature::proakis_msk_power_spectrum` (Proakis & Salehi, 5th ed., Secs. 3.3-2 and 3.4-3), `literature::anderson_aulin_sundberg_minimum_distance` (Aulin & Sundberg, *IEEE Trans. Commun.* 29(3), 1981), `literature::simon_wang_1984_differential_detection_degrades_with_bt`<br>• `specs/validation/msk_bpsk.yaml` (CI)"
-  gaps: "• no published BER curve of GMSK or of partial-response CPM with sequence detection; quaternary CPM: self-consistency only<br>• Murota & Hirade and Aulin & Sundberg listed as needed"
+  summary: "Murota & Hirade 1981 Table I and Fig. 5; Sundberg 1986 Fig. 5; MSK of Proakis & Salehi"
+  evidence: "• `crates/com-waveform/src/cpm/mod.rs`, `literature::murota_hirade_1981_gmsk_bandwidths`, `literature::murota_hirade_1981_fig_5_minimum_distance` (Murota & Hirade, *IEEE Trans. Commun.* 29(7), 1981: the whole of Table I, the four power fractions of GMSK within 3 % and MSK within 2 %; the distance of GMSK of Fig. 5 within 0.02)<br>• `literature::sundberg_1986_fig_5_distance_of_binary_lrc` (Sundberg, *IEEE Commun. Mag.* 24(4), 1986, Fig. 5: the distance of binary 1RC to 6RC within 0.05)<br>• `crates/com-waveform/src/cpm/mod.rs`, `literature::proakis_msk_as_oqpsk_coherent_ber`, `literature::proakis_msk_power_spectrum` (Proakis & Salehi, 5th ed., Secs. 3.3-2 and 3.4-3), `literature::anderson_aulin_sundberg_minimum_distance` (Aulin & Sundberg, *IEEE Trans. Commun.* 29(3), 1981), `literature::simon_wang_1984_differential_detection_degrades_with_bt`<br>• `specs/validation/msk_bpsk.yaml` (CI)"
+  gaps: "• no published BER curve of GMSK or of partial-response CPM with sequence detection; quaternary CPM: self-consistency only<br>• Aulin & Sundberg (1981) listed as needed; Table I of Murota & Hirade prints 6.00 for the 99.99 % bandwidth of MSK, whose spectrum gives 5.67"
 - theme: Waveforms
   name: "FBMC/OQAM"
   modules: "`com_waveform::fbmc`"
@@ -280,7 +280,7 @@
   level: A
   summary: "OptiCommPy outputs"
   evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_mzm_and_phase_modulator`, `::test_iq_modulator`, `::test_optical_hybrid_and_coherent_receiver`, `::test_noiseless_photodiode_with_bandwidth_limitation`, `::test_wdm_grid`<br>• `crates/comrs/tests/links.rs::optical_transmitter_and_coherent_receiver_recover_the_symbols`<br>• closed forms (`tests/test_performance.py`): the transfer of the MZM and its extinction ratio (`::test_mzm_extinction_ratio_and_field_transfer`, within 10⁻⁶ dB), the harmonics of a sine drive against the Jacobi–Anger expansion J_k(m) (`::test_mzm_harmonics_follow_the_jacobi_anger_expansion`, within 10⁻¹²), the compression of 16-QAM by the IQ modulator and its arcsine predistortion (`::test_iq_modulator_compression_and_arcsine_predistortion`); gallery `optical/plot_06_mach_zehnder.py`"
-  gaps: "• the shot and thermal noise of the photodiodes and the laser phase noise are not compared with a reference<br>• the modulators are memoryless and chirp-free: no electrode bandwidth, no chirp of an unbalanced drive (Koyama & Iga, *J. Lightw. Technol.*, 1988, status next)"
+  gaps: "• the shot and thermal noise of the photodiodes and the laser phase noise are not compared with a reference<br>• the modulators are memoryless and chirp-free: no electrode bandwidth, no chirp of an unbalanced drive (Koyama & Oga, *J. Lightw. Technol.* 6(1), 1988, status next)"
 - theme: Optical
   name: "Indoor optical wireless (visible light, infrared)"
   short: "Indoor optical wireless"
@@ -322,10 +322,10 @@
 - theme: Hardware impairments
   name: "DAC and ADC"
   modules: "`com_hardware::converter`"
-  level: B
-  summary: "Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999"
-  evidence: "• `validation/tests/converters.rs`: the SQNR of full-scale sines against 6.02 N + 1.76 dB (Bennett, *Bell Syst. Tech. J.* 27(3), 1948) within 0.15 dB from 6 to 12 bits, averaged over tones; the error of a Gaussian input against its exact integral (cross-checked with SciPy's quadrature) at 3, 5 and 8 bits and four loadings within 2 %; the ENOB from the SINAD (IEEE Std 1241) within 0.05 bit; the jitter-limited SNR −20 log₁₀(2π f σ_j) (Walden, *IEEE J. Sel. Areas Commun.* 17(4), 1999) within 0.2 dB; the zero-order hold within 10⁻⁶ and the bandwidth within 1 %; an OFDM 16-QAM link through 5- and 6-bit ADCs at the BER of the total noise (ignored)<br>• `crates/com-spec/src/blocks/wireless.rs::converters_in_a_link`"
-  gaps: "• `::optimal_uniform_quantizers_of_max_1960` compares the optimal steps and errors at 1 to 4 bits with the values of Max (*IRE Trans. Inf. Theory* 6(1), 1960) quoted from memory, to be checked against the paper (status needed): level A then<br>• no published error-rate figure of a converter-limited link"
+  level: A
+  summary: "Max 1960 Table II; Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999"
+  evidence: "• `validation/tests/converters.rs::optimal_uniform_quantizers_of_max_1960` (Max, *IRE Trans. Inf. Theory* 6(1), 1960, Table II: the spacings and errors of the optimum uniform quantiser of 2 to 32 levels)<br>• `validation/tests/converters.rs`: the SQNR of full-scale sines against 6.02 N + 1.76 dB (Bennett, *Bell Syst. Tech. J.* 27(3), 1948) within 0.15 dB from 6 to 12 bits, averaged over tones; the error of a Gaussian input against its exact integral (cross-checked with SciPy's quadrature) at 3, 5 and 8 bits and four loadings within 2 %; the ENOB from the SINAD (IEEE Std 1241) within 0.05 bit; the jitter-limited SNR −20 log₁₀(2π f σ_j) (Walden, *IEEE J. Sel. Areas Commun.* 17(4), 1999) within 0.2 dB; the zero-order hold within 10⁻⁶ and the bandwidth within 1 %; an OFDM 16-QAM link through 5- and 6-bit ADCs at the BER of the total noise (ignored)<br>• `crates/com-spec/src/blocks/wireless.rs::converters_in_a_link`"
+  gaps: "• Max's Table I (non-uniform quantisers) is not implemented; his Table II prints errors up to 0.18 % below the exact integral beyond 16 levels<br>• Bennett, IEEE Std 1241 and Walden: closed forms quoted, the documents are not in `references/`<br>• no published error-rate figure of a converter-limited link"
 - theme: Receiver DSP
   name: "Filters and resampling"
   modules: "`com_dsp::{filter, resample, signal}`"

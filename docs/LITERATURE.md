@@ -17,7 +17,7 @@ The last column lists the inconsistencies found in the documents (misprints, fig
 that contradict the text); they do not lower the badge when the corrected result is
 reproduced.
 
-Summary: 76 documents, 39 🟢, 27 🟠, 10 🔴; 32 inconsistencies found.
+Summary: 78 documents, 42 🟢, 26 🟠, 10 🔴; 34 inconsistencies found.
 
 ## Foundations
 
@@ -68,7 +68,8 @@ Summary: 76 documents, 39 🟢, 27 🟠, 10 🔴; 32 inconsistencies found.
 | 🟠 | R. Nissel, M. Rupp, OFDM and FBMC-OQAM in doubly-selective channels: calculating the bit error probability, IEEE Commun. Lett. 21(6), 2017 | `com_waveform::{ofdm, fbmc}` | eqs. (16)-(17) (the Rayleigh closed forms of com_mapping); Fig. 2 (FBMC in doubly-flat fading); Fig. 4 (OFDM and CP-OFDM over Vehicular A, 50-500 km/h, within 30 %) | `validation/tests/nissel2017.rs::nissel_2017_eqs_16_17_are_the_rayleigh_closed_forms`<br>`validation/tests/nissel2017.rs::nissel_2017_fig_2_fbmc_in_doubly_flat_fading`<br>`validation/tests/nissel2017.rs::nissel_2017_fig_4_vehicular_a` | the Hermite prototype (Haas & Belfiore 1997, not in references/): the FBMC curves of Figs. 3-4 are compared with PHYDYAS qualitatively; the BEP of Lemma 1 | — |
 | 🟠 | R. Hadani et al., Orthogonal time frequency space modulation, WCNC 2017 | `com_waveform::otfs` | Fig. 5, qualitatively: the diversity of OTFS with an MMSE detector against one-tap CP-OFDM over EVA at 120 km/h | `validation/tests/raviteja2019.rs::hadani_2017_fig_5_diversity_of_otfs` | the TDL-C channel and the frame of the paper; the DFE receivers; Fig. 9 (stability of the SNR) | — |
 | 🟢 | P. Raviteja, Y. Hong, E. Viterbo, E. Biglieri, Practical pulse-shaping waveforms for reduced-cyclic-prefix OTFS, TVT 68(1), 2019 | `com_waveform::otfs, com_channel::multipath::DelayDoppler` | Theorem 1 (eq. (12)) and its example verbatim; Theorem 1 through the channel to 1e-10; eq. (13) with fractional Doppler shifts | `crates/com-waveform/src/otfs.rs::raviteja_2019_example_of_theorem_1`<br>`validation/tests/raviteja2019.rs::raviteja_2019_theorem_1_through_the_channel` | Fig. 1 (message-passing detector, M = 512, N = 128); the prolate spheroidal pulses | — |
-| 🟠 | K. Murota, K. Hirade, GMSK modulation for digital mobile radio telephony, TCOM 29(7), 1981 | `com_waveform::cpm` | Table I: the 99 % bandwidths of GMSK | `crates/com-waveform/src/cpm/mod.rs::murota_hirade_1981_gmsk_bandwidths` | the paper is not in references/ | — |
+| 🟢 | K. Murota, K. Hirade, GMSK modulation for digital mobile radio telephony, TCOM 29(7), 1981 | `com_waveform::cpm` | Table I: the 90, 99, 99.9 and 99.99 % bandwidths of GMSK (BT = 0.2, 0.25, 0.5) within 3 % and of MSK (closed form) within 2 %; Fig. 5: the minimum distance of GMSK at BT = 0.2 to 0.8 within 0.02 | `crates/com-waveform/src/cpm/mod.rs::murota_hirade_1981_gmsk_bandwidths`<br>`crates/com-waveform/src/cpm/mod.rs::murota_hirade_1981_fig_5_minimum_distance` | the BER of Figs. 6-8 and the measured results; TFM | • Table I prints 6.00 for the 99.99 % bandwidth of MSK; its closed-form spectrum gives 5.67 |
+| 🟢 | C.-E. Sundberg, Continuous phase modulation, IEEE Commun. Mag. 24(4), 1986 | `com_waveform::cpm` | Fig. 5: the distance bound of binary 1RC to 6RC at h = 1/2 and the peaks of 1RC, 2RC and 3RC, read on the figure within 0.05 | `crates/com-waveform/src/cpm/mod.rs::sundberg_1986_fig_5_distance_of_binary_lrc` | the spectra of Figs. 3-4 and the power-bandwidth plane of Fig. 6; the receivers of Figs. 12-18 | — |
 
 ## MIMO
 
@@ -109,6 +110,7 @@ Summary: 76 documents, 39 🟢, 27 🟠, 10 🔴; 32 inconsistencies found.
 
 | | Document | Module | Compared | Tests | Not covered | Inconsistencies in the document |
 |---|---|---|---|---|---|---|
+| 🟢 | J. Max, Quantizing for minimum distortion, IRE Trans. Inf. Theory 6(1), 1960 | `com_hardware::converter` | Table II: the spacing and mean squared error of the optimum uniform quantiser of a unit Gaussian input for 2, 4, 8, 16 and 32 levels | `validation/tests/converters.rs::optimal_uniform_quantizers_of_max_1960` | the non-uniform quantisers of Table I (Lloyd-Max), not implemented | • the errors of Table II fall below the exact integral as the levels grow (0.05 % at 17 levels, 0.15 % at 32, 0.18 % at 36); the spacings are exact to their four digits |
 | 🟢 | P. Banelli, S. Cacopardi, Theoretical analysis and performance of OFDM signals in nonlinear AWGN channels, TCOM 48(3), 2000 | `com_dsp::nonlinear` | eqs. 7, 9, 17-21, 28, 31, Table I, Fig. 5 | `validation/tests/banelli2000.rs` | the measured amplifier of Figs. 3-4 (coefficients not given) | • eq. 31: the output back-off is gamma/(1 - e^-gamma), printed gamma (1 - e^-gamma)<br>• eq. 28 and Table I disagree in sign |
 | 🔴 | L. Ding et al., A robust digital baseband predistorter constructed using memory polynomials, TCOM 52(1), 2004 | `com_hardware::amplifier, com_dsp::compensation::dpd` | - | — | the memory polynomial and its indirect learning against the results of the paper | — |
 
