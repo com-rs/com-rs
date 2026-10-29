@@ -56,9 +56,9 @@ pub use fec::{CodeRate, Dvbs2Fec, FrameSize};
 use com_core::{Error, Result, ensure};
 use com_fec::crc::Crc;
 use com_fec::interleaving::Interleaver;
-use com_fec::scrambling::lfsr;
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_math::sequences::lfsr;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 use std::str::FromStr;
 
@@ -128,11 +128,11 @@ impl Modcod {
         m.number().map(|_| m)
     }
 
-    /// The MODCOD from names: `Modcod::parse("16APSK", "3/4")`.
+    /// The MODCOD from names: `Modcod::from_name("16APSK", "3/4")`.
     ///
     /// # Errors
     /// [`Error::Config`] for an unknown name or a combination outside Table 12.
-    pub fn parse(modulation: &str, rate: &str) -> Result<Modcod> {
+    pub fn from_name(modulation: &str, rate: &str) -> Result<Modcod> {
         Modcod::new(modulation.parse()?, rate.parse()?)
     }
 
@@ -567,7 +567,7 @@ impl Dvbs2 {
             .filter(|(_, d)| *d)
             .map(|((z, c), _)| z * c.conj())
             .collect();
-        let llr = self.constellation.llr(&data, noise_var.max(1e-300), None, max_log);
+        let llr = self.constellation.llr(&data, noise_var.max(1e-300), None, max_log)?;
         Ok(self.interleaver.as_ref().map_or(llr.clone(), |p| p.deinterleave(&llr)))
     }
 

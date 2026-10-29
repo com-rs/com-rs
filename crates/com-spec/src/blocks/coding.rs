@@ -287,7 +287,7 @@ fn ldpc(
     iterations: usize,
 ) -> Result<LdpcCode> {
     let mut c = LdpcCode::peg(n, k, var_degree, seed)?;
-    c.rule = CheckRule::parse(rule, alpha)?;
+    c.rule = CheckRule::from_name(rule, alpha)?;
     c.layered = layered;
     c.max_iterations = iterations;
     Ok(c)
@@ -421,9 +421,9 @@ impl Block for Demap {
         let c = p.constellation("demap")?;
         let var = p.symbol_noise("demap")?;
         let llr = if var.windows(2).all(|w| w[0] == w[1]) {
-            c.llr(&p.samples, var.first().copied().unwrap_or(1.0), p.pmf.as_deref(), self.max_log)
+            c.llr(&p.samples, var.first().copied().unwrap_or(1.0), p.pmf.as_deref(), self.max_log)?
         } else {
-            p.samples.iter().zip(&var).flat_map(|(z, v)| c.llr(&[*z], *v, p.pmf.as_deref(), self.max_log)).collect()
+            c.llr_with_variances(&p.samples, &var, p.pmf.as_deref(), self.max_log)?
         };
         drop(pooled);
         s.coding.llr = llr;

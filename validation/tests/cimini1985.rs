@@ -48,9 +48,9 @@ enum Correction {
 /// BER of the OFDM QPSK of Cimini with `n` subchannels, the pilot envelope
 /// $Z_{p} = \rho^{*} Z_{d} + \sqrt{1 - |\rho|^{2}} Z_{x}$ (eq. (24); `rho` = 1: ideal).
 fn ber(n: usize, fd: f64, sir_db: f64, corr: Correction, rho: C64, blocks: usize, seed: u64) -> f64 {
-    let tdl = Tdl::new(vec![(0.0, 0.0)], fd, FS, 1, 1).unwrap();
+    let tdl = Tdl::new(&[(0.0, 0.0)], fd, FS, 1, 1).unwrap();
     let mut rng = Rng::new(seed);
-    let g = 10f64.powf(-sir_db / 10.0);
+    let g = comrs::math::db2lin(-sir_db);
     let s = 1.0 / 2f64.sqrt();
     let qpsk = |r: &mut Rng| -> (C64, [bool; 2]) {
         let (a, b) = (r.below(2) == 1, r.below(2) == 1);
@@ -97,7 +97,7 @@ fn sir_at_1e2(n: usize, mph: f64, optimum: bool, rho: C64) -> f64 {
         } else {
             LIMITS_DB
                 .iter()
-                .map(|e| ber(n, doppler(mph), s, Correction::Limited(10f64.powf(e / 20.0)), rho, blocks, seed))
+                .map(|e| ber(n, doppler(mph), s, Correction::Limited(comrs::math::db2amp(*e)), rho, blocks, seed))
                 .fold(1.0, f64::min)
         }
     };
@@ -120,7 +120,7 @@ fn flat() -> C64 {
 /// The SIR of coherent QPSK over flat Rayleigh fading (N = 1) at a BER of 1e-2: with
 /// a complex Gaussian interferer the BER is that of BPSK at the mean SNR SIR/2.
 fn sir_n1() -> f64 {
-    bisect(|s| ber_rayleigh_mrc(10f64.powf(s / 10.0) / 2.0, 1) > 1e-2, 0.0, 40.0, 60)
+    bisect(|s| ber_rayleigh_mrc(comrs::math::db2lin(s) / 2.0, 1).unwrap() > 1e-2, 0.0, 40.0, 60)
 }
 
 /// Cimini 1985, Fig. 5 and Sec. II-E (see the module).
@@ -155,7 +155,7 @@ fn cimini_1985_fig_6_gain_limit() {
     for (sir, ber_read, at_read) in [(15.0, 2.5e-3, -7.5), (17.0, 7.5e-4, -9.0), (20.0, 8e-5, -10.3)] {
         let curve: Vec<f64> = limits
             .iter()
-            .map(|e| ber(512, doppler(60.0), sir, Correction::Limited(10f64.powf(e / 20.0)), flat(), 4000, 9))
+            .map(|e| ber(512, doppler(60.0), sir, Correction::Limited(comrs::math::db2amp(*e)), flat(), 4000, 9))
             .collect();
         let (k, min) = curve.iter().enumerate().fold((0, 1.0), |a, (k, &b)| if b < a.1 { (k, b) } else { a });
         assert!((min / ber_read).ln().abs() < 1.5f64.ln(), "SIR {sir}: {min} against {ber_read}");
@@ -173,7 +173,7 @@ fn cimini_1985_fig_6_gain_limit() {
 #[ignore = "statistical validation: run with --ignored"]
 fn cimini_1985_eq_23_and_fig_7_delay_spread() {
     let delta = 50e-6;
-    let two_ray = Tdl::new(vec![(0.0, 0.0), (delta, 0.0)], 0.0, 1e6, 1, 1).unwrap();
+    let two_ray = Tdl::new(&[(0.0, 0.0), (delta, 0.0)], 0.0, 1e6, 1, 1).unwrap();
     let rho_at = |f: f64| two_ray.frequency_correlation(1, (1e6 / f).round() as usize);
     for f in [500.0, 1000.0, 2000.0] {
         let s = std::f64::consts::TAU * f;

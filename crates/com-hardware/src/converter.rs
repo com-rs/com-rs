@@ -129,27 +129,26 @@ pub fn rms_per_dimension(x: &[C64]) -> f64 {
 /// The SQNR of a full-scale sine through an ideal quantiser of `bits` bits:
 /// $10 \log_{10}(\tfrac{3}{2}\, 4^{N})$ dB.
 pub fn sqnr_sine_db(bits: u32) -> f64 {
-    10.0 * 1.5f64.log10() + 20.0 * f64::from(bits) * 2f64.log10()
+    com_math::lin2db(1.5) + f64::from(bits) * com_math::amp2db(2.0)
 }
 
 /// The effective number of bits of a SINAD measured on a full-scale sine:
 /// $(\mathrm{SINAD} - 1.76)/6.02$.
 pub fn enob_from_sinad_db(sinad_db: f64) -> f64 {
-    (sinad_db - 10.0 * 1.5f64.log10()) / (20.0 * 2f64.log10())
+    (sinad_db - com_math::lin2db(1.5)) / com_math::amp2db(2.0)
 }
 
 /// The SNR of a sine of frequency `f` (Hz) sampled with an RMS clock jitter of
 /// `jitter_s` seconds: $-20 \log_{10}(2\pi f \sigma_{j})$ dB.
 pub fn jitter_snr_db(f: f64, jitter_s: f64) -> f64 {
-    -20.0 * (2.0 * PI * f * jitter_s).log10()
+    -com_math::amp2db(2.0 * PI * f * jitter_s)
 }
 
 /// The amplitude response at `f` of a zero-order hold of `hold` output samples per
 /// input sample at the input rate `fs`: $|\sin(\pi f/f_{s}) / (H \sin(\pi f/(H f_{s})))|$.
 pub fn zero_order_hold_gain(f: f64, fs: f64, hold: usize) -> f64 {
-    let h = hold.max(1) as f64;
-    let x = PI * f / fs;
-    if x.abs() < 1e-12 { 1.0 } else { (x.sin() / (h * (x / h).sin())).abs() }
+    let hold = hold.max(1);
+    com_math::diric(2.0 * PI * f / (hold as f64 * fs), hold).abs()
 }
 
 /// $\Phi(u)$ and $\varphi(u)$ of the standard normal distribution.
@@ -162,15 +161,7 @@ fn normal(u: f64) -> (f64, f64) {
 /// form (see the module).
 pub fn gaussian_mse(q: &Quantizer, sigma: f64) -> f64 {
     // five-point Gauss–Legendre on [-1, 1]: exact up to degree 9
-    const X: [f64; 5] =
-        [0.0, -0.538_469_310_105_683_1, 0.538_469_310_105_683_1, -0.906_179_845_938_664, 0.906_179_845_938_664];
-    const W: [f64; 5] = [
-        0.568_888_888_888_888_9,
-        0.478_628_670_499_366_5,
-        0.478_628_670_499_366_5,
-        0.236_926_885_056_189_1,
-        0.236_926_885_056_189_1,
-    ];
+    let (nodes, weights) = com_math::gauss_legendre(5);
     let (d, a) = (q.step() / sigma, q.full_scale / sigma);
     let levels = 1usize << q.bits;
     // the overload cells beyond ±(A - Δ), of level ±(A - Δ/2), are symmetric
@@ -181,7 +172,11 @@ pub fn gaussian_mse(q: &Quantizer, sigma: f64) -> f64 {
     for k in 1..levels - 1 {
         let lo = -a + k as f64 * d;
         let mid = lo + d / 2.0;
-        inner += X.iter().zip(&W).map(|(x, w)| w * (x * d / 2.0).powi(2) * normal(mid + x * d / 2.0).1).sum::<f64>()
+        inner += nodes
+            .iter()
+            .zip(&weights)
+            .map(|(x, w)| w * (x * d / 2.0).powi(2) * normal(mid + x * d / 2.0).1)
+            .sum::<f64>()
             * d
             / 2.0;
     }

@@ -86,7 +86,7 @@ impl PyCpm {
         order: usize,
     ) -> PyResult<Self> {
         let (h_num, h_den) = h.map_or(Ok((1, 2)), modulation_index)?;
-        let pulse = FrequencyPulse::parse(pulse, bt).py()?;
+        let pulse = FrequencyPulse::from_name(pulse, bt).py()?;
         PyCpm::build(CpmConfig { order, h_num, h_den, pulse, length, sps })
     }
 
@@ -572,7 +572,7 @@ impl PyCeOfdm {
     ///
     /// Args:
     ///     samples (array_like): a multiple of `N + N_cp` received samples.
-    ///     noise_variance (float): `σ²` per sample (:meth:`noise_variance`).
+    ///     noise_var (float): `σ²` per sample (:meth:`noise_variance`).
     ///     constellation (Constellation): the symbols as transmitted (square QAM, PAM or
     ///         BPSK).
     ///     iterations (int): iterations per block.
@@ -581,20 +581,20 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `K` complex estimates per block.
-    #[pyo3(signature = (samples, noise_variance, constellation, *, iterations=50, damping=0.5, points=64))]
+    #[pyo3(signature = (samples, noise_var, constellation, *, iterations=50, damping=0.5, points=64))]
     #[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python method")]
     fn gamp<'py>(
         &self,
         py: Python<'py>,
         samples: &Bound<'py, PyAny>,
-        noise_variance: f64,
+        noise_var: f64,
         constellation: &PyConstellation,
         iterations: usize,
         damping: f64,
         points: usize,
     ) -> PyResult<CArr<'py>> {
         let g = Gamp { iterations, damping, points };
-        Ok(carr(py, g.detect(&self.inner, &cvec(samples)?, &constellation.inner, noise_variance).py()?))
+        Ok(carr(py, g.detect(&self.inner, &cvec(samples)?, &constellation.inner, noise_var).py()?))
     }
 
     /// The phase of the receiver before the DFT, prefix included.
@@ -636,7 +636,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ser(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ser(&self.inner, m, e, k).py())
+        map_real(esn0_db, |e| theory::ser(&self.inner, k, m, e).py())
     }
 
     /// The BER of the linear regime, Gray mapping: the exact Gray BER of a square QAM
@@ -653,7 +653,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ber(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ber(&self.inner, m, e, k).py())
+        map_real(esn0_db, |e| theory::ber(&self.inner, k, m, e).py())
     }
 
     /// The expected periodogram `E|S_k|²/N` of a transmitted block under the Gaussian
@@ -694,7 +694,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
     fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
         let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
-        map_real(esn0_db, |e| theory::ber_receiver(&self.inner, r, m, e, k).py())
+        map_real(esn0_db, |e| theory::ber_receiver(&self.inner, r, k, m, e).py())
     }
 
     /// The change of the estimates of the arctangent receiver caused by a cycle slip of
@@ -927,7 +927,7 @@ impl PyCss {
 #[pyfunction]
 #[pyo3(signature = (sf, snr_db, approximation=None))]
 fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> PyResult<Py<PyAny>> {
-    let f: fn(u32, f64) -> f64 = match approximation {
+    let f: fn(u32, f64) -> comrs::Result<f64> = match approximation {
         None => css_theory::ser,
         Some("rice") => css_theory::ser_rice,
         Some("gumbel") => css_theory::ser_gumbel,
@@ -935,7 +935,7 @@ fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> P
             return Err(PyValueError::new_err(format!("approximation must be rice or gumbel, got {other:?}")));
         }
     };
-    map_real(snr_db, |s| Ok(f(sf, s)))
+    map_real(snr_db, |s| f(sf, s).py())
 }
 
 /// The BER of the noncoherent CSS receiver over AWGN, `SER M/(2(M - 1))`.
@@ -948,7 +948,7 @@ fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> P
 ///     float | numpy.ndarray: the BER.
 #[pyfunction]
 fn css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(snr_db, |s| Ok(css_theory::ber(sf, s)))
+    map_real(snr_db, |s| css_theory::ber(sf, s).py())
 }
 
 /// The cross-correlation of two continuous-time LoRa waveforms (Chiani and Elzanaty 2019,
@@ -962,8 +962,8 @@ fn css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Returns:
 ///     complex: `C(l, m)`.
 #[pyfunction]
-fn css_cross_correlation(sf: u32, l: usize, m: usize) -> C64 {
-    css_theory::cross_correlation(sf, l, m)
+fn css_cross_correlation(sf: u32, l: usize, m: usize) -> PyResult<C64> {
+    css_theory::cross_correlation(sf, l, m).py()
 }
 
 /// The largest real cross-correlation of the continuous-time waveforms (Chiani and
@@ -980,8 +980,8 @@ fn css_cross_correlation(sf: u32, l: usize, m: usize) -> C64 {
 ///     >>> round(comrs.css_max_cross_correlation(7), 3)
 ///     0.045
 #[pyfunction]
-fn css_max_cross_correlation(sf: u32) -> f64 {
-    css_theory::max_cross_correlation(sf)
+fn css_max_cross_correlation(sf: u32) -> PyResult<f64> {
+    css_theory::max_cross_correlation(sf).py()
 }
 
 /// The continuous part of the power spectrum of LoRa, `G^c(f) B`, at `f` in units of `B`
@@ -995,7 +995,7 @@ fn css_max_cross_correlation(sf: u32) -> f64 {
 ///     numpy.ndarray: one value per frequency.
 #[pyfunction]
 fn css_continuous_spectrum<'py>(py: Python<'py>, sf: u32, f: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
-    Ok(farr(py, css_theory::continuous_spectrum(sf, &fvec(f)?)))
+    Ok(farr(py, css_theory::continuous_spectrum(sf, &fvec(f)?).py()?))
 }
 
 /// The lines of the spectrum of LoRa at `n B/M`, `|n| ≤ n_max` (Chiani and Elzanaty 2019,
@@ -1008,9 +1008,9 @@ fn css_continuous_spectrum<'py>(py: Python<'py>, sf: u32, f: &Bound<'py, PyAny>)
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (units of `B`) and powers.
 #[pyfunction]
-fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: usize) -> (FArr<'py>, FArr<'py>) {
-    let (f, p): (Vec<f64>, Vec<f64>) = css_theory::spectral_lines(sf, n_max).into_iter().unzip();
-    (farr(py, f), farr(py, p))
+fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
+    let (f, p): (Vec<f64>, Vec<f64>) = css_theory::spectral_lines(sf, n_max).py()?.into_iter().unzip();
+    Ok((farr(py, f), farr(py, p)))
 }
 
 /// The band (units of `B`) that holds `fraction` of the power of LoRa (Chiani and
@@ -1030,8 +1030,8 @@ fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: usize) -> (FArr<'py>
 ///     1.18
 #[pyfunction]
 #[pyo3(signature = (sf, fraction=0.99, span=3.0))]
-fn css_occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> f64 {
-    css_theory::occupied_bandwidth(sf, fraction, span)
+fn css_occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> PyResult<f64> {
+    css_theory::occupied_bandwidth(sf, fraction, span).py()
 }
 
 /// The pattern `R_k` that a same-SF interferer leaves after the dechirping (Afisiadis et
@@ -1065,11 +1065,12 @@ fn css_interference_pattern<'py>(py: Python<'py>, sf: u32, s1: usize, s2: usize,
 ///     float: the SER or the FER.
 #[pyfunction]
 #[pyo3(signature = (sf, snr_db, pi_db, *, frame=None, eps=0.2))]
-fn css_ser_interference(sf: u32, snr_db: f64, pi_db: f64, frame: Option<usize>, eps: f64) -> f64 {
+fn css_ser_interference(sf: u32, snr_db: f64, pi_db: f64, frame: Option<usize>, eps: f64) -> PyResult<f64> {
     match frame {
         None => css_theory::ser_interference(sf, snr_db, pi_db, eps),
         Some(f) => css_theory::fer_interference(sf, snr_db, pi_db, f, eps),
     }
+    .py()
 }
 
 /// Register the constant-envelope waveform bindings.

@@ -8,7 +8,7 @@
 //! | Module | Content |
 //! |---|---|
 //! | [`crc`] | cyclic redundancy checks of 5G NR (CRC24A/B/C, CRC16, CRC11, CRC6) |
-//! | [`scrambling`] | the Gold sequence of 3GPP TS 38.211; binary LFSR sequences ([`scrambling::lfsr`]) |
+//! | [`scrambling`] | the Gold scrambler of 3GPP TS 38.211 (its sequences are `com_math::sequences`) |
 //! | [`interleaving`] | block, random and QPP interleavers |
 //! | [`conv`] | convolutional codes: trellis, Viterbi (soft and hard), BCJR (log-MAP, max-log) |
 //! | [`turbo`] | turbo codes (two $(13, 15)_{8}$ recursive codes, LTE) with iterative decoding |

@@ -435,7 +435,7 @@ pub fn free_distance(trellis: &Trellis, puncturer: &Puncturer) -> Result<u32> {
 mod tests {
     use super::*;
     use crate::block::testing::awgn_llr;
-    use crate::bounds::noise_variance;
+    use crate::bounds::bpsk_noise_variance;
     use crate::conv::ConvolutionalCode;
     use com_core::rng::Rng;
 
@@ -488,7 +488,7 @@ mod tests {
             let c = code.encode_block(&info).unwrap();
             assert_eq!(c.len(), code.n());
             // Eb/N0 = 10 dB
-            let y = awgn_llr(&c, noise_variance(10.0, code.code_rate()), &mut rng);
+            let y = awgn_llr(&c, bpsk_noise_variance(10.0, code.code_rate()), &mut rng);
             assert_eq!(code.decode_block(&y).unwrap(), info, "{:?}", code.puncturer);
             // the hard-decision decoder also treats the dummy bits as zero metrics
             let mut hard_code = code.clone();
@@ -510,7 +510,7 @@ mod tests {
                 .map(|(_, &b)| b)
                 .collect::<Vec<u8>>()[..]
         );
-        let y = awgn_llr(&c, noise_variance(6.0, turbo.code_rate()), &mut rng);
+        let y = awgn_llr(&c, bpsk_noise_variance(6.0, turbo.code_rate()), &mut rng);
         assert_eq!(turbo.decode_block(&y).unwrap(), info);
         assert!(PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::ieee80211_2_3()).is_err());
     }
@@ -530,13 +530,13 @@ mod tests {
             let info: Vec<u8> = (0..k).map(|_| rng.bit()).collect();
             let errors = |decoded: &[u8]| decoded.iter().zip(&info).filter(|(a, b)| a != b).count();
             let c = half.encode_block(&info).unwrap();
-            let y = awgn_llr(&c, noise_variance(ebn0, half.code_rate()), &mut rng);
+            let y = awgn_llr(&c, bpsk_noise_variance(ebn0, half.code_rate()), &mut rng);
             e_half += errors(&half.decode_block(&y).unwrap());
             let c = three_quarters.encode_block(&info).unwrap();
-            let y = awgn_llr(&c, noise_variance(ebn0, three_quarters.code_rate()), &mut rng);
+            let y = awgn_llr(&c, bpsk_noise_variance(ebn0, three_quarters.code_rate()), &mut rng);
             e_34 += errors(&three_quarters.decode_block(&y).unwrap());
-            let y = awgn_llr(&info, noise_variance(ebn0, 1.0), &mut rng);
-            e_uncoded += errors(&crate::block::hard(&y));
+            let y = awgn_llr(&info, bpsk_noise_variance(ebn0, 1.0), &mut rng);
+            e_uncoded += errors(&com_core::signal::hard_decisions(&y));
         }
         // 50 000 bits: about 625 uncoded errors, 25 at rate 3/4 and a few at rate 1/2
         // (this seed: 644, 24 and 0); the counts are Poisson-like with standard

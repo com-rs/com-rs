@@ -69,12 +69,12 @@
 //!
 //! # Examples
 //! ```
-//! use com_mimo::message_passing::{amp_thresholds, Field, Prior};
+//! use com_mimo::message_passing::{amp_thresholds, Domain, Prior};
 //! use com_mapping::constellation::Constellation;
 //! // QPSK: LAMA is optimal at any SNR below β = 1.475 and recovers the noiseless
 //! // signal below β = 2.086 (Jeon et al., Table II)
 //! let qpsk = Prior::uniform(&Constellation::qam(4)?.normalized());
-//! let t = amp_thresholds(&qpsk, Field::Complex);
+//! let t = amp_thresholds(&qpsk, Domain::Complex);
 //! assert!((t.beta_min - 1.475).abs() < 2e-3 && (t.beta_max - 2.086).abs() < 2e-3);
 //! # Ok::<(), com_core::Error>(())
 //! ```
@@ -96,9 +96,9 @@ use ndarray::ArrayView2;
 /// Nodes of the Gauss–Hermite rule per dimension of the expectations over the noise.
 const NODES: usize = 96;
 
-/// Whether the model is complex (circularly-symmetric noise) or real.
+/// The number domain of the model: complex (circularly-symmetric noise) or real.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Field {
+pub enum Domain {
     /// Complex symbols, channel and circularly-symmetric noise: MIMO.
     Complex,
     /// Real symbols, channel and noise (the real parts of the complex values are used):
@@ -170,16 +170,16 @@ impl Prior {
     }
 
     /// The posterior mean $F(r, \tau)$ and variance $G(r, \tau)$ of $x$ from
-    /// $r = x + n$, $n$ of variance $\tau$ in `field` (see the module).
-    pub fn denoise(&self, r: C64, tau: f64, field: Field) -> (C64, f64) {
-        let r = match field {
-            Field::Complex => r,
-            Field::Real => C64::new(r.re, 0.0),
+    /// $r = x + n$, $n$ of variance $\tau$ in `domain` (see the module).
+    pub fn denoise(&self, r: C64, tau: f64, domain: Domain) -> (C64, f64) {
+        let r = match domain {
+            Domain::Complex => r,
+            Domain::Real => C64::new(r.re, 0.0),
         };
         // the exponent of the Gaussian likelihood: |r - a|² / τ (complex), (r - a)² / (2τ) (real)
-        let scale = match field {
-            Field::Complex => 1.0 / tau,
-            Field::Real => 0.5 / tau,
+        let scale = match domain {
+            Domain::Complex => 1.0 / tau,
+            Domain::Real => 0.5 / tau,
         };
         match self {
             Prior::Discrete { points, probs } => {
@@ -214,9 +214,9 @@ impl Prior {
                 let rho = *rho;
                 let s = 1.0 / rho;
                 // log of the likelihood of r under N(0, v), up to the common constant
-                let log_lik = |v: f64| match field {
-                    Field::Complex => -r.norm_sqr() / v - v.ln(),
-                    Field::Real => -0.5 * r.norm_sqr() / v - 0.5 * v.ln(),
+                let log_lik = |v: f64| match domain {
+                    Domain::Complex => -r.norm_sqr() / v - v.ln(),
+                    Domain::Real => -0.5 * r.norm_sqr() / v - 0.5 * v.ln(),
                 };
                 let tau = tau.max(f64::MIN_POSITIVE);
                 let l1 = rho.ln() + log_lik(s + tau);
@@ -266,25 +266,25 @@ impl Prior {
     /// The MSE function $\Psi(\sigma^{2}, \gamma^{2})$ and the variance function
     /// $\Phi(\sigma^{2}, \gamma^{2})$ of the denoiser applied with the variance
     /// $\gamma^{2}$ to $S + \sigma Z$ (see the module), by Gauss–Hermite quadrature.
-    pub fn mse(&self, sigma2: f64, gamma2: f64, field: Field) -> (f64, f64) {
-        if field == Field::Complex {
+    pub fn mse(&self, sigma2: f64, gamma2: f64, domain: Domain) -> (f64, f64) {
+        if domain == Domain::Complex {
             if let Some(pam) = self.separable() {
-                let (psi, phi) = pam.mse(0.5 * sigma2, 0.5 * gamma2, Field::Real);
+                let (psi, phi) = pam.mse(0.5 * sigma2, 0.5 * gamma2, Domain::Real);
                 return (2.0 * psi, 2.0 * phi);
             }
         }
         let sigma = sigma2.max(0.0).sqrt();
-        let nodes = Quadrature::new(field);
+        let nodes = Quadrature::new(domain);
         match self {
             Prior::Discrete { points, probs } => {
                 let (mut psi, mut phi) = (0.0, 0.0);
                 for (a, p) in points.iter().zip(probs).filter(|(_, p)| **p > 0.0) {
-                    let a = match field {
-                        Field::Complex => *a,
-                        Field::Real => C64::new(a.re, 0.0),
+                    let a = match domain {
+                        Domain::Complex => *a,
+                        Domain::Real => C64::new(a.re, 0.0),
                     };
                     nodes.for_each(|z, w| {
-                        let (f, g) = self.denoise(a + z * sigma, gamma2, field);
+                        let (f, g) = self.denoise(a + z * sigma, gamma2, domain);
                         psi += p * w * (f - a).norm_sqr();
                         phi += p * w * g;
                     });
@@ -302,8 +302,8 @@ impl Prior {
                     let sd = var.sqrt();
                     nodes.for_each(|z, w| {
                         let r = z * sd;
-                        let (f, g) = self.denoise(r, gamma2, field);
-                        let (f0, g0) = self.denoise(r, sigma2, field);
+                        let (f, g) = self.denoise(r, gamma2, domain);
+                        let (f0, g0) = self.denoise(r, sigma2, domain);
                         psi += weight * w * ((f - f0).norm_sqr() + g0);
                         phi += weight * w * g;
                     });
@@ -321,8 +321,8 @@ struct Quadrature {
 }
 
 impl Quadrature {
-    fn new(field: Field) -> Quadrature {
-        Quadrature { nodes: com_math::gaussian_nodes(1.0, field == Field::Complex, NODES) }
+    fn new(domain: Domain) -> Quadrature {
+        Quadrature { nodes: com_math::gaussian_nodes(1.0, domain == Domain::Complex, NODES) }
     }
 
     fn for_each(&self, mut f: impl FnMut(C64, f64)) {
@@ -351,12 +351,12 @@ pub fn amp_state_evolution(
     beta: f64,
     noise_var: f64,
     iterations: usize,
-    field: Field,
+    domain: Domain,
 ) -> Vec<StateEvolutionStep> {
     let mut s2 = noise_var + beta * prior.variance();
     let mut out = Vec::with_capacity(iterations);
     for _ in 0..iterations {
-        let mse = prior.mse(s2, s2, field).0;
+        let mse = prior.mse(s2, s2, domain).0;
         out.push(StateEvolutionStep { noise_var: s2, mse });
         s2 = noise_var + beta * mse;
     }
@@ -382,9 +382,9 @@ pub struct AmpThresholds {
 /// $\beta_{\max} = \min_{\sigma^{2}} \sigma^{2} / \Psi(\sigma^{2}, \sigma^{2})$,
 /// $\beta_{\min} = \min_{\sigma^{2}} 1/\Psi'(\sigma^{2})$; the noise variances are
 /// $\sigma^{2} - \beta \Psi(\sigma^{2})$ where $\beta \Psi'(\sigma^{2}) = 1$.
-pub fn amp_thresholds(prior: &Prior, field: Field) -> AmpThresholds {
+pub fn amp_thresholds(prior: &Prior, domain: Domain) -> AmpThresholds {
     let var = prior.variance();
-    let psi = |s2: f64| prior.mse(s2, s2, field).0;
+    let psi = |s2: f64| prior.mse(s2, s2, domain).0;
     // the derivative in σ², by central differences in log σ²
     let dpsi = |s2: f64| {
         let h = 1e-4;
@@ -480,7 +480,7 @@ pub fn lama(
     y: &[C64],
     noise_var: f64,
     prior: &Prior,
-    field: Field,
+    domain: Domain,
     iterations: usize,
     variance: AmpVariance,
 ) -> Result<Trace> {
@@ -504,7 +504,7 @@ pub fn lama(
         }
         let back = adjoint(&h.view(), &r);
         let z: Vec<C64> = s.iter().zip(&back).map(|(a, b)| a + b).collect();
-        let (next, g): (Vec<C64>, Vec<f64>) = z.iter().map(|zi| prior.denoise(*zi, gamma, field)).unzip();
+        let (next, g): (Vec<C64>, Vec<f64>) = z.iter().map(|zi| prior.denoise(*zi, gamma, domain)).unzip();
         let gbar = g.iter().sum::<f64>() / n as f64;
         let onsager = beta * gbar / gamma;
         let fit = residual(&h.view(), &y, &next);
@@ -578,7 +578,7 @@ pub fn oamp(
     y: &[C64],
     noise_var: f64,
     prior: &Prior,
-    field: Field,
+    domain: Domain,
     iterations: usize,
     linear: OampLinear,
 ) -> Result<Trace> {
@@ -603,7 +603,7 @@ pub fn oamp(
             .map(|i| u.column(i).iter().zip(&res).map(|(a, b)| a.conj() * b).sum::<C64>() * g[i])
             .collect();
         let r: Vec<C64> = (0..n).map(|j| s[j] + (0..proj.len()).map(|i| v[[j, i]] * proj[i]).sum::<C64>()).collect();
-        let (f, gv): (Vec<C64>, Vec<f64>) = r.iter().map(|ri| prior.denoise(*ri, tau2, field)).unzip();
+        let (f, gv): (Vec<C64>, Vec<f64>) = r.iter().map(|ri| prior.denoise(*ri, tau2, domain)).unzip();
         let mmse = gv.iter().sum::<f64>() / n as f64;
         trace.noise_vars.push(tau2);
         trace.estimates.push(f.clone());
@@ -628,14 +628,14 @@ pub fn oamp_state_evolution(
     noise_var: f64,
     iterations: usize,
     linear: OampLinear,
-    field: Field,
+    domain: Domain,
 ) -> Vec<StateEvolutionStep> {
     let lambda: Vec<f64> = singular_values.iter().copied().take(n).collect();
     let mut v2 = prior.variance();
     let mut out = Vec::with_capacity(iterations);
     for _ in 0..iterations {
         let (_, tau2) = decorrelated(&lambda, &linear.gains(&lambda, v2, noise_var), n, v2, noise_var);
-        let mmse = prior.mse(tau2, tau2, field).0;
+        let mmse = prior.mse(tau2, tau2, domain).0;
         out.push(StateEvolutionStep { noise_var: tau2, mse: mmse });
         v2 = if mmse < tau2 { 1.0 / (1.0 / mmse.max(1e-300) - 1.0 / tau2) } else { tau2 };
     }
@@ -679,41 +679,42 @@ impl Oamp {
     }
 }
 
-/// Hard decisions and LLRs of the decoupled channel $z = x + n$, $n$ of variance
-/// `noise_var`.
+/// Hard decisions of the decoupled channel $z = x + n$.
 fn decide(c: &Constellation, trace: &Trace) -> Vec<usize> {
-    trace.z.iter().map(|z| c.nearest(*z)).collect()
+    c.decide(&trace.z)
 }
 
-fn soft(c: &Constellation, trace: &Trace) -> Vec<f64> {
+/// LLRs of the decoupled channel $z = x + n$, $n$ of variance `trace.noise_var` (floored:
+/// the state evolution reaches 0 without noise).
+fn soft(c: &Constellation, trace: &Trace) -> Result<Vec<f64>> {
     c.llr(&trace.z, trace.noise_var.max(1e-300), None, false)
 }
 
 impl MimoDetector for Amp {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         let prior = Prior::uniform(&self.constellation);
-        let t = lama(h, y, noise_var, &prior, Field::Complex, self.iterations, self.variance)?;
+        let t = lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)?;
         Ok(decide(&self.constellation, &t))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
         let prior = Prior::uniform(&self.constellation);
-        let t = lama(h, y, noise_var, &prior, Field::Complex, self.iterations, self.variance)?;
-        Ok(soft(&self.constellation, &t))
+        let t = lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)?;
+        soft(&self.constellation, &t)
     }
 }
 
 impl MimoDetector for Oamp {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         let prior = Prior::uniform(&self.constellation);
-        let t = oamp(h, y, noise_var, &prior, Field::Complex, self.iterations, self.linear)?;
+        let t = oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)?;
         Ok(decide(&self.constellation, &t))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
         let prior = Prior::uniform(&self.constellation);
-        let t = oamp(h, y, noise_var, &prior, Field::Complex, self.iterations, self.linear)?;
-        Ok(soft(&self.constellation, &t))
+        let t = oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)?;
+        soft(&self.constellation, &t)
     }
 }
 
@@ -732,14 +733,14 @@ mod tests {
         let p = Prior::uniform(&qpsk());
         // far from the noise: the nearest point, no variance
         let a = qpsk().points()[2];
-        let (f, g) = p.denoise(a * 1.01, 1e-4, Field::Complex);
+        let (f, g) = p.denoise(a * 1.01, 1e-4, Domain::Complex);
         assert!((f - a).norm() < 1e-9 && g < 1e-9);
         // no information: the mean and the energy of the alphabet
-        let (f, g) = p.denoise(C64::new(0.0, 0.0), 1e9, Field::Complex);
+        let (f, g) = p.denoise(C64::new(0.0, 0.0), 1e9, Domain::Complex);
         assert!(f.norm() < 1e-9 && (g - 1.0).abs() < 1e-6);
         // BPSK in real noise: tanh(r / τ)
         let bpsk = Prior::Discrete { points: vec![C64::new(-1.0, 0.0), C64::new(1.0, 0.0)], probs: vec![0.5, 0.5] };
-        let (f, g) = bpsk.denoise(C64::new(0.3, 7.0), 0.5, Field::Real);
+        let (f, g) = bpsk.denoise(C64::new(0.3, 7.0), 0.5, Domain::Real);
         assert!((f.re - (0.3f64 / 0.5).tanh()).abs() < 1e-12 && (g - (1.0 - f.re * f.re)).abs() < 1e-12);
     }
 
@@ -749,15 +750,15 @@ mod tests {
         let Prior::Discrete { points, probs } = &p else { unreachable!() };
         // the same prior written as a non-separable one: perturb nothing, compute in 2D
         let direct = |s2: f64| {
-            let q = Quadrature::new(Field::Complex);
+            let q = Quadrature::new(Domain::Complex);
             let mut psi = 0.0;
             for (a, pa) in points.iter().zip(probs) {
-                q.for_each(|z, w| psi += pa * w * (p.denoise(a + z * s2.sqrt(), s2, Field::Complex).0 - a).norm_sqr());
+                q.for_each(|z, w| psi += pa * w * (p.denoise(a + z * s2.sqrt(), s2, Domain::Complex).0 - a).norm_sqr());
             }
             psi
         };
         for s2 in [0.01, 0.1, 1.0] {
-            let fast = p.mse(s2, s2, Field::Complex).0;
+            let fast = p.mse(s2, s2, Domain::Complex).0;
             assert!((fast / direct(s2) - 1.0).abs() < 1e-6, "{s2}: {fast} {}", direct(s2));
         }
     }
@@ -779,7 +780,7 @@ mod tests {
     #[test]
     fn the_state_evolution_of_lama_decreases_to_its_fixed_point() {
         let p = Prior::uniform(&qpsk());
-        let se = amp_state_evolution(&p, 0.5, 0.05, 30, Field::Complex);
+        let se = amp_state_evolution(&p, 0.5, 0.05, 30, Domain::Complex);
         assert!(se.windows(2).all(|w| w[1].noise_var <= w[0].noise_var + 1e-15));
         let last = se[se.len() - 1];
         assert!((last.noise_var - (0.05 + 0.5 * last.mse)).abs() < 1e-9);

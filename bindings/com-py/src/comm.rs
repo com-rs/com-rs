@@ -5,6 +5,7 @@ use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, count, cvec, farr, iarr,
 use comrs::mapping::bicm;
 use comrs::mapping::constellation::{self as modulation, Constellation};
 use comrs::mapping::source as sources;
+use comrs::mapping::theory::{self, Fading};
 use comrs::metrics;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
@@ -270,7 +271,7 @@ impl PyConstellation {
         let z = cvec(z)?;
         let px = px.map(crate::fvec).transpose()?;
         let c = &self.inner;
-        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), max_log));
+        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), max_log)).py()?;
         Ok(farr(py, v))
     }
 
@@ -623,8 +624,8 @@ fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
     map_real(ebn0_db, |e| metrics::theory_ser(k, m, e).py())
 }
 
-/// Mutual information of a constellation over AWGN by Gauss–Hermite quadrature
-/// (OptiCommPy `theoryMI`).
+/// Mutual information of a constellation over AWGN (OptiCommPy `theoryMI`) or Rayleigh
+/// fading known at the receiver, by Gauss–Hermite quadrature.
 ///
 /// Args:
 ///     m (int): order.
@@ -632,6 +633,7 @@ fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 ///         others a circular complex one, as in OptiCommPy.
 ///     kind (str): `"qam"`, `"psk"`, `"pam"` or `"ook"`.
 ///     px (array_like, optional): probabilities of the points.
+///     fading (str): `"awgn"` or `"rayleigh"`.
 ///     points (int): quadrature nodes per dimension.
 ///
 /// Returns:
@@ -642,56 +644,56 @@ fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 ///     >>> round(comrs.theory_mi(4, 30.0), 6)
 ///     2.0
 #[pyfunction]
-#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, points = 40))]
+#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = 40))]
 fn theory_mi(
     m: usize,
     snr_db: &Bound<'_, PyAny>,
     kind: &str,
     px: Option<&Bound<'_, PyAny>>,
+    fading: &str,
     points: usize,
 ) -> PyResult<Py<PyAny>> {
     let px = px.map(crate::fvec).transpose()?;
-    let k = self::kind(kind)?;
-    map_real(snr_db, |s| metrics::theory_mi(k, m, s, px.as_deref(), points).py())
+    let (c, f) = (Constellation::new(self::kind(kind)?, m).py()?, self::fading(fading)?);
+    map_real(snr_db, |s| theory::constellation_mi(&c, s, px.as_deref(), f, points).py())
 }
 
-/// Generalised mutual information of a Gray-labelled constellation over AWGN by
-/// Gauss–Hermite quadrature (OptiCommPy `theoryGMI`).
+/// Generalised mutual information of a Gray-labelled constellation over AWGN
+/// (OptiCommPy `theoryGMI`) or Rayleigh fading known at the receiver, by Gauss–Hermite
+/// quadrature.
 ///
 /// Args:
 ///     m (int): order.
 ///     snr_db (float | array_like): `E_s/σ²` (dB), as `theory_mi`.
 ///     kind (str): `"qam"`, `"psk"`, `"pam"` or `"ook"`.
 ///     px (array_like, optional): probabilities of the points.
+///     fading (str): `"awgn"` or `"rayleigh"`.
 ///     points (int): quadrature nodes per dimension.
 ///
 /// Returns:
 ///     float | numpy.ndarray: the GMI (bits/symbol) at every SNR.
 #[pyfunction]
-#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, points = 40))]
+#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = 40))]
 fn theory_gmi(
     m: usize,
     snr_db: &Bound<'_, PyAny>,
     kind: &str,
     px: Option<&Bound<'_, PyAny>>,
+    fading: &str,
     points: usize,
 ) -> PyResult<Py<PyAny>> {
     let px = px.map(crate::fvec).transpose()?;
-    let k = self::kind(kind)?;
-    map_real(snr_db, |s| metrics::theory_gmi(k, m, s, px.as_deref(), points).py())
+    let (c, f) = (Constellation::new(self::kind(kind)?, m).py()?, self::fading(fading)?);
+    map_real(snr_db, |s| theory::constellation_gmi(&c, s, px.as_deref(), f, points).py())
 }
 
-fn fading(name: &str) -> PyResult<bicm::Fading> {
-    match name {
-        "awgn" => Ok(bicm::Fading::Awgn),
-        "rayleigh" => Ok(bicm::Fading::Rayleigh),
-        other => Err(pyo3::exceptions::PyValueError::new_err(format!("unknown fading {other:?}: awgn, rayleigh"))),
-    }
+fn fading(name: &str) -> PyResult<Fading> {
+    name.parse().py()
 }
 
 /// The CM capacity (bits per channel use) of a constellation with uniform inputs over
 /// AWGN or Rayleigh fading known at the receiver (Caire, Taricco & Biglieri 1998, eq.
-/// (10)): the mutual information, by Gauss–Hermite quadrature.
+/// (10)): `theory_mi` of a constellation object.
 ///
 /// Args:
 ///     constellation (Constellation): the points (normalised inside).
@@ -715,12 +717,13 @@ fn cm_capacity(
     points: usize,
 ) -> PyResult<Py<PyAny>> {
     let f = self::fading(fading)?;
-    map_real(snr_db, |s| bicm::cm_capacity(&constellation.inner, s, f, points).py())
+    map_real(snr_db, |s| theory::constellation_mi(&constellation.inner, s, None, f, points).py())
 }
 
 /// The BICM capacity (bits per channel use) of a labelled constellation with uniform
 /// inputs (Caire, Taricco & Biglieri 1998, eq. (14)): the GMI of the bit-wise decoder,
-/// labels as `constellation` gives them (Gray, or `Constellation.set_partitioning`).
+/// labels as `constellation` gives them (Gray, or `Constellation.set_partitioning`):
+/// `theory_gmi` of a constellation object.
 ///
 /// Args:
 ///     constellation (Constellation): the labelled points.
@@ -739,7 +742,7 @@ fn bicm_capacity(
     points: usize,
 ) -> PyResult<Py<PyAny>> {
     let f = self::fading(fading)?;
-    map_real(snr_db, |s| bicm::bicm_capacity(&constellation.inner, s, f, points).py())
+    map_real(snr_db, |s| theory::constellation_gmi(&constellation.inner, s, None, f, points).py())
 }
 
 /// The CM cutoff rate (bits per channel use) with uniform inputs, in closed form

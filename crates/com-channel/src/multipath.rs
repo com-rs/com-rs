@@ -16,18 +16,19 @@
 //! (2003), with random arrival angles and phases. With MIMO dimensions every tap is an
 //! $n_{r} \times n_{t}$ matrix of independent such processes.
 //!
-//! [`DelayDoppler`] is the channel of a few discrete paths, each with one delay and one
-//! Doppler shift, the model of OTFS.
+//! [`DelayDopplerModel`] draws [`DelayDoppler`] channels: a few discrete paths, each
+//! with one delay and one Doppler shift, the model of OTFS.
 //!
 //! [`Profile`] lists the power-delay profiles of 3GPP TS 36.101 (EPA, EVA, ETU) and of
-//! ITU-R M.1225 (Pedestrian A, Vehicular A), and an exponential profile of a given RMS
-//! delay spread.
+//! ITU-R M.1225 (Pedestrian A and B, Vehicular A and B), and an exponential profile of a
+//! given RMS delay spread; the TDL-A to TDL-E profiles of 3GPP TR 38.901 are not
+//! implemented (its clustered delay lines are, in [`crate::cdl`]).
 //!
 //! # Examples
 //! ```
 //! use com_core::prelude::*;
 //! use com_channel::multipath::{Profile, Tdl};
-//! let ch = Tdl::new(Profile::Eva.taps(), 0.0, 15.36e6, 1, 1)?;   // static EVA at 15.36 MHz
+//! let ch = Tdl::new(&Profile::Eva.taps(), 0.0, 15.36e6, 1, 1)?;   // static EVA at 15.36 MHz
 //! let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6))?;
 //! let (y, h) = ch.fade(&x, &mut batch_rng(1, 0))?;
 //! assert_eq!(y.n_samples(), 64);
@@ -40,7 +41,7 @@
 //! 1. 3GPP TS 36.101, *E-UTRA; User Equipment (UE) radio transmission and reception*,
 //!    Annex B.2 (EPA, EVA, ETU).
 //! 2. ITU-R M.1225, *Guidelines for evaluation of radio transmission technologies for
-//!    IMT-2000*, 1997 (Pedestrian A, Vehicular A).
+//!    IMT-2000*, 1997 (Pedestrian A and B, Vehicular A and B).
 //! 3. R. H. Clarke, "A statistical theory of mobile-radio reception," *Bell Syst. Tech.
 //!    J.*, 47(6), 957–1000, 1968; W. C. Jakes, *Microwave Mobile Communications*, Wiley,
 //!    1974.
@@ -74,13 +75,13 @@ pub enum Profile {
     VehicularA,
     /// ITU-R M.1225 (1997), Table 5, channel B (4 000 ns).
     VehicularB,
-    /// An exponential profile of the given RMS delay spread (s), truncated at five
-    /// times the spread, with taps every `resolution` seconds.
+    /// An exponential profile of the given RMS delay spread, truncated at five times the
+    /// spread, with taps every `resolution_s` seconds.
     Exponential {
         /// RMS delay spread (s).
-        rms_delay: f64,
+        rms_delay_s: f64,
         /// Tap spacing (s).
-        resolution: f64,
+        resolution_s: f64,
     },
 }
 
@@ -157,12 +158,12 @@ impl Profile {
             Profile::VehicularB => {
                 ns(&[(0.0, -2.5), (300.0, 0.0), (8900.0, -12.8), (12900.0, -10.0), (17100.0, -25.2), (20000.0, -16.0)])
             }
-            Profile::Exponential { rms_delay, resolution } => {
+            Profile::Exponential { rms_delay_s: rms_delay, resolution_s: resolution } => {
                 let n = ((5.0 * rms_delay / resolution).ceil() as usize).max(1);
                 (0..=n)
                     .map(|i| {
                         let t = i as f64 * resolution;
-                        (t, 10.0 * (-t / rms_delay.max(1e-300)).exp().log10())
+                        (t, com_math::lin2db((-t / rms_delay.max(1e-300)).exp()))
                     })
                     .collect()
             }
@@ -214,6 +215,60 @@ impl Taps {
     /// Number of samples of the realisation.
     pub fn n_samples(&self) -> usize {
         self.n_samples
+    }
+
+    /// Receive antennas.
+    pub fn n_rx(&self) -> usize {
+        self.n_rx
+    }
+
+    /// Transmit antennas.
+    pub fn n_tx(&self) -> usize {
+        self.n_tx
+    }
+
+    /// The `len × len` matrix of a single-antenna realisation on the samples
+    /// `start .. start + len`: $H\[i, j\] = \sum_{l} h_{l}\[s + i\]\, \delta_{i - j, d_{l}}$, the
+    /// samples before `start` being zero (the time-variant convolution matrix).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] for a MIMO realisation or samples beyond the realisation.
+    pub fn matrix(&self, start: usize, len: usize) -> Result<com_math::linalg::CMat> {
+        self.block_matrix(start, len, false)
+    }
+
+    /// [`Taps::matrix`] of a block preceded by a cyclic prefix at least as long as the
+    /// largest delay: the delays wrap around the block,
+    /// $H\[i, (i - d_{l}) \bmod L\] \mathrel{+}= h_{l}\[s + i\]$ (the channel of a block after
+    /// the removal of its prefix, `start` its first sample).
+    ///
+    /// # Errors
+    /// As [`Taps::matrix`].
+    pub fn cyclic_matrix(&self, start: usize, len: usize) -> Result<com_math::linalg::CMat> {
+        self.block_matrix(start, len, true)
+    }
+
+    fn block_matrix(&self, start: usize, len: usize, cyclic: bool) -> Result<com_math::linalg::CMat> {
+        com_core::ensure_shape(self.n_rx == 1 && self.n_tx == 1, || {
+            format!("a matrix of a single-antenna realisation, not {} × {}", self.n_rx, self.n_tx)
+        })?;
+        com_core::ensure_shape(start + len <= self.n_samples, || {
+            format!("samples {start}..{} of a realisation of {}", start + len, self.n_samples)
+        })?;
+        let mut h = com_math::linalg::CMat::zeros((len, len));
+        for (l, &d) in self.delays.iter().enumerate() {
+            for i in 0..len {
+                let j = if cyclic {
+                    (i + len - d % len) % len
+                } else if i >= d {
+                    i - d
+                } else {
+                    continue;
+                };
+                h[[i, j]] += self.coefficient(l, start + i, 0, 0);
+            }
+        }
+        Ok(h)
     }
 
     /// Apply the taps to `x` (`n_tx` streams of `n_samples` samples), the samples
@@ -272,7 +327,7 @@ pub struct Tdl {
     delays: Vec<usize>,
     powers: Vec<f64>,
     /// Maximum Doppler shift $f_{D}$ (Hz); 0 for a channel constant over a call.
-    pub doppler: f64,
+    pub doppler_hz: f64,
     /// Sampling rate (Hz).
     pub sample_rate: f64,
     /// Receive antennas.
@@ -289,26 +344,21 @@ impl Tdl {
     /// # Errors
     /// [`Error::Config`] for no taps, a negative delay, a non-positive rate or no
     /// antennas.
-    pub fn new(taps: Vec<(f64, f64)>, doppler: f64, sample_rate: f64, n_rx: usize, n_tx: usize) -> Result<Tdl> {
-        ensure(!taps.is_empty(), || "a channel needs at least one tap".into())?;
-        ensure(sample_rate > 0.0 && doppler >= 0.0, || "positive sampling rate, non-negative Doppler".into())?;
+    pub fn new(taps: &[(f64, f64)], doppler_hz: f64, sample_rate: f64, n_rx: usize, n_tx: usize) -> Result<Tdl> {
+        ensure(doppler_hz >= 0.0, || format!("the Doppler shift must be non-negative, got {doppler_hz}"))?;
         ensure(n_rx >= 1 && n_tx >= 1, || format!("at least one antenna on each side, got {n_rx} × {n_tx}"))?;
-        ensure(taps.iter().all(|(d, _)| *d >= 0.0), || "negative delay".into())?;
         let mut merged: Vec<(usize, f64)> = Vec::new();
-        for (d, db) in taps {
-            let s = (d * sample_rate).round() as usize;
-            let p = db2lin(db);
+        for (s, p) in discretise(taps, sample_rate)? {
             match merged.iter_mut().find(|(x, _)| *x == s) {
                 Some(m) => m.1 += p,
                 None => merged.push((s, p)),
             }
         }
         merged.sort_by_key(|m| m.0);
-        let tot: f64 = merged.iter().map(|m| m.1).sum();
         Ok(Tdl {
             delays: merged.iter().map(|m| m.0).collect(),
-            powers: merged.iter().map(|m| m.1 / tot).collect(),
-            doppler,
+            powers: merged.iter().map(|m| m.1).collect(),
+            doppler_hz,
             sample_rate,
             n_rx,
             n_tx,
@@ -327,13 +377,11 @@ impl Tdl {
     }
 
     /// The frequency correlation $R(\Delta k) = \sum_{l} p_{l} e^{-j 2\pi \Delta k d_{l} / N}$
-    /// of the channel between two subcarriers `delta` bins apart on a grid of `fft_len`.
+    /// of the channel between two subcarriers `delta` bins apart on a grid of `fft_len`
+    /// (`com_dsp::estimation::frequency_correlation`).
     pub fn frequency_correlation(&self, delta: isize, fft_len: usize) -> C64 {
-        self.delays
-            .iter()
-            .zip(&self.powers)
-            .map(|(&d, &p)| cis(-2.0 * PI * delta as f64 * d as f64 / fft_len as f64) * p)
-            .sum()
+        let delays: Vec<f64> = self.delays.iter().map(|&d| d as f64).collect();
+        com_dsp::estimation::frequency_correlation(&delays, &self.powers, delta as f64, fft_len)
     }
 
     /// Draw the taps for `n_samples` samples.
@@ -346,7 +394,7 @@ impl Tdl {
             .map(|&p| {
                 let mut c = vec![C64::new(0.0, 0.0); n_samples * links];
                 for link in 0..links {
-                    if self.doppler == 0.0 {
+                    if self.doppler_hz == 0.0 {
                         let g = rng.complex_gaussian() * p.sqrt();
                         for n in 0..n_samples {
                             c[n * links + link] = g;
@@ -362,7 +410,7 @@ impl Tdl {
                         })
                         .collect();
                     let scale = (p / m as f64).sqrt();
-                    let w = 2.0 * PI * self.doppler / self.sample_rate;
+                    let w = 2.0 * PI * self.doppler_hz / self.sample_rate;
                     for n in 0..n_samples {
                         let t = n as f64;
                         let (mut re, mut im) = (0.0, 0.0);
@@ -388,25 +436,24 @@ impl Tdl {
         same_len(x.n_streams(), self.n_tx, "streams and transmit antennas")?;
         let n = x.n_samples();
         let taps = self.draw(n, rng);
-        let y = self.apply(&x.to_streams(), &taps)?;
+        let y = taps.apply(&x.to_streams())?;
         Ok((Signal::from_streams(&y, x.sample_rate())?, taps))
-    }
-
-    /// Apply the taps of a realisation to `x` (`n_tx` streams of equal length), the
-    /// samples before the signal being zero: the `n_rx` received streams,
-    /// $y_{r}\[n\] = \sum_{l} \sum_{t} h_{l, r, t}\[n\]\, x_{t}\[n - d_{l}\]$.
-    ///
-    /// # Errors
-    /// [`Error::Shape`] if `x` does not have `n_tx` streams of the length of the
-    /// realisation.
-    pub fn apply(&self, x: &[Vec<C64>], taps: &Taps) -> Result<Vec<Vec<C64>>> {
-        same_len(x.len(), self.n_tx, "streams and transmit antennas")?;
-        taps.apply(x)
     }
 }
 
+/// The delays (samples) and normalised powers of the taps `(delay in s, power in dB)` of
+/// a profile at the sampling rate `sample_rate`, in their order (taps falling on the same
+/// sample are not merged).
+fn discretise(taps: &[(f64, f64)], sample_rate: f64) -> Result<Vec<(usize, f64)>> {
+    ensure(!taps.is_empty(), || "a channel needs at least one tap".into())?;
+    ensure(sample_rate > 0.0, || format!("the sampling rate must be positive, got {sample_rate}"))?;
+    ensure(taps.iter().all(|(d, _)| *d >= 0.0), || "negative delay".into())?;
+    let total: f64 = taps.iter().map(|(_, db)| db2lin(*db)).sum();
+    Ok(taps.iter().map(|&(d, db)| ((d * sample_rate).round() as usize, db2lin(db) / total)).collect())
+}
+
 /// One path of a [`DelayDoppler`] channel: a complex gain, a delay (samples) and a
-/// single Doppler shift (Hz).
+/// single Doppler shift.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Path {
     /// Complex gain $h_{i}$.
@@ -414,30 +461,26 @@ pub struct Path {
     /// Delay $l_{i}$ (samples).
     pub delay: usize,
     /// Doppler shift $\nu_{i}$ (Hz).
-    pub doppler: f64,
+    pub doppler_hz: f64,
 }
 
-/// A doubly-dispersive channel of a few discrete paths, each with its own delay and a
-/// single Doppler shift: the channel of OTFS (Raviteja et al. 2019, eqs. (3)–(6);
-/// Hadani et al. 2017),
+/// A realisation of a doubly-dispersive channel of a few discrete paths, each with its
+/// own delay and a single Doppler shift: the channel of OTFS (Raviteja et al. 2019,
+/// eqs. (3)–(6); Hadani et al. 2017),
 ///
 /// $$
 /// r\[n\] = \sum_{i=1}^{P} h_{i}\, e^{j 2\pi \nu_{i} (n - l_{i}) / f_{s}}\, s\[n - l_{i}\],
 /// $$
 ///
-/// $n$ counted from the first sample of the signal. [`DelayDoppler::from_profile`]
-/// gives one path per tap of a power-delay profile, of Rayleigh gain and Doppler shift
-/// $\nu_{\max} \cos\theta$ with $\theta$ uniform (Jakes' angle of arrival, as in
-/// Raviteja et al., Sec. III-A); unlike [`Tdl`], whose every tap is a sum of many
-/// sinusoids, every path here is one. [`DelayDoppler::taps`] gives the realisation as
-/// [`Taps`], which applies it.
+/// $n$ counted from the first sample of the signal. [`DelayDopplerModel`] draws it from
+/// a power-delay profile; [`DelayDoppler::taps`] gives it as [`Taps`], which apply it.
 ///
 /// # Examples
 /// ```
 /// use com_channel::multipath::{DelayDoppler, Path};
 /// use com_math::C64;
 /// // one path, 2 samples late, 1 kHz of Doppler at 1 MHz
-/// let ch = DelayDoppler::new(vec![Path { gain: C64::new(1.0, 0.0), delay: 2, doppler: 1e3 }], 1e6)?;
+/// let ch = DelayDoppler::new(vec![Path { gain: C64::new(1.0, 0.0), delay: 2, doppler_hz: 1e3 }], 1e6)?;
 /// let x = vec![C64::new(1.0, 0.0); 8];
 /// let y = ch.taps(8).apply(&[x])?.remove(0);
 /// assert_eq!(y[1], C64::new(0.0, 0.0));
@@ -459,32 +502,6 @@ impl DelayDoppler {
         ensure(!paths.is_empty(), || "a channel needs at least one path".into())?;
         ensure(sample_rate > 0.0, || format!("the sampling rate must be positive, got {sample_rate}"))?;
         Ok(DelayDoppler { paths, sample_rate })
-    }
-
-    /// One path per tap `(delay in s, power in dB)` of a profile (powers normalised to a
-    /// unit sum, delays rounded to the sampling grid), of gain $\mathcal{CN}(0, p_{i})$
-    /// and Doppler shift `max_doppler` $\cos\theta_{i}$, $\theta_{i}$ uniform on
-    /// $[-\pi, \pi)$.
-    ///
-    /// # Errors
-    /// As [`DelayDoppler::new`], and for a negative delay.
-    pub fn from_profile(
-        taps: &[(f64, f64)],
-        max_doppler: f64,
-        sample_rate: f64,
-        rng: &mut SimRng,
-    ) -> Result<DelayDoppler> {
-        ensure(taps.iter().all(|(d, _)| *d >= 0.0), || "negative delay".into())?;
-        let total: f64 = taps.iter().map(|(_, db)| db2lin(*db)).sum();
-        let paths = taps
-            .iter()
-            .map(|&(d, db)| {
-                let gain = rng.complex_gaussian() * (db2lin(db) / total).sqrt();
-                let theta = rng.uniform() * 2.0 * PI - PI;
-                Path { gain, delay: (d * sample_rate).round() as usize, doppler: max_doppler * theta.cos() }
-            })
-            .collect();
-        DelayDoppler::new(paths, sample_rate)
     }
 
     /// The paths.
@@ -511,13 +528,73 @@ impl DelayDoppler {
                         self.paths
                             .iter()
                             .filter(|p| p.delay == d)
-                            .map(|p| p.gain * cis(2.0 * PI * p.doppler * (n as f64 - d as f64) / self.sample_rate))
+                            .map(|p| p.gain * cis(2.0 * PI * p.doppler_hz * (n as f64 - d as f64) / self.sample_rate))
                             .sum()
                     })
                     .collect()
             })
             .collect();
         Taps { delays, n_rx: 1, n_tx: 1, n_samples, coeffs }
+    }
+}
+
+/// The model of [`DelayDoppler`] channels: one path per tap of a power-delay profile, of
+/// Rayleigh gain $\mathcal{CN}(0, p_{i})$ and Doppler shift $\nu_{\max} \cos\theta_{i}$, $\theta_{i}$
+/// uniform on $[-\pi, \pi)$ (Jakes' angle of arrival, as in Raviteja et al. 2019, Sec.
+/// III-A). Unlike [`Tdl`], whose every tap is a sum of many sinusoids, every path here is
+/// one; single antenna.
+///
+/// # Examples
+/// ```
+/// use com_channel::multipath::{DelayDopplerModel, Profile};
+/// use com_core::rng::Rng;
+/// let model = DelayDopplerModel::new(&Profile::Eva.taps(), 444.0, 15.36e6)?;
+/// let ch = model.draw(&mut Rng::new(1));
+/// assert_eq!(ch.paths().len(), 9);
+/// assert!(ch.paths().iter().all(|p| p.doppler_hz.abs() <= 444.0));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct DelayDopplerModel {
+    taps: Vec<(usize, f64)>,
+    /// Maximum Doppler shift $\nu_{\max}$ (Hz).
+    pub max_doppler_hz: f64,
+    sample_rate: f64,
+}
+
+impl DelayDopplerModel {
+    /// The model of the taps `(delay in s, power in dB)` (powers normalised to a unit sum,
+    /// delays rounded to the sampling grid) at `sample_rate`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for no tap, a negative delay or Doppler shift, or a non-positive
+    /// sampling rate.
+    pub fn new(taps: &[(f64, f64)], max_doppler_hz: f64, sample_rate: f64) -> Result<DelayDopplerModel> {
+        ensure(max_doppler_hz >= 0.0, || format!("the Doppler shift must be non-negative, got {max_doppler_hz}"))?;
+        Ok(DelayDopplerModel { taps: discretise(taps, sample_rate)?, max_doppler_hz, sample_rate })
+    }
+
+    /// Draw a realisation.
+    pub fn draw(&self, rng: &mut SimRng) -> DelayDoppler {
+        let paths = self
+            .taps
+            .iter()
+            .map(|&(delay, p)| {
+                let gain = rng.complex_gaussian() * p.sqrt();
+                let theta = rng.uniform() * 2.0 * PI - PI;
+                Path { gain, delay, doppler_hz: self.max_doppler_hz * theta.cos() }
+            })
+            .collect();
+        DelayDoppler { paths, sample_rate: self.sample_rate }
+    }
+}
+
+impl Propagate for DelayDopplerModel {
+    fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
+        same_len(x.n_streams(), 1, "streams of a single-antenna channel")?;
+        let taps = self.draw(rng).taps(x.n_samples());
+        *out = Signal::from_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
+        Ok(())
     }
 }
 
@@ -539,13 +616,13 @@ mod tests {
             let s = rms_delay_spread(&p.taps());
             assert!((s - want).abs() < 2e-9, "{p:?}: {s}");
         }
-        let e = Profile::Exponential { rms_delay: 100e-9, resolution: 10e-9 };
+        let e = Profile::Exponential { rms_delay_s: 100e-9, resolution_s: 10e-9 };
         assert!((rms_delay_spread(&e.taps()) - 100e-9).abs() < 10e-9);
     }
 
     #[test]
     fn taps_have_their_powers_and_the_jakes_autocorrelation() {
-        let ch = Tdl::new(vec![(0.0, 0.0), (1e-5, -3.0)], 100.0, 1e6, 1, 1).unwrap();
+        let ch = Tdl::new(&[(0.0, 0.0), (1e-5, -3.0)], 100.0, 1e6, 1, 1).unwrap();
         let mut rng = Rng::new(1);
         let lag = 2500; // 2π f_D m / f_s = π/2: J0 ≈ 0.472
         let n = lag + 1;
@@ -567,7 +644,7 @@ mod tests {
 
     #[test]
     fn a_static_channel_is_a_convolution_and_its_frequency_response_matches() {
-        let ch = Tdl::new(Profile::Epa.taps(), 0.0, 30.72e6, 1, 1).unwrap();
+        let ch = Tdl::new(&Profile::Epa.taps(), 0.0, 30.72e6, 1, 1).unwrap();
         let mut rng = Rng::new(2);
         let x: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
         let (y, taps) = ch.fade(&Signal::from_stream(x.clone(), Hertz(30.72e6)).unwrap(), &mut rng).unwrap();

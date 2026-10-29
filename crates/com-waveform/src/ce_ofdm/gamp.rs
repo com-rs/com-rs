@@ -45,6 +45,7 @@ use super::{CeOfdm, TAU};
 use com_core::{Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_mimo::message_passing::{Domain, Prior};
 
 /// The GAMP receiver (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -64,9 +65,9 @@ impl Default for Gamp {
     }
 }
 
-/// The levels of the real and imaginary parts of a constellation that is their
-/// Cartesian product.
-fn axis_levels(c: &Constellation) -> Result<(Vec<f64>, Vec<f64>)> {
+/// The equally likely levels of the real and imaginary parts of a constellation that is
+/// their Cartesian product, as the real priors of message passing.
+fn axis_levels(c: &Constellation) -> Result<(Prior, Prior)> {
     let unique = |values: Vec<f64>| {
         let mut v = values;
         v.sort_by(f64::total_cmp);
@@ -80,22 +81,21 @@ fn axis_levels(c: &Constellation) -> Result<(Vec<f64>, Vec<f64>)> {
     ensure(product, || {
         "GAMP needs a constellation whose real and imaginary parts are independent (square QAM, PAM, BPSK)".into()
     })?;
-    Ok((re, im))
+    let prior = |levels: Vec<f64>| {
+        let m = levels.len();
+        Prior::Discrete {
+            points: levels.into_iter().map(|l| C64::new(l, 0.0)).collect(),
+            probs: vec![1.0 / m as f64; m],
+        }
+    };
+    Ok((prior(re), prior(im)))
 }
 
-/// The mean and variance of the levels under the Gaussian message `N(r, tr)`.
-fn input_moments(levels: &[f64], r: f64, tr: f64) -> (f64, f64) {
-    let logw: Vec<f64> = levels.iter().map(|l| -(r - l).powi(2) / (2.0 * tr)).collect();
-    let top = logw.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let (mut s0, mut s1, mut s2) = (0.0, 0.0, 0.0);
-    for (l, w) in levels.iter().zip(&logw) {
-        let w = (w - top).exp();
-        s0 += w;
-        s1 += w * l;
-        s2 += w * l * l;
-    }
-    let mean = s1 / s0;
-    (mean, (s2 / s0 - mean * mean).max(0.0))
+/// The mean and variance of a real level of `prior` under the Gaussian message
+/// `N(r, tr)` ([`Prior::denoise`] of a real model).
+fn input_moments(prior: &Prior, r: f64, tr: f64) -> (f64, f64) {
+    let (m, v) = prior.denoise(C64::new(r, 0.0), tr, Domain::Real);
+    (m.re, v)
 }
 
 /// The mean and variance of `x` under the message `N(p, tp)` and the likelihood
@@ -155,7 +155,7 @@ fn output_moments(p: f64, tp: f64, c: f64, psi: f64, kappa: f64, points: usize) 
 impl Gamp {
     /// The posterior means of the data symbols of every block (prefix removed) of the
     /// received samples `r`, for symbols of the constellation `c` (as transmitted) and the
-    /// noise variance per sample `noise_variance` ([`CeOfdm::noise_variance`]).
+    /// noise variance per sample `noise_var` ([`CeOfdm::noise_variance`]).
     ///
     /// # Errors
     /// [`com_core::Error::Config`] for invalid parameters or a constellation whose real
@@ -175,24 +175,24 @@ impl Gamp {
     /// let e = Gamp::default().detect(&ce, &r, &c, 1e-4).unwrap();
     /// assert_eq!(c.decide(&e), c.decide(&d));
     /// ```
-    pub fn detect(&self, ce: &CeOfdm, r: &[C64], c: &Constellation, noise_variance: f64) -> Result<Vec<C64>> {
+    pub fn detect(&self, ce: &CeOfdm, r: &[C64], c: &Constellation, noise_var: f64) -> Result<Vec<C64>> {
         ce.check()?;
         ensure(self.iterations >= 1 && self.points >= 2, || "GAMP needs one iteration and two points".into())?;
         ensure(self.damping > 0.0 && self.damping <= 1.0, || {
             format!("the damping must lie in (0, 1], got {}", self.damping)
         })?;
-        ensure(noise_variance > 0.0, || format!("the noise variance must be positive, got {noise_variance}"))?;
+        ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
         let (k, l) = (ce.n_data, ce.block_len());
         ensure_shape(r.len() % l == 0, || format!("{} samples is not a multiple of N + N_cp = {l}", r.len()))?;
         let (re, im) = axis_levels(c)?;
         let mut out = Vec::with_capacity(r.len() / l * k);
         for block in r.chunks(l) {
-            out.extend(self.block(ce, &block[ce.n_cp..], &re, &im, noise_variance));
+            out.extend(self.block(ce, com_dsp::signal::strip_prefix(block, ce.n_cp)?, &re, &im, noise_var));
         }
         Ok(out)
     }
 
-    fn block(&self, ce: &CeOfdm, r: &[C64], re: &[f64], im: &[f64], noise_variance: f64) -> Vec<C64> {
+    fn block(&self, ce: &CeOfdm, r: &[C64], re: &Prior, im: &Prior, noise_var: f64) -> Vec<C64> {
         let (k, n) = (ce.n_data, ce.n_fft());
         let kappa = TAU * ce.h;
         let a = 2.0 / (2.0 * k as f64).sqrt();
@@ -200,15 +200,13 @@ impl Gamp {
         // A u is the modulator's OFDM signal; Aᵀ y the data bins of the DFT, scaled
         let forward = |u: &[C64]| ce.synthesize(u);
         let adjoint = |y: &[f64]| -> Vec<C64> { ce.data_bins(y).into_iter().map(|v| v * a).collect() };
-        let prior = |levels: &[f64]| input_moments(levels, 0.0, f64::INFINITY);
-        let (m_re, v_re) = prior(re);
-        let (m_im, v_im) = prior(im);
-        let mut u_hat = vec![C64::new(m_re, m_im); k];
+        let mut u_hat = vec![C64::new(re.mean().re, im.mean().re); k];
         let mut u_bar = u_hat.clone();
-        let mut tu = (v_re + v_im) / 2.0;
+        let prior_var = re.variance() + im.variance();
+        let mut tu = prior_var / 2.0;
         let mut s_hat = vec![0.0; n];
         let mut ts = 0.0;
-        let likelihood: Vec<(f64, f64)> = r.iter().map(|v| (2.0 * v.norm() / noise_variance, v.arg())).collect();
+        let likelihood: Vec<(f64, f64)> = r.iter().map(|v| (2.0 * v.norm() / noise_var, v.arg())).collect();
         for t in 0..self.iterations {
             // output linear and nonlinear steps
             let tp = 2.0 * tu;
@@ -245,7 +243,7 @@ impl Gamp {
             u_hat = next;
             tu = tu_new / (2 * k) as f64;
             // the decisions are firm: the variances would vanish and the steps divide by them
-            if tu < 1e-9 * (v_re + v_im) {
+            if tu < 1e-9 * prior_var {
                 break;
             }
         }
@@ -278,9 +276,9 @@ mod tests {
         }
         // a flat likelihood leaves the message
         assert_eq!(output_moments(0.2, 0.5, 0.0, 1.0, 1.0, 64), (0.2, 0.5));
-        let (m, v) = input_moments(&[-1.0, 1.0], 0.0, f64::INFINITY);
-        assert!(m.abs() < 1e-15 && (v - 1.0).abs() < 1e-15);
-        let (m, v) = input_moments(&[-1.0, 1.0], 0.9, 0.01);
+        let (bpsk, _) = axis_levels(&Constellation::psk(2).unwrap()).unwrap();
+        assert!(bpsk.mean().norm() < 1e-15 && (bpsk.variance() - 1.0).abs() < 1e-15);
+        let (m, v) = input_moments(&bpsk, 0.9, 0.01);
         assert!((m - 1.0).abs() < 1e-6 && v < 1e-6);
     }
 
@@ -293,7 +291,7 @@ mod tests {
         let mut rng = Rng::new(3);
         let (_, d) = com_mapping::source::symbols(&c, 63 * 8, None, &mut rng).unwrap();
         for ebn0 in [8.0, 30.0] {
-            let sigma2 = ce.noise_variance(ebn0 + 10.0 * 2f64.log10());
+            let sigma2 = ce.noise_variance(ebn0 + com_math::lin2db(2.0));
             let r: Vec<C64> =
                 ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma2.sqrt()).collect();
             let ser = |e: &[C64]| {

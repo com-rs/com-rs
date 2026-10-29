@@ -111,11 +111,6 @@ macro_rules! container_traits {
 }
 pub(crate) use container_traits;
 
-/// Hard decisions of LLRs (a positive LLR is a 0).
-pub fn hard(llr: &[f64]) -> Vec<u8> {
-    llr.iter().map(|l| u8::from(*l < 0.0)).collect()
-}
-
 /// The LLRs of BPSK ($0 \mapsto +1$, $1 \mapsto -1$) received in real Gaussian noise of
 /// variance `noise_var` per dimension, $2 y / \sigma^{2}$.
 pub fn bpsk_llr(y: &[f64], noise_var: f64) -> Vec<f64> {

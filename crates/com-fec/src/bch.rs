@@ -44,7 +44,8 @@
 //!    § 5.3.1.
 
 use crate::algebraic::{berlekamp_massey, chien_search};
-use crate::block::expect_len;
+use crate::block::{BlockCode, container_traits, expect_len};
+use com_core::signal::hard_decisions;
 use com_core::{Result, ensure};
 use com_math::gf2::poly_mul;
 use com_math::gf2m::Field;
@@ -192,6 +193,29 @@ impl Bch {
         Ok((out, Some(found)))
     }
 }
+
+impl BlockCode for Bch {
+    fn k(&self) -> usize {
+        Bch::k(self)
+    }
+
+    fn n(&self) -> usize {
+        Bch::n(self)
+    }
+
+    fn encode_block(&self, info: &[u8]) -> Result<Vec<u8>> {
+        self.encode(info)
+    }
+
+    /// Hard decisions of the LLRs, then [`Bch::decode`]; a decoding failure returns the
+    /// message bits as received (as [`crate::rs::ReedSolomon`]).
+    fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
+        expect_len(llr.len(), Bch::n(self), "LLRs")?;
+        Ok(self.decode(&hard_decisions(llr))?.0)
+    }
+}
+
+container_traits!(Bch);
 
 #[cfg(test)]
 mod tests {

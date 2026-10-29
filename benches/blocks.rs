@@ -15,7 +15,7 @@ fn mapping(c: &mut Criterion) {
     let mut rng = Rng::new(1);
     let bits = source::bits(6 * 4096, &mut rng);
     let x = qam.modulate(&bits).expect("whole symbols");
-    let y = awgn::awgn_ebn0(&x, 12.0, 6, 1.0, &mut rng);
+    let y = awgn::awgn_ebn0(&x, 12.0, 6.0, 1.0, &mut rng);
     let mut g = c.benchmark_group("mapping");
     g.throughput(Throughput::Elements(x.len() as u64));
     g.bench_function("qam64_decide", |b| b.iter(|| qam.decide(black_box(&y))));

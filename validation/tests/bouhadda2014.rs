@@ -1,6 +1,6 @@
 //! OFDM and FBMC/OQAM through a memoryless amplifier
 //! (`comrs::waveform::{ofdm, fbmc}`, `comrs::hardware::{amplifier::Saleh,
-//! gaussian_input::bussgang}`) against H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani,
+//! nonlinear::bussgang}`) against H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani,
 //! Y. Medjahdi and R. Bouallegue, "Theoretical analysis of BER performance of nonlinearly
 //! amplified FBMC/OQAM and OFDM signals," *EURASIP J. Adv. Signal Process.* 2014:60
 //! (`references/2014_bouhadda_ber-nonlinear-fbmc-oqam-ofdm_jasp.pdf`): 64 subcarriers
@@ -19,8 +19,8 @@
 //!   against 1.2e-5 and 1.6e-4 read; the "loss of ≈7 dB" of FBMC "at a BER of 5e-3"
 //!   is 0.2 dB there (2.6 dB at 5e-4).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use comrs::dsp::nonlinear::bussgang;
 use comrs::hardware::amplifier::Saleh;
-use comrs::hardware::gaussian_input::bussgang;
 use comrs::mapping::theory::ber_gray_qam;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
@@ -35,10 +35,10 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
     let c = Constellation::qam(order).unwrap().normalized();
     let bits_per = order.trailing_zeros() as usize;
     let twta = Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
-    let power = 10f64.powf(-ibo / 10.0);
-    let (k, _) = bussgang(|r| C64::from_polar(twta.am_am(r), twta.am_pm(r)), power);
+    let power = comrs::math::db2lin(-ibo);
+    let k = bussgang(|r| C64::from_polar(twta.am_am(r), twta.am_pm(r)), power).gain;
     // E_b of the useful output |K|² σ² (the 'linear' curve of the paper is the AWGN one)
-    let sigma_w2 = k.norm_sqr() * power / (bits_per as f64 * 10f64.powf(ebn0_db / 10.0));
+    let sigma_w2 = k.norm_sqr() * power / (bits_per as f64 * comrs::math::db2lin(ebn0_db));
     let mut rng = Rng::new(seed);
     let n_sym = 8; // complex symbols per subcarrier and block
     let (mut errors, mut total) = (0usize, 0usize);
@@ -47,7 +47,7 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
     for _ in 0..blocks {
         let bits: Vec<u8> = (0..M * n_sym * bits_per).map(|_| rng.below(2) as u8).collect();
         let x = c.modulate(&bits).unwrap();
-        let s = if fbmc { fb.modulate(&oqam_stagger(&x, M)).unwrap() } else { ofdm.modulate(&x).unwrap() };
+        let s = if fbmc { fb.modulate(&oqam_stagger(&x, M).unwrap()).unwrap() } else { ofdm.modulate(&x).unwrap() };
         let scale = power.sqrt();
         let y: Vec<C64> = s
             .iter()
@@ -57,8 +57,8 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
         let z: Vec<C64> = if fbmc {
             // correct the gain before taking the real part
             let y2: Vec<C64> = y.iter().map(|v| v / gain).collect();
-            let d = fb.demodulate(&y2, 2 * n_sym).unwrap();
-            oqam_destagger(&d.iter().map(|v| v.re).collect::<Vec<f64>>(), M)
+            let d = fb.demodulate(&y2).unwrap();
+            oqam_destagger(&d.iter().map(|v| v.re).collect::<Vec<f64>>(), M).unwrap()
         } else {
             ofdm.demodulate(&y).unwrap().iter().map(|v| v / gain).collect()
         };
@@ -71,12 +71,13 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
 
 fn theory(order: usize, phi0: f64, ibo: f64, ebn0_db: f64) -> f64 {
     let twta = Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
-    let power = 10f64.powf(-ibo / 10.0);
-    let (k, d) = bussgang(|r| C64::from_polar(twta.am_am(r), twta.am_pm(r)), power);
+    let power = comrs::math::db2lin(-ibo);
+    let b = bussgang(|r| C64::from_polar(twta.am_am(r), twta.am_pm(r)), power);
+    let (k, d) = (b.gain, b.distortion);
     let bits_per = order.trailing_zeros() as f64;
-    let sigma_w2 = k.norm_sqr() * power / (bits_per * 10f64.powf(ebn0_db / 10.0));
+    let sigma_w2 = k.norm_sqr() * power / (bits_per * comrs::math::db2lin(ebn0_db));
     let es_n0 = k.norm_sqr() * power / (sigma_w2 + d);
-    ber_gray_qam(order, 10.0 * (es_n0 / bits_per).log10()).unwrap()
+    ber_gray_qam(order, comrs::math::lin2db(es_n0 / bits_per)).unwrap()
 }
 
 /// The $E_{b}/N_{0}$ (dB) at which `curve` crosses `target`, by interpolation of log BER on

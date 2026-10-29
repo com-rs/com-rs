@@ -44,8 +44,10 @@
 //! `COMRS_RECORD_AFF3CT=1`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::bpsk_awgn_llr;
+use comrs::core::signal::hard_decisions;
 use comrs::fec::bch::Bch;
-use comrs::fec::block::{BlockCode, hard};
+use comrs::fec::block::BlockCode;
 use comrs::fec::conv::ConvolutionalCode;
 use comrs::fec::crc::Crc;
 use comrs::fec::interleaving::Interleaver;
@@ -122,12 +124,6 @@ fn fixture(name: &str) -> Fixture {
 /// monitored bits, and the number of monitored bits.
 type Link = Box<dyn Fn(f64, &mut Rng) -> Result<(u64, u64)> + Sync>;
 
-/// The channel LLRs of the bits `c` in BPSK ($0 \mapsto +1$) over AWGN of variance `s2`.
-fn channel(c: &[u8], s2: f64, rng: &mut Rng) -> Vec<f64> {
-    let s = s2.sqrt();
-    c.iter().map(|b| 2.0 * (1.0 - 2.0 * f64::from(*b) + s * rng.gaussian()) / s2).collect()
-}
-
 fn errors(a: &[u8], b: &[u8]) -> u64 {
     a.iter().zip(b).filter(|(x, y)| x != y).count() as u64
 }
@@ -137,7 +133,7 @@ fn block<C: BlockCode + Sync + 'static>(code: C) -> Link {
     Box::new(move |s2, rng| {
         let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let c = code.encode_block(&info)?;
-        let decided = code.decode_block(&channel(&c, s2, rng))?;
+        let decided = code.decode_block(&bpsk_awgn_llr(&c, s2, rng))?;
         Ok((errors(&decided, &info), info.len() as u64))
     })
 }
@@ -147,7 +143,7 @@ fn bch(code: Bch) -> Link {
     Box::new(move |s2, rng| {
         let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let c = code.encode(&info)?;
-        let (decided, _) = code.decode(&hard(&channel(&c, s2, rng)))?;
+        let (decided, _) = code.decode(&hard_decisions(&bpsk_awgn_llr(&c, s2, rng)))?;
         Ok((errors(&decided, &info), info.len() as u64))
     })
 }
@@ -157,8 +153,8 @@ fn ldpc(code: LdpcCode) -> Link {
     Box::new(move |s2, rng| {
         let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let c = code.encode_block(&info)?;
-        let (post, _) = code.decode_llr(&channel(&c, s2, rng))?;
-        Ok((errors(&hard(&post), &c), c.len() as u64))
+        let (post, _) = code.decode_llr(&bpsk_awgn_llr(&c, s2, rng))?;
+        Ok((errors(&hard_decisions(&post), &c), c.len() as u64))
     })
 }
 

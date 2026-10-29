@@ -44,6 +44,11 @@ Run `just check`: the checks of CI, in its order.
 - every crate ships the same `katex-header.html` as `docs/katex-header.html`
 - `ruff check` and `ruff format --check` of `python tests docs/python tools`
 - `python3 tools/api_index.py --check` (docs/API.md is up to date)
+- `python tools/literature_table.py --check` (docs/LITERATURE.md is up to date and every
+  test named in `validation/literature.yaml` exists)
+- `python tools/maturity_table.py --check` (docs/MATURITY.md and the maturity tables of
+  README.md and docs/python/maturity.rst are generated from `validation/maturity.yaml`,
+  and every test it cites exists)
 
 CI also runs the Python tests (`just test`: `maturin develop`, then `python -m pytest`;
 `just setup-py` installs the dependency groups), `just deny` and the MSRV build.

@@ -1,6 +1,6 @@
 [package]
 name = "com-dsp"
-description = "Waveform-agnostic signal processing of com-rs: filtering, resampling, synchronisation, adaptive equalisation, dispersion compensation, back-propagation, predistortion"
+description = "Waveform-agnostic signal processing of com-rs: filtering, resampling, synchronisation, estimation, spectral estimation, Bussgang's decomposition, adaptive equalisation, dispersion compensation, back-propagation, predistortion"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

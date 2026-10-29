@@ -117,8 +117,8 @@ impl Block for CeOfdmRx {
         if let Some(es) = self.esn0_db {
             let (m, kind) = (c.order(), c.kind());
             let r = self.receiver.unwrap_or(Receiver::Arctangent(Unwrap::None));
-            s.record(&self.label, "ser_theory", ce_theory::ser_receiver(&self.ce, r, m, es, kind)?);
-            s.record(&self.label, "ber_theory", ce_theory::ber_receiver(&self.ce, r, m, es, kind)?);
+            s.record(&self.label, "ser_theory", ce_theory::ser_receiver(&self.ce, r, kind, m, es)?);
+            s.record(&self.label, "ber_theory", ce_theory::ber_receiver(&self.ce, r, kind, m, es)?);
         }
         s.samples = match (self.receiver, self.esn0_db) {
             (Some(r), _) => self.ce.demodulate_with(&s.samples, r)?,

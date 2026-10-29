@@ -102,7 +102,7 @@ impl Block for Probe {
         let mut rec = com_sim::scenario::Record::new();
         for m in &self.signal {
             if m == "power_dbm" {
-                rec.value(m, 10.0 * (s.mean_power() / 1e-3).log10());
+                rec.value(m, com_math::w2dbm(s.mean_power()));
             } else {
                 let papr: Vec<f64> = s.streams().map(|x| com_math::papr_db(x)).collect();
                 rec.value(m, papr.iter().sum::<f64>() / papr.len() as f64);
@@ -280,7 +280,7 @@ impl Block for Classify {
             let correct = c.kind() == decided.kind() && c.order() == decided.order();
             s.record(&self.label, "correct", f64::from(u8::from(correct)));
         }
-        s.record(&self.label, "snr_m2m4_db", 10.0 * snr.log10());
+        s.record(&self.label, "snr_m2m4_db", com_math::lin2db(snr));
         Ok(())
     }
 }

@@ -34,7 +34,7 @@
 //! ```
 //! use com_waveform::otfs::Otfs;
 //! use com_math::C64;
-//! let o = Otfs::new(8, 4, 2)?;
+//! let o = Otfs { n_cp: 2, ..Otfs::new(8, 4)? };
 //! let x: Vec<C64> = (0..32).map(|i| C64::new((i % 3) as f64 - 1.0, (i % 2) as f64)).collect();
 //! let s = o.modulate(&x)?;
 //! assert_eq!(s.len(), 32 + 2);
@@ -54,70 +54,67 @@
 //!    "Orthogonal time-frequency space modulation: a promising next-generation
 //!    waveform," *IEEE Wireless Commun.*, 28(4), 136–144, 2021.
 
-use com_core::{Result, ensure, ensure_shape};
+use com_core::prelude::*;
+use com_core::{ensure, ensure_shape};
+use com_dsp::signal::{extend_with_prefix, strip_prefix};
 use com_math::linalg::CMat;
 use com_math::{C64, cis, fft};
 
-/// An OTFS modem of $M$ delay bins and $N$ Doppler bins (see the module).
+/// An OTFS modem: `n_fft` delay bins $M$ (the subcarriers), `n_symbols` Doppler bins $N$
+/// (the symbols of a frame) and one prefix of `n_cp` samples per frame (see the module).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Otfs {
-    m: usize,
-    n: usize,
-    cp: usize,
+    /// Delay bins $M$, the subcarriers of the Heisenberg transform.
+    pub n_fft: usize,
+    /// Doppler bins $N$, the symbols of a frame.
+    pub n_symbols: usize,
+    /// The cyclic prefix of a frame, in samples (OTFS has no oversampling: one sample
+    /// per delay bin).
+    pub n_cp: usize,
 }
 
 impl Otfs {
-    /// `m` delay bins (subcarriers), `n` Doppler bins (symbols), a prefix of `cp`
-    /// samples for the frame.
+    /// $M$ delay bins and $N$ Doppler bins, no prefix.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] for an empty grid.
-    pub fn new(m: usize, n: usize, cp: usize) -> Result<Otfs> {
-        ensure(m >= 1 && n >= 1, || format!("an OTFS grid needs at least one bin, got {m} × {n}"))?;
-        Ok(Otfs { m, n, cp })
+    /// [`Error::Config`] for an empty grid.
+    pub fn new(n_fft: usize, n_symbols: usize) -> Result<Otfs> {
+        let o = Otfs { n_fft, n_symbols, n_cp: 0 };
+        o.check()?;
+        Ok(o)
     }
 
-    /// The number of delay bins $M$.
-    pub fn delay_bins(&self) -> usize {
-        self.m
-    }
-
-    /// The number of Doppler bins $N$.
-    pub fn doppler_bins(&self) -> usize {
-        self.n
-    }
-
-    /// The prefix (samples).
-    pub fn cp(&self) -> usize {
-        self.cp
+    /// Validate the configuration.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for an empty grid or a prefix longer than the frame.
+    pub fn check(&self) -> Result<()> {
+        ensure(self.n_fft >= 1 && self.n_symbols >= 1, || {
+            format!("an OTFS grid needs at least one bin, got {} × {}", self.n_fft, self.n_symbols)
+        })?;
+        ensure(self.n_cp <= self.n_fft * self.n_symbols, || {
+            format!("a prefix of {} samples is longer than the frame of {}", self.n_cp, self.n_fft * self.n_symbols)
+        })
     }
 
     /// Samples per frame, $MN$ plus the prefix.
-    pub fn frame_len(&self) -> usize {
-        self.m * self.n + self.cp
+    pub fn block_len(&self) -> usize {
+        self.n_fft * self.n_symbols + self.n_cp
     }
 
     /// The unitary DFT ($\pm$) along the Doppler axis of `v[n * M + m]`.
     fn doppler_dft(&self, v: &[C64], inverse: bool) -> Vec<C64> {
-        let (m, n) = (self.m, self.n);
-        let plan = fft::plan(n);
+        let (m, n) = (self.n_fft, self.n_symbols);
         let mut out = vec![C64::new(0.0, 0.0); m * n];
         let mut col = vec![C64::new(0.0, 0.0); n];
-        let scale = (n as f64).sqrt();
         for d in 0..m {
             for (k, c) in col.iter_mut().enumerate() {
                 *c = v[k * m + d];
             }
             if inverse {
-                plan.inverse(&mut col);
-                for c in &mut col {
-                    *c *= scale;
-                }
+                fft::ifft_unitary_in_place(&mut col);
             } else {
-                plan.forward(&mut col);
-                for c in &mut col {
-                    *c /= scale;
-                }
+                fft::fft_unitary_in_place(&mut col);
             }
             for (k, c) in col.iter().enumerate() {
                 out[k * m + d] = *c;
@@ -130,15 +127,15 @@ impl Otfs {
     /// columns of $X$ one after the other), with the prefix.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] unless `x` holds whole frames.
+    /// [`Error::Config`] for an invalid configuration, [`Error::Shape`] unless `x` holds
+    /// whole frames.
     pub fn modulate(&self, x: &[C64]) -> Result<Vec<C64>> {
-        let mn = self.m * self.n;
+        self.check()?;
+        let mn = self.n_fft * self.n_symbols;
         ensure_shape(x.len() % mn == 0, || format!("{} symbols for frames of {mn}", x.len()))?;
-        let mut out = Vec::with_capacity(x.len() / mn * self.frame_len());
+        let mut out = Vec::with_capacity(x.len() / mn * self.block_len());
         for frame in x.chunks_exact(mn) {
-            let s = self.doppler_dft(frame, true);
-            out.extend_from_slice(&s[mn - self.cp.min(mn)..]);
-            out.extend(s);
+            extend_with_prefix(&mut out, &self.doppler_dft(frame, true), self.n_cp)?;
         }
         Ok(out)
     }
@@ -146,17 +143,23 @@ impl Otfs {
     /// Demodulate whole frames: drop the prefix, DFT along the Doppler axis.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] unless `r` holds whole frames.
+    /// [`Error::Config`] for an invalid configuration, [`Error::Shape`] unless `r` holds
+    /// whole frames.
     pub fn demodulate(&self, r: &[C64]) -> Result<Vec<C64>> {
-        let len = self.frame_len();
+        self.check()?;
+        let len = self.block_len();
         ensure_shape(r.len() % len == 0, || format!("{} samples for frames of {len}", r.len()))?;
-        Ok(r.chunks_exact(len).flat_map(|f| self.doppler_dft(&f[self.cp.min(self.m * self.n)..], false)).collect())
+        let mut out = Vec::with_capacity(r.len() / len * (len - self.n_cp));
+        for frame in r.chunks_exact(len) {
+            out.extend(self.doppler_dft(strip_prefix(frame, self.n_cp)?, false));
+        }
+        Ok(out)
     }
 
-    /// The effective delay–Doppler channel of paths `(gain, delay, doppler)` with
-    /// integer delays $l < M$ and Doppler shifts $k$ (bins, of either sign): the
-    /// $MN \times MN$ matrix of Theorem 1 of Raviteja et al. (2019), eq. (12), with
-    /// $z = e^{j 2\pi/(MN)}$,
+    /// The effective delay–Doppler channel of paths `(gain, delay, doppler_hz)` at the
+    /// sampling rate `sample_rate`: the $MN \times MN$ matrix of Theorem 1 of Raviteja
+    /// et al. (2019), eq. (12), with $z = e^{j 2\pi/(MN)}$ and the Doppler shifts in bins
+    /// $k_{i} = \nu_{i} MN / f_{s}$ (of either sign),
     ///
     /// $$
     /// T^{(i)}(p, q) = \begin{cases} e^{-j 2\pi n/N} z^{k_{i}([m - l_{i}]_{M})} &
@@ -164,16 +167,28 @@ impl Otfs {
     /// \qquad q = [m - l_{i}]_{M} + M[n - k_{i}]_{N},
     /// $$
     ///
-    /// $p = nM + m$, zero elsewhere, summed with the gains $h_{i}$.
+    /// $p = nM + m$, zero elsewhere, summed with the gains. The time of a path counts
+    /// from the first sample of the frame, its prefix included, as in
+    /// `com_channel::multipath::DelayDoppler`: the gain of eq. (6), whose time starts
+    /// after the prefix, is $h_{i} e^{j 2\pi k_{i} N_{\mathrm{cp}}/(MN)}$. The model
+    /// assumes a prefix at least as long as the largest delay.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] for a delay of $M$ or more.
-    pub fn effective_channel(&self, paths: &[(C64, usize, i64)]) -> Result<CMat> {
-        let (m, n) = (self.m, self.n);
+    /// [`Error::Config`] for a delay of $M$ samples or more, or a Doppler shift that is
+    /// not a whole number of bins ([`Otfs::transform_channel`] takes any channel).
+    pub fn effective_channel(&self, paths: &[(C64, usize, f64)], sample_rate: f64) -> Result<CMat> {
+        self.check()?;
+        let (m, n) = (self.n_fft, self.n_symbols);
         let mn = m * n;
         let mut h = CMat::zeros((mn, mn));
-        for &(gain, l, k) in paths {
+        for &(gain, l, doppler_hz) in paths {
             ensure(l < m, || format!("a delay of {l} bins needs more than {m} delay bins"))?;
+            let bins = doppler_hz * mn as f64 / sample_rate;
+            ensure((bins - bins.round()).abs() < 1e-9, || {
+                format!("a Doppler shift of {bins} bins is not a whole bin: use transform_channel")
+            })?;
+            let k = bins.round() as i64;
+            let gain = gain * cis(std::f64::consts::TAU * k as f64 * self.n_cp as f64 / mn as f64);
             for p in 0..mn {
                 let (row_n, row_m) = (p / m, p % m);
                 let shifted = (row_m + m - l) % m;
@@ -192,9 +207,9 @@ impl Otfs {
     /// prefix), for any delays and Doppler shifts (eq. (13)).
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] unless `h` is $MN \times MN$.
+    /// [`Error::Shape`] unless `h` is $MN \times MN$.
     pub fn transform_channel(&self, h: &CMat) -> Result<CMat> {
-        let mn = self.m * self.n;
+        let mn = self.n_fft * self.n_symbols;
         ensure_shape(h.nrows() == mn && h.ncols() == mn, || {
             format!("a {}×{} channel for frames of {mn}", h.nrows(), h.ncols())
         })?;
@@ -213,25 +228,46 @@ impl Otfs {
     }
 }
 
+/// OTFS as a [`Modulate`] block: one stream of delay–Doppler symbols into one stream of
+/// samples.
+impl Modulate for Otfs {
+    fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
+        ensure(x.n_streams() == 1, || format!("OTFS modulates one stream, not {}", x.n_streams()))?;
+        *out = Signal::from_stream(Otfs::modulate(self, x.stream_slice(0))?, Hertz(1.0))?;
+        Ok(())
+    }
+}
+
+impl Demodulate for Otfs {
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
+        ensure(y.n_streams() == 1, || format!("OTFS demodulates one stream, not {}", y.n_streams()))?;
+        *out = Symbols::from_stream(Otfs::demodulate(self, y.stream(0))?)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn a_channel_without_delay_or_doppler_is_the_identity_and_rows_are_sparse() {
-        let o = Otfs::new(6, 4, 0).unwrap();
-        let h = o.effective_channel(&[(C64::new(0.5, 0.0), 0, 0)]).unwrap();
+        let o = Otfs::new(6, 4).unwrap();
+        // one Doppler bin is 1 Hz at a sampling rate of MN = 24 Hz
+        let h = o.effective_channel(&[(C64::new(0.5, 0.0), 0, 0.0)], 24.0).unwrap();
         for p in 0..24 {
             for q in 0..24 {
                 assert_eq!(h[[p, q]], if p == q { C64::new(0.5, 0.0) } else { C64::new(0.0, 0.0) });
             }
         }
-        let paths = [(C64::new(1.0, 0.0), 0, 0), (C64::new(0.3, 0.2), 2, 1), (C64::new(-0.4, 0.1), 5, -2)];
-        let h = o.effective_channel(&paths).unwrap();
+        let paths = [(C64::new(1.0, 0.0), 0, 0.0), (C64::new(0.3, 0.2), 2, 1.0), (C64::new(-0.4, 0.1), 5, -2.0)];
+        let h = o.effective_channel(&paths, 24.0).unwrap();
         for p in 0..24 {
             assert_eq!((0..24).filter(|&q| h[[p, q]].norm() > 0.0).count(), 3);
             assert_eq!((0..24).filter(|&q| h[[q, p]].norm() > 0.0).count(), 3);
         }
+        assert!(o.effective_channel(&[(C64::new(1.0, 0.0), 0, 0.5)], 24.0).is_err());
+        assert!(Otfs { n_cp: 25, ..o }.check().is_err());
     }
 }
 
@@ -246,18 +282,19 @@ mod literature {
     /// four channels $(k, l) = (0, 0), (0, 1), (1, 0), (1, 1)$, entry by entry.
     #[test]
     fn raviteja_2019_example_of_theorem_1() {
-        let o = Otfs::new(2, 2, 0).unwrap();
+        let o = Otfs::new(2, 2).unwrap();
         let (z0, one) = (C64::new(0.0, 0.0), C64::new(1.0, 0.0));
         let (j4, mj4, mj2) =
             (cis(std::f64::consts::FRAC_PI_2), cis(-std::f64::consts::FRAC_PI_2), cis(-std::f64::consts::PI));
-        let cases: [((usize, i64), Matrix); 4] = [
-            ((0, 0), [[one, z0, z0, z0], [z0, one, z0, z0], [z0, z0, one, z0], [z0, z0, z0, one]]),
-            ((1, 0), [[z0, one, z0, z0], [one, z0, z0, z0], [z0, z0, z0, mj2], [z0, z0, one, z0]]),
-            ((0, 1), [[z0, z0, one, z0], [z0, z0, z0, j4], [one, z0, z0, z0], [z0, j4, z0, z0]]),
-            ((1, 1), [[z0, z0, z0, j4], [z0, z0, one, z0], [z0, mj4, z0, z0], [one, z0, z0, z0]]),
+        let cases: [((usize, f64), Matrix); 4] = [
+            ((0, 0.0), [[one, z0, z0, z0], [z0, one, z0, z0], [z0, z0, one, z0], [z0, z0, z0, one]]),
+            ((1, 0.0), [[z0, one, z0, z0], [one, z0, z0, z0], [z0, z0, z0, mj2], [z0, z0, one, z0]]),
+            ((0, 1.0), [[z0, z0, one, z0], [z0, z0, z0, j4], [one, z0, z0, z0], [z0, j4, z0, z0]]),
+            ((1, 1.0), [[z0, z0, z0, j4], [z0, z0, one, z0], [z0, mj4, z0, z0], [one, z0, z0, z0]]),
         ];
         for ((l, k), want) in cases {
-            let t = o.effective_channel(&[(one, l, k)]).unwrap();
+            // MN = 4: one bin is 1 Hz at 4 Hz
+            let t = o.effective_channel(&[(one, l, k)], 4.0).unwrap();
             for p in 0..4 {
                 for q in 0..4 {
                     assert!((t[[p, q]] - want[p][q]).norm() < 1e-12, "l {l} k {k} ({p}, {q}): {}", t[[p, q]]);

@@ -80,10 +80,10 @@ def link(eb, estimator, frames=150, seed=1):
                 "lmmse",
                 delays=[float(d) for d in taps.delays],
                 powers=ch.powers,
-                fft_len=N,
+                n_fft=N,
             )
         elif estimator == "LMMSE, robust":
-            hh = comrs.ofdm_estimate(grid, rx, nv, "lmmse", max_delay=CP, fft_len=N)
+            hh = comrs.ofdm_estimate(grid, rx, nv, "lmmse", max_delay=CP, n_fft=N)
         else:
             hh = comrs.ofdm_estimate(grid, rx, nv, "linear")
         mse += np.mean(np.abs(hh - h) ** 2) / frames

@@ -36,7 +36,8 @@
 //! and [`fer_interference`] are their approximations (61)–(63) and (64)–(67).
 
 use super::Css;
-use com_math::{C64, bessel_i0e, cis, fft, fresnel, qfunc};
+use com_core::Result;
+use com_math::{C64, cis, fft, fresnel, qfunc};
 use std::f64::consts::{PI, TAU};
 
 /// The SNR per sample (linear) of `snr_db`.
@@ -44,39 +45,43 @@ fn rho(snr_db: f64) -> f64 {
     com_math::db2lin(snr_db)
 }
 
-/// `1 - (1 - e^{-y²/2})^n` without cancellation.
-fn one_minus_power(y: f64, n: f64) -> f64 {
-    let p = (-y * y / 2.0).exp();
-    if p >= 1.0 {
-        return 1.0;
-    }
-    -((n * (-p).ln_1p()).exp_m1())
+/// The number of chirps $M = 2^{\mathrm{SF}}$ of the spreading factor `sf`.
+///
+/// # Errors
+/// As [`Css::check`]: the spreading factor lies in 1..=16.
+fn chips(sf: u32) -> Result<usize> {
+    Css::lora(sf).check()?;
+    Ok(1 << sf)
 }
 
 /// The exact SER of the noncoherent receiver over AWGN at the SNR per sample `snr_db`
-/// (dB), spreading factor `sf` (see the module).
+/// (dB), spreading factor `sf` (see the module): the SER of $M$ orthogonal signals
+/// ([`com_mapping::theory::ser_orthogonal_noncoherent`]) at $E_{s}/N_{0} = M\rho$.
+///
+/// # Errors
+/// [`com_core::Error::Config`] unless the spreading factor lies in 1..=16.
 ///
 /// # Examples
 /// ```
 /// use com_waveform::css::theory::ser;
 /// // SF 7: 1.6e-3 at -8 dB and 1.4e-4 at -7 dB (Fig. 2 of Afisiadis et al. 2020)
-/// assert!((ser(7, -8.0) / 1.61e-3 - 1.0).abs() < 0.01);
-/// assert!((ser(7, -7.0) / 1.43e-4 - 1.0).abs() < 0.01);
+/// assert!((ser(7, -8.0)? / 1.61e-3 - 1.0).abs() < 0.01);
+/// assert!((ser(7, -7.0)? / 1.43e-4 - 1.0).abs() < 0.01);
+/// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn ser(sf: u32, snr_db: f64) -> f64 {
-    let m = (1usize << sf) as f64;
-    let v = (2.0 * m * rho(snr_db)).sqrt();
-    let rice = |y: f64| y * (-(y - v) * (y - v) / 2.0).exp() * bessel_i0e(y * v);
-    let (lo, hi) = ((v - 12.0).max(0.0), v + 12.0);
-    let n = 4800;
-    com_math::simpson(|y| rice(y) * one_minus_power(y, m - 1.0), lo, hi, n).clamp(0.0, 1.0)
+pub fn ser(sf: u32, snr_db: f64) -> Result<f64> {
+    let m = chips(sf)?;
+    com_mapping::theory::ser_orthogonal_noncoherent(m, snr_db + com_math::lin2db(m as f64))
 }
 
 /// The BER of the noncoherent receiver over AWGN: [`ser`]` M/(2(M - 1))`, every wrong
 /// symbol being equally likely.
-pub fn ber(sf: u32, snr_db: f64) -> f64 {
-    let m = (1usize << sf) as f64;
-    ser(sf, snr_db) * m / (2.0 * (m - 1.0))
+///
+/// # Errors
+/// As [`ser`].
+pub fn ber(sf: u32, snr_db: f64) -> Result<f64> {
+    let m = chips(sf)? as f64;
+    Ok(ser(sf, snr_db)? * m / (2.0 * (m - 1.0)))
 }
 
 /// The harmonic number `H_n`.
@@ -88,32 +93,47 @@ fn harmonic(n: usize) -> f64 {
 /// and Robert (2018), the magnitudes taken as Gaussian, at the SNR per sample `snr_db`.
 /// As printed, the formula reads with the SNR per symbol $M\rho$ in place of its
 /// "SNR"; with it, it follows the figure, whose abscissa is the SNR per sample.
-pub fn ser_rice(sf: u32, snr_db: f64) -> f64 {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn ser_rice(sf: u32, snr_db: f64) -> Result<f64> {
+    let m = chips(sf)?;
     let h = harmonic(m - 1);
     let d = (h * h - PI * PI / 12.0).sqrt();
     let gamma = m as f64 * rho(snr_db);
-    qfunc((gamma.sqrt() - d.sqrt()) / (h - d + 0.5).sqrt())
+    Ok(qfunc((gamma.sqrt() - d.sqrt()) / (h - d + 0.5).sqrt()))
 }
 
 /// The concise approximation of eq. (18) of Afisiadis et al. (2020),
 /// $Q(\sqrt{2M\rho} - \sqrt{2(\ln 2 \cdot \mathrm{SF} + \gamma_{\mathrm{EM}})})$, at the SNR
 /// per sample $\rho$ (`snr_db`), $\gamma_{\mathrm{EM}}$ Euler's constant.
-pub fn ser_gumbel(sf: u32, snr_db: f64) -> f64 {
+///
+/// # Errors
+/// As [`ser`].
+pub fn ser_gumbel(sf: u32, snr_db: f64) -> Result<f64> {
     const EULER: f64 = 0.577_215_664_901_532_9;
-    let gamma = (1usize << sf) as f64 * rho(snr_db);
-    qfunc((2.0 * gamma).sqrt() - (2.0 * (std::f64::consts::LN_2 * f64::from(sf) + EULER)).sqrt())
+    let gamma = chips(sf)? as f64 * rho(snr_db);
+    Ok(qfunc((2.0 * gamma).sqrt() - (2.0 * (std::f64::consts::LN_2 * f64::from(sf) + EULER)).sqrt()))
 }
 
 /// The cross-correlation $C_{\ell, m} = \frac{1}{T_{s}}\int_{0}^{T_{s}} x(t; \ell)\\, x^{*}(t;
 /// m)\\, dt$ of two continuous-time LoRa waveforms (Chiani and Elzanaty 2019, eq. (7)):
 /// $1$ for $\ell = m$, else
 /// $M \frac{e^{j2\pi\ell(m - \ell)/M} - e^{j2\pi m(m - \ell)/M}}{j2\pi(M - |m - \ell|)\\,|m - \ell|}$.
-pub fn cross_correlation(sf: u32, l: usize, m_sym: usize) -> C64 {
+///
+/// # Errors
+/// As [`ser`], and [`com_core::Error::Config`] unless both symbols lie below $M$.
+pub fn cross_correlation(sf: u32, l: usize, m_sym: usize) -> Result<C64> {
+    let m = chips(sf)?;
+    com_core::ensure(l < m && m_sym < m, || format!("the symbols {l} and {m_sym} must lie below M = {m}"))?;
+    Ok(correlation(m as f64, l, m_sym))
+}
+
+/// [`cross_correlation`] for $M$ chips (`m` as a float) and valid symbols.
+fn correlation(m: f64, l: usize, m_sym: usize) -> C64 {
     if l == m_sym {
         return C64::new(1.0, 0.0);
     }
-    let m = (1usize << sf) as f64;
     let (l, q) = (l as f64, m_sym as f64);
     let d = (q - l).abs();
     let num = cis(TAU * l * (q - l) / m) - cis(TAU * q * (q - l) / m);
@@ -124,18 +144,21 @@ pub fn cross_correlation(sf: u32, l: usize, m_sym: usize) -> C64 {
 /// continuous-time waveforms (Chiani and Elzanaty 2019, Table I), which costs the
 /// coherent receiver at most $-10 \log_{10}(1 - \max \Re C)$ dB against orthogonal
 /// signals.
-pub fn max_cross_correlation(sf: u32) -> f64 {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn max_cross_correlation(sf: u32) -> Result<f64> {
+    let m = chips(sf)?;
     // C_{l,q} depends on l through e^{j2πl(q-l)/M}: scan every pair
     let mut best = f64::NEG_INFINITY;
     for l in 0..m {
         for q in 0..m {
             if l != q {
-                best = best.max(cross_correlation(sf, l, q).re);
+                best = best.max(correlation(m as f64, l, q).re);
             }
         }
     }
-    best
+    Ok(best)
 }
 
 /// $\int_{t_{1}}^{t_{2}} e^{j2\pi(a t + b t^{2})} dt$ for $b > 0$, in Fresnel functions
@@ -162,10 +185,13 @@ fn waveform_spectrum(m: usize, l: usize, f: f64) -> C64 {
 /// The continuous part of the power spectrum of LoRa modulated by independent uniform
 /// symbols, normalised as $G^{c}(f) B$, at the frequencies `f` in units of $B$ (Chiani
 /// and Elzanaty 2019, eqs. (20) and (25)); its integral is $1 - 1/M$.
-pub fn continuous_spectrum(sf: u32, f: &[f64]) -> Vec<f64> {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn continuous_spectrum(sf: u32, f: &[f64]) -> Result<Vec<f64>> {
+    let m = chips(sf)?;
     let mf = m as f64;
-    f.iter()
+    Ok(f.iter()
         .map(|&fk| {
             let mut energy = 0.0;
             let mut sum = C64::new(0.0, 0.0);
@@ -177,37 +203,47 @@ pub fn continuous_spectrum(sf: u32, f: &[f64]) -> Vec<f64> {
             // 1/(T_s M) (Σ|X|² - |ΣX|²/M) with T_s = M chips and B = 1
             (energy - sum.norm_sqr() / mf) / (mf * mf)
         })
-        .collect()
+        .collect())
 }
 
 /// The lines of the power spectrum, `(f, P)` at $f = nB/M$ for $|n| \le$ `n_max` (in
 /// units of $B$), $P = |\sum_{\ell} X(nB/M; \ell)|^{2}/(T_{s}^{2} M^{2})$ (Chiani and
 /// Elzanaty 2019, eq. (21)); they hold $1/M$ of the power (Property 4).
-pub fn spectral_lines(sf: u32, n_max: usize) -> Vec<(f64, f64)> {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn spectral_lines(sf: u32, n_max: usize) -> Result<Vec<(f64, f64)>> {
+    let m = chips(sf)?;
     let mf = m as f64;
     let n_max = n_max as i64;
-    (-n_max..=n_max)
+    Ok((-n_max..=n_max)
         .map(|n| {
             let f = n as f64 / mf;
             let sum: C64 = (0..m).map(|l| waveform_spectrum(m, l, f)).sum();
             (f, sum.norm_sqr() / (mf * mf * mf * mf))
         })
-        .collect()
+        .collect())
 }
 
 /// The band $[-z, z]$ (in units of $B$, returned as $2z$) of the complex envelope that
 /// holds the fraction `fraction` of the power, lines included (Chiani and Elzanaty 2019,
 /// Table I, $B_{99}$ for 0.99), from the spectrum on a grid of $B/(8M)$ up to
 /// `span` $B$ on each side.
-pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> f64 {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`], and [`com_core::Error::Config`] unless `fraction` lies in (0, 1) and
+/// `span` is positive.
+pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> Result<f64> {
+    let m = chips(sf)?;
+    com_core::ensure(fraction > 0.0 && fraction < 1.0 && span > 0.0, || {
+        format!("a fraction in (0, 1) and a positive span, got {fraction} and {span}")
+    })?;
     let step = 1.0 / (8.0 * m as f64);
     let n = (span / step).ceil() as usize;
     // the spectrum is even: integrate 0 ≤ f ≤ span by the midpoint rule
     let f: Vec<f64> = (0..n).map(|i| (i as f64 + 0.5) * step).collect();
-    let g = continuous_spectrum(sf, &f);
-    let lines = spectral_lines(sf, (span * m as f64).ceil() as usize);
+    let g = continuous_spectrum(sf, &f)?;
+    let lines = spectral_lines(sf, (span * m as f64).ceil() as usize)?;
     // P(|f| ≤ z) on the grid of the cells
     let mut inside = lines.iter().filter(|(fl, _)| *fl == 0.0).map(|l| l.1).sum::<f64>();
     let mut prev = (0.0, inside);
@@ -217,11 +253,11 @@ pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> f64 {
         inside += lines.iter().filter(|(fl, _)| fl.abs() > z - step && fl.abs() <= z).map(|l| l.1).sum::<f64>();
         if inside >= fraction {
             let (z0, p0) = prev;
-            return 2.0 * (z0 + (z - z0) * (fraction - p0) / (inside - p0));
+            return Ok(2.0 * (z0 + (z - z0) * (fraction - p0) / (inside - p0)));
         }
         prev = (z, inside);
     }
-    2.0 * span
+    Ok(2.0 * span)
 }
 
 /// The pattern $R_{k} = \mathrm{DFT}(x_{I} \odot x_{\mathrm{ref}}^{*})\[k\]$, $k = 0 \dots M -
@@ -230,7 +266,7 @@ pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> f64 {
 ///
 /// # Errors
 /// As [`Css::interferer`].
-pub fn interference_pattern(sf: u32, s1: usize, s2: usize, tau: f64) -> com_core::Result<Vec<C64>> {
+pub fn interference_pattern(sf: u32, s1: usize, s2: usize, tau: f64) -> Result<Vec<C64>> {
     let css = Css::lora(sf);
     let x = css.interferer(s1, s2, tau)?;
     let reference = css.symbol(0)?;
@@ -241,17 +277,20 @@ pub fn interference_pattern(sf: u32, s1: usize, s2: usize, tau: f64) -> com_core
 /// of Afisiadis et al. (2020): $A_{k,1}$, $A_{k,2}$ (with their limits $\lceil\tau\rceil$
 /// and $M - \lceil\tau\rceil$ when the sine of the denominator vanishes) and the phases
 /// $\theta_{k,1}$, $\theta_{k,2}$ as printed.
-pub fn interference_magnitudes(sf: u32, s1: usize, s2: usize, tau: f64) -> Vec<f64> {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`Css::interferer`].
+pub fn interference_magnitudes(sf: u32, s1: usize, s2: usize, tau: f64) -> Result<Vec<f64>> {
+    let m = chips(sf)?;
+    com_core::ensure(s1 < m && s2 < m, || format!("the symbols must lie below M = {m}"))?;
+    com_core::ensure((0.0..m as f64).contains(&tau), || format!("the offset must lie in [0, {m}), got {tau}"))?;
     let mf = m as f64;
     let c = tau.ceil();
     let (l_int, lambda) = (tau.floor(), tau - tau.floor());
-    let ratio = |x: f64, len: f64| {
-        let den = (PI / mf * x).sin();
-        if den.abs() < 1e-12 { len } else { (PI / mf * x * len).sin() / den }
-    };
+    // sin(π x len / M) / sin(π x / M), len a whole number of chips
+    let ratio = |x: f64, len: f64| if len == 0.0 { 0.0 } else { len * com_math::diric(TAU * x / mf, len as usize) };
     let (s1f, s2f) = (s1 as f64, s2 as f64);
-    (0..m)
+    Ok((0..m)
         .map(|k| {
             let k = k as f64;
             let a1 = ratio(s1f - k - tau, c);
@@ -261,7 +300,7 @@ pub fn interference_magnitudes(sf: u32, s1: usize, s2: usize, tau: f64) -> Vec<f
             let t2 = PI / mf * (-tau * tau + s2f * (2.0 * tau - c + 1.0 - mf) + k * (c - 1.0 + mf) + tau * (c - 1.0));
             (a1 * a1 + a2 * a2 + 2.0 * a1 * a2 * (t1 - t2).cos()).max(0.0).sqrt()
         })
-        .collect()
+        .collect())
 }
 
 /// The magnitude $|A_{k,1} + A_{k,2}|$ of the strongest interference bin for `s2 = 0`
@@ -272,10 +311,8 @@ fn strongest_bin(m: usize, si: usize, tau: f64) -> f64 {
     let mf = m as f64;
     let c = tau.ceil();
     let k = -tau.round();
-    let ratio = |x: f64, len: f64| {
-        let den = (PI / mf * x).sin();
-        if den.abs() < 1e-12 { len } else { (PI / mf * x * len).sin() / den }
-    };
+    // sin(π x len / M) / sin(π x / M), len a whole number of chips
+    let ratio = |x: f64, len: f64| if len == 0.0 { 0.0 } else { len * com_math::diric(TAU * x / mf, len as usize) };
     (ratio(si as f64 - k - tau, c) + ratio(-k - tau, mf - c)).abs()
 }
 
@@ -300,8 +337,11 @@ fn offsets(half: f64, eps: f64) -> (f64, Vec<f64>) {
 /// to the signal), at the SNR per sample `snr_db`, the offset sampled every `eps` chips
 /// over $[0, (M - 1)/2)$ (Afisiadis et al. 2020, eqs. (62)–(63); the paper takes
 /// `eps` = 1/5).
-pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> f64 {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> Result<f64> {
+    let m = chips(sf)?;
     let (r, pi) = (rho(snr_db), com_math::db2lin(pi_db));
     let half = (m as f64 - 1.0) / 2.0;
     let (eps, taus) = offsets(half, eps);
@@ -312,15 +352,18 @@ pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> f64 {
         }
     }
     let p_int = acc * eps / (m as f64 * (m as f64 / 2.0));
-    let p_noise = ser(sf, snr_db);
-    p_noise + (1.0 - p_noise) * p_int
+    let p_noise = ser(sf, snr_db)?;
+    Ok(p_noise + (1.0 - p_noise) * p_int)
 }
 
 /// The approximate frame error rate of `frame` uncoded symbols under AWGN and a same-SF
 /// interferer whose frame of the same length overlaps a uniform number of symbols
 /// (Afisiadis et al. 2020, eqs. (64)–(67)), the offset sampled every `eps` chips.
-pub fn fer_interference(sf: u32, snr_db: f64, pi_db: f64, frame: usize, eps: f64) -> f64 {
-    let m = 1usize << sf;
+///
+/// # Errors
+/// As [`ser`].
+pub fn fer_interference(sf: u32, snr_db: f64, pi_db: f64, frame: usize, eps: f64) -> Result<f64> {
+    let m = chips(sf)?;
     let (r, pi) = (rho(snr_db), com_math::db2lin(pi_db));
     let half = (m as f64 - 1.0) / 2.0;
     let (eps, taus) = offsets(half, eps);
@@ -329,14 +372,14 @@ pub fn fer_interference(sf: u32, snr_db: f64, pi_db: f64, frame: usize, eps: f64
         .iter()
         .map(|&tau| (0..m).map(|si| interference_error(m, si, tau, r, pi)).sum::<f64>() / m as f64)
         .collect();
-    let p_noise = ser(sf, snr_db);
+    let p_noise = ser(sf, snr_db)?;
     let mut total = 0.0;
     for fi in 1..=frame {
         // eqs. (64) and (66)
         let ok: f64 = p_tau.iter().map(|p| (1.0 - p).powi(fi as i32) * (1.0 - p_noise).powi((frame - fi) as i32)).sum();
         total += 2.0 / m as f64 * eps * (taus.len() as f64 - ok);
     }
-    (total / frame as f64).clamp(0.0, 1.0)
+    Ok((total / frame as f64).clamp(0.0, 1.0))
 }
 
 #[cfg(test)]
@@ -357,9 +400,9 @@ mod tests {
             css.modulate(&s).unwrap().into_iter().map(|v| v * cis(1.3) + rng.complex_gaussian() * sigma).collect();
         let d = css.demodulate(&y).unwrap();
         let sim = d.iter().zip(&s).filter(|(a, b)| a != b).count() as f64 / n as f64;
-        let want = ser(7, -9.0);
+        let want = ser(7, -9.0).unwrap();
         assert!((sim / want - 1.0).abs() < 0.15, "{sim} vs {want}");
-        assert!((ber(7, -9.0) / want - 128.0 / 254.0).abs() < 1e-12);
+        assert!((ber(7, -9.0).unwrap() / want - 128.0 / 254.0).abs() < 1e-12);
     }
 
     #[test]
@@ -371,7 +414,7 @@ mod tests {
         let n = x[0].len() as f64;
         for (l, q) in [(0usize, 1usize), (3, 7), (15, 2), (5, 13), (6, 6)] {
             let c: C64 = x[l].iter().zip(&x[q]).map(|(a, b)| a * b.conj()).sum::<C64>() / n;
-            let want = cross_correlation(4, l, q);
+            let want = cross_correlation(4, l, q).unwrap();
             assert!((c - want).norm() < 0.02, "C({l}, {q}) = {c} vs {want}");
         }
     }
@@ -379,11 +422,11 @@ mod tests {
     #[test]
     fn the_spectrum_holds_the_power_and_the_lines_hold_one_over_m() {
         // Chiani and Elzanaty 2019, Property 4 and eq. (20): SF 5
-        let lines: f64 = spectral_lines(5, 40 << 5).iter().map(|l| l.1).sum();
+        let lines: f64 = spectral_lines(5, 40 << 5).unwrap().iter().map(|l| l.1).sum();
         assert!((lines - 1.0 / 32.0).abs() < 1e-9, "{lines}");
         let step = 1.0 / 256.0;
         let f: Vec<f64> = (0..(4.0 / step) as usize).map(|i| -2.0 + (i as f64 + 0.5) * step).collect();
-        let cont: f64 = continuous_spectrum(5, &f).iter().sum::<f64>() * step;
+        let cont: f64 = continuous_spectrum(5, &f).unwrap().iter().sum::<f64>() * step;
         assert!((cont - (1.0 - 1.0 / 32.0)).abs() < 2e-3, "{cont}");
     }
 
@@ -399,7 +442,7 @@ mod tests {
         };
         for (s1, s2, tau) in [(5usize, 0usize, 3.0), (40, 10, 10.4), (63, 2, 30.7), (0, 0, 0.5), (17, 17, 62.9)] {
             let dft = mags(s1, s2, tau);
-            let closed = interference_magnitudes(6, s1, s2, tau);
+            let closed = interference_magnitudes(6, s1, s2, tau).unwrap();
             let err = dft.iter().zip(&closed).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
             assert!(err < 1e-9, "({s1}, {s2}, {tau}): {err}");
         }
@@ -429,16 +472,16 @@ mod literature {
     #[test]
     fn chiani_2019_table_1() {
         for (sf, corr, penalty) in [(3u32, 0.212, 1.04), (5, 0.091, 0.41), (7, 0.045, 0.20), (10, 0.015, 0.07)] {
-            let c = max_cross_correlation(sf);
+            let c = max_cross_correlation(sf).unwrap();
             assert!((c - corr).abs() < 5e-4, "SF {sf}: {c}");
-            let p = -10.0 * (1.0 - c).log10();
+            let p = -com_math::lin2db(1.0 - c);
             assert!((p - penalty).abs() < 0.005, "SF {sf}: {p} dB");
         }
         for (sf, b99) in [(3u32, 1.500), (5, 1.185), (7, 1.045)] {
-            let b = occupied_bandwidth(sf, 0.99, 3.0);
+            let b = occupied_bandwidth(sf, 0.99, 3.0).unwrap();
             assert!((b / b99 - 1.0).abs() < 0.005, "SF {sf}: {b}");
             // the lines beyond 40 B hold less than 1e-4 of their power
-            let lines: f64 = spectral_lines(sf, 40 << sf).iter().map(|l| l.1).sum();
+            let lines: f64 = spectral_lines(sf, 40 << sf).unwrap().iter().map(|l| l.1).sum();
             assert!((lines * (1 << sf) as f64 - 1.0).abs() < 1e-4, "SF {sf}: {lines}");
         }
     }
@@ -453,13 +496,13 @@ mod literature {
     /// over that range (the most at SF 7 and low rates).
     #[test]
     fn afisiadis_2020_fig_2_and_eqs_16_to_18() {
-        assert!((ser(7, -8.0) / 1.8e-3 - 1.0).abs() < 0.15);
-        assert!((ser(7, -7.0) / 1.4e-4 - 1.0).abs() < 0.1);
+        assert!((ser(7, -8.0).unwrap() / 1.8e-3 - 1.0).abs() < 0.15);
+        assert!((ser(7, -7.0).unwrap() / 1.4e-4 - 1.0).abs() < 0.1);
         for sf in 7u32..=12 {
             for snr in (-30..=0).map(f64::from) {
-                let exact = ser(sf, snr);
+                let exact = ser(sf, snr).unwrap();
                 if (1e-6..1e-2).contains(&exact) {
-                    let (r, g) = (ser_rice(sf, snr), ser_gumbel(sf, snr));
+                    let (r, g) = (ser_rice(sf, snr).unwrap(), ser_gumbel(sf, snr).unwrap());
                     assert!((r / exact - 1.0).abs() < 0.3, "SF {sf} {snr} dB: {r} vs {exact}");
                     assert!(g < exact && g > exact / 6.0, "SF {sf} {snr} dB: {g} vs {exact}");
                 }
@@ -474,7 +517,7 @@ mod literature {
     #[test]
     fn vangelista_2017_fig_1_awgn() {
         for (snr, read) in [(-10.0, 2e-2), (-9.0, 4.7e-3), (-8.0, 8e-4), (-7.0, 7.5e-5)] {
-            let b = ber(7, snr);
+            let b = ber(7, snr).unwrap();
             assert!((b / read - 1.0).abs() < 0.15, "{snr} dB: {b} vs {read}");
         }
     }

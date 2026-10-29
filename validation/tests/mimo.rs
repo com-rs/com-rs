@@ -15,6 +15,7 @@
 use com_validation::{MIN_ERRORS, within_three_sigma};
 use comrs::channel::fading::Mimo;
 use comrs::mapping::theory::ber_rayleigh_mrc;
+use comrs::math::bisect;
 use comrs::math::linalg::{CMat, matvec};
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::mimo::stbc::Ostbc;
@@ -44,7 +45,7 @@ fn zero_forcing_over_rayleigh_fading() {
             }
             batch += 1;
         }
-        let theory = ber_rayleigh_mrc(db2lin(ebn0_db), nr - nt + 1);
+        let theory = ber_rayleigh_mrc(db2lin(ebn0_db), nr - nt + 1).unwrap();
         assert!(within_three_sigma(errors, total, theory), "{nt}x{nr}: {errors}/{total} vs {theory}");
     }
 }
@@ -71,7 +72,7 @@ fn alamouti_over_rayleigh_fading() {
             }
             batch += 1;
         }
-        let theory = ber_rayleigh_mrc(g / 2.0, 2 * nr);
+        let theory = ber_rayleigh_mrc(g / 2.0, 2 * nr).unwrap();
         assert!(within_three_sigma(errors, total, theory), "2x{nr}: {errors}/{total} vs {theory}");
     }
 }
@@ -133,15 +134,8 @@ fn diversity_slope(snrs_db: &[f64], ber: &[f64]) -> f64 {
 /// (`ber_rayleigh_mrc`, the curve of order `order` with a closed form) between the
 /// mean SNRs at which it takes the same values.
 fn reference_slope(order: usize, ber: &[f64]) -> f64 {
-    let snr_db_at = |p: f64| {
-        // ber_rayleigh_mrc decreases with the SNR: bisection on the SNR in dB
-        let (mut lo, mut hi) = (-20.0f64, 80.0f64);
-        for _ in 0..100 {
-            let mid = 0.5 * (lo + hi);
-            if ber_rayleigh_mrc(db2lin(mid), order) > p { lo = mid } else { hi = mid }
-        }
-        0.5 * (lo + hi)
-    };
+    // ber_rayleigh_mrc decreases with the SNR: bisection on the SNR in dB
+    let snr_db_at = |p: f64| bisect(|s| ber_rayleigh_mrc(db2lin(s), order).unwrap() > p, -20.0, 80.0, 100);
     let snrs: Vec<f64> = ber.iter().map(|&p| snr_db_at(p)).collect();
     diversity_slope(&snrs, ber)
 }

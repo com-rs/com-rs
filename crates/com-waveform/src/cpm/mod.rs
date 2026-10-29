@@ -416,35 +416,20 @@ mod tests {
 
     #[test]
     fn parse_pulses() {
-        assert_eq!(FrequencyPulse::parse("REC", 0.0).unwrap(), FrequencyPulse::Rectangular);
-        assert_eq!(FrequencyPulse::parse("rc", 0.0).unwrap(), FrequencyPulse::RaisedCosine);
-        assert_eq!(FrequencyPulse::parse("gmsk", 0.5).unwrap(), FrequencyPulse::Gaussian { bt: 0.5 });
-        assert!(FrequencyPulse::parse("sinc", 0.5).is_err());
+        assert_eq!(FrequencyPulse::from_name("REC", 0.0).unwrap(), FrequencyPulse::Rectangular);
+        assert_eq!(FrequencyPulse::from_name("rc", 0.0).unwrap(), FrequencyPulse::RaisedCosine);
+        assert_eq!(FrequencyPulse::from_name("gmsk", 0.5).unwrap(), FrequencyPulse::Gaussian { bt: 0.5 });
+        assert!(FrequencyPulse::from_name("sinc", 0.5).is_err());
     }
 
-    /// Averaged Hann-windowed periodogram of `x` over segments of `nfft` samples sampled
-    /// at `sps` per symbol: frequencies `fT` (centred) and the density per unit `fT`,
-    /// normalised to a unit total power.
+    /// Averaged Hann-windowed periodogram of `x` over non-overlapping segments of `nfft`
+    /// samples sampled at `sps` per symbol ([`com_dsp::spectrum::welch`]): frequencies
+    /// `fT` (centred) and the density per unit `fT`, normalised to a unit total power.
     pub(super) fn welch(x: &[C64], sps: usize, nfft: usize) -> (Vec<f64>, Vec<f64>) {
-        let w = com_dsp::window::hann(nfft);
-        let plan = com_math::fft::plan(nfft);
-        let mut acc = vec![0.0; nfft];
-        let mut seg = vec![C64::new(0.0, 0.0); nfft];
-        for chunk in x.chunks_exact(nfft) {
-            for (s, (v, wi)) in seg.iter_mut().zip(chunk.iter().zip(&w)) {
-                *s = v * wi;
-            }
-            plan.forward(&mut seg);
-            for (a, s) in acc.iter_mut().zip(&seg) {
-                *a += s.norm_sqr();
-            }
-        }
-        let half = nfft / 2;
-        let df = sps as f64 / nfft as f64;
-        let total: f64 = acc.iter().sum::<f64>() * df;
-        let freqs = (0..nfft).map(|i| (i as f64 - half as f64) * df).collect();
-        let dens = (0..nfft).map(|i| acc[(i + nfft - half) % nfft] / total).collect();
-        (freqs, dens)
+        let hann = com_dsp::window::hann(nfft);
+        let (f, d) = com_dsp::spectrum::welch(x, sps as f64, nfft, Some(&hann), nfft).unwrap();
+        let total: f64 = d.iter().sum::<f64>() * (f[1] - f[0]);
+        (f, d.into_iter().map(|v| v / total).collect())
     }
 
     /// The two-sided bandwidth holding the `fraction` of the power of a centred density.
@@ -534,7 +519,7 @@ mod literature {
         for (fi, di) in f.iter().zip(&d) {
             let want = msk_psd(*fi);
             if want > 1e-2 * msk_psd(0.0) {
-                let err_db = 10.0 * (di / want).log10();
+                let err_db = com_math::lin2db(di / want);
                 assert!(err_db.abs() < 1.0, "fT = {fi}: {err_db} dB");
                 sq += err_db * err_db;
                 count += 1;
@@ -549,7 +534,7 @@ mod literature {
             .map(|(fi, di)| (*fi, *di))
             .unwrap();
         assert!((null_f - 0.75).abs() < 0.02, "null at {null_f}");
-        assert!(10.0 * (null_d / peak).log10() < -25.0, "null depth {}", 10.0 * (null_d / peak).log10());
+        assert!(com_math::lin2db(null_d / peak) < -25.0, "null depth {}", com_math::lin2db(null_d / peak));
         let i0 = nfft / 2;
         let k = (i0..nfft - 1).find(|&i| d[i + 1] < peak / 2.0).unwrap();
         let half = f[k] + (f[k + 1] - f[k]) * (d[k] - peak / 2.0) / (d[k] - d[k + 1]);

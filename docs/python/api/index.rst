@@ -15,10 +15,22 @@ keyword-only; the functions return NumPy arrays; the closed forms (``theory_*``,
 (and return an array). The package is typed: ``comrs/_comrs.pyi`` describes the
 extension.
 
-Random numbers and conversions
-------------------------------
+The names are grouped by theme, in the order of a link: the foundations, coding,
+waveforms, MIMO, the channels (wireless and optical), the hardware, the receiver,
+the metrics, the standards and the simulation. The same themes order the gallery, the
+maturity table and the comparisons with the literature.
 
-Every function that draws takes a :class:`Rng`; the conversions use the power ratio convention (``10 log10``).
+Foundations
+-----------
+
+Random numbers, decibels, sources, constellations and the closed forms of their error
+and information rates.
+
+Random numbers and conversions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every function that draws takes a :class:`Rng`; the conversions use the power ratio
+convention (``10 log10``).
 
 .. autosummary::
    :toctree: generated
@@ -29,10 +41,11 @@ Every function that draws takes a :class:`Rng`; the conversions use the power ra
    dbm2w
    w2dbm
    qfunc
-   ber_to_q_db
+   bessel_j0
+   entropy
 
 Sources
--------
+~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -43,7 +56,7 @@ Sources
    maxwell_boltzmann
 
 Constellations
---------------
+~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -52,48 +65,319 @@ Constellations
    gray_code
    Dpsk
 
-Metrics
--------
+Error rates in closed form
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Estimates from received and transmitted sequences.
-
-.. autosummary::
-   :toctree: generated
-
-   ber
-   snr_db
-   fast_ber_calc
-   evm
-   monte_carlo_gmi
-   monte_carlo_mi
-   entropy
-   information_rates
-   posterior_rates
-
-Closed forms
-------------
-
-Error rates, rates and limits, on scalars or arrays.
+On scalars or arrays.
 
 .. autosummary::
    :toctree: generated
 
    theory_ber
    theory_ser
-   theory_mi
-   theory_gmi
+   theory_ber_gray
    theory_ber_dpsk
    differential_phase_tail
-   theory_papr_ccdf
+   theory_phase_pdf
+   theory_ber_imperfect_csi
+   theory_ber_dpsk_jakes
+
+Information rates and capacity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The mutual information of constellations over AWGN or Rayleigh fading, the capacities
+and cutoff rates of coded modulation and BICM.
+
+.. autosummary::
+   :toctree: generated
+
+   theory_mi
+   theory_gmi
+   cm_capacity
+   bicm_capacity
+   cm_cutoff_rate
+   bicm_cutoff_rate
+
+Coding and shaping
+------------------
+
+Codes encode bits into bits and decode LLRs (positive for a 0) into bits, whole blocks
+at a time (``encode``, ``decode``); the algebraic codes also decode one word of hard
+decisions (``decode_bits``).
+
+Codes
+~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   Crc
+   Scrambler
+   Interleaver
+   ConvolutionalCode
+   TurboCode
+   LdpcCode
+   PolarCode
+   ReedSolomonCode
+   BchCode
+   NrLdpc
+   NrPolar
+   free_distance
+   pack_symbols
+   unpack_symbols
+
+Distribution matching
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   Ccdm
+
+Limits and bounds
+~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   shannon_limit_ebn0_db
+   biawgn_capacity
+   normal_approximation
    theory_rs_wer
    theory_rs_ser
    theory_rs_ber
-   biawgn_capacity
-   normal_approximation
-   shannon_limit_ebn0_db
+
+Waveforms
+---------
+
+OFDM
+~~~~
+
+The modulator, the resource grid and its pilots, the channel estimation, the
+synchronisation and the gain correction of OFDM.
+
+.. autosummary::
+   :toctree: generated
+
+   Ofdm
+   ResourceGrid
+   ofdm_estimate
+   ofdm_preamble
+   schmidl_cox
+   ofdm_synchronize
+   gain_limited_correction
+   sdr_gain_limited
+   sdr_optimum_correction
+
+PAPR
+~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   PaprReduction
+   papr_db
+   ccdf
+   theory_papr_ccdf
+   clipping_bussgang
+
+Constant-envelope waveforms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Continuous-phase modulation (CPFSK, MSK, GMSK) and constant-envelope OFDM.
+
+.. autosummary::
+   :toctree: generated
+
+   Cpm
+   msk_precode
+   msk_bits
+   msk_psd
+   CeOfdm
+   ce_ofdm_imp_powers
+   ce_ofdm_optimum_gain
+   ce_ofdm_ber_optimum
+   pm_occupied_bandwidth
+
+Chirp spread spectrum
+~~~~~~~~~~~~~~~~~~~~~
+
+The modulation of LoRa and its theory.
+
+.. autosummary::
+   :toctree: generated
+
+   Css
+   css_ser
+   css_ber
+   css_cross_correlation
+   css_max_cross_correlation
+   css_continuous_spectrum
+   css_spectral_lines
+   css_occupied_bandwidth
+   css_interference_pattern
+   css_ser_interference
+
+Filtered multicarrier and OTFS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   Fbmc
+   oqam_stagger
+   oqam_destagger
+   Ufmc
+   chebyshev_window
+   Otfs
+
+MIMO
+----
+
+One channel matrix per received vector; received vectors are ``(n, n_rx)`` arrays.
+
+Detection
+~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   mimo_detect
+   mimo_llr
+   mimo_estimate
+
+Message passing for large MIMO
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   message_passing
+   amp_state_evolution
+   amp_thresholds
+   oamp_state_evolution
+
+Space-time codes, precoding and capacity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   Ostbc
+   eigenmode
+   zf_precoder
+   water_filling_powers
+   mimo_capacity
+   ergodic_capacity
+   outage_probability
+   outage_capacity
+
+Wireless channels
+-----------------
+
+Noise and flat fading
+~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   awgn
+   awgn_ebn0
+   mimo_channel
+   exponential_correlation
+
+Multipath
+~~~~~~~~~
+
+Tapped and clustered delay lines, delay–Doppler channels.
+
+.. autosummary::
+   :toctree: generated
+
+   TdlChannel
+   ChannelTaps
+   power_delay_profile
+   rms_delay_spread
+   CdlChannel
+   cdl_profile
+   cdl_k_factor_db
+   delay_doppler_paths
+
+Optical
+-------
+
+Fibre and amplification
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   FiberParams
+   linear_fiber_channel
+   Ssfm
+   Manakov
+   ManakovSsfm
+   Edfa
+   raman_profile
+   gn_model
+   gn_closed_form
+   format_moments
+   wdm_grid
+
+Optical devices
+~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   laser
+   phase_noise
+   phase_modulator
+   mzm
+   iqm
+   Photodiode
+   balanced_photodiode
+   hybrid_2x4
+   coherent_receiver
+
+Hardware impairments
+--------------------
+
+Amplifiers and predistortion
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   pa_rapp
+   pa_saleh
+   pa_memory_polynomial
+   rapp_predistort
+   MemoryPolynomialDpd
+   amplifier_bussgang
+   envelope_series
+   distortion_spectrum
+
+Converters
+~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   adc
+   dac
+   theory_quantization_mse
+   optimal_loading
+   theory_sqnr_sine_db
+   enob_from_sinad_db
+   theory_jitter_snr_db
+   zero_order_hold_gain
+
+Receiver DSP
+------------
 
 Filters and sampling
---------------------
+~~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -113,19 +397,8 @@ Filters and sampling
    moving_average
    delay_fft
 
-Equalisation and compensation
------------------------------
-
-.. autosummary::
-   :toctree: generated
-
-   cdc
-   cd_taps_needed
-   cd_fir_taps
-   adaptive_equalizer
-
 Carrier recovery
-----------------
+~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -138,7 +411,7 @@ Carrier recovery
    unwrap
 
 Clock recovery
---------------
+~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -148,70 +421,85 @@ Clock recovery
    interpolate_cubic
    gardner_clock_recovery
 
-Channels
---------
+Equalisation and compensation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
 
-   awgn
-   awgn_ebn0
-   phase_noise
-   linear_fiber_channel
-   FiberParams
-   Edfa
-   Ssfm
-   Manakov
-   ManakovSsfm
-   gn_model
-   gn_closed_form
-   format_moments
-   raman_profile
-   wdm_grid
+   adaptive_equalizer
+   cdc
+   cd_taps_needed
+   cd_fir_taps
+   cd_dispersion_factor
+   cd_savory_taps
+   cd_ls_taps
+   cd_ls_error
 
-Optical devices
----------------
+Blind estimation
+~~~~~~~~~~~~~~~~
+
+Modulation recognition, SNR and symbol rate without a reference.
 
 .. autosummary::
    :toctree: generated
 
-   laser
-   phase_modulator
-   mzm
-   iqm
-   Photodiode
-   balanced_photodiode
-   hybrid_2x4
-   coherent_receiver
+   cumulants
+   theory_cumulants
+   classify_modulation
+   snr_m2m4_db
+   cyclic_autocorrelation
+   estimate_symbol_rate
 
-Channel coding
---------------
+Metrics and analysis
+--------------------
 
-Codes encode bits into bits and decode LLRs (positive for a 0) into bits, whole blocks
-at a time (``encode``, ``decode``); the algebraic codes also decode one word of hard
-bits with the number of corrections (``decode_bits``).
+Error rates, SNR and information rates
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Estimates from received and transmitted sequences.
 
 .. autosummary::
    :toctree: generated
 
-   Crc
-   Scrambler
-   Interleaver
-   ConvolutionalCode
-   TurboCode
-   LdpcCode
-   PolarCode
-   ReedSolomonCode
-   BchCode
-   Ccdm
-   free_distance
-   pack_symbols
-   unpack_symbols
+   ber
+   snr_db
+   fast_ber_calc
+   evm
+   ber_to_q_db
+   monte_carlo_gmi
+   monte_carlo_mi
+   information_rates
+   posterior_rates
 
-Standards
----------
+Spectrum
+~~~~~~~~
 
-Reference chains of standards (``com-systems``).
+.. autosummary::
+   :toctree: generated
+
+   psd
+   periodogram
+   aclr_db
+
+Results and plots
+~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   Results
+   Trace
+   compare
+   plot
+
+Systems and standards
+---------------------
+
+Reference chains of standards (``com-systems``) and the physical layer of 5G NR.
+
+DVB-S2
+~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -221,95 +509,27 @@ Reference chains of standards (``com-systems``).
    dvbs2_bbframe_data
    dvbs2_decode_plheader
 
-OFDM and PAPR
--------------
+5G NR
+~~~~~
 
 .. autosummary::
    :toctree: generated
 
-   Ofdm
-   PaprReduction
-   papr_db
-   ccdf
-   clipping_bussgang
+   nr_numerology
+   nr_ofdm_modulate
+   nr_pss
+   nr_sss
+   nr_detect_cell_id
+   nr_ssb_grid
+   nr_ssb_indices
+   nr_pbch_dmrs
+   nr_pdsch_dmrs
 
-Constant-envelope waveforms
----------------------------
-
-Continuous-phase modulation (CPFSK, MSK, GMSK) and constant-envelope OFDM.
-
-.. autosummary::
-   :toctree: generated
-
-   Cpm
-   msk_precode
-   msk_bits
-   msk_psd
-   CeOfdm
-
-OFDM links
-----------
-
-.. autosummary::
-   :toctree: generated
-
-   ResourceGrid
-   ofdm_estimate
-   ofdm_preamble
-   schmidl_cox
-   ofdm_synchronize
-   TdlChannel
-   ChannelTaps
-   power_delay_profile
-   rms_delay_spread
-   CdlChannel
-   cdl_profile
-   cdl_k_factor_db
-
-Amplifiers and predistortion
-----------------------------
-
-.. autosummary::
-   :toctree: generated
-
-   pa_rapp
-   pa_saleh
-   pa_memory_polynomial
-   rapp_predistort
-   MemoryPolynomialDpd
-
-Spectrum
---------
-
-.. autosummary::
-   :toctree: generated
-
-   psd
-   periodogram
-   aclr_db
-
-MIMO
-----
-
-Channels :math:`H` are ``(n_rx, n_tx)`` arrays, or ``(n, n_rx, n_tx)`` stacks with one
-matrix per received vector; received vectors are ``(n, n_rx)`` arrays.
-
-.. autosummary::
-   :toctree: generated
-
-   mimo_channel
-   exponential_correlation
-   mimo_detect
-   mimo_llr
-   mimo_estimate
-   Ostbc
-   mimo_capacity
-   water_filling
-   eigenmode
-   zf_precoder
+Simulation and specifications
+-----------------------------
 
 Chains
-------
+~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -317,30 +537,32 @@ Chains
    Chain
    Block
    Native
-   var
+   Var
    Frame
    LinkBlock
    frame_metrics
    blocks
 
-Analysis
---------
+``var`` (the function that makes a :class:`Var`) is documented here rather than on a
+page of its own, whose file name would clash with that of :class:`Var` on
+case-insensitive file systems:
+
+.. autosummary::
+
+   var
+
+.. autofunction:: var
+
+Monte Carlo runner
+~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
 
-   Results
-   Trace
-   compare
-
-.. autosummary::
-   :toctree: generated
-   :recursive:
-
-   plot
+   sim
 
 Declarative campaigns
----------------------
+~~~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -354,22 +576,10 @@ Declarative campaigns
    spec_check_link
 
 Recordings
-----------
+~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
 
    read_sigmf
    write_sigmf
-
-Monte Carlo runner
-------------------
-
-Python trials on the Rust runner (one thread), with its statistics, stopping rules and
-reports.
-
-.. autosummary::
-   :toctree: generated
-   :recursive:
-
-   sim

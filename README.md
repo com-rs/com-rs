@@ -35,7 +35,7 @@ use comrs::sim::scenario::from_fn;
 let qpsk = from_fn("qpsk", |cond, rng, rec| {
     let c = Constellation::qam(4)?.normalized();
     let bits = source::bits(2000, rng);
-    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2, 1.0, rng);
+    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
     rec.errors("ber", metrics::bit_errors(&c.demodulate(&rx), &bits) as u64, 2000);
     Ok(())
 });
@@ -153,10 +153,10 @@ is published on crates.io and re-exported by the facade `comrs`, so Rust users w
 |---|---|---|---|
 | 0 | `com-core` (`core`) | `Rng` | multi-stream containers (`Bits`, `Llr`, `Symbols`, `Signal`, `DualPol`), the verb traits (`Map`, `Demap`, `Propagate`, `Impair`, …), unit newtypes (`Db`, `EbN0`, `EsN0`, `Hertz`), the seeded generator (xoshiro256\*\*, one stream per trial), the error type |
 | 0 | `com-math` (`math`) | `db2lin`, `lin2db`, `dbm2w`, `w2dbm`, `qfunc`, `entropy` | conversions, special functions, Gauss–Hermite quadrature, FFT plans, complex linear algebra (QR, Cholesky, SVD), nearest-point search, the split-step solvers of the NLSE and the Manakov equation, GF(2) and GF(2^m), exact integers, the Gray code, bisection and golden-section search |
-| 1 | `com-dsp` (`dsp`) | `pulse_shape`, `rrc_spectrum`, `fir_filter`, `convolve`, `upsample`, `downsample`, `decimate`, `resample_fft`, `low_pass_fir`, `pnorm`, `anorm`, `freq_shift`, `moving_average`, `delay_fft`, `cdc`, `cd_taps_needed`, `cd_fir_taps`, `cd_dispersion_factor`, `cd_savory_taps`, `cd_ls_taps`, `cd_ls_error`, `adaptive_equalizer`, `fourth_power_foe`, `viterbi_viterbi`, `bps`, `ddpll`, `derotate`, `unwrap`, `gardner_ted`, `gardner_ted_nyquist`, `interpolate_cubic`, `gardner_clock_recovery`, `MemoryPolynomialDpd` | `filter`, `resample`, `signal`; `sync::{carrier, timing, frame}`; `equalizer` (the n×n butterfly: CMA, RDE, NLMS, DD-LMS, schedules); `compensation::{cd, dbp, dpd}` (single- and dual-polarisation back-propagation; digital predistortion by memory polynomials, indirect learning); `window`; `estimation` (LS, LMMSE, interpolation) |
+| 1 | `com-dsp` (`dsp`) | `pulse_shape`, `rrc_spectrum`, `fir_filter`, `convolve`, `upsample`, `downsample`, `decimate`, `resample_fft`, `low_pass_fir`, `pnorm`, `anorm`, `freq_shift`, `moving_average`, `delay_fft`, `cdc`, `cd_taps_needed`, `cd_fir_taps`, `cd_dispersion_factor`, `cd_savory_taps`, `cd_ls_taps`, `cd_ls_error`, `adaptive_equalizer`, `fourth_power_foe`, `viterbi_viterbi`, `bps`, `ddpll`, `derotate`, `unwrap`, `gardner_ted`, `gardner_ted_nyquist`, `interpolate_cubic`, `gardner_clock_recovery`, `MemoryPolynomialDpd` | `filter`, `resample`, `signal`; `sync::{carrier, timing, frame}`; `equalizer` (the n×n butterfly: CMA, RDE, NLMS, DD-LMS, schedules); `compensation::{cd, dbp, dpd}` (single- and dual-polarisation back-propagation; digital predistortion by memory polynomials, indirect learning); `window`; `estimation` (LS, LMMSE); `interpolation` (linear, quadratic, spline, band-limited, cubic Lagrange); `spectrum` (Welch, periodogram); `nonlinear` (Bussgang's decomposition, Banelli's series) |
 | 2 | `com-mapping` (`mapping`) | `Constellation`, `gray_code`, `bits`, `prbs`, `symbols`, `maxwell_boltzmann`, `theory_ber`, `theory_ser`, `theory_mi`, `theory_gmi`, `Dpsk`, `theory_ber_dpsk`, `differential_phase_tail` | QAM, PSK, PAM, OOK and custom constellations with OptiCommPy's Gray labels, decisions, LLRs (exact or max-log); sources (PRBS of ITU-T O.150, shaped symbols); closed-form error and information rates; differential M-PSK (noncoherent and coherent detection, closed-form BER) |
-| 2 | `com-waveform` (`waveform`) | `Ofdm`, `ResourceGrid`, `ofdm_estimate`, `ofdm_preamble`, `schmidl_cox`, `ofdm_synchronize`, `PaprReduction`, `theory_papr_ccdf`, `clipping_bussgang`, `Cpm`, `msk_precode`, `msk_bits`, `msk_psd`, `CeOfdm` | OFDM and DFT-spread OFDM; continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses, maximum-likelihood sequence and differential detection); resource grids with block, comb or lattice pilots, LS and LMMSE channel estimation, Schmidl–Cox synchronisation, per-subcarrier MIMO-OFDM detection; PAPR: its distribution, clipping (Bussgang), clipping and filtering, SLM, PTS, tone reservation, ACE, μ-law and exponential companding; constant-envelope OFDM, its phase demodulator with or without unwrapping, and the error rates of its linear regime |
-| 2 | `com-channel` (`channel`) | `awgn`, `awgn_ebn0`, `mimo_channel`, `exponential_correlation`, `TdlChannel`, `CdlChannel`, `ChannelTaps`, `cdl_profile`, `cdl_k_factor_db`, `power_delay_profile`, `rms_delay_spread`, `FiberParams`, `linear_fiber_channel`, `Ssfm`, `Manakov`, `ManakovSsfm`, `Edfa`, `raman_profile`, `gn_model`, `gn_closed_form`, `format_moments` | AWGN, flat fading (SISO and MIMO, Rayleigh and Rician, Kronecker antenna correlation), the clustered delay lines CDL-A to CDL-E of 3GPP TR 38.901 between antenna arrays, tapped-delay-line multipath (3GPP EPA, EVA, ETU, ITU Pedestrian and Vehicular A and B) with sum-of-sinusoids Doppler; optical: fibre parameters, linear fibre, split-step Fourier (scalar, Manakov with PMD, and the Manakov scheme of OptiCommPy's `manakovSSF` with adaptive steps) and their back-propagation, the EDFA with ASE, distributed Raman amplification with co- and counter-propagating pumps and inter-channel stimulated Raman scattering, the GN and EGN models of the nonlinear interference with the power profiles of the spans |
+| 2 | `com-waveform` (`waveform`) | `Ofdm`, `ResourceGrid`, `ofdm_estimate`, `ofdm_preamble`, `schmidl_cox`, `ofdm_synchronize`, `PaprReduction`, `theory_papr_ccdf`, `clipping_bussgang`, `Cpm`, `msk_precode`, `msk_bits`, `msk_psd`, `CeOfdm`, `Css`, `Fbmc`, `Ufmc`, `Otfs` | OFDM and DFT-spread OFDM; continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses, maximum-likelihood sequence and differential detection); resource grids with block, comb or lattice pilots, LS and LMMSE channel estimation, Schmidl–Cox synchronisation, per-subcarrier MIMO-OFDM detection; PAPR: its distribution, clipping (Bussgang), clipping and filtering, SLM, PTS, tone reservation, ACE, μ-law and exponential companding; constant-envelope OFDM, its phase demodulator with or without unwrapping, and the error rates of its linear regime; chirp spread spectrum (the modulation of LoRa); FBMC/OQAM with the PHYDYAS prototype; UFMC; OTFS and its effective delay–Doppler channel |
+| 2 | `com-channel` (`channel`) | `awgn`, `awgn_ebn0`, `mimo_channel`, `exponential_correlation`, `TdlChannel`, `CdlChannel`, `ChannelTaps`, `delay_doppler_paths`, `cdl_profile`, `cdl_k_factor_db`, `power_delay_profile`, `rms_delay_spread`, `FiberParams`, `linear_fiber_channel`, `Ssfm`, `Manakov`, `ManakovSsfm`, `Edfa`, `raman_profile`, `gn_model`, `gn_closed_form`, `format_moments` | AWGN, flat fading (SISO and MIMO, Rayleigh and Rician, Kronecker antenna correlation), the clustered delay lines CDL-A to CDL-E of 3GPP TR 38.901 between antenna arrays, tapped-delay-line multipath (3GPP EPA, EVA, ETU, ITU Pedestrian and Vehicular A and B) with sum-of-sinusoids Doppler, delay–Doppler channels of discrete paths; optical: fibre parameters, linear fibre, split-step Fourier (scalar, Manakov with PMD, and the Manakov scheme of OptiCommPy's `manakovSSF` with adaptive steps) and their back-propagation, the EDFA with ASE, distributed Raman amplification with co- and counter-propagating pumps and inter-channel stimulated Raman scattering, the GN and EGN models of the nonlinear interference with the power profiles of the spans |
 | 2 | `com-hardware` (`hardware`) | `pa_rapp`, `pa_saleh`, `pa_memory_polynomial`, `rapp_predistort`, `phase_noise`, `laser`, `phase_modulator`, `mzm`, `iqm`, `Photodiode`, `balanced_photodiode`, `hybrid_2x4`, `coherent_receiver`, `wdm_grid` | power amplifiers (Rapp, Saleh, memory polynomial of Ding et al. 2004); Wiener phase noise and frequency offset; transmitter and receiver IQ imbalance; transmitter and receiver optical front ends, the WDM transmitter |
 | 2 | `com-metrics` (`metrics`) | `ber`, `snr_db`, `fast_ber_calc`, `evm`, `ber_to_q_db`, `monte_carlo_gmi`, `monte_carlo_mi`, `information_rates`, `posterior_rates`, `papr_db`, `ccdf`, `psd`, `periodogram`, `aclr_db` | error rates, SNR, EVM, generalised and symbol-wise mutual information, the rates of a receiver's posterior, PAPR and CCDF, power spectral density (Welch, aligned periodogram), ACLR |
 | 2 | `com-mimo` (`mimo`) | `mimo_detect`, `mimo_llr`, `mimo_estimate`, `Ostbc`, `mimo_capacity`, `water_filling`, `eigenmode`, `zf_precoder` | MIMO detection (ZF, MMSE, V-BLAST SIC, ML, sphere decoder, K-best) with soft outputs, the receiver of a link, orthogonal space-time block codes (Alamouti, rate 3/4), eigenmode and zero-forcing precoding, capacity |
@@ -199,7 +199,7 @@ use comrs::sim::scenario::from_fn;
 let qpsk = from_fn("qpsk", |cond, rng, rec| {
     let c = Constellation::qam(4)?.normalized();
     let bits = source::bits(2000, rng);
-    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2, 1.0, rng);
+    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
     rec.errors("ber", metrics::bit_errors(&c.demodulate(&rx), &bits) as u64, 2000);
     Ok(())
 });
@@ -260,7 +260,7 @@ cargo run --release -p com-spec -- run specs/qam_awgn.yaml # from a clone of the
 - `$name` in a block is the value of the grid variable `name`, with its type. `${name}`
   inside a longer string, such as a file name, is replaced by its text.
 - The stopping rule is `(targets and min_trials) or max_trials or max_time_s`.
-- `comrs blocks` lists the 54 blocks with their parameters, defaults and units:
+- `comrs blocks` lists the 57 blocks with their parameters, defaults and units:
   sources and channels, optical propagation (`fiber`, `ssfm`, `manakov`, WDM
   multiplexing), receiver DSP, constant-envelope waveforms (`ce_ofdm_tx`, `cpm_tx` and
   their receivers), wireless blocks (antennas, `rayleigh`, `tdl`, `cdl`, OFDM with
@@ -406,13 +406,29 @@ The strongest evidence of every module: **A**, validated against an external ref
 output of a reference implementation); **B**, against a closed form only; **C**,
 self-consistency only (round trips, invariants). The tests behind every grade and
 the regimes not covered yet are in
-[`docs/MATURITY.md`](https://github.com/com-rs/com-rs/blob/main/docs/MATURITY.md).
+[`docs/MATURITY.md`](https://github.com/com-rs/com-rs/blob/main/docs/MATURITY.md); the
+comparisons with the literature, one row per paper with what was reproduced, a
+green, orange or red badge and the inconsistencies found in the papers, are in
+[`docs/LITERATURE.md`](https://github.com/com-rs/com-rs/blob/main/docs/LITERATURE.md).
+
+<!-- generated by tools/maturity_table.py from validation/maturity.yaml: do not edit -->
+
+Summary: 58 modules: 39 at A, 10 at B, 9 at C.
+
+**Foundations**
 
 | Module | Level | Strongest evidence |
 |---|---|---|
 | Constellations, mapping, demapping and closed-form error rates | A | OptiCommPy outputs; closed forms of Proakis & Salehi |
+| Capacity and cutoff rate of CM and BICM | A | Caire, Taricco & Biglieri 1998 Figs. 4–7 |
 | Sources (bits, PRBS, uniform and shaped symbols) | C | periods and distributions |
 | Differential PSK | B | closed forms of Proakis & Salehi and Pawula, Rice & Roberts |
+| Error rates with an imperfect channel estimate and over Jakes' fading | A | Chang & Su 2002 eqs. 31–53, Figs. 3–4 |
+
+**Coding and shaping**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | Convolutional codes (Viterbi, BCJR) | A | AFF3CT; Yasuda et al. Table I |
 | Puncturing | A | Yasuda et al. Table I; patterns of IEEE 802.11 and EN 300 421 |
 | Turbo codes (LTE) | A | AFF3CT, K = 40 and 1024 |
@@ -425,45 +441,94 @@ the regimes not covered yet are in
 | Scrambling, interleaving | C | balanced sequences, invertible permutations |
 | Finite-length bounds | B | the Shannon limits of BPSK |
 | Distribution matching and probabilistic amplitude shaping | A | Schulte & Böcherer 2016 Fig. 2; Böcherer et al. 2015 Tables VI–X |
-| DVB-S2 | A | EN 302 307-1 Table 13 and the tables of the standard |
-| OFDM and channel estimation | B | flat Rayleigh fading per subcarrier |
-| 5G NR numerology, SSB, cell search and PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
-| Error rates with an imperfect channel estimate and over Jakes' fading | A | Chang & Su 2002 eqs. 31–53, Figs. 3–4 |
-| Nonlinear amplifier driven by OFDM | A | Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5 |
+
+**Waveforms**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
+| OFDM, channel estimation and gain correction | A | Cimini 1985 Figs. 3–7; Coleri et al. 2002 Sec. VI-B (with an oversampled comb) |
 | OFDM synchronisation (Schmidl–Cox) | C | the error falls with the SNR |
 | PAPR: distribution and reduction | B | Ochiai & Imai 2001 eqs. (11), (27) |
 | Constant-envelope OFDM | A | Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1 |
 | Chirp spread spectrum (LoRa modulation) | A | Chiani & Elzanaty 2019 Table I; Afisiadis et al. 2020 Figs. 2, 7; Vangelista 2017 Fig. 1 |
 | Continuous-phase modulation | A | Murota & Hirade 1981 Table I; MSK of Proakis & Salehi |
+| FBMC/OQAM | A | Bouhadda et al. 2014 Table 1, Figs. 7, 10, 11; Nissel & Rupp 2017 eq. (17) |
+| UFMC | C | orthogonality of the sub-bands; sidelobes against OFDM |
+| OTFS and the delay–Doppler channel | A | Raviteja et al. 2019 Theorem 1 and its example; Hadani et al. 2017 Fig. 5 qualitatively |
+
+**MIMO**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | MIMO detection | A | Yang & Hanzo 2015 Table X; MRC closed forms |
 | Message-passing detection of large MIMO (LAMA, OAMP) | A | Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3 |
 | Space-time block codes | A | Tarokh et al. 1999 eqs. (39)–(40); MRC closed forms |
-| Capacity and precoding | B | the ergodic capacity of Rayleigh fading |
-| DAC and ADC | B | Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999 |
-| Blind estimation: modulation recognition, M2M4 SNR, symbol rate | B | exact cumulants of the alphabets; consistency of the estimators |
+| Capacity and precoding | A | Telatar 1999 Theorem 2, eqs. (13), (16)–(18), Figs. 1–4 |
+
+**Wireless channels**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | AWGN | B | closed forms of the error rates |
 | Flat fading and antenna correlation | B | BPSK over Rayleigh fading; MRC |
 | Tapped and clustered delay lines (TDL, CDL) | A | ITU-R M.1225 and 3GPP TR 38.901 tables, verbatim |
+
+**Optical**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | Fibre: linear, split-step Fourier, Manakov, back-propagation | A | OptiCommPy outputs; Häger & Pfister 2021 Fig. 5 |
 | GN and EGN models | A | Carena et al. 2014 Fig. 1(a); GNPy outputs |
 | Raman amplification and ISRS | A | GNPy outputs; Semrau & Bayvel 2018 eq. (10) |
 | EDFA and PMD | B | the accumulated ASE |
-| Phase noise and frequency offset | B | the variance of the Wiener increments |
-| Power amplifiers, IQ imbalance and digital predistortion | C | properties of the models |
 | Optical front ends (laser, modulators, photodiodes, coherent receiver) | A | OptiCommPy outputs |
+
+**Hardware impairments**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
+| Nonlinear amplifier driven by OFDM | A | Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5; Bouhadda et al. 2014, Tables 2–3 |
+| Power amplifiers, IQ imbalance and digital predistortion | C | properties of the models |
+| Phase noise and frequency offset | B | the variance of the Wiener increments |
+| DAC and ADC | B | Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999 |
+
+**Receiver DSP**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | Filters and resampling | A | OptiCommPy outputs |
-| Chromatic dispersion compensation | A | Eghbali et al. 2014 Table I, Figs. 5 and 9 |
-| Adaptive equalisers | A | OptiCommPy outputs; Kikuchi's singularity |
 | Carrier recovery | A | OptiCommPy outputs |
 | Clock recovery | A | OptiCommPy outputs |
 | Frame synchronisation | C | the blocks find their offset |
+| Adaptive equalisers | A | OptiCommPy outputs; Kikuchi's singularity |
+| Chromatic dispersion compensation | A | Eghbali et al. 2014 Table I, Figs. 5 and 9 |
+| Blind estimation: modulation recognition, M2M4 SNR, symbol rate | B | exact cumulants of the alphabets; consistency of the estimators |
+
+**Metrics and analysis**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | Error rates, SNR and EVM | A | OptiCommPy outputs |
 | Information rates and shaping gains | A | Böcherer et al. 2015 Tables I, III; OptiCommPy outputs |
 | Receiver posteriors (`air` metrics) | C | consistency of the rates |
 | Spectral metrics (PSD, ACLR, PAPR, CCDF) | C | a tone lands in its bin |
+
+**Systems and standards**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
+| DVB-S2 | A | EN 302 307-1 Table 13 and the tables of the standard |
+| 5G NR numerology, SSB, cell search and PDSCH DMRS | A | py3gpp outputs; Lin et al. 2019 |
+
+**Simulation and specifications**
+
+| Module | Level | Strongest evidence |
+|---|---|---|
 | Monte Carlo runner | C | thread independence, stopping rules |
 | Specifications, verification and operating-point search | B | the search against the inverted closed forms |
 | Recordings (SigMF, raw IQ, NPY) | A | sigmf-python, the reference implementation, both ways |
+
+<!-- end of the generated table -->
 
 ## Operating points
 

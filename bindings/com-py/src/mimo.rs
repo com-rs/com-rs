@@ -11,7 +11,7 @@ use comrs::channel::fading::Mimo;
 use comrs::channel::spatial::{Kronecker, exponential_correlation as exp_corr};
 use comrs::mimo::capacity;
 use comrs::mimo::detection::{Linear, MimoDetector};
-use comrs::mimo::message_passing::{self as mp, AmpVariance, Field, OampLinear, Prior};
+use comrs::mimo::message_passing::{self as mp, AmpVariance, Domain, OampLinear, Prior};
 use comrs::mimo::precoding::{Eigenmode, LinearPrecoder};
 use comrs::mimo::receiver::DetectorKind;
 use comrs::mimo::stbc::Ostbc;
@@ -264,8 +264,8 @@ fn prior(c: &PyConstellation, px: Option<&Bound<'_, PyAny>>) -> PyResult<Prior> 
     Prior::with_probs(&c.inner, px.as_deref()).py()
 }
 
-fn field(real: bool) -> Field {
-    if real { Field::Real } else { Field::Complex }
+fn domain(real: bool) -> Domain {
+    if real { Domain::Real } else { Domain::Complex }
 }
 
 fn oamp_linear(name: &str) -> PyResult<OampLinear> {
@@ -339,7 +339,7 @@ fn message_passing<'py>(
     };
     let y = crate::cvec(y)?;
     let prior = prior(constellation, px)?;
-    let f = field(real);
+    let f = domain(real);
     let trace = match method.to_ascii_lowercase().as_str() {
         "amp" | "lama" => {
             let v = match variance {
@@ -403,7 +403,7 @@ fn amp_state_evolution<'py>(
     real: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
     let p = prior(constellation, px)?;
-    let se = py.detach(|| mp::amp_state_evolution(&p, beta, noise_var, iterations, field(real)));
+    let se = py.detach(|| mp::amp_state_evolution(&p, beta, noise_var, iterations, domain(real)));
     steps(py, &se)
 }
 
@@ -433,7 +433,7 @@ fn amp_thresholds<'py>(
     real: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
     let p = prior(constellation, px)?;
-    let t = py.detach(|| mp::amp_thresholds(&p, field(real)));
+    let t = py.detach(|| mp::amp_thresholds(&p, domain(real)));
     let d = PyDict::new(py);
     for (k, v) in [("beta_min", t.beta_min), ("beta_max", t.beta_max), ("n0_min", t.n0_min), ("n0_max", t.n0_max)] {
         d.set_item(k, v)?;
@@ -484,7 +484,7 @@ fn oamp_state_evolution<'py>(
     let p = prior(constellation, px)?;
     let sv = crate::fvec(singular_values)?;
     let l = oamp_linear(linear)?;
-    let se = py.detach(|| mp::oamp_state_evolution(&p, &sv, n_tx, noise_var, iterations, l, field(real)));
+    let se = py.detach(|| mp::oamp_state_evolution(&p, &sv, n_tx, noise_var, iterations, l, domain(real)));
     steps(py, &se)
 }
 
@@ -656,15 +656,15 @@ impl PyOstbc {
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> comrs.water_filling([1.0, 1.0], 2.0).tolist()
+///     >>> comrs.water_filling_powers([1.0, 1.0], 2.0).tolist()
 ///     [1.0, 1.0]
 #[pyfunction]
-fn water_filling<'py>(
+fn water_filling_powers<'py>(
     py: Python<'py>,
     gains: &Bound<'py, PyAny>,
     total_power: f64,
 ) -> PyResult<Bound<'py, numpy::PyArray1<f64>>> {
-    Ok(farr(py, comrs::mimo::precoding::water_filling(&crate::fvec(gains)?, total_power).py()?))
+    Ok(farr(py, comrs::mimo::precoding::water_filling_powers(&crate::fvec(gains)?, total_power).py()?))
 }
 
 /// Capacity of MIMO channel realisations (bits per channel use) at the SNR
@@ -687,7 +687,7 @@ fn water_filling<'py>(
 #[pyfunction]
 #[pyo3(signature = (h, snr_db, *, water_filling=false))]
 fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_filling: bool) -> PyResult<Py<PyAny>> {
-    let snr = 10f64.powf(snr_db / 10.0);
+    let snr = comrs::math::db2lin(snr_db);
     let f = |m: &ArrayView2<'_, C64>| {
         if water_filling { capacity::water_filling(m, snr) } else { capacity::equal_power(m, snr) }
     };
@@ -719,7 +719,7 @@ fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_fillin
 ///     2.9065
 #[pyfunction]
 fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    crate::map_real(snr_db, |s| capacity::ergodic_rayleigh(n_rx, n_tx, 10f64.powf(s / 10.0)).py())
+    crate::map_real(snr_db, |s| capacity::ergodic_rayleigh(n_rx, n_tx, comrs::math::db2lin(s)).py())
 }
 
 /// The probability that a Rayleigh channel drawn once cannot carry `rate` bits per
@@ -736,7 +736,7 @@ fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyRe
 ///     float | numpy.ndarray: the outage probability at every rate.
 #[pyfunction]
 fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    crate::map_real(rate, |r| capacity::outage_rayleigh(n_rx, n_tx, 10f64.powf(snr_db / 10.0), r).py())
+    crate::map_real(rate, |r| capacity::outage_rayleigh(n_rx, n_tx, comrs::math::db2lin(snr_db), r).py())
 }
 
 /// The ε-capacity (bits per channel use): the rate of outage probability `eps` over a
@@ -752,7 +752,7 @@ fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, Py
 ///     float | numpy.ndarray: the rate at every SNR.
 #[pyfunction]
 fn outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64) -> PyResult<Py<PyAny>> {
-    crate::map_real(snr_db, |s| capacity::outage_capacity_rayleigh(n_rx, n_tx, 10f64.powf(s / 10.0), eps).py())
+    crate::map_real(snr_db, |s| capacity::outage_capacity_rayleigh(n_rx, n_tx, comrs::math::db2lin(s), eps).py())
 }
 
 /// Eigenmode (SVD) transmission over `h`: precoder `V P^(1/2)`, receive filter `Uᴴ`,
@@ -832,7 +832,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(amp_state_evolution, m)?)?;
     m.add_function(wrap_pyfunction!(amp_thresholds, m)?)?;
     m.add_function(wrap_pyfunction!(oamp_state_evolution, m)?)?;
-    m.add_function(wrap_pyfunction!(water_filling, m)?)?;
+    m.add_function(wrap_pyfunction!(water_filling_powers, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(ergodic_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(outage_probability, m)?)?;

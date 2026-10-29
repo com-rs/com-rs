@@ -200,16 +200,20 @@ impl Receiver {
     pub fn layers(&self, h: &CMat, y: &[C64], noise_var: f64, out: &mut SoftOutput) -> Result<()> {
         let hv = h.view();
         if let Some(lin) = &self.linear {
+            // the LLRs of a linear detector come from its own estimates: filter once
             let (z, var) = lin.estimate(&hv, y, noise_var)?;
+            if self.llr {
+                out.llr.extend(self.constellation.llr_with_variances(&z, &var, None, false)?);
+            }
             out.symbols.extend(z);
             out.noise_var.extend(var);
         } else {
             let labels = self.detector.detect(&hv, y, noise_var)?;
             out.symbols.extend(labels.iter().map(|&i| self.constellation.points()[i]));
             out.noise_var.extend(std::iter::repeat_n(noise_var, labels.len()));
-        }
-        if self.llr {
-            out.llr.extend(self.detector.llr(&hv, y, noise_var)?);
+            if self.llr {
+                out.llr.extend(self.detector.llr(&hv, y, noise_var)?);
+            }
         }
         Ok(())
     }
@@ -218,7 +222,7 @@ impl Receiver {
     /// channel `channel(i)` ($n_{r} \times n_{t}$) and the received vector
     /// `received(i)` ($n_{r}$); with `alamouti`, the pairs of consecutive uses carry the
     /// blocks of Alamouti's code, detected with the channel of the first use of the pair
-    /// ([`Receiver::alamouti`]), otherwise every use carries one vector of layers
+    /// ([`Receiver::decode_alamouti`]), otherwise every use carries one vector of layers
     /// ([`Receiver::layers`]).
     ///
     /// # Errors
@@ -265,7 +269,7 @@ impl Receiver {
             };
             let (y0, y1) = (received(i0), received(i1));
             let y = Array2::from_shape_fn((y0.len(), 2), |(r, j)| if j == 0 { y0[r] } else { y1[r] });
-            self.alamouti(&channel(i0)?, &y, noise_var, out)?;
+            self.decode_alamouti(&channel(i0)?, &y, noise_var, out)?;
         }
         Ok(())
     }
@@ -275,12 +279,10 @@ impl Receiver {
     ///
     /// # Errors
     /// The errors of [`Ostbc::decode`].
-    pub fn alamouti(&self, h: &CMat, y: &Array2<C64>, noise_var: f64, out: &mut SoftOutput) -> Result<()> {
+    pub fn decode_alamouti(&self, h: &CMat, y: &Array2<C64>, noise_var: f64, out: &mut SoftOutput) -> Result<()> {
         let (z, var) = Ostbc::alamouti().decode(&h.view(), &y.view(), noise_var)?;
         if self.llr {
-            for (zi, vi) in z.iter().zip(&var) {
-                out.llr.extend(self.constellation.llr(&[*zi], *vi, None, false));
-            }
+            out.llr.extend(self.constellation.llr_with_variances(&z, &var, None, false)?);
         }
         out.symbols.extend(z);
         out.noise_var.extend(var);

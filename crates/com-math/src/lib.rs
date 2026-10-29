@@ -25,16 +25,19 @@
 //!   [`max_star`] (`ln(e^a + e^b)`), all without overflow;
 //! - [`C64`]: the complex type of every signal (`num_complex::Complex<f64>`), and
 //!   [`cis`], `e^{jθ}`;
-//! - decibels: [`db2lin`], [`lin2db`] (power ratios), [`dbm2w`], [`w2dbm`], [`db2np`],
-//!   [`np2db`] (attenuation per unit length);
-//! - [`sinc`], `sin(πx)/(πx)`, and [`effective_length`], `(1 - e^{-αL})/α`;
+//! - decibels: [`db2lin`], [`lin2db`] (power ratios), [`db2amp`], [`amp2db`] (amplitude
+//!   ratios), [`dbm2w`], [`w2dbm`], [`db2np`], [`np2db`] (attenuation per unit length);
+//! - [`sinc`], `sin(πx)/(πx)`, [`diric`], the periodic sinc `sin(nx/2)/(n sin(x/2))`, and
+//!   [`effective_length`], `(1 - e^{-αL})/α`;
 //! - special functions: [`erf`], [`erfc`], [`erfcinv`], [`qfunc`] (the Gaussian tail
-//!   `Q(x) = ½ erfc(x/√2)`), [`fresnel`] (the Fresnel integrals $C$ and $S$), [`bessel_j0`],
-//!   [`bessel_i0e`], [`ln_gamma`], [`gamma_p`] (the regularized incomplete gamma
+//!   `Q(x) = ½ erfc(x/√2)`), its inverse [`qfuncinv`], [`fresnel`] (the Fresnel
+//!   integrals $C$ and $S$), [`bessel_j0`], [`bessel_i0e`], [`ln_gamma`], [`gamma_p`] (the regularized incomplete gamma
 //!   function), [`expint_e1`] (the exponential integral);
 //! - [`entropy`], $-\sum_{i} p_{i} \log_{2} p_{i}$;
 //! - signal statistics: [`power`] (mean `|x|²`), [`energy`], [`papr_db`];
-//! - quadrature: [`gauss_hermite`], the nodes and weights of `∫ f(t) e^{-t²} dt`;
+//! - quadrature: [`simpson`], [`try_simpson`] and [`simpson_weight`] (composite
+//!   Simpson's rule), [`gauss_hermite`] (`∫ f(t) e^{-t²} dt`) and [`gauss_legendre`]
+//!   (`∫_{-1}^{1} f(t) dt`);
 //! - physical constants [`PLANCK`], [`BOLTZMANN`], [`ELEMENTARY_CHARGE`],
 //!   [`SPEED_OF_LIGHT`].
 //!
@@ -90,6 +93,18 @@ pub fn db2lin(x_db: f64) -> f64 {
 #[inline]
 pub fn lin2db(x: f64) -> f64 {
     10.0 * x.log10()
+}
+
+/// Amplitude ratio in dB to linear: `10^{x/20}`.
+#[inline]
+pub fn db2amp(x_db: f64) -> f64 {
+    10f64.powf(x_db / 20.0)
+}
+
+/// Linear amplitude ratio to dB: `20 log10(x)`.
+#[inline]
+pub fn amp2db(x: f64) -> f64 {
+    20.0 * x.log10()
 }
 
 /// Attenuation in dB per unit length to nepers (power): `α_dB / (10 log10 e)`.
@@ -180,6 +195,20 @@ pub fn qfunc(x: f64) -> f64 {
     0.5 * erfc(x / std::f64::consts::SQRT_2)
 }
 
+/// Inverse of [`qfunc`] on $(0, 1)$: $Q^{-1}(p) = \sqrt{2}\, \operatorname{erfc}^{-1}(2p)$
+/// (`±∞` at the ends).
+///
+/// # Examples
+/// ```
+/// use com_math::{qfunc, qfuncinv};
+/// assert!((qfuncinv(0.025) - 1.959_964).abs() < 1e-6);
+/// assert!((qfunc(qfuncinv(1e-6)) / 1e-6 - 1.0).abs() < 1e-9);
+/// ```
+#[inline]
+pub fn qfuncinv(p: f64) -> f64 {
+    std::f64::consts::SQRT_2 * erfcinv(2.0 * p)
+}
+
 /// Composite Simpson's rule $\int_{a}^{b} f(t)\, dt$ on `n` intervals (`n` even, at
 /// least 2), exact for cubics.
 ///
@@ -190,13 +219,68 @@ pub fn qfunc(x: f64) -> f64 {
 /// assert!((simpson(f64::sin, 0.0, std::f64::consts::PI, 200) - 2.0).abs() < 1e-8);
 /// ```
 pub fn simpson(f: impl Fn(f64) -> f64, a: f64, b: f64, n: usize) -> f64 {
+    try_simpson(|t| Ok::<f64, std::convert::Infallible>(f(t)), a, b, n).unwrap_or_else(|never| match never {})
+}
+
+/// [`simpson`] of a fallible integrand: the first error stops the quadrature.
+///
+/// # Errors
+/// The first error of `f`.
+///
+/// # Examples
+/// ```
+/// use com_math::try_simpson;
+/// let v: Result<f64, String> = try_simpson(|t| Ok(t * t), 0.0, 3.0, 4);
+/// assert!((v.unwrap() - 9.0).abs() < 1e-14);
+/// let e: Result<f64, String> = try_simpson(|t| if t > 1.0 { Err("beyond 1".into()) } else { Ok(t) }, 0.0, 2.0, 4);
+/// assert!(e.is_err());
+/// ```
+pub fn try_simpson<E>(f: impl Fn(f64) -> Result<f64, E>, a: f64, b: f64, n: usize) -> Result<f64, E> {
     let n = n.max(2).div_ceil(2) * 2;
     let h = (b - a) / n as f64;
-    let mut acc = f(a) + f(b);
+    let mut acc = f(a)? + f(b)?;
     for k in 1..n {
-        acc += if k % 2 == 1 { 4.0 } else { 2.0 } * f(a + k as f64 * h);
+        acc += simpson_weight(k, n) * f(a + k as f64 * h)?;
     }
-    acc * h / 3.0
+    Ok(acc * h / 3.0)
+}
+
+/// The weight of node `k` of Simpson's rule on `n` intervals (`n` even), before the
+/// factor $h/3$: 1 at the ends, 4 at the odd nodes, 2 at the even inner ones.
+#[inline]
+pub fn simpson_weight(k: usize, n: usize) -> f64 {
+    if k == 0 || k == n {
+        1.0
+    } else if k % 2 == 1 {
+        4.0
+    } else {
+        2.0
+    }
+}
+
+/// The Dirichlet (periodic sinc) function of MATLAB, $\operatorname{diric}(x, n) =
+/// \frac{\sin(n x/2)}{n \sin(x/2)}$, of period $2\pi$ ($4\pi$) for odd (even) $n$, with its
+/// limits $(-1)^{k(n-1)}$ at $x = 2\pi k$; $\sin(n\theta)/\sin\theta = n
+/// \operatorname{diric}(2\theta, n)$ is the array factor of $n$ equally spaced terms.
+///
+/// # Examples
+/// ```
+/// use com_math::diric;
+/// assert_eq!(diric(0.0, 8), 1.0);
+/// assert_eq!(diric(2.0 * std::f64::consts::PI, 8), -1.0);
+/// let x = 0.3;
+/// assert!((diric(x, 5) - (2.5 * x).sin() / (5.0 * (0.5 * x).sin())).abs() < 1e-15);
+/// ```
+pub fn diric(x: f64, n: usize) -> f64 {
+    let half = 0.5 * x;
+    let den = half.sin();
+    let nf = n as f64;
+    if den.abs() < 1e-12 {
+        // x = 2πk: the limit (-1)^{k(n-1)}
+        let k = (half / std::f64::consts::PI).round() as i64;
+        return if (k * (n as i64 - 1)).rem_euclid(2) == 0 { 1.0 } else { -1.0 };
+    }
+    (nf * half).sin() / (nf * den)
 }
 
 /// The standard normal density $\varphi(x) = e^{-x^{2}/2}/\sqrt{2\pi}$ (its
@@ -499,7 +583,7 @@ pub fn expint_e1(x: f64) -> f64 {
 pub fn papr_db(x: &[C64]) -> f64 {
     let peak = x.iter().map(C64::norm_sqr).fold(0.0, f64::max);
     let mean = power(x);
-    if mean > 0.0 { 10.0 * (peak / mean).log10() } else { f64::NEG_INFINITY }
+    if mean > 0.0 { lin2db(peak / mean) } else { f64::NEG_INFINITY }
 }
 
 /// Nodes and weights of the `n`-point Gauss–Hermite rule,
@@ -553,6 +637,54 @@ pub fn gauss_hermite(n: usize) -> (Vec<f64>, Vec<f64>) {
         x[i] = z;
         x[n - 1 - i] = -z;
         w[i] = 2.0 / (pp * pp);
+        w[n - 1 - i] = w[i];
+    }
+    (x, w)
+}
+
+/// Nodes and weights of the `n`-point Gauss–Legendre rule on $[-1, 1]$,
+/// `∫ f(t) dt ≈ Σ_k w_k f(t_k)`, exact for polynomials of degree `2n - 1`.
+///
+/// The nodes are the roots of the Legendre polynomial $P_{n}$, found by Newton's method
+/// on its recurrence (Numerical Recipes, `gauleg`); they come in increasing order. On
+/// $[a, b]$ the nodes are $\frac{a + b}{2} + \frac{b - a}{2} t_{k}$ and the weights
+/// $\frac{b - a}{2} w_{k}$.
+///
+/// # Examples
+/// ```
+/// use com_math::gauss_legendre;
+/// let (t, w) = gauss_legendre(5);
+/// assert!((w.iter().sum::<f64>() - 2.0).abs() < 1e-14);
+/// // exact for t⁸: 2/9
+/// let m8: f64 = t.iter().zip(&w).map(|(t, w)| w * t.powi(8)).sum();
+/// assert!((m8 - 2.0 / 9.0).abs() < 1e-14);
+/// assert!((t[4] - 0.906_179_845_938_664).abs() < 1e-15);
+/// ```
+pub fn gauss_legendre(n: usize) -> (Vec<f64>, Vec<f64>) {
+    let mut x = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let nf = n as f64;
+    for i in 0..n.div_ceil(2) {
+        let mut z = (std::f64::consts::PI * (i as f64 + 0.75) / (nf + 0.5)).cos();
+        let mut pp = 1.0;
+        for _ in 0..100 {
+            let (mut p1, mut p2) = (1.0, 0.0);
+            for j in 0..n {
+                let p3 = p2;
+                p2 = p1;
+                let jf = j as f64;
+                p1 = ((2.0 * jf + 1.0) * z * p2 - jf * p3) / (jf + 1.0);
+            }
+            pp = nf * (z * p1 - p2) / (z * z - 1.0);
+            let z1 = z;
+            z = z1 - p1 / pp;
+            if (z - z1).abs() <= 1e-15 {
+                break;
+            }
+        }
+        x[i] = -z;
+        x[n - 1 - i] = z;
+        w[i] = 2.0 / ((1.0 - z * z) * pp * pp);
         w[n - 1 - i] = w[i];
     }
     (x, w)

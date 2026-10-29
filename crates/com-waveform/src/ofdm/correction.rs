@@ -51,7 +51,7 @@
 //! use com_math::C64;
 //! // SIR 20 dB: limiting the correction near -10 dB costs little against the optimum
 //! let best = sdr_gain_limited(100.0, 10f64.powf(-0.5), C64::new(1.0, 0.0));
-//! assert!(10.0 * best.log10() > 13.0 && best < sdr_optimum(100.0));
+//! assert!(com_math::lin2db(best) > 13.0 && best < sdr_optimum(100.0));
 //! ```
 //!
 //! # References
@@ -77,13 +77,13 @@ pub fn gain_limited(r: &[C64], pilot: &[C64], eps: f64) -> Vec<C64> {
 }
 
 /// The SDR (linear) of gain-limited correction, eq. (25) of Cimini 1985 (see the
-/// module): `sir` linear (infinite without interferer), `eps` the limit (amplitude
+/// module): `sir_lin` linear (infinite without interferer), `eps` the limit (amplitude
 /// relative to the RMS gain, positive), `rho` the complex correlation
 /// $\rho e^{j\phi} = \mathbb{E}[Z_{d} Z_{p}^{*}]$ of the data and pilot envelopes (1
 /// in flat fading, eq. (20)).
-pub fn sdr_gain_limited(sir: f64, eps: f64, rho: C64) -> f64 {
+pub fn sdr_gain_limited(sir_lin: f64, eps: f64, rho: C64) -> f64 {
     let e2 = eps * eps;
-    let gamma = 1.0 / sir;
+    let gamma = 1.0 / sir_lin;
     let d = (1.0 + gamma) * -(-e2).exp_m1() / e2 + 1.0 - rho.re * std::f64::consts::PI.sqrt() * erf(eps) / eps
         + (1.0 - rho.norm_sqr() + gamma) * expint_e1(e2);
     1.0 / d
@@ -91,14 +91,14 @@ pub fn sdr_gain_limited(sir: f64, eps: f64, rho: C64) -> f64 {
 
 /// The SDR (linear) of the optimum gain correction, eq. (21) of Cimini 1985:
 /// $1 / \mathbb{E}\left[\gamma A_{i}^{2} / (A_{d}^{2} + \gamma A_{i}^{2})\right]$ for
-/// independent Rayleigh amplitudes (`sir` linear; `sir` = 1 gives 2, the limit).
-pub fn sdr_optimum(sir: f64) -> f64 {
-    if (sir - 1.0).abs() < 1e-6 {
+/// independent Rayleigh amplitudes (`sir_lin` linear; `sir_lin` = 1 gives 2, the limit).
+pub fn sdr_optimum(sir_lin: f64) -> f64 {
+    if (sir_lin - 1.0).abs() < 1e-6 {
         // the expansion of eq. (21) at SIR = 1: 1/2 + (SIR - 1)/6 + …
-        return 1.0 / (0.5 - (sir - 1.0) / 6.0);
+        return 1.0 / (0.5 - (sir_lin - 1.0) / 6.0);
     }
-    let s = sir - 1.0;
-    s / (sir / s * sir.ln() - 1.0)
+    let s = sir_lin - 1.0;
+    s / (sir_lin / s * sir_lin.ln() - 1.0)
 }
 
 #[cfg(test)]
@@ -172,7 +172,7 @@ mod literature {
     use super::*;
 
     fn db(x: f64) -> f64 {
-        10.0 * x.log10()
+        com_math::lin2db(x)
     }
 
     /// L. J. Cimini, Jr., IEEE Trans. Commun. 33(7), 1985, Fig. 3 (eq. (20), the SDR
@@ -186,7 +186,7 @@ mod literature {
     fn cimini_1985_figs_3_4() {
         let one = C64::new(1.0, 0.0);
         let curve =
-            |sir_db: f64, e_db: f64| db(sdr_gain_limited(10f64.powf(sir_db / 10.0), 10f64.powf(e_db / 20.0), one));
+            |sir_db: f64, e_db: f64| db(sdr_gain_limited(com_math::db2lin(sir_db), com_math::db2amp(e_db), one));
         for (sir, peak, at, low) in
             [(25.0, 17.9, -16.7, 16.2), (20.0, 13.8, -11.6, 11.2), (15.0, 10.1, -7.2, 6.2), (10.0, 6.9, -3.3, 1.2)]
         {
@@ -197,11 +197,11 @@ mod literature {
             assert!((v - peak).abs() < 0.3 && (e - at).abs() < 1.0, "SIR {sir}: {v} dB at {e} dB");
             assert!((curve(sir, -30.0) - low).abs() < 0.2, "SIR {sir}");
             // the optimum lies above every gain limit, by less than 1 dB at the peak
-            let opt = db(sdr_optimum(10f64.powf(sir / 10.0)));
+            let opt = db(sdr_optimum(com_math::db2lin(sir)));
             assert!(opt > v && opt - v < 1.0, "SIR {sir}: {opt}");
         }
         for (sir, read) in [(0.0, 3.0), (20.0, 14.1), (40.0, 31.0)] {
-            assert!((db(sdr_optimum(10f64.powf(sir / 10.0))) - read).abs() < 0.3, "SIR {sir}");
+            assert!((db(sdr_optimum(com_math::db2lin(sir))) - read).abs() < 0.3, "SIR {sir}");
         }
     }
 }

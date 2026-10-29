@@ -110,7 +110,7 @@ impl PyTdl {
         } else {
             taps_in(profile)?
         };
-        Ok(PyTdl { inner: Tdl::new(taps, doppler_hz, fs, n_rx, n_tx).py()? })
+        Ok(PyTdl { inner: Tdl::new(&taps, doppler_hz, fs, n_rx, n_tx).py()? })
     }
 
     /// numpy.ndarray: Delays of the taps (samples, int64).
@@ -363,15 +363,16 @@ impl PyGrid {
 ///         al. (2002): `"second_order"`, `"spline"`, `"lowpass"` (MATLAB `interp`) and
 ///         `"time_domain"` (zero padding of the IDFT, pilots on 0, L, 2L, …).
 ///     delays (array_like, optional): delays of the profile (samples of the IFFT of
-///         `fft_len`).
+///         `n_fft`).
 ///     powers (array_like, optional): powers of the profile (linear).
 ///     max_delay (int, optional): the length of the uniform profile (samples).
-///     fft_len (int, optional): the size of the IFFT (needed by `"lmmse"`).
+///     n_fft (int, optional): the size of the IFFT (needed by `"lmmse"`, with `delays`
+///         and `powers` or `max_delay`).
 ///
 /// Returns:
 ///     numpy.ndarray: the channel estimate at every resource element (complex128).
 #[pyfunction]
-#[pyo3(signature = (grid, rx, noise_var, method="linear", *, delays=None, powers=None, max_delay=None, fft_len=None))]
+#[pyo3(signature = (grid, rx, noise_var, method="linear", *, delays=None, powers=None, max_delay=None, n_fft=None))]
 #[allow(clippy::too_many_arguments)]
 fn ofdm_estimate<'py>(
     py: Python<'py>,
@@ -382,29 +383,14 @@ fn ofdm_estimate<'py>(
     delays: Option<&Bound<'py, PyAny>>,
     powers: Option<&Bound<'py, PyAny>>,
     max_delay: Option<usize>,
-    fft_len: Option<usize>,
+    n_fft: Option<usize>,
 ) -> PyResult<CArr<'py>> {
-    let m = match method {
-        "linear" => FrequencyInterpolation::Linear,
-        "lmmse" => {
-            let n = fft_len.ok_or_else(|| PyValueError::new_err("lmmse needs fft_len"))?;
-            let pdp = match (delays, powers, max_delay) {
-                (Some(d), Some(p), _) => PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n),
-                (_, _, Some(m)) => PowerDelayProfile::uniform(m, n),
-                _ => return Err(PyValueError::new_err("lmmse needs delays and powers, or max_delay")),
-            };
-            FrequencyInterpolation::Lmmse(pdp)
-        }
-        "second_order" => FrequencyInterpolation::SecondOrder,
-        "spline" => FrequencyInterpolation::Spline,
-        "lowpass" => FrequencyInterpolation::LowPass { half: 4, alpha: 0.5 },
-        "time_domain" => FrequencyInterpolation::TimeDomain,
-        other => {
-            return Err(PyValueError::new_err(format!(
-                "unknown method {other:?}: linear, lmmse, second_order, spline, lowpass, time_domain"
-            )));
-        }
+    let pdp = match (delays, powers, max_delay, n_fft) {
+        (Some(d), Some(p), _, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n)),
+        (_, _, Some(m), Some(n)) => Some(PowerDelayProfile::uniform(m, n)),
+        _ => None,
     };
+    let m = FrequencyInterpolation::from_name(method, pdp).py()?;
     let r = cvec(rx)?;
     Ok(carr(py, py.detach(|| estimate(&grid.inner, &r, noise_var, &m)).py()?))
 }

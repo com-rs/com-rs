@@ -37,7 +37,7 @@
 //!         -> Result<()> {
 //!         let (idx, x) = sources::symbols(c, 1000, None, rng)?;
 //!         let b = c.bits_per_symbol();
-//!         let y = channels::awgn_ebn0(&x, cond.f64("ebn0_db")?, b, 1.0, rng);
+//!         let y = channels::awgn_ebn0(&x, cond.f64("ebn0_db")?, b as f64, 1.0, rng);
 //!         let dec = c.decide(&y);
 //!         rec.errors("ser", metrics::symbol_errors(&dec, &idx) as u64, idx.len() as u64);
 //!         rec.value("snr_db", metrics::snr_db(&y, &x)?);
@@ -47,7 +47,7 @@
 //! let grid = Grid::new().axis("m", [8usize]).axis("ebn0_db", [10.0]);
 //! let r = Runner::new().batch(10).stop(Stop::max_trials(20)).run(&Psk, &grid).unwrap();
 //! assert_eq!(r[0].trials, 20);   // the rule is checked after every batch of 10 trials
-//! assert!((r[0].metric("snr_db").unwrap().value() - (10.0 + 10.0 * 3f64.log10())).abs() < 0.1);
+//! assert!((r[0].metric("snr_db").unwrap().value() - (10.0 + com_math::lin2db(3.0))).abs() < 0.1);
 //! ```
 
 use crate::grid::Condition;

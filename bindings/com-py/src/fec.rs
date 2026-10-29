@@ -639,7 +639,7 @@ impl PyLdpc {
         max_iterations=ldpc::DEFAULT_MAX_ITERATIONS,
     ))]
     fn set_decoder(&mut self, rule: &str, alpha: f64, layered: bool, max_iterations: usize) -> PyResult<()> {
-        self.inner.rule = CheckRule::parse(rule, alpha).py()?;
+        self.inner.rule = CheckRule::from_name(rule, alpha).py()?;
         self.inner.layered = layered;
         self.inner.max_iterations = max_iterations;
         Ok(())
@@ -864,7 +864,7 @@ impl PyNrLdpc {
         iterations: usize,
     ) -> PyResult<Self> {
         let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
-        code.code.rule = CheckRule::parse(rule, ldpc::DEFAULT_ALPHA).py()?;
+        code.code.rule = CheckRule::from_name(rule, ldpc::DEFAULT_ALPHA).py()?;
         code.code.max_iterations = iterations;
         Ok(PyNrLdpc { inner: code })
     }
@@ -1016,7 +1016,7 @@ impl PyNrPolar {
 ///     0.5
 #[pyfunction]
 fn biawgn_capacity(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>> {
-    map_real(ebn0_db, |e| Ok(bounds::biawgn_capacity(bounds::noise_variance(e, rate))))
+    map_real(ebn0_db, |e| Ok(bounds::biawgn_capacity(bounds::bpsk_noise_variance(e, rate))))
 }
 
 /// The normal approximation of the smallest block error probability of an `(n, k)`

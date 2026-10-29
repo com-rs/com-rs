@@ -15,8 +15,18 @@
 //! | [`ufmc`] | universal filtered multicarrier: OFDM filtered per sub-band by Dolph–Chebyshev filters, no prefix, receiver on the even bins of a DFT of twice the size (Schaich & Wild 2014) |
 //! | [`cpm`] | continuous-phase modulation (CPFSK, MSK, GMSK, raised-cosine pulses): modulator with an exact phase state, coherent maximum-likelihood sequence detector, quadrature detector of MSK, differential detector, the MSK spectrum and the Gaussian pulse in closed form, minimum distance |
 //!
-//! Single-carrier waveforms and the OFDM resource grid (pilots, channel estimation)
-//! are planned (see `docs/ARCHITECTURE.md`).
+//! # Conventions
+//!
+//! A modem is a configuration with public fields, built by `new` and checked by `check`
+//! when it is used (FBMC samples its prototype once and reads its fields through
+//! getters). The vocabulary is shared: `n_fft` the size of the transform (the
+//! subcarriers of the grid), `n_active` the modulated subcarriers, `n_cp` the cyclic
+//! prefix, `block_len()` the samples of a block, prefix included. `oversampling` is the
+//! number of samples per Nyquist-rate sample (OFDM, its prefix counted at the Nyquist
+//! rate) or per chip (CSS); CE-OFDM folds it into its DFT size and counts its prefix in
+//! samples of that DFT. The channels the waveforms cross are in `com-channel`.
+//!
+//! Single-carrier waveforms are planned (see `docs/ARCHITECTURE.md`).
 
 pub mod ce_ofdm;
 pub mod cpm;

@@ -1,6 +1,6 @@
 [package]
 name = "com-waveform"
-description = "Waveforms of com-rs: OFDM and DFT-spread OFDM with pilots and channel estimation, continuous-phase modulation (CPFSK, MSK, GMSK), constant-envelope OFDM, PAPR and its reduction"
+description = "Waveforms of com-rs: OFDM and DFT-spread OFDM with pilots and channel estimation, PAPR and its reduction, constant-envelope OFDM, continuous-phase modulation (CPFSK, MSK, GMSK), chirp spread spectrum, FBMC/OQAM, UFMC, OTFS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

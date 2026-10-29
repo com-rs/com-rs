@@ -209,7 +209,7 @@ impl MimoDetector for Linear {
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
         let (z, var) = self.estimate(h, y, noise_var)?;
-        Ok(z.iter().zip(&var).flat_map(|(z, v)| self.constellation.llr(&[*z], *v, None, false)).collect())
+        self.constellation.llr_with_variances(&z, &var, None, false)
     }
 
     fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {

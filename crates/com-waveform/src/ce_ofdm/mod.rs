@@ -83,6 +83,7 @@
 //! ```
 
 use com_core::{Result, ensure, ensure_shape};
+use com_dsp::signal::{extend_with_prefix, strip_prefix};
 use com_dsp::sync::carrier;
 use com_math::fft;
 use com_math::{C64, cis, db2lin};
@@ -162,7 +163,8 @@ pub struct CeOfdm {
     pub oversampling: usize,
     /// Modulation index `h` (phase standard deviation `2πh`).
     pub h: f64,
-    /// Cyclic prefix (samples).
+    /// Cyclic prefix, in samples of the DFT of $N$ points (the oversampling is already in
+    /// $N$, unlike [`crate::ofdm::Ofdm::n_cp`], which counts Nyquist-rate samples).
     pub n_cp: usize,
 }
 
@@ -188,9 +190,37 @@ impl CeOfdm {
         self.samples_per_symbol() / db2lin(esn0_db)
     }
 
-    fn check(&self) -> Result<()> {
+    /// `K` data subcarriers, oversampling `J`, modulation index `h`, no prefix.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for invalid parameters (see [`CeOfdm::check`]).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ce_ofdm::CeOfdm;
+    /// let ce = CeOfdm { n_cp: 8, ..CeOfdm::new(16, 2, 0.1)? };
+    /// assert_eq!(ce.block_len(), 2 * 2 * 17 + 8);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn new(n_data: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
+        let ce = CeOfdm { n_data, oversampling, h, n_cp: 0 };
+        ce.check()?;
+        Ok(ce)
+    }
+
+    /// Validate the configuration.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] unless `K ≥ 1`, `J ≥ 1`, `h > 0` and the prefix is at
+    /// most one block of `N` samples.
+    pub fn check(&self) -> Result<()> {
         ensure(self.n_data >= 1 && self.oversampling >= 1, || "CE-OFDM needs K ≥ 1 and J ≥ 1".into())?;
-        ensure(self.h > 0.0 && self.h.is_finite(), || format!("the modulation index must be positive, got {}", self.h))
+        ensure(self.h > 0.0 && self.h.is_finite(), || {
+            format!("the modulation index must be positive, got {}", self.h)
+        })?;
+        ensure(self.n_cp <= self.n_fft(), || {
+            format!("a prefix of {} samples is longer than the block of {}", self.n_cp, self.n_fft())
+        })
     }
 
     /// The real OFDM signal `x = (F d + F* d*)/√(2K)` of every block (no prefix).
@@ -239,8 +269,8 @@ impl CeOfdm {
         let g = TAU * self.h;
         let mut out = Vec::with_capacity(x.len() / n * self.block_len());
         for block in x.chunks(n) {
-            out.extend(block[n - self.n_cp..].iter().map(|&v| cis(g * v)));
-            out.extend(block.iter().map(|&v| cis(g * v)));
+            let s: Vec<C64> = block.iter().map(|&v| cis(g * v)).collect();
+            extend_with_prefix(&mut out, &s, self.n_cp)?;
         }
         Ok(out)
     }
@@ -294,7 +324,7 @@ impl CeOfdm {
         let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h * gain);
         let mut out = Vec::with_capacity(psi.len() / l * k);
         for block in psi.chunks(l) {
-            out.extend(self.data_bins(&block[self.n_cp..]).into_iter().map(|v| v * scale));
+            out.extend(self.data_bins(strip_prefix(block, self.n_cp)?).into_iter().map(|v| v * scale));
         }
         Ok(out)
     }
@@ -347,8 +377,8 @@ mod tests {
         let g = (TAU * 0.05).powi(2) * 100.0;
         let s = theory::snr(&ce, 20.0).unwrap();
         assert!((s - g).abs() < 1e-9 * g);
-        let ser_ce = theory::ser(&ce, 16, 20.0, ConstellationKind::Qam).unwrap();
-        let proakis = com_mapping::theory::ser(ConstellationKind::Qam, 16, 10.0 * (g / 4.0).log10()).unwrap();
+        let ser_ce = theory::ser(&ce, ConstellationKind::Qam, 16, 20.0).unwrap();
+        let proakis = com_mapping::theory::ser(ConstellationKind::Qam, 16, com_math::lin2db(g / 4.0)).unwrap();
         assert!((ser_ce - proakis).abs() < 1e-12);
         // the cyclic prefix costs its share of the energy
         let cp = CeOfdm { n_cp: ce.n_fft() / 4, ..ce.clone() };
@@ -371,7 +401,7 @@ mod tests {
         let e = ce.demodulate(&r, Unwrap::None).unwrap();
         let errors = c.decide(&e).iter().zip(c.decide(&d)).filter(|(a, b)| *a != b).count();
         let ser = errors as f64 / d.len() as f64;
-        let want = theory::ser(&ce, 16, esn0_db, ConstellationKind::Qam).unwrap();
+        let want = theory::ser(&ce, ConstellationKind::Qam, 16, esn0_db).unwrap();
         assert!((ser / want - 1.0).abs() < 0.15, "{ser} vs {want}");
     }
 
@@ -406,7 +436,7 @@ mod tests {
         let (_, d) = com_mapping::source::symbols(&c, 32 * 3000, None, &mut rng).unwrap();
         for (two_pi_h, ebn0_db) in [(0.3, 15.0), (0.5, 10.5), (0.7, 8.0)] {
             let ce = CeOfdm { n_data: 32, oversampling: 2, h: two_pi_h / TAU, n_cp: 0 };
-            let esn0_db = ebn0_db + 10.0 * 2f64.log10();
+            let esn0_db = ebn0_db + com_math::lin2db(2.0);
             let sigma = ce.noise_variance(esn0_db).sqrt();
             let r: Vec<C64> =
                 ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
@@ -415,7 +445,7 @@ mod tests {
                 let bits: usize =
                     c.decide(&e).iter().zip(c.decide(&d)).map(|(a, b)| (a ^ b).count_ones() as usize).sum();
                 let ber = bits as f64 / (2.0 * d.len() as f64);
-                let want = theory::ber_receiver(&ce, receiver, 4, esn0_db, ConstellationKind::Qam).unwrap();
+                let want = theory::ber_receiver(&ce, receiver, ConstellationKind::Qam, 4, esn0_db).unwrap();
                 // BER about 1e-2, 2000 errors: a 10 % band for the sampling error and the
                 // Gaussian model of the distortion (simulation and theory agree to 4 %)
                 assert!((ber / want - 1.0).abs() < 0.1, "2πh = {two_pi_h}, {receiver:?}: {ber:e} vs {want:e}");
@@ -449,8 +479,8 @@ mod literature {
             for h in [0.05, 0.1, 0.3] {
                 for ebn0_db in [6.0, 10.0, 14.0] {
                     let ce = CeOfdm { n_data: 64, oversampling: 4, h, n_cp: 0 };
-                    let esn0_db = ebn0_db + 10.0 * (2.0 * log2m).log10();
-                    let lib = theory::ber(&ce, m_qam, esn0_db, ConstellationKind::Qam).unwrap();
+                    let esn0_db = ebn0_db + com_math::lin2db(2.0 * log2m);
+                    let lib = theory::ber(&ce, ConstellationKind::Qam, m_qam, esn0_db).unwrap();
                     let arg = std::f64::consts::TAU
                         * h
                         * (6.0 * log2m / ((m_pam * m_pam - 1) as f64) * db2lin(ebn0_db)).sqrt();

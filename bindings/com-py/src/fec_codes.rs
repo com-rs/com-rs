@@ -3,7 +3,7 @@
 
 use crate::{BArr, IArr, IntoPy, bvec, fvec, iarr, map_real, uvec};
 use comrs::fec::bch::Bch;
-use comrs::fec::block::{self, BlockCode};
+use comrs::fec::block::BlockCode;
 use comrs::fec::conv::Trellis;
 use comrs::fec::puncture::{self, Puncturer};
 use comrs::fec::rs::{self, ReedSolomon};
@@ -374,28 +374,6 @@ fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult
     map_real(p_s, |p| Ok(rs::bit_error_probability(n, t, m, p)))
 }
 
-/// One BCH word as a block code: hard decisions of the LLRs, a decoding failure keeping
-/// the message bits as received (the convention of the Reed–Solomon code).
-struct BchBlock<'a>(&'a Bch);
-
-impl BlockCode for BchBlock<'_> {
-    fn k(&self) -> usize {
-        self.0.k()
-    }
-
-    fn n(&self) -> usize {
-        self.0.n()
-    }
-
-    fn encode_block(&self, info: &[u8]) -> comrs::Result<Vec<u8>> {
-        self.0.encode(info)
-    }
-
-    fn decode_block(&self, llr: &[f64]) -> comrs::Result<Vec<u8>> {
-        Ok(self.0.decode(&block::hard(llr))?.0)
-    }
-}
-
 /// A binary BCH code of GF(2^m), narrow sense, of designed distance ``2t + 1`` (Lin &
 /// Costello, *Error Control Coding*, 2nd ed., 2004, ch. 6), shortened to ``n`` bits:
 /// the outer code of DVB-S2 (ETSI EN 302 307-1 V1.4.1, Sec. 5.3.1). Systematic
@@ -492,7 +470,7 @@ impl PyBch {
     ///     30
     fn encode<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         let b = bvec(bits)?;
-        Ok(py.detach(|| BchBlock(&self.inner).encode_stream(&b)).py()?.into_pyarray(py))
+        Ok(py.detach(|| self.inner.encode_stream(&b)).py()?.into_pyarray(py))
     }
 
     /// Decode whole blocks of LLRs by their signs (hard decisions); a block whose
@@ -514,7 +492,7 @@ impl PyBch {
     ///     True
     fn decode<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         let l = fvec(llr)?;
-        Ok(py.detach(|| BchBlock(&self.inner).decode_stream(&l)).py()?.into_pyarray(py))
+        Ok(py.detach(|| self.inner.decode_stream(&l)).py()?.into_pyarray(py))
     }
 
     /// Decode one word of hard bits.

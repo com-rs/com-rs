@@ -45,7 +45,7 @@ use pyo3::types::PyString;
 #[pyfunction]
 #[pyo3(signature = (kind, sps, *, n_taps = 1025, rolloff = 0.1))]
 fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> PyResult<FArr<'py>> {
-    let shape = PulseShape::parse(kind, rolloff).py()?;
+    let shape = PulseShape::from_name(kind, rolloff).py()?;
     if sps == 0 || n_taps == 0 {
         return Err(PyValueError::new_err("sps and n_taps must be positive"));
     }
@@ -299,8 +299,9 @@ fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
     cd::cd_dispersion_factor(fiber.to_rust().beta2_s2_km(), length_km, fs)
 }
 
-/// Centred taps of Savory's dispersion-compensating FIR, `√(j/(4Kπ)) e^{-jn²/(4K)}`
-/// (S. J. Savory, *Opt. Express* 16(2), 2008).
+/// Centred taps of Savory's dispersion-compensating FIR, `√(j/(4Kπ)) e^{-jn²/(4K)}`.
+///
+/// After S. J. Savory, *Opt. Express* 16(2), 2008.
 ///
 /// Args:
 ///     fiber (FiberParams): the fibre.
@@ -325,8 +326,9 @@ fn cd_savory_taps<'py>(
 }
 
 /// Centred taps of the least-squares dispersion-compensating FIR over the band
-/// `|f| <= band_hz` (Eghbali, Johansson, Gustafsson & Savory, *J. Lightw. Technol.*
-/// 32(8), 2014).
+/// `|f| <= band_hz`.
+///
+/// After Eghbali, Johansson, Gustafsson & Savory, *J. Lightw. Technol.* 32(8), 2014.
 ///
 /// Over the whole band the taps are closed-form; over the band of the signal
 /// (`fs (1 + rolloff) / (2 sps)`) fewer taps reach the same error, at the price of a
@@ -655,7 +657,7 @@ fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///     complex: the interpolated sample.
 #[pyfunction]
 fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
-    Ok(clock::interpolate_cubic(&array::<4>(x)?, mu))
+    Ok(comrs::dsp::interpolation::lagrange_cubic(&array::<4>(x)?, mu))
 }
 
 /// Gardner clock recovery at 2 samples per symbol (OptiCommPy `gardnerClockRecovery`).

@@ -66,7 +66,8 @@
 //! 5. T. Richardson and R. Urbanke, *Modern Coding Theory*, Cambridge University Press,
 //!    2008.
 
-use crate::block::{BlockCode, container_traits, expect_len, hard};
+use crate::block::{BlockCode, container_traits, expect_len};
+use com_core::signal::hard_decisions;
 use com_core::{Error, Result, ensure};
 use com_math::gf2;
 use std::collections::VecDeque;
@@ -104,7 +105,7 @@ impl CheckRule {
     ///
     /// # Errors
     /// [`Error::Config`] for another name.
-    pub fn parse(rule: &str, alpha: f64) -> Result<CheckRule> {
+    pub fn from_name(rule: &str, alpha: f64) -> Result<CheckRule> {
         match rule.to_ascii_lowercase().as_str() {
             "sum_product" => Ok(CheckRule::SumProduct),
             "min_sum" => Ok(CheckRule::NormalizedMinSum(1.0)),
@@ -116,14 +117,14 @@ impl CheckRule {
         }
     }
 
-    /// The name of the rule, as [`CheckRule::parse`] reads it (`min_sum` is the
+    /// The name of the rule, as [`CheckRule::from_name`] reads it (`min_sum` is the
     /// normalised min-sum of scale 1).
     ///
     /// # Examples
     /// ```
     /// use com_fec::ldpc::{CheckRule, DEFAULT_RULE};
     /// assert_eq!(DEFAULT_RULE.name(), "sum_product");
-    /// assert_eq!(CheckRule::parse("min_sum", 0.5)?.name(), "normalized_min_sum");
+    /// assert_eq!(CheckRule::from_name("min_sum", 0.5)?.name(), "normalized_min_sum");
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn name(self) -> &'static str {
@@ -561,7 +562,7 @@ impl LdpcCode {
         expect_len(llr.len(), self.n, "LLRs")?;
         let mut post = llr.to_vec();
         let mut c2v: Vec<Vec<f64>> = self.rows.iter().map(|r| vec![0.0; r.len()]).collect();
-        if self.is_codeword(&hard(&post)) {
+        if self.is_codeword(&hard_decisions(&post)) {
             return Ok((post, 0));
         }
         let (mut incoming, mut out, mut scratch) = (Vec::new(), Vec::new(), Vec::new());
@@ -593,7 +594,7 @@ impl LdpcCode {
                 }
                 c2v = new_c2v;
             }
-            if self.is_codeword(&hard(&post)) {
+            if self.is_codeword(&hard_decisions(&post)) {
                 return Ok((post, it));
             }
         }
@@ -788,7 +789,7 @@ mod tests {
                 code.layered = layered;
                 code.rule = rule;
                 let (post, it) = code.decode_llr(&y).unwrap();
-                assert!(code.is_codeword(&hard(&post)), "{rule:?} layered={layered}");
+                assert!(code.is_codeword(&hard_decisions(&post)), "{rule:?} layered={layered}");
                 assert_eq!(code.decode_block(&y).unwrap(), info);
                 if rule == CheckRule::SumProduct {
                     its.push(it);

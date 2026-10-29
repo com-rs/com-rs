@@ -48,7 +48,7 @@
 //! use com_mapping::theory::ber_rayleigh_mrc;
 //! let g = 100.0;                                          // 20 dB
 //! // a perfect estimate: the BER of flat Rayleigh fading
-//! assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) - ber_rayleigh_mrc(g, 1)).abs() < 1e-15);
+//! assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) - ber_rayleigh_mrc(g, 1).unwrap()).abs() < 1e-15);
 //! // an estimate correlated at 0.999: an error floor
 //! assert!(ber_16qam_imperfect_csi(1e9, 0.999, 0.0, 1.0) > 1e-3);
 //! ```
@@ -62,15 +62,15 @@ use com_math::bessel_j0;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 /// The BER of BPSK equalised by an estimate of correlations $(\rho_{1}, \rho_{2})$ at the
-/// mean SNR per bit `mean_ebn0` (linear; Chang & Su eq. 31).
-pub fn ber_bpsk_imperfect_csi(mean_ebn0: f64, rho1: f64, rho2: f64) -> f64 {
-    0.5 * (1.0 - rho1 / (1.0 + 1.0 / mean_ebn0 - rho2 * rho2).sqrt())
+/// mean SNR per bit `mean_ebn0_lin` (linear; Chang & Su eq. 31).
+pub fn ber_bpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> f64 {
+    0.5 * (1.0 - rho1 / (1.0 + 1.0 / mean_ebn0_lin - rho2 * rho2).sqrt())
 }
 
 /// The BER of Gray QPSK equalised by an estimate of correlations $(\rho_{1}, \rho_{2})$
 /// (Chang & Su eq. 32).
-pub fn ber_qpsk_imperfect_csi(mean_ebn0: f64, rho1: f64, rho2: f64) -> f64 {
-    let d = 1.0 + 1.0 / (2.0 * mean_ebn0);
+pub fn ber_qpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> f64 {
+    let d = 1.0 + 1.0 / (2.0 * mean_ebn0_lin);
     let (s, t) = (rho1 + rho2, rho1 - rho2);
     0.5 * (1.0
         - 0.5 * s * FRAC_1_SQRT_2 / (d - t * t / 2.0).sqrt()
@@ -109,13 +109,13 @@ fn table_i() -> [(f64, f64, f64, f64, f64); 24] {
 /// \rho_{2})$ and of standard deviation ratio `sigma_ratio` $= \sigma_{2}/\sigma_{1}$
 /// (Chang & Su eq. 53 and Table I; $\bar{\gamma}_{b} = 5\sigma_{1}^{2}/(2\sigma_{n}^{2})$
 /// for the points $\{\pm 1, \pm 3\}^{2}$).
-pub fn ber_16qam_imperfect_csi(mean_ebn0: f64, rho1: f64, rho2: f64, sigma_ratio: f64) -> f64 {
+pub fn ber_16qam_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64, sigma_ratio: f64) -> f64 {
     let rho_sq = rho1 * rho1 + rho2 * rho2;
     table_i()
         .iter()
         .map(|&(sgn, a, b, c, s)| {
             let u = b * (rho1 * c + rho2 * s) + a * sigma_ratio;
-            sgn * (1.0 - u / (b * b * (1.0 - rho_sq) + u * u + 5.0 / (2.0 * mean_ebn0)).sqrt())
+            sgn * (1.0 - u / (b * b * (1.0 - rho_sq) + u * u + 5.0 / (2.0 * mean_ebn0_lin)).sqrt())
         })
         .sum::<f64>()
         / 32.0
@@ -123,22 +123,22 @@ pub fn ber_16qam_imperfect_csi(mean_ebn0: f64, rho1: f64, rho2: f64, sigma_ratio
 
 /// The BER of Gray 16-QAM over flat Rayleigh fading with the perfect channel (Chang & Su
 /// eq. 69).
-pub fn ber_16qam_rayleigh(mean_ebn0: f64) -> f64 {
-    let t = |c: f64| 1.0 / (1.0 + c / mean_ebn0).sqrt();
+pub fn ber_16qam_rayleigh(mean_ebn0_lin: f64) -> f64 {
+    let t = |c: f64| 1.0 / (1.0 + c / mean_ebn0_lin).sqrt();
     0.5 - 3.0 / 8.0 * t(5.0 / 2.0) - 0.25 * t(5.0 / 18.0) + 0.125 * t(1.0 / 10.0)
 }
 
 /// The BER of DBPSK over Jakes' Rayleigh fading of normalised Doppler `fd_ts` (Chang &
 /// Su eq. 40).
-pub fn ber_dbpsk_jakes(mean_ebn0: f64, fd_ts: f64) -> f64 {
-    0.5 * (1.0 - bessel_j0(2.0 * PI * fd_ts) / (1.0 + 1.0 / mean_ebn0))
+pub fn ber_dbpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> f64 {
+    0.5 * (1.0 - bessel_j0(2.0 * PI * fd_ts) / (1.0 + 1.0 / mean_ebn0_lin))
 }
 
 /// The BER of Gray DQPSK over Jakes' Rayleigh fading of normalised Doppler `fd_ts`
 /// (Chang & Su eq. 41).
-pub fn ber_dqpsk_jakes(mean_ebn0: f64, fd_ts: f64) -> f64 {
+pub fn ber_dqpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> f64 {
     let j = bessel_j0(2.0 * PI * fd_ts);
-    0.5 * (1.0 - j / ((2.0 + 1.0 / mean_ebn0) * (1.0 + 1.0 / (2.0 * mean_ebn0)) - j * j).sqrt())
+    0.5 * (1.0 - j / ((2.0 + 1.0 / mean_ebn0_lin) * (1.0 + 1.0 / (2.0 * mean_ebn0_lin)) - j * j).sqrt())
 }
 
 #[cfg(test)]
@@ -150,7 +150,7 @@ mod tests {
     fn the_perfect_estimate_gives_the_known_results() {
         for g in [0.5, 3.0, 10.0, 100.0, 1e4] {
             // eq. 68: BPSK and QPSK have the BER of flat Rayleigh fading
-            let r = ber_rayleigh_mrc(g, 1);
+            let r = ber_rayleigh_mrc(g, 1).unwrap();
             assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) - r).abs() < 1e-15);
             assert!((ber_qpsk_imperfect_csi(g, 1.0, 0.0) - r).abs() < 1e-15);
             // eq. 53 with ρ1 = 1, ρ2 = 0, σ1 = σ2 is eq. 69: the transcription of Table I

@@ -42,7 +42,7 @@ fn beta2() -> f64 {
 const EXAMPLES: [(f64, f64); 2] = [(4000.0, 21.4e9), (1000.0, 80e9)];
 
 fn db(e: f64) -> f64 {
-    10.0 * e.log10()
+    comrs::math::lin2db(e)
 }
 
 #[test]

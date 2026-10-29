@@ -13,7 +13,8 @@
 //!   non-negative diagonal ($A$ is $m \times n$, $m \ge n$);
 //! - [`cholesky`]: $A = L L^{H}$ with $L$ lower triangular ($A$ Hermitian positive
 //!   definite);
-//! - [`svd`]: $A = U \Sigma V^{H}$ with the singular values in decreasing order.
+//! - [`svd`]: $A = U \Sigma V^{H}$ with the singular values in decreasing order;
+//! - [`solve_tridiagonal`]: a tridiagonal system by the Thomas algorithm.
 //!
 //! # Examples
 //! ```
@@ -262,6 +263,34 @@ pub fn svd(a: &ArrayView2<'_, C64>) -> (CMat, Vec<f64>, CMat) {
         }
     }
     (u, sv, vs)
+}
+
+/// The solution of the tridiagonal system `lower[i] u[i-1] + diag[i] u[i] + upper[i]
+/// u[i+1] = rhs[i]` (`lower[0]` and the last `upper` unused), by the Thomas algorithm
+/// without pivoting: for diagonally dominant systems, as those of cubic splines.
+///
+/// # Examples
+/// ```
+/// use com_math::{C64, linalg::solve_tridiagonal};
+/// // [2 1 0; 1 2 1; 0 1 2] u = [3, 4, 3] has u = [1, 1, 1]
+/// let r = [3.0, 4.0, 3.0].map(|v| C64::new(v, 0.0));
+/// let u = solve_tridiagonal(&[0.0, 1.0, 1.0], &[2.0; 3], &[1.0, 1.0, 0.0], &r);
+/// assert!(u.iter().all(|v| (v - C64::new(1.0, 0.0)).norm() < 1e-15));
+/// ```
+pub fn solve_tridiagonal(lower: &[f64], diag: &[f64], upper: &[f64], rhs: &[C64]) -> Vec<C64> {
+    let n = diag.len();
+    let mut c = vec![0.0; n];
+    let mut d = vec![C64::new(0.0, 0.0); n];
+    for i in 0..n {
+        let den = diag[i] - if i > 0 { lower[i] * c[i - 1] } else { 0.0 };
+        c[i] = upper[i] / den;
+        d[i] = (rhs[i] - if i > 0 { d[i - 1] * lower[i] } else { C64::new(0.0, 0.0) }) / den;
+    }
+    for i in (0..n.saturating_sub(1)).rev() {
+        let next = d[i + 1];
+        d[i] -= next * c[i];
+    }
+    d
 }
 
 #[cfg(test)]

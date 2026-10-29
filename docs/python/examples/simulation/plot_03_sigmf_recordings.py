@@ -46,7 +46,7 @@ x8 = comrs.fir_filter(
     comrs.pulse_shape("rrc", 8, n_taps=8 * 32 + 1, rolloff=0.35), comrs.upsample(a, 8)
 )
 x = comrs.resample_fft(x8, round(x8.size * FS / (8 * RS)))
-x = comrs.awgn(comrs.freq_shift(x, CFO, FS), 18.0, rng, fs=FS, bandwidth=RS)
+x = comrs.awgn(comrs.freq_shift(x, CFO, FS), 18.0, rng, fs=FS, bandwidth_hz=RS)
 x = x / np.sqrt(np.mean(np.abs(x) ** 2)) * 0.25 * 32767
 
 base = os.path.join(tempfile.mkdtemp(), "capture")

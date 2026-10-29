@@ -184,7 +184,7 @@ fn extensions() -> MutexGuard<'static, Vec<Extension>> {
 ///
 /// fn build(p: Json, _label: String, _: &BuildContext) -> com_core::Result<Box<dyn Block>> {
 ///     let q = GainSpec::parse("gain", p)?;
-///     Ok(Box::new(Gain(10f64.powf(q.gain_db / 20.0))))
+///     Ok(Box::new(Gain(com_math::db2amp(q.gain_db))))
 /// }
 ///
 /// blocks::register(Extension {

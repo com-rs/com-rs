@@ -47,11 +47,10 @@
 
 use super::grid::ResourceGrid;
 use com_core::{Error, Result, ensure_shape};
-use com_dsp::estimation::{
-    linear_interpolation, lmmse, lowpass_interpolation, quadratic_interpolation, spline_interpolation,
-};
+use com_dsp::estimation::{frequency_correlation, lmmse};
+use com_dsp::interpolation;
 use com_dsp::resample::resample_fft;
-use com_math::{C64, cis};
+use com_math::C64;
 use ndarray::Array2;
 
 /// A power-delay profile on the sampling grid of the OFDM symbol.
@@ -62,30 +61,27 @@ pub struct PowerDelayProfile {
     /// Powers (linear, normalised to a unit sum by the constructors).
     pub powers: Vec<f64>,
     /// IFFT size $N$ the delays refer to.
-    pub fft_len: usize,
+    pub n_fft: usize,
 }
 
 impl PowerDelayProfile {
     /// A profile from delays (samples) and linear powers, normalised.
-    pub fn new(delays: Vec<f64>, powers: &[f64], fft_len: usize) -> PowerDelayProfile {
+    pub fn new(delays: Vec<f64>, powers: &[f64], n_fft: usize) -> PowerDelayProfile {
         let t: f64 = powers.iter().sum::<f64>().max(1e-300);
-        PowerDelayProfile { delays, powers: powers.iter().map(|p| p / t).collect(), fft_len }
+        PowerDelayProfile { delays, powers: powers.iter().map(|p| p / t).collect(), n_fft }
     }
 
     /// The uniform profile over `max_delay` samples (the robust design: the cyclic
     /// prefix).
-    pub fn uniform(max_delay: usize, fft_len: usize) -> PowerDelayProfile {
+    pub fn uniform(max_delay: usize, n_fft: usize) -> PowerDelayProfile {
         let n = max_delay.max(1);
-        PowerDelayProfile::new((0..n).map(|d| d as f64).collect(), &vec![1.0; n], fft_len)
+        PowerDelayProfile::new((0..n).map(|d| d as f64).collect(), &vec![1.0; n], n_fft)
     }
 
-    /// $R(\Delta k)$ between subcarriers $\Delta k$ apart.
+    /// $R(\Delta k)$ between subcarriers $\Delta k$ apart
+    /// (`com_dsp::estimation::frequency_correlation`).
     pub fn correlation(&self, delta: f64) -> C64 {
-        self.delays
-            .iter()
-            .zip(&self.powers)
-            .map(|(&d, &p)| cis(-2.0 * std::f64::consts::PI * delta * d / self.fft_len as f64) * p)
-            .sum()
+        frequency_correlation(&self.delays, &self.powers, delta, self.n_fft)
     }
 }
 
@@ -113,6 +109,40 @@ pub enum FrequencyInterpolation {
     /// Coleri et al. 2002, eqs. (20)–(22)): pilots on the subcarriers $0, L, \dots$ of a
     /// grid of $N_{p} L$ subcarriers.
     TimeDomain,
+}
+
+impl FrequencyInterpolation {
+    /// The interpolation of a name: `linear`, `lmmse` (with the profile `pdp`),
+    /// `second_order`, `spline`, `lowpass` (MATLAB `interp`: `half` = 4, `alpha` = 0.5)
+    /// or `time_domain`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name, or for `lmmse` without a profile.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ofdm::estimation::FrequencyInterpolation;
+    /// assert_eq!(FrequencyInterpolation::from_name("spline", None)?, FrequencyInterpolation::Spline);
+    /// assert!(FrequencyInterpolation::from_name("lmmse", None).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn from_name(name: &str, pdp: Option<PowerDelayProfile>) -> Result<FrequencyInterpolation> {
+        Ok(match name.to_ascii_lowercase().as_str() {
+            "linear" => FrequencyInterpolation::Linear,
+            "lmmse" => FrequencyInterpolation::Lmmse(
+                pdp.ok_or_else(|| Error::Config("lmmse interpolation needs a power-delay profile".into()))?,
+            ),
+            "second_order" => FrequencyInterpolation::SecondOrder,
+            "spline" => FrequencyInterpolation::Spline,
+            "lowpass" => FrequencyInterpolation::LowPass { half: 4, alpha: 0.5 },
+            "time_domain" => FrequencyInterpolation::TimeDomain,
+            other => {
+                return Err(Error::Config(format!(
+                    "unknown interpolation {other:?}: linear, lmmse, second_order, spline, lowpass, time_domain"
+                )));
+            }
+        })
+    }
 }
 
 /// The channel at every RE of the grid (symbol after symbol) from the received grid
@@ -155,10 +185,10 @@ pub fn estimate_port(
         let pilots: Vec<C64> = ks.iter().map(|&k| grid.pilot(k, l)).collect();
         let hp: Vec<C64> = ks.iter().zip(&pilots).map(|(&k, p)| rx[l * k_n + k] / p).collect();
         let full = match method {
-            FrequencyInterpolation::Linear => linear_interpolation(&ks, &hp, k_n),
-            FrequencyInterpolation::SecondOrder => quadratic_interpolation(&ks, &hp, k_n),
-            FrequencyInterpolation::Spline => spline_interpolation(&ks, &hp, k_n),
-            FrequencyInterpolation::LowPass { half, alpha } => lowpass_interpolation(&ks, &hp, k_n, *half, *alpha)?,
+            FrequencyInterpolation::Linear => interpolation::linear(&ks, &hp, k_n)?,
+            FrequencyInterpolation::SecondOrder => interpolation::quadratic(&ks, &hp, k_n)?,
+            FrequencyInterpolation::Spline => interpolation::spline(&ks, &hp, k_n)?,
+            FrequencyInterpolation::LowPass { half, alpha } => interpolation::lowpass(&ks, &hp, k_n, *half, *alpha)?,
             FrequencyInterpolation::TimeDomain => {
                 let spacing = k_n / ks.len();
                 if ks.iter().enumerate().any(|(i, &k)| k != i * spacing) || spacing * ks.len() != k_n {
@@ -183,17 +213,11 @@ pub fn estimate_port(
     let mut out = vec![C64::new(0.0, 0.0); k_n * l_n];
     for k in 0..k_n {
         let vals: Vec<C64> = per_symbol.iter().map(|v| v[k]).collect();
-        for (l, v) in linear_interpolation(&symbols, &vals, l_n).into_iter().enumerate() {
+        for (l, v) in interpolation::linear(&symbols, &vals, l_n)?.into_iter().enumerate() {
             out[l * k_n + k] = v;
         }
     }
     Ok(out)
-}
-
-/// One-tap zero-forcing equalisation of every RE, and the noise variance of every
-/// equalised symbol ($\sigma^{2}/|H|^{2}$).
-pub fn equalize(rx: &[C64], h: &[C64], noise_var: f64) -> (Vec<C64>, Vec<f64>) {
-    rx.iter().zip(h).map(|(y, g)| (y / g, noise_var / g.norm_sqr().max(1e-300))).unzip()
 }
 
 #[cfg(test)]
@@ -201,6 +225,7 @@ mod tests {
     use super::*;
     use crate::ofdm::grid::PilotPattern;
     use com_core::rng::Rng;
+    use com_math::cis;
 
     /// A random multipath channel on the grid (static), and the received grid.
     fn channel(grid: &ResourceGrid, pdp: &PowerDelayProfile, s2: f64, rng: &mut Rng) -> (Vec<C64>, Vec<C64>) {
@@ -210,7 +235,7 @@ mod tests {
                 pdp.delays
                     .iter()
                     .zip(&taps)
-                    .map(|(d, t)| t * cis(-2.0 * std::f64::consts::PI * k as f64 * d / pdp.fft_len as f64))
+                    .map(|(d, t)| t * cis(-2.0 * std::f64::consts::PI * k as f64 * d / pdp.n_fft as f64))
                     .sum()
             })
             .collect();

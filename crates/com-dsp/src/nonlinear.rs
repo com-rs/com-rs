@@ -1,6 +1,15 @@
-//! A memoryless envelope nonlinearity driven by a complex Gaussian signal: the series of
-//! its output autocorrelation and the spectrum of its distortion (Banelli & Cacopardi
-//! 2000).
+//! A memoryless envelope nonlinearity driven by a complex Gaussian signal: Bussgang's
+//! decomposition, the series of its output autocorrelation and the spectrum of its
+//! distortion (Banelli & Cacopardi 2000).
+//!
+//! - [`bussgang`]: the decomposition $y = K x + d$ of any envelope nonlinearity, and
+//!   [`clipping_bussgang`] its closed form for the envelope limiter;
+//! - [`output_series`] (and [`output_series_sampled`] on [`series_grid`]): the
+//!   coefficients of the output autocorrelation;
+//! - [`distortion_spectrum`]: the spectrum of the useful term and of the distortion.
+//!
+//! The amplifier models that give these nonlinearities a meaning are in
+//! `com-hardware`; the clipping of OFDM is in `com-waveform::papr`.
 //!
 //! # Model
 //!
@@ -35,9 +44,27 @@
 //! eq. 28 with $+\sum_{i} d_{i,n}\gamma^{i+1}$ for the $d_{i,n}$ of their Table I (the
 //! paper prints a minus: the signs of eq. 28 and Table I disagree).
 //!
+//! # Clipping
+//!
+//! An envelope limiter at the amplitude $A$ ($\gamma = A^{2}$, the clipping ratio
+//! $\mathrm{CR} = 10 \log_{10} \gamma$ dB above the average power) acting on a complex
+//! Gaussian signal of unit power is, by Bussgang's theorem, a gain plus an uncorrelated
+//! distortion, $y = \alpha x + d$, with (Ochiai & Imai 2002, Dardari et al. 2000)
+//!
+//! $$
+//! \alpha = 1 - e^{-\gamma} + \frac{\sqrt{\pi \gamma}}{2} \operatorname{erfc}\sqrt{\gamma},
+//! \qquad
+//! \mathbb{E}|y|^{2} = 1 - e^{-\gamma},
+//! \qquad
+//! \sigma_{d}^{2} = 1 - e^{-\gamma} - \alpha^{2}
+//! $$
+//!
+//! ([`clipping_bussgang`]): the signal-to-distortion ratio $\alpha^{2}/\sigma_{d}^{2}$ is
+//! the error floor of clipping.
+//!
 //! # Examples
 //! ```
-//! use com_hardware::gaussian_input::output_series;
+//! use com_dsp::nonlinear::output_series;
 //! use com_math::C64;
 //! // a soft limiter at 3 dB of input back-off
 //! let a = 2f64.sqrt();
@@ -50,9 +77,55 @@
 //!
 //! 1. P. Banelli and S. Cacopardi, "Theoretical analysis and performance of OFDM signals
 //!    in nonlinear AWGN channels," *IEEE Trans. Commun.* 48(3), 430–441, 2000.
+//! 2. J. J. Bussgang, "Crosscorrelation functions of amplitude-distorted Gaussian
+//!    signals," MIT RLE Tech. Rep. 216, 1952.
+//! 3. H. Ochiai and H. Imai, "Performance analysis of deliberately clipped OFDM signals,"
+//!    *IEEE Trans. Commun.* 50(1), 89–101, 2002.
 
-use com_math::C64;
 use com_math::fft::{fft, ifft};
+use com_math::{C64, db2lin, erfc};
+use std::f64::consts::PI;
+
+/// Bussgang's decomposition $y = K x + d$ of a memoryless nonlinearity driven by a
+/// circular complex Gaussian signal: the distortion $d$ is uncorrelated with $x$.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bussgang {
+    /// The complex gain $K = \mathbb{E}[y x^{*}] / \mathbb{E}|x|^{2}$ (real for an
+    /// AM/AM conversion alone).
+    pub gain: C64,
+    /// The output power $\mathbb{E}|y|^{2}$.
+    pub output_power: f64,
+    /// The power of the distortion $\sigma_{d}^{2} = \mathbb{E}|y|^{2} - |K|^{2}\,
+    /// \mathbb{E}|x|^{2}$.
+    pub distortion: f64,
+}
+
+impl Bussgang {
+    /// The signal-to-distortion ratio $|K|^{2} \mathbb{E}|x|^{2} / \sigma_{d}^{2}$ (dB)
+    /// of an input of power `input_power`.
+    pub fn sdr_db(&self, input_power: f64) -> f64 {
+        com_math::lin2db(self.gain.norm_sqr() * input_power / self.distortion)
+    }
+}
+
+/// The Bussgang decomposition of an envelope limiter at `ratio_db` above the (unit)
+/// average power of the input, in closed form (see the module; Ochiai & Imai 2002).
+///
+/// # Examples
+/// ```
+/// use com_dsp::nonlinear::{bussgang, clipping_bussgang};
+/// use com_math::C64;
+/// // the quadrature of any nonlinearity agrees with the closed form of the limiter
+/// let (b, a) = (clipping_bussgang(3.0), com_math::db2amp(3.0));
+/// let q = bussgang(|r| C64::new(r.min(a), 0.0), 1.0);
+/// assert!((q.gain - b.gain).norm() < 1e-6 && (q.distortion - b.distortion).abs() < 1e-6);
+/// ```
+pub fn clipping_bussgang(ratio_db: f64) -> Bussgang {
+    let g = db2lin(ratio_db);
+    let gain = 1.0 - (-g).exp() + (PI * g).sqrt() / 2.0 * erfc(g.sqrt());
+    let output_power = 1.0 - (-g).exp();
+    Bussgang { gain: C64::new(gain, 0.0), output_power, distortion: (output_power - gain * gain).max(0.0) }
+}
 
 /// The coefficients $c_{0}, \dots, c_{N-1}$ of the output autocorrelation of the envelope
 /// nonlinearity `f` (complex: AM/AM and AM/PM) for a circular complex Gaussian input of
@@ -86,7 +159,7 @@ pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
 /// AM/PM, $y = f(|x|) e^{j \arg x}$) driven by a circular complex Gaussian input of
 /// power `power`: the complex gain $K = \mathbb{E}[y x^{*}] / \mathbb{E}|x|^{2}$ and the
 /// power of the distortion $\sigma_{d}^{2} = \mathbb{E}|y|^{2} - |K|^{2}\, \mathbb{E}|x|^{2}$,
-/// uncorrelated with the input, as `(K, σ_d²)`. $K$ is the projection of [`output_series`]
+/// uncorrelated with the input. $K$ is the projection of [`output_series`]
 /// on $L_{0}^{(1)}$ (the term $c_{0} = |K|^{2}$ at unit power), equivalently
 /// $K = \frac{1}{2}\mathbb{E}\left[f'(\rho) + f(\rho)/\rho\right]$ (Banelli & Cacopardi
 /// 2000; Bouhadda et al. 2014, eqs. (20)–(21)); the same quadrature, to about
@@ -94,17 +167,18 @@ pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
 ///
 /// # Examples
 /// ```
-/// use com_hardware::gaussian_input::bussgang;
+/// use com_dsp::nonlinear::bussgang;
 /// use com_math::C64;
 /// // a soft limiter at 3 dB of input back-off: K = 1 - e^{-γ} + ½ √(πγ) erfc √γ
-/// let (k, d) = bussgang(|r| C64::new(r.min(1.0), 0.0), 0.5);
+/// let b = bussgang(|r| C64::new(r.min(1.0), 0.0), 0.5);
+/// let (k, d) = (b.gain, b.distortion);
 /// let g = 2.0f64;
 /// let want = 1.0 - (-g).exp() + 0.5 * (std::f64::consts::PI * g).sqrt() * com_math::erfc(g.sqrt());
 /// assert!((k.re - want).abs() < 1e-6 && k.im.abs() < 1e-15); // erfc: 1.2e-7
 /// // σ_d² = P (1 - e^{-γ} - K²)
 /// assert!((d - 0.5 * (1.0 - (-g).exp() - want * want)).abs() < 1e-6);
 /// ```
-pub fn bussgang(f: impl Fn(f64) -> C64, power: f64) -> (C64, f64) {
+pub fn bussgang(f: impl Fn(f64) -> C64, power: f64) -> Bussgang {
     let scale = power.sqrt();
     // the nonlinearity seen by an input of unit power
     let g = |u: f64| f(u * scale) / scale;
@@ -112,7 +186,7 @@ pub fn bussgang(f: impl Fn(f64) -> C64, power: f64) -> (C64, f64) {
     let h = SERIES_MAX / SERIES_PANELS as f64;
     let gain = laguerre_projections(&values, 1)[0] * (h / 3.0);
     let out = com_math::simpson(|u| g(u).norm_sqr() * 2.0 * u * (-u * u).exp(), 0.0, SERIES_MAX, SERIES_PANELS);
-    (gain, power * (out - gain.norm_sqr()))
+    Bussgang { gain, output_power: power * out, distortion: power * (out - gain.norm_sqr()) }
 }
 
 /// The projections $\int_{0}^{\infty} f(r)\, 2r^{2} e^{-r^{2}} L_{n}^{(1)}(r^{2})\, dr$,
@@ -125,13 +199,7 @@ fn laguerre_projections(values: &[C64], n_terms: usize) -> Vec<C64> {
     for (i, fv) in values.iter().take(panels + 1).enumerate() {
         let r = i as f64 * h;
         let x = r * r;
-        let w = if i == 0 || i == panels {
-            1.0
-        } else if i % 2 == 1 {
-            4.0
-        } else {
-            2.0
-        };
+        let w = com_math::simpson_weight(i, panels);
         let common = fv * (2.0 * x * (-x).exp() * w);
         // L_n^{(1)}(x): L_0 = 1, L_1 = 2 - x, (k+1) L_{k+1} = (2k + 2 - x) L_k - (k + 1) L_{k-1}
         if n_terms > 0 {
@@ -184,49 +252,5 @@ mod tests {
         assert!((c[0] - 4.0).abs() < 1e-9 && c[1..].iter().all(|v| v.abs() < 1e-9), "{c:?}");
         let (u, d) = distortion_spectrum(&[1.0, 0.0], 8, 32);
         assert!((u.iter().sum::<f64>() - 1.0).abs() < 1e-12 && d.iter().all(|v| v.abs() < 1e-15));
-    }
-}
-
-#[cfg(test)]
-mod literature {
-    use super::*;
-    use crate::amplifier::{Rapp, Saleh};
-
-    /// H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi and R. Bouallegue,
-    /// "Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and
-    /// OFDM signals," EURASIP J. Adv. Signal Process. 2014:60, Tables 2 and 3: Bussgang's
-    /// gain and the distortion power of the SSPA (Rapp, $v = 1$) and of the TWTA (Saleh
-    /// with $A_{\mathrm{sat}} = 1$, $\phi_{0} = 0$ and $\pi/6$) at input back-offs of 4, 6
-    /// and 8 dB from the saturation, against their "simulation" columns (10⁶ symbols):
-    /// the gains within 2·10⁻³, the distortion powers within 1.5 %. Their "theoretical"
-    /// columns, from a polynomial fit of order 10 (eqs. (33)–(34)), are further from the
-    /// exact values (0.5904 + 0.1068j against 0.5917 + 0.1106j at 4 dB).
-    #[test]
-    fn bouhadda_2014_tables_2_3() {
-        let sspa = Rapp { gain: 1.0, saturation: 1.0, smoothness: 1.0 };
-        let twta = |phi0: f64| Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
-        let rows: [(&str, f64, f64, C64, f64); 9] = [
-            ("SSPA", 4.0, 0.0, C64::new(0.7699, 0.0), 4.4759e-3),
-            ("SSPA", 6.0, 0.0, C64::new(0.8307, 0.0), 1.8950e-3),
-            ("SSPA", 8.0, 0.0, C64::new(0.8798, 0.0), 7.0742e-4),
-            ("TWTA", 4.0, 0.0, C64::new(0.6042, 0.0), 1.0330e-2),
-            ("TWTA", 6.0, 0.0, C64::new(0.6976, 0.0), 4.9589e-3),
-            ("TWTA", 8.0, 0.0, C64::new(0.7784, 0.0), 2.1228e-3),
-            ("TWTA", 4.0, std::f64::consts::FRAC_PI_6, C64::new(0.5917, 0.1106), 1.1339e-2),
-            ("TWTA", 6.0, std::f64::consts::FRAC_PI_6, C64::new(0.6887, 0.0995), 5.5901e-3),
-            ("TWTA", 8.0, std::f64::consts::FRAC_PI_6, C64::new(0.7727, 0.0830), 2.4194e-3),
-        ];
-        for (model, ibo, phi0, k_table, d_table) in rows {
-            // IBO = A_sat² / σ² with A_sat = 1 (eq. (14))
-            let power = 10f64.powf(-ibo / 10.0);
-            let (k, d) = if model == "SSPA" {
-                bussgang(|r| C64::new(sspa.am_am(r), 0.0), power)
-            } else {
-                let t = twta(phi0);
-                bussgang(|r| C64::from_polar(t.am_am(r), t.am_pm(r)), power)
-            };
-            assert!((k - k_table).norm() < 2e-3, "{model} {ibo} dB: K = {k}");
-            assert!((d / d_table - 1.0).abs() < 0.015, "{model} {ibo} dB: σ_d² = {d}");
-        }
     }
 }

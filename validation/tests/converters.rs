@@ -43,7 +43,7 @@ fn tone_snr_db(y: &[C64], f: f64) -> f64 {
         .map(|(k, v)| (v - c * C64::from_polar(1.0, 2.0 * PI * f * k as f64)).norm_sqr())
         .sum::<f64>()
         / n;
-    10.0 * (signal / rest).log10()
+    comrs::math::lin2db(signal / rest)
 }
 
 #[test]
@@ -61,12 +61,12 @@ fn sqnr_of_a_full_scale_sine() {
             let a = 0.9 + 0.1 * rng.uniform() - 1e-9;
             let mut y = tone(1 << 14, f, a);
             q.apply(&mut y);
-            let r = 10f64.powf(tone_snr_db(&y, f) / 10.0);
+            let r = comrs::math::db2lin(tone_snr_db(&y, f));
             signal += a * a;
             noise += a * a / r;
         }
-        let snr = 10.0 * (signal / noise).log10();
-        let theory = sqnr_sine_db(bits) + 10.0 * (signal / 24.0).log10();
+        let snr = comrs::math::lin2db(signal / noise);
+        let theory = sqnr_sine_db(bits) + comrs::math::lin2db(signal / 24.0);
         assert!((snr - theory).abs() < 0.15, "{bits} bits: {snr} dB vs {theory}");
     }
 }

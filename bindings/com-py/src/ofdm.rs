@@ -476,12 +476,12 @@ fn theory_papr_ccdf(n: usize, papr_db: &Bound<'_, PyAny>, oversampled: bool, can
 ///     dict: ``gain`` (α), ``output_power``, ``distortion`` (σ_d²), ``sdr_db``.
 #[pyfunction]
 fn clipping_bussgang(py: Python<'_>, ratio_db: f64) -> PyResult<Bound<'_, PyDict>> {
-    let b = papr::clipping_bussgang(ratio_db);
+    let b = comrs::dsp::nonlinear::clipping_bussgang(ratio_db);
     let d = PyDict::new(py);
-    d.set_item("gain", b.gain)?;
+    d.set_item("gain", b.gain.re)?;
     d.set_item("output_power", b.output_power)?;
     d.set_item("distortion", b.distortion)?;
-    d.set_item("sdr_db", b.sdr_db())?;
+    d.set_item("sdr_db", b.sdr_db(1.0))?;
     Ok(d)
 }
 
@@ -721,7 +721,6 @@ impl PyDpd {
     }
 }
 
-/// Register the OFDM bindings.
 /// Pilot-based gain correction limited to `eps` (Cimini 1985, eq. (16)): `r / (max(|p|,
 /// ε) e^{j arg p})` for every sample.
 ///
@@ -740,7 +739,7 @@ fn gain_limited_correction<'py>(
     pilot: &Bound<'py, PyAny>,
     eps_db: f64,
 ) -> PyResult<CArr<'py>> {
-    Ok(carr(py, correction::gain_limited(&cvec(r)?, &cvec(pilot)?, 10f64.powf(eps_db / 20.0))))
+    Ok(carr(py, correction::gain_limited(&cvec(r)?, &cvec(pilot)?, comrs::math::db2amp(eps_db))))
 }
 
 /// The signal-to-distortion ratio (dB) of gain-limited correction against a cochannel
@@ -761,8 +760,8 @@ fn gain_limited_correction<'py>(
 #[pyfunction]
 #[pyo3(signature = (sir_db, eps_db, rho = C64::new(1.0, 0.0)))]
 fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResult<Py<PyAny>> {
-    let eps = 10f64.powf(eps_db / 20.0);
-    map_real(sir_db, |s| Ok(10.0 * correction::sdr_gain_limited(10f64.powf(s / 10.0), eps, rho).log10()))
+    let eps = comrs::math::db2amp(eps_db);
+    map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_gain_limited(comrs::math::db2lin(s), eps, rho))))
 }
 
 /// The signal-to-distortion ratio (dB) of the optimum gain correction against a
@@ -775,7 +774,7 @@ fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResul
 ///     float | numpy.ndarray: the SDR (dB) at every SIR.
 #[pyfunction]
 fn sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(sir_db, |s| Ok(10.0 * correction::sdr_optimum(10f64.powf(s / 10.0)).log10()))
+    map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_optimum(comrs::math::db2lin(s)))))
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

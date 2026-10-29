@@ -31,9 +31,8 @@
 //! 1. S. Coleri, M. Ergen, A. Puri and A. Bahai, "Channel estimation techniques based on
 //!    pilot arrangement in OFDM systems," *IEEE Trans. Broadcast.*, 48(3), 223–229, 2002.
 
-use com_core::rng::Rng;
 use com_core::{Error, Result, ensure, ensure_shape};
-use com_math::{C64, cis};
+use com_math::C64;
 use std::sync::Arc;
 
 /// The positions of the pilots in the grid.
@@ -231,8 +230,7 @@ impl ResourceGrid {
                 return v;
             }
         }
-        let mut r = Rng::new(self.seed ^ ((l * self.n_subcarriers + k) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-        cis(std::f64::consts::FRAC_PI_4 * (2 * r.below(4) + 1) as f64)
+        com_core::rng::member(self.seed, (l * self.n_subcarriers + k) as u64).qpsk()
     }
 
     /// The pilot REs $(k, l)$, symbol after symbol.

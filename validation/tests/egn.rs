@@ -52,7 +52,7 @@ fn eta_sci(n_spans: usize, egn: Option<FormatMoments>, rolloff: f64) -> f64 {
             w * m.nli_psd(&s, -rs / 2.0 + rs * f64::from(i) / f64::from(k)).unwrap()
         })
         .sum();
-    10.0 * (acc * rs / f64::from(k) / 3.0).log10()
+    comrs::math::lin2db(acc * rs / f64::from(k) / 3.0)
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn first_order_variance(n_spans: usize, w: usize, trials: usize, qpsk: bool, rng
         let kappa = 4.0 * std::f64::consts::PI.powi(2) * b2 * ((m - i) as f64 * f0) * ((k - i) as f64 * f0);
         let link = (C64::new(1.0, 0.0) - C64::new(0.0, kappa * ls).exp() * (-a * ls).exp()) / C64::new(a, -kappa);
         let x = kappa * ls / 2.0;
-        let r = if x.sin().abs() < 1e-12 { ns } else { (ns * x).sin() / x.sin() };
+        let r = ns * comrs::math::diric(2.0 * x, n_spans);
         link * r * C64::new(0.0, (ns - 1.0) * x).exp()
     };
     // the kernels of every output line (the terms of constant phase, m = i or k = i, removed)
@@ -134,7 +134,7 @@ fn egn_correction_is_the_first_order_perturbation_of_qpsk() {
     for ns in [1, 2, 3] {
         let qpsk = first_order_variance(ns, 256, 200, true, &mut rng);
         let gauss = first_order_variance(ns, 256, 200, false, &mut rng);
-        let monte_carlo = 10.0 * (qpsk / gauss).log10();
+        let monte_carlo = comrs::math::lin2db(qpsk / gauss);
         // the same ratio from the EGN formulas, rectangular spectrum
         let model = eta_sci(ns, Some(QPSK), 0.0) - eta_sci(ns, None, 0.0);
         assert!((monte_carlo - model).abs() < 0.35, "{ns} spans: Monte Carlo {monte_carlo:.2} dB, EGN {model:.2} dB");

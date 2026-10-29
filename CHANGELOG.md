@@ -97,7 +97,7 @@ PyPI and the command line `comrs`.
 ### Specifications and command line
 
 - `com-spec`: campaigns written as YAML, JSON or TOML files (grid, link of blocks,
-  metrics, stopping rule, outputs), 54 blocks with typed parameters and ports,
+  metrics, stopping rule, outputs), 57 blocks with typed parameters and ports,
   expectations checked against closed forms and published curves, the search of
   operating points, the time of every block (`profile`), recordings (SigMF, raw IQ,
   NPY) as sources and as dumps, and a JSON Schema of the blocks. SigMF 1.x: every
@@ -210,6 +210,49 @@ PyPI and the command line `comrs`.
   `Results`, `compare`, probes, profiles and `comrs.plot`.
 - abi3 wheels for CPython 3.11 and later on Linux (manylinux, musllinux), macOS and
   Windows.
+
+### Consistency of the API
+
+A review of the whole library before the release settled its conventions
+(`docs/ARCHITECTURE.md`) and removed the duplicated kernels:
+
+- invalid input returns an error instead of panicking: the interpolators of
+  `com_dsp::estimation`, `Ofdm::to_time` and `to_active`, `oqam_stagger` and
+  `oqam_destagger`, the LLRs of `Constellation::llr` (and `llr_with_variances` for one
+  noise variance per symbol), `theory::ber` and `ser` outside the orders they cover,
+  `ber_rayleigh_mrc` without a branch, the closed forms of chirp spread spectrum, CE-OFDM
+  and OTFS prefixes longer than a block, FBMC demodulation of a signal of another length;
+- one kernel per method, one layer down: decibels (`db2amp`, `amp2db`), `qfuncinv`,
+  `diric`, `try_simpson`, `gauss_legendre`, `linalg::solve_tridiagonal` and the unitary
+  and centred FFT in `com-math`; cyclic prefixes, rotations, interpolation
+  (`com_dsp::interpolation`, gathered from the estimators and the timing recovery),
+  spectral estimation (`com_dsp::spectrum`) and Bussgang's decomposition
+  (`com_dsp::nonlinear`, shared by clipping and the amplifiers) in `com-dsp`;
+  `hard_decisions` and the seeded families of sequences (`rng::member`, `Rng::qpsk`)
+  in `com-core`; `add_noise` in `com-channel`; the frequency correlation of a power-delay
+  profile; the PRBS on the shared LFSR;
+- the channel stays in `com-channel`: the delay–Doppler channel of OTFS
+  (`DelayDoppler`, `DelayDopplerModel`), the validation tests draw their channels there;
+- one API for the mutual information over AWGN and Rayleigh fading
+  (`theory::constellation_mi`, `constellation_gmi`, the CM and BICM capacities),
+  `theory::ber_exact`, and `ser_orthogonal_noncoherent` shared by noncoherent FSK and CSS;
+- the modems share their vocabulary (`n_fft`, `n_active`, `n_cp`, `block_len`, public
+  configurations checked by `check`) and the `Modulate`/`Demodulate` traits (UFMC, OTFS);
+  `BlockCode` for BCH and the DVB-S2 FEC;
+- names: `_lin` on linear SNRs, `noise_var`, `from_name` for the parsers that take
+  arguments, `water_filling_powers`, `Domain` (real or complex message passing),
+  `decode_alamouti`, the argument order `(rx, tx)` of the metrics and `(kind, m, …)` of
+  the closed forms; Python `bandwidth_hz`, `smoothness`, `n_fft`, keyword-only options;
+- Python bindings of OTFS (`Otfs`, `delay_doppler_paths`), `fading` for `theory_mi` and
+  `theory_gmi`.
+- the documentation follows one taxonomy, in the order of a link (foundations, coding and
+  shaping, waveforms, MIMO, wireless channels, optical, hardware impairments, receiver
+  DSP, metrics and analysis, systems and standards, simulation and specifications): the
+  Python API reference, now complete (a test fails if an exported name is missing), the
+  gallery, one sub-gallery per theme with the reproduced figures in their theme,
+  `docs/LITERATURE.md` and `docs/MATURITY.md`; the maturity tables of `MATURITY.md`, of
+  the README and of the Python documentation are generated from
+  `validation/maturity.yaml` (`just maturity`, checked by `just check`).
 
 ### Documentation
 

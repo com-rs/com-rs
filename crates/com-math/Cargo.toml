@@ -1,6 +1,6 @@
 [package]
 name = "com-math"
-description = "Numerical methods of com-rs: special functions, Gauss–Hermite quadrature, FFT plans, complex linear algebra, nearest-point search, NLSE split-step solver"
+description = "Numerical methods of com-rs: special functions, Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans, complex linear algebra, nearest-point search, finite fields, LFSR sequences, NLSE split-step solver"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

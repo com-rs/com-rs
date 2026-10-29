@@ -30,6 +30,13 @@ pub fn within_three_sigma(errors: u64, total: u64, theory: f64) -> bool {
     (p - theory).abs() <= 3.0 * sigma
 }
 
+/// The channel LLRs $2 y/\sigma^{2}$ of the bits `c` sent in BPSK ($0 \mapsto +1$) over a
+/// real AWGN channel of variance `noise_var`, the link of the code tests.
+pub fn bpsk_awgn_llr(c: &[u8], noise_var: f64, rng: &mut comrs::core::rng::Rng) -> Vec<f64> {
+    let s = noise_var.sqrt();
+    c.iter().map(|b| 2.0 * (1.0 - 2.0 * f64::from(*b) + s * rng.gaussian()) / noise_var).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -48,9 +48,10 @@
 //!    and C.
 
 use super::tables;
+use com_core::signal::hard_decisions;
 use com_core::{Error, Result, expect_len};
 use com_fec::bch::Bch;
-use com_fec::block::{BlockCode, hard};
+use com_fec::block::BlockCode;
 use com_fec::ldpc::{CheckRule, LdpcCode};
 use std::str::FromStr;
 
@@ -327,9 +328,27 @@ impl Dvbs2Fec {
     pub fn decode_detailed(&self, llr: &[f64]) -> Result<(Vec<u8>, usize, Option<usize>)> {
         expect_len(llr.len(), self.n(), "LLRs")?;
         let (post, iterations) = self.ldpc.decode_llr(llr)?;
-        let h = hard(&post[..self.bch.n()]);
+        let h = hard_decisions(&post[..self.bch.n()]);
         let (bits, corrected) = self.bch.decode(&h)?;
         Ok((bits, iterations, corrected))
+    }
+}
+
+impl BlockCode for Dvbs2Fec {
+    fn k(&self) -> usize {
+        Dvbs2Fec::k(self)
+    }
+
+    fn n(&self) -> usize {
+        Dvbs2Fec::n(self)
+    }
+
+    fn encode_block(&self, info: &[u8]) -> Result<Vec<u8>> {
+        self.encode(info)
+    }
+
+    fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
+        self.decode(llr)
     }
 }
 

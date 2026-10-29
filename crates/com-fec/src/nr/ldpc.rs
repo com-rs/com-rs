@@ -204,7 +204,7 @@ impl BlockCode for NrLdpc {
             *v = KNOWN;
         }
         let (post, _) = self.code.decode_llr(&full)?;
-        Ok(post[..self.k_info].iter().map(|&l| u8::from(l < 0.0)).collect())
+        Ok(com_core::signal::hard_decisions(&post[..self.k_info]))
     }
 }
 

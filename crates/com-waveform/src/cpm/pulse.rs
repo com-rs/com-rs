@@ -23,7 +23,7 @@ pub enum FrequencyPulse {
 
 impl FrequencyPulse {
     /// The short name of the pulse, `rec`, `rc` or `gmsk` (read back by
-    /// [`FrequencyPulse::parse`]).
+    /// [`FrequencyPulse::from_name`]).
     pub fn name(&self) -> &'static str {
         match self {
             FrequencyPulse::Rectangular => "rec",
@@ -68,7 +68,7 @@ impl FrequencyPulse {
     ///
     /// # Errors
     /// [`Error::Config`] for another name.
-    pub fn parse(name: &str, bt: f64) -> Result<FrequencyPulse> {
+    pub fn from_name(name: &str, bt: f64) -> Result<FrequencyPulse> {
         match name.to_ascii_lowercase().as_str() {
             "rec" | "rectangular" => Ok(FrequencyPulse::Rectangular),
             "rc" | "raised-cosine" => Ok(FrequencyPulse::RaisedCosine),

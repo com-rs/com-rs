@@ -21,8 +21,8 @@
 //! ```
 
 use crate::constellation::Constellation;
+use com_core::Result;
 use com_core::rng::Rng;
-use com_core::{Result, ensure};
 use com_math::C64;
 
 /// `n` independent fair bits (`0` or `1`).
@@ -35,7 +35,8 @@ const PRBS_TAPS: [(u32, u32); 7] = [(7, 6), (9, 5), (11, 9), (15, 14), (20, 3), 
 
 /// `length` bits of the PRBS of order `order`, from the register state `seed`.
 ///
-/// The register is a Fibonacci LFSR with the polynomial `xⁿ + xᵏ + 1` of the order;
+/// The register is a Fibonacci LFSR ([`com_math::sequences::lfsr`]) with the polynomial
+/// `xⁿ + xᵏ + 1` of the order;
 /// `seed` gives its initial content (its `n` low bits; an all-zero register is replaced
 /// by 1, since it would lock the sequence at zero). The output bit is the feedback bit.
 ///
@@ -47,18 +48,15 @@ pub fn prbs(order: u32, length: usize, seed: u64) -> Result<Vec<u8>> {
         .copied()
         .find(|&(n, _)| n == order)
         .ok_or_else(|| com_core::Error::Config(format!("PRBS order {order} not in 7, 9, 11, 15, 20, 23, 31")))?;
-    let mask = (1u64 << n) - 1;
-    let mut reg = seed & mask;
-    if reg == 0 {
-        reg = 1;
-    }
-    let mut out = Vec::with_capacity(length);
-    for _ in 0..length {
-        let b = ((reg >> (n - 1)) ^ (reg >> (k - 1))) & 1;
-        reg = ((reg << 1) | b) & mask;
-        out.push(b as u8);
-    }
-    Ok(out)
+    let (n, k) = (n as usize, k as usize);
+    let reg = match seed & ((1u64 << n) - 1) {
+        0 => 1,
+        r => r,
+    };
+    // the register holds the last n outputs, the newest in its bit 0: the output bit
+    // b(t) = b(t - n) ⊕ b(t - k) is the LFSR x(i + n) = x(i) ⊕ x(i + n - k)
+    let init: Vec<u8> = (0..n).map(|i| ((reg >> (n - 1 - i)) & 1) as u8).collect();
+    Ok(com_math::sequences::lfsr(&[0, n - k], n, &init, n + length).split_off(n))
 }
 
 /// Maxwell–Boltzmann probabilities `p_i ∝ exp(-λ |x_i|²)` over the points of `c`.
@@ -71,34 +69,30 @@ pub fn maxwell_boltzmann(c: &Constellation, lambda: f64) -> Vec<f64> {
     w.iter().map(|v| v / s).collect()
 }
 
-/// `n` random symbols of `c` drawn with the probabilities `px` (uniform if `None`).
+/// `n` random symbols of `c` drawn with the probabilities `px` (uniform if `None`,
+/// normalised to a sum of 1 otherwise, as [`Constellation::priors`]).
 ///
 /// Returns the indices (Gray labels) and the symbols.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if `px` does not have one non-negative entry per point
-/// summing to 1 (within `10⁻⁹`).
+/// As [`Constellation::priors`].
 pub fn symbols(c: &Constellation, n: usize, px: Option<&[f64]>, rng: &mut Rng) -> Result<(Vec<usize>, Vec<C64>)> {
     let m = c.order();
-    let idx: Vec<usize> = match px {
-        None => (0..n).map(|_| rng.below(m)).collect(),
-        Some(p) => {
-            ensure(p.len() == m && p.iter().all(|&v| v >= 0.0), || format!("px needs {m} non-negative probabilities"))?;
-            let total: f64 = p.iter().sum();
-            ensure((total - 1.0).abs() < 1e-9, || format!("px sums to {total}, not 1"))?;
-            let mut cdf = Vec::with_capacity(m);
-            let mut acc = 0.0;
-            for &v in p {
-                acc += v;
-                cdf.push(acc);
-            }
-            (0..n)
-                .map(|_| {
-                    let u = rng.uniform() * acc;
-                    cdf.partition_point(|&c| c <= u).min(m - 1)
-                })
-                .collect()
+    let idx: Vec<usize> = if px.is_none() {
+        (0..n).map(|_| rng.below(m)).collect()
+    } else {
+        let mut cdf = Vec::with_capacity(m);
+        let mut acc = 0.0;
+        for v in c.priors(px)? {
+            acc += v;
+            cdf.push(acc);
         }
+        (0..n)
+            .map(|_| {
+                let u = rng.uniform() * acc;
+                cdf.partition_point(|&c| c <= u).min(m - 1)
+            })
+            .collect()
     };
     let x = idx.iter().map(|&i| c.points()[i]).collect();
     Ok((idx, x))

@@ -8,6 +8,7 @@
 //! in `tests/test_sionna_vectors.py`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::bpsk_awgn_llr;
 use comrs::fec::block::BlockCode;
 use comrs::fec::bounds::normal_approximation;
 use comrs::fec::nr::{NrLdpc, NrPolar};
@@ -22,8 +23,7 @@ fn bler(code: &dyn BlockCode, ebn0_db: f64, blocks: usize, rng: &mut Rng) -> f64
     for _ in 0..blocks {
         let b: Vec<u8> = (0..k).map(|_| rng.below(2) as u8).collect();
         let c = code.encode_block(&b).unwrap();
-        let llr: Vec<f64> =
-            c.iter().map(|&x| 2.0 * (1.0 - 2.0 * f64::from(x) + s2.sqrt() * rng.gaussian()) / s2).collect();
+        let llr = bpsk_awgn_llr(&c, s2, rng);
         errors += usize::from(code.decode_block(&llr).unwrap() != b);
     }
     errors as f64 / blocks as f64

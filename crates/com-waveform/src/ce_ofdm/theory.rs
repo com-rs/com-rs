@@ -83,7 +83,7 @@
 use super::{CeOfdm, Receiver, TAU};
 use com_core::{Result, ensure};
 use com_mapping::constellation::ConstellationKind;
-use com_math::{C64, erfc, fft, qfunc};
+use com_math::{C64, erf, fft, qfunc};
 
 /// The SNR of every data subcarrier (linear scale) at `E_s/N_0` (dB) per data
 /// symbol: `(2πh)² E_s/N_0 · N/(N + N_cp)`.
@@ -98,7 +98,7 @@ pub fn snr(ce: &CeOfdm, esn0_db: f64) -> Result<f64> {
 
 /// `E_b/N_0` (dB) of a constellation of `m` points at the SNR `snr` (linear).
 fn ebn0_db(snr: f64, m: usize) -> f64 {
-    10.0 * (snr / (m as f64).log2()).max(1e-300).log10()
+    com_math::lin2db((snr / (m as f64).log2()).max(1e-300))
 }
 
 /// The SER of a constellation of `m` points of `kind` over AWGN at the SNR of the
@@ -106,31 +106,27 @@ fn ebn0_db(snr: f64, m: usize) -> f64 {
 ///
 /// # Errors
 /// As [`snr`] and [`com_mapping::theory::ser`].
-pub fn ser(ce: &CeOfdm, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
+pub fn ser(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     com_mapping::theory::ser(kind, m, ebn0_db(snr(ce, esn0_db)?, m))
 }
 
-/// The BER of a constellation at the SNR `snr` (linear): the exact Gray BER of a square
-/// QAM, else the nearest-neighbour approximation of [`com_mapping::theory::ber`].
+/// The BER of a constellation at the SNR `snr` (linear): the exact Gray BER where it
+/// exists ([`com_mapping::theory::ber_exact`]), else the nearest-neighbour
+/// approximation of [`com_mapping::theory::ber`].
 fn ber_at(snr: f64, m: usize, kind: ConstellationKind) -> Result<f64> {
     let e = ebn0_db(snr, m);
-    if kind == ConstellationKind::Qam {
-        if let Ok(exact) = com_mapping::theory::ber_gray_qam(m, e) {
-            return Ok(exact);
-        }
-    }
-    com_mapping::theory::ber(kind, m, e)
+    com_mapping::theory::ber_exact(kind, m, e).or_else(|_| com_mapping::theory::ber(kind, m, e))
 }
 
 /// The BER of a Gray-mapped constellation of `m` points of `kind` over AWGN at the
-/// SNR of the linear regime: the exact Gray BER of a square QAM
-/// ([`com_mapping::theory::ber_gray_qam`]), eq. (15) of Thompson et al. with its
-/// further neighbours, else the nearest-neighbour approximation of
+/// SNR of the linear regime: the exact Gray BER where it exists
+/// ([`com_mapping::theory::ber_exact`]; for a square QAM, eq. (15) of Thompson et al.
+/// with its further neighbours), else the nearest-neighbour approximation of
 /// [`com_mapping::theory::ber`].
 ///
 /// # Errors
 /// As [`snr`] and [`com_mapping::theory::ber`].
-pub fn ber(ce: &CeOfdm, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
+pub fn ber(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     ber_at(snr(ce, esn0_db)?, m, kind)
 }
 
@@ -276,14 +272,14 @@ pub fn occupied_bandwidth(sigma: f64, fraction: f64) -> Result<f64> {
 /// ```
 /// use com_waveform::ce_ofdm::theory::optimum_gain;
 /// // 1.9 dB at 2πh = 1.25 and 3.5 dB at 1.5 (Guerreiro et al. 2016, Sec. III-A)
-/// assert!((10.0 * optimum_gain(1.25, None).log10() - 1.94).abs() < 0.01);
-/// assert!((10.0 * optimum_gain(1.5, None).log10() - 3.52).abs() < 0.01);
+/// assert!((com_math::lin2db(optimum_gain(1.25, None)) - 1.94).abs() < 0.01);
+/// assert!((com_math::lin2db(optimum_gain(1.5, None)) - 3.52).abs() < 0.01);
 /// ```
 pub fn optimum_gain(two_pi_h: f64, theta_max: Option<f64>) -> f64 {
     let g = two_pi_h * two_pi_h;
     match theta_max {
         None => g,
-        Some(t) => g * (1.0 - erfc(t / (std::f64::consts::SQRT_2 * two_pi_h))),
+        Some(t) => g * erf(t / (std::f64::consts::SQRT_2 * two_pi_h)),
     }
 }
 
@@ -376,7 +372,7 @@ pub fn subcarrier_snr(ce: &CeOfdm, receiver: Receiver, esn0_db: f64) -> Result<V
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ser`].
-pub fn ser_receiver(ce: &CeOfdm, receiver: Receiver, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
+pub fn ser_receiver(ce: &CeOfdm, receiver: Receiver, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     let snrs = subcarrier_snr(ce, receiver, esn0_db)?;
     let mut total = 0.0;
     for &s in &snrs {
@@ -391,7 +387,7 @@ pub fn ser_receiver(ce: &CeOfdm, receiver: Receiver, m: usize, esn0_db: f64, kin
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ber`].
-pub fn ber_receiver(ce: &CeOfdm, receiver: Receiver, m: usize, esn0_db: f64, kind: ConstellationKind) -> Result<f64> {
+pub fn ber_receiver(ce: &CeOfdm, receiver: Receiver, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     let snrs = subcarrier_snr(ce, receiver, esn0_db)?;
     let mut total = 0.0;
     for &s in &snrs {
@@ -479,7 +475,7 @@ mod tests {
         // eq. (8) of the 2016 letter is the linear theory of QPSK
         let ce = CeOfdm { n_data: 31, oversampling: 4, h: 0.6 / TAU, n_cp: 0 };
         for eb in [4.0, 8.0] {
-            let lin = ber(&ce, 4, eb + 10.0 * 2f64.log10(), ConstellationKind::Qam).unwrap();
+            let lin = ber(&ce, ConstellationKind::Qam, 4, eb + com_math::lin2db(2.0)).unwrap();
             assert!((ber_optimum(0.6, eb) / lin - 1.0).abs() < 1e-9);
         }
     }
@@ -627,7 +623,7 @@ mod literature {
     /// dB and when 2πh = 1.5, G ≈ 3.5 dB"; a loss below 2πh = 1.
     #[test]
     fn guerreiro_2016_optimum_gains() {
-        let db = |x: f64| 10.0 * optimum_gain(x, None).log10();
+        let db = |x: f64| com_math::lin2db(optimum_gain(x, None));
         assert!((db(1.25) - 1.9).abs() < 0.05 && (db(1.5) - 3.5).abs() < 0.05);
         assert!(db(0.99) < 0.0 && db(1.01) > 0.0);
     }

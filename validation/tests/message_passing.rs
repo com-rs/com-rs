@@ -53,7 +53,7 @@ use comrs::mapping::constellation::ConstellationKind;
 use comrs::mapping::theory::ser;
 use comrs::math::linalg::{matvec, qr, svd};
 use comrs::mimo::message_passing::{
-    AmpVariance, Field, OampLinear, Prior, amp_state_evolution, amp_thresholds, lama, oamp, oamp_state_evolution,
+    AmpVariance, Domain, OampLinear, Prior, amp_state_evolution, amp_thresholds, lama, oamp, oamp_state_evolution,
 };
 use comrs::prelude::*;
 use ndarray::Array2;
@@ -79,7 +79,7 @@ fn constellation(name: &str, m: usize) -> Constellation {
 /// last digit.
 fn check_row(row: (&str, usize, f64, f64, f64, f64)) {
     let (name, m, bmin, n0min, bmax, n0max) = row;
-    let t = amp_thresholds(&Prior::uniform(&constellation(name, m)), Field::Complex);
+    let t = amp_thresholds(&Prior::uniform(&constellation(name, m)), Domain::Complex);
     assert!((t.beta_min - bmin).abs() < 1.5e-3, "{name}: βmin {} vs {bmin}", t.beta_min);
     assert!((t.beta_max - bmax).abs() < 1.5e-3, "{name}: βmax {} vs {bmax}", t.beta_max);
     assert!((t.n0_min / n0min - 1.0).abs() < 1e-2, "{name}: N0min {} vs {n0min}", t.n0_min);
@@ -114,7 +114,7 @@ fn operating_point(beta: f64, iterations: Option<usize>) -> f64 {
     let ser_at = |snr_db: f64| {
         let n0 = beta / db2lin(snr_db);
         let s2 = match iterations {
-            Some(i) => amp_state_evolution(&qpsk, beta, n0, i + 1, Field::Complex)[i].noise_var,
+            Some(i) => amp_state_evolution(&qpsk, beta, n0, i + 1, Domain::Complex)[i].noise_var,
             None => n0,
         };
         ser_qpsk(s2)
@@ -138,26 +138,26 @@ fn operating_points_of_section_v() {
     // at βmax without noise, the state evolution stops at the tangent point of eq. (33):
     // a SER of 0.208 (the paper quotes about 0.08, see the module documentation)
     let qpsk = Prior::uniform(&constellation("QPSK", 4));
-    let beta_max = amp_thresholds(&qpsk, Field::Complex).beta_max;
-    let s2 = amp_state_evolution(&qpsk, beta_max, 0.0, 20_000, Field::Complex)[19_999].noise_var;
+    let beta_max = amp_thresholds(&qpsk, Domain::Complex).beta_max;
+    let s2 = amp_state_evolution(&qpsk, beta_max, 0.0, 20_000, Domain::Complex)[19_999].noise_var;
     let floor = ser_qpsk(s2);
     assert!((s2 - 0.664).abs() < 0.01 && (floor - 0.208).abs() < 0.005, "βmax: σ² {s2}, SER {floor}");
 }
 
 /// A channel of i.i.d. entries $\mathcal{CN}(0, 1/M)$ (complex) or $\mathcal{N}(0, 1/M)$ (real).
-fn gaussian_channel(m: usize, n: usize, field: Field, rng: &mut Rng) -> Array2<C64> {
+fn gaussian_channel(m: usize, n: usize, field: Domain, rng: &mut Rng) -> Array2<C64> {
     let s = (1.0 / m as f64).sqrt();
     Array2::from_shape_fn((m, n), |_| match field {
-        Field::Complex => rng.complex_gaussian() * s,
-        Field::Real => C64::new(rng.gaussian() * s, 0.0),
+        Domain::Complex => rng.complex_gaussian() * s,
+        Domain::Real => C64::new(rng.gaussian() * s, 0.0),
     })
 }
 
-fn noise(m: usize, s2: f64, field: Field, rng: &mut Rng) -> Vec<C64> {
+fn noise(m: usize, s2: f64, field: Domain, rng: &mut Rng) -> Vec<C64> {
     (0..m)
         .map(|_| match field {
-            Field::Complex => rng.complex_gaussian() * s2.sqrt(),
-            Field::Real => C64::new(rng.gaussian() * s2.sqrt(), 0.0),
+            Domain::Complex => rng.complex_gaussian() * s2.sqrt(),
+            Domain::Real => C64::new(rng.gaussian() * s2.sqrt(), 0.0),
         })
         .collect()
 }
@@ -194,19 +194,19 @@ fn lama_decouples_a_large_system() {
         let mut rng = Rng::new(17);
         let runs: Vec<Vec<f64>> = (0..8)
             .map(|_| {
-                let h = gaussian_channel(m, n, Field::Complex, &mut rng);
+                let h = gaussian_channel(m, n, Domain::Complex, &mut rng);
                 let x: Vec<C64> = (0..n).map(|_| c.points()[rng.below(4)]).collect();
                 let y: Vec<C64> = matvec(&h.view(), &x)
                     .iter()
-                    .zip(noise(m, n0, Field::Complex, &mut rng))
+                    .zip(noise(m, n0, Domain::Complex, &mut rng))
                     .map(|(a, b)| a + b)
                     .collect();
-                let t = lama(&h.view(), &y, n0, &prior, Field::Complex, iters, AmpVariance::Postulated).unwrap();
+                let t = lama(&h.view(), &y, n0, &prior, Domain::Complex, iters, AmpVariance::Postulated).unwrap();
                 t.estimates.iter().map(|e| mse(e, &x)).collect()
             })
             .collect();
         let sim = average(&runs);
-        let se = amp_state_evolution(&prior, beta, n0, iters, Field::Complex);
+        let se = amp_state_evolution(&prior, beta, n0, iters, Domain::Complex);
         for (t, (s, p)) in sim.iter().zip(&se).enumerate() {
             assert!(agrees(&runs, t, p.mse), "{m}×{n} at {snr_db} dB, iteration {t}: {s} vs {}", p.mse);
         }
@@ -224,18 +224,18 @@ fn lama_on_128_by_64_16qam_is_close_to_the_io_bound() {
     for snr_db in [8.0, 12.0] {
         // the IO bound: the decoupled channel at the fixed point of the state evolution
         let io = |snr: f64| {
-            let s2 = amp_state_evolution(&prior, beta, beta / db2lin(snr), 300, Field::Complex)[299].noise_var;
+            let s2 = amp_state_evolution(&prior, beta, beta / db2lin(snr), 300, Domain::Complex)[299].noise_var;
             ser(ConstellationKind::Qam, 16, lin2db(1.0 / (4.0 * s2))).unwrap()
         };
         let n0 = beta / db2lin(snr_db);
         let (mut errors, mut total) = (0u64, 0u64);
         while errors < 2000 {
-            let h = gaussian_channel(m, n, Field::Complex, &mut rng);
+            let h = gaussian_channel(m, n, Domain::Complex, &mut rng);
             let idx: Vec<usize> = (0..n).map(|_| rng.below(16)).collect();
             let x: Vec<C64> = idx.iter().map(|&i| c.points()[i]).collect();
             let y: Vec<C64> =
-                matvec(&h.view(), &x).iter().zip(noise(m, n0, Field::Complex, &mut rng)).map(|(a, b)| a + b).collect();
-            let t = lama(&h.view(), &y, n0, &prior, Field::Complex, 8, AmpVariance::Postulated).unwrap();
+                matvec(&h.view(), &x).iter().zip(noise(m, n0, Domain::Complex, &mut rng)).map(|(a, b)| a + b).collect();
+            let t = lama(&h.view(), &y, n0, &prior, Domain::Complex, 8, AmpVariance::Postulated).unwrap();
             errors += t.z.iter().zip(&idx).filter(|(z, i)| c.nearest(**z) != **i).count() as u64;
             total += n as u64;
         }
@@ -264,11 +264,11 @@ fn bpsk() -> Prior {
 fn oamp_state_evolution_of_iid_gaussian_matrices_is_eq_42() {
     let (n, m) = (1024usize, 666usize);
     let s2 = n as f64 / (m as f64 * db2lin(14.0));
-    let h = gaussian_channel(m, n, Field::Real, &mut Rng::new(5));
+    let h = gaussian_channel(m, n, Domain::Real, &mut Rng::new(5));
     let (_, lambda, _) = svd(&h.view());
     let prior = bpsk();
     for linear in [OampLinear::MatchedFilter, OampLinear::PseudoInverse, OampLinear::Lmmse] {
-        let empirical = oamp_state_evolution(&prior, &lambda, n, s2, 8, linear, Field::Real);
+        let empirical = oamp_state_evolution(&prior, &lambda, n, s2, 8, linear, Domain::Real);
         let mut v2 = 1.0;
         for (t, step) in empirical.iter().enumerate() {
             let tau2 = phi_42(linear, n as f64, m as f64, v2, s2);
@@ -277,7 +277,7 @@ fn oamp_state_evolution_of_iid_gaussian_matrices_is_eq_42() {
                 "{linear:?}, iteration {t}: {} vs {tau2}",
                 step.noise_var
             );
-            let mmse = prior.mse(tau2, tau2, Field::Real).0;
+            let mmse = prior.mse(tau2, tau2, Domain::Real).0;
             v2 = 1.0 / (1.0 / mmse - 1.0 / tau2);
         }
     }
@@ -296,26 +296,26 @@ fn oamp_and_amp_on_iid_gaussian_bpsk_follow_their_state_evolution() {
     let mut se_oamp: Vec<Vec<Vec<f64>>> = vec![Vec::new(); 3];
     let linears = [OampLinear::MatchedFilter, OampLinear::PseudoInverse, OampLinear::Lmmse];
     for _ in 0..6 {
-        let h = gaussian_channel(m, n, Field::Real, &mut rng);
+        let h = gaussian_channel(m, n, Domain::Real, &mut rng);
         let x: Vec<C64> = (0..n).map(|_| C64::new(if rng.bit() == 0 { -1.0 } else { 1.0 }, 0.0)).collect();
         let y: Vec<C64> =
-            matvec(&h.view(), &x).iter().zip(noise(m, s2, Field::Real, &mut rng)).map(|(a, b)| a + b).collect();
+            matvec(&h.view(), &x).iter().zip(noise(m, s2, Domain::Real, &mut rng)).map(|(a, b)| a + b).collect();
         let (_, lambda, _) = svd(&h.view());
         for (k, linear) in linears.into_iter().enumerate() {
-            let t = oamp(&h.view(), &y, s2, &prior, Field::Real, iters, linear).unwrap();
+            let t = oamp(&h.view(), &y, s2, &prior, Domain::Real, iters, linear).unwrap();
             sims[k].push(t.estimates.iter().map(|e| mse(e, &x)).collect());
             se_oamp[k].push(
-                oamp_state_evolution(&prior, &lambda, n, s2, iters, linear, Field::Real)
+                oamp_state_evolution(&prior, &lambda, n, s2, iters, linear, Domain::Real)
                     .iter()
                     .map(|s| s.mse)
                     .collect(),
             );
         }
-        let t = lama(&h.view(), &y, s2, &prior, Field::Real, iters, AmpVariance::Postulated).unwrap();
+        let t = lama(&h.view(), &y, s2, &prior, Domain::Real, iters, AmpVariance::Postulated).unwrap();
         sims[3].push(t.estimates.iter().map(|e| mse(e, &x)).collect());
     }
     let se_amp: Vec<f64> =
-        amp_state_evolution(&prior, n as f64 / m as f64, s2, iters, Field::Real).iter().map(|s| s.mse).collect();
+        amp_state_evolution(&prior, n as f64 / m as f64, s2, iters, Domain::Real).iter().map(|s| s.mse).collect();
     let names = ["OAMP-MF", "OAMP-PINV", "OAMP-LMMSE", "AMP"];
     for (k, name) in names.iter().enumerate() {
         let sim = average(&sims[k]);
@@ -367,20 +367,20 @@ fn oamp_follows_its_state_evolution_on_an_ill_conditioned_matrix() {
             .map(|_| C64::new(if rng.uniform() < 0.2 { rng.gaussian() / 0.2f64.sqrt() } else { 0.0 }, 0.0))
             .collect();
         let y: Vec<C64> =
-            matvec(&h.view(), &x).iter().zip(noise(m, s2, Field::Real, &mut rng)).map(|(a, b)| a + b).collect();
+            matvec(&h.view(), &x).iter().zip(noise(m, s2, Domain::Real, &mut rng)).map(|(a, b)| a + b).collect();
         let (_, lambda, _) = svd(&h.view());
         let run = |linear| -> Vec<f64> {
-            let t = oamp(&h.view(), &y, s2, &prior, Field::Real, iters, linear).unwrap();
+            let t = oamp(&h.view(), &y, s2, &prior, Domain::Real, iters, linear).unwrap();
             t.estimates.iter().map(|e| mse(e, &x)).collect()
         };
         lm.push(run(OampLinear::Lmmse));
         pinv.push(run(OampLinear::PseudoInverse));
         let se = |linear| -> Vec<f64> {
-            oamp_state_evolution(&prior, &lambda, n, s2, iters, linear, Field::Real).iter().map(|s| s.mse).collect()
+            oamp_state_evolution(&prior, &lambda, n, s2, iters, linear, Domain::Real).iter().map(|s| s.mse).collect()
         };
         se_lm.push(se(OampLinear::Lmmse));
         se_pinv.push(se(OampLinear::PseudoInverse));
-        let t = lama(&h.view(), &y, s2, &prior, Field::Real, iters, AmpVariance::Postulated).unwrap();
+        let t = lama(&h.view(), &y, s2, &prior, Domain::Real, iters, AmpVariance::Postulated).unwrap();
         amp.push(t.estimates.iter().map(|e| mse(e, &x)).collect());
     }
     for (name, runs, se) in [("OAMP-LMMSE", &lm, &se_lm), ("OAMP-PINV", &pinv, &se_pinv)] {

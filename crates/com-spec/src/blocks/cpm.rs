@@ -74,7 +74,7 @@ impl CpmSpec {
             order,
             h_num: num,
             h_den: den,
-            pulse: FrequencyPulse::parse(&self.pulse, self.bt)?,
+            pulse: FrequencyPulse::from_name(&self.pulse, self.bt)?,
             length: self.length,
             sps: self.sps,
         }

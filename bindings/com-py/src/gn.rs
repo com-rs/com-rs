@@ -101,9 +101,9 @@ fn gn_model<'py>(
     let d = PyDict::new(py);
     d.set_item("nli_psd", nli)?;
     d.set_item("ase_psd", ase)?;
-    d.set_item("snr_db", 10.0 * snr.log10())?;
+    d.set_item("snr_db", comrs::math::lin2db(snr))?;
     d.set_item("eta", eta)?;
-    d.set_item("p_opt_dbm", 10.0 * (p_opt / 1e-3).log10())?;
+    d.set_item("p_opt_dbm", comrs::math::w2dbm(p_opt))?;
     Ok(d)
 }
 

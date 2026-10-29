@@ -12,7 +12,7 @@ use com_hardware::converter::{self, Adc, Dac, Quantizer};
 use com_hardware::iq;
 use com_hardware::oscillator::{PhaseOrigin, frequency_offset, increment_sd, wiener_phase};
 use com_math::C64;
-use com_math::{cis, power};
+use com_math::cis;
 use serde::Deserialize;
 use serde_json::Value as Json;
 use std::f64::consts::PI;
@@ -118,25 +118,19 @@ impl Awgn {
 impl Block for Awgn {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         let b = self.bandwidth.unwrap_or(s.symbol_rate);
-        let p = if self.unit {
-            1.0 / s.sps
-        } else if s.antennas.is_empty() && s.channel.faded_power.is_none() {
-            power(&s.samples)
-        } else {
-            s.reference_power()
-        };
+        // the power of the samples (that of the channel output before fading, if any)
+        let p = if self.unit { 1.0 / s.sps } else { s.reference_power() };
         add_noise(s, snr_noise_variance(p, self.snr_db, s.fs(), b), rng);
         Ok(())
     }
 }
 
-/// Add complex white noise of variance `sigma2` to every antenna and record it.
-fn add_noise(s: &mut Frame, sigma2: f64, rng: &mut Rng) {
-    let sd = sigma2.sqrt();
-    for v in s.streams_mut().flatten() {
-        *v += rng.complex_gaussian() * sd;
+/// Add complex white noise of variance `noise_var` to every antenna and record it.
+fn add_noise(s: &mut Frame, noise_var: f64, rng: &mut Rng) {
+    for v in s.streams_mut() {
+        com_channel::awgn::add_noise(v, noise_var, rng);
     }
-    s.channel.noise_var = Some(sigma2);
+    s.channel.noise_var = Some(noise_var);
 }
 
 block_params! {
@@ -154,16 +148,9 @@ impl Block for AwgnEbn0 {
             (None, Some(p)) => com_metrics::entropy(p),
             (None, None) => s.constellation("awgn_ebn0")?.bits_per_symbol() as f64,
         };
-        // an uncoded single stream: the power of its samples (com_channel::awgn::awgn_ebn0)
-        let p = if s.antennas.is_empty()
-            && s.coding.code_rate.is_none()
-            && s.pmf.is_none()
-            && s.channel.faded_power.is_none()
-        {
-            power(&s.samples)
-        } else {
-            s.reference_power()
-        };
+        // the power of the samples over every antenna, before fading if any (that of
+        // com_channel::awgn::awgn_ebn0 for a single stream)
+        let p = s.reference_power();
         add_noise(s, ebn0_noise_variance(p, self.ebn0_db, b, s.sps), rng);
         Ok(())
     }

@@ -29,7 +29,7 @@
 //! ```
 //! use com_waveform::ufmc::Ufmc;
 //! use com_math::C64;
-//! let u = Ufmc::new(64, 4, 12, 16, 40.0)?;            // 48 subcarriers, L = 16
+//! let u = Ufmc::new(64, 4, 12, 16, 40.0)?; // 48 subcarriers, L = 16
 //! let d: Vec<C64> = (0..96).map(|i| C64::new(if i % 3 == 0 { 1.0 } else { -1.0 }, 1.0)).collect();
 //! let x = u.modulate(&d)?;
 //! assert_eq!(x.len(), 2 * (64 + 15));
@@ -46,51 +46,71 @@
 //! 2. F. J. Harris, "On the use of windows for harmonic analysis with the discrete
 //!    Fourier transform," *Proc. IEEE*, 66(1), 51–83, 1978.
 
+use com_core::signal::{Signal, Symbols};
+use com_core::traits::{Demodulate, Modulate};
+use com_core::units::Hertz;
 use com_core::{Result, ensure, ensure_shape};
+use com_dsp::filter::convolve_full;
 use com_dsp::window::chebyshev;
 use com_math::{C64, cis, fft};
 
 /// A UFMC modem (see the module).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ufmc {
-    fft_len: usize,
-    subbands: usize,
-    subband_size: usize,
-    window: Vec<f64>,
+    /// Size of the grid and of the IDFT, $N$.
+    pub n_fft: usize,
+    /// Sub-bands $B$.
+    pub n_subbands: usize,
+    /// Subcarriers per sub-band, $Q$.
+    pub subband_size: usize,
+    /// Taps of the filters, $L$ (1: plain OFDM without prefix).
+    pub filter_len: usize,
+    /// Attenuation of the sidelobes of the Dolph–Chebyshev filters (dB).
+    pub sidelobe_db: f64,
 }
 
 impl Ufmc {
-    /// `subbands` sub-bands of `subband_size` subcarriers on a grid of `fft_len`,
-    /// filtered by a Dolph–Chebyshev filter of `filter_len` taps whose sidelobes are
-    /// `sidelobe_db` below its main lobe.
+    /// `n_subbands` sub-bands of `subband_size` subcarriers on a grid of `n_fft`,
+    /// filtered by Dolph–Chebyshev filters of `filter_len` taps whose sidelobes are
+    /// `sidelobe_db` below their main lobe.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] if the sub-bands do not fit the grid or for a filter
-    /// of no tap.
+    /// As [`Ufmc::check`].
     pub fn new(
-        fft_len: usize,
-        subbands: usize,
+        n_fft: usize,
+        n_subbands: usize,
         subband_size: usize,
         filter_len: usize,
         sidelobe_db: f64,
     ) -> Result<Ufmc> {
-        ensure(subbands >= 1 && subband_size >= 1 && subbands * subband_size <= fft_len, || {
-            format!("{subbands} sub-bands of {subband_size} do not fit a grid of {fft_len}")
+        let u = Ufmc { n_fft, n_subbands, subband_size, filter_len, sidelobe_db };
+        u.check()?;
+        Ok(u)
+    }
+
+    /// Check the configuration.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] if the sub-bands do not fit the grid, or if the
+    /// filter has no tap or is longer than $N + 1$ taps (a symbol must fit the DFT of
+    /// $2N$ of the receiver).
+    pub fn check(&self) -> Result<()> {
+        let (b, q, n) = (self.n_subbands, self.subband_size, self.n_fft);
+        ensure(b >= 1 && q >= 1 && b * q <= n, || format!("{b} sub-bands of {q} do not fit a grid of {n}"))?;
+        ensure(self.filter_len >= 1 && self.filter_len <= n + 1, || {
+            format!("a filter of {} taps for a grid of {n}: between 1 and N + 1", self.filter_len)
         })?;
-        ensure(filter_len >= 1, || "the filter needs at least one tap".into())?;
-        let w = chebyshev(filter_len, sidelobe_db);
-        let norm = w.iter().map(|v| v * v).sum::<f64>().sqrt();
-        Ok(Ufmc { fft_len, subbands, subband_size, window: w.into_iter().map(|v| v / norm).collect() })
+        ensure(self.sidelobe_db.is_finite(), || "the sidelobe attenuation must be finite".into())
     }
 
     /// The number of active subcarriers $K = BQ$.
     pub fn n_active(&self) -> usize {
-        self.subbands * self.subband_size
+        self.n_subbands * self.subband_size
     }
 
     /// Samples per symbol, $N + L - 1$.
-    pub fn symbol_len(&self) -> usize {
-        self.fft_len + self.window.len() - 1
+    pub fn block_len(&self) -> usize {
+        self.n_fft + self.filter_len - 1
     }
 
     /// The subcarrier index (centred on the carrier) of the active subcarrier `i`.
@@ -98,53 +118,65 @@ impl Ufmc {
         i as isize - (self.n_active() / 2) as isize
     }
 
-    /// The filter of sub-band `b`: the window shifted to the centre of the sub-band.
-    pub fn filter(&self, b: usize) -> Vec<C64> {
+    /// The Dolph–Chebyshev window of unit energy.
+    fn window(&self) -> Vec<f64> {
+        let w = chebyshev(self.filter_len, self.sidelobe_db);
+        let norm = w.iter().map(|v| v * v).sum::<f64>().sqrt();
+        w.into_iter().map(|v| v / norm).collect()
+    }
+
+    /// The taps of the filter of sub-band `b`: the window shifted to the centre of the
+    /// sub-band.
+    pub fn subband_taps(&self, b: usize) -> Vec<C64> {
+        self.shifted(&self.window(), b)
+    }
+
+    fn shifted(&self, window: &[f64], b: usize) -> Vec<C64> {
         let first = self.subcarrier(b * self.subband_size) as f64;
         let centre = first + (self.subband_size as f64 - 1.0) / 2.0;
         // centred in time too, so that the response is real at the centre of the band
-        let mid = (self.window.len() as f64 - 1.0) / 2.0;
-        self.window
+        let mid = (window.len() as f64 - 1.0) / 2.0;
+        window
             .iter()
             .enumerate()
-            .map(|(l, w)| cis(std::f64::consts::TAU * centre * (l as f64 - mid) / self.fft_len as f64) * *w)
+            .map(|(l, w)| cis(std::f64::consts::TAU * centre * (l as f64 - mid) / self.n_fft as f64) * *w)
             .collect()
     }
 
     /// The response of the filter of the sub-band of the active subcarrier `i` at its
     /// frequency, the gain the receiver divides by.
     pub fn response(&self, i: usize) -> C64 {
+        self.response_of(&self.subband_taps(i / self.subband_size), i)
+    }
+
+    fn response_of(&self, taps: &[C64], i: usize) -> C64 {
         let k = self.subcarrier(i) as f64;
-        self.filter(i / self.subband_size)
-            .iter()
-            .enumerate()
-            .map(|(l, f)| f * cis(-std::f64::consts::TAU * k * l as f64 / self.fft_len as f64))
-            .sum()
+        taps.iter().enumerate().map(|(l, f)| f * cis(-std::f64::consts::TAU * k * l as f64 / self.n_fft as f64)).sum()
     }
 
     /// Modulate the symbols `data`, $K$ per UFMC symbol.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] unless `data` holds whole symbols.
+    /// [`com_core::Error::Shape`] unless `data` holds whole symbols, and the errors of
+    /// [`Ufmc::check`].
     pub fn modulate(&self, data: &[C64]) -> Result<Vec<C64>> {
-        let (n, k) = (self.fft_len, self.n_active());
+        self.check()?;
+        let (n, k) = (self.n_fft, self.n_active());
         ensure_shape(data.len() % k == 0, || format!("{} symbols for {k} subcarriers", data.len()))?;
         let scale = n as f64 / (k as f64).sqrt();
-        let filters: Vec<Vec<C64>> = (0..self.subbands).map(|b| self.filter(b)).collect();
-        let mut out = Vec::with_capacity(data.len() / k * self.symbol_len());
+        let window = self.window();
+        let filters: Vec<Vec<C64>> = (0..self.n_subbands).map(|b| self.shifted(&window, b)).collect();
+        let mut out = Vec::with_capacity(data.len() / k * self.block_len());
         for symbol in data.chunks_exact(k) {
-            let mut x = vec![C64::new(0.0, 0.0); self.symbol_len()];
+            let mut x = vec![C64::new(0.0, 0.0); self.block_len()];
             for (b, f) in filters.iter().enumerate() {
                 let mut grid = vec![C64::new(0.0, 0.0); n];
                 for q in 0..self.subband_size {
                     let i = b * self.subband_size + q;
                     grid[self.subcarrier(i).rem_euclid(n as isize) as usize] = symbol[i] * scale;
                 }
-                let v = fft::ifft(&grid);
-                for (t, vt) in v.iter().enumerate() {
-                    for (l, fl) in f.iter().enumerate() {
-                        x[t + l] += vt * fl;
-                    }
+                for (xt, v) in x.iter_mut().zip(convolve_full(f, &fft::ifft(&grid))) {
+                    *xt += v;
                 }
             }
             out.extend(x);
@@ -156,13 +188,17 @@ impl Ufmc {
     /// response of the filters.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] unless `samples` holds whole symbols.
+    /// [`com_core::Error::Shape`] unless `samples` holds whole symbols, and the errors
+    /// of [`Ufmc::check`].
     pub fn demodulate(&self, samples: &[C64]) -> Result<Vec<C64>> {
-        let (n, len) = (self.fft_len, self.symbol_len());
+        self.check()?;
+        let (n, len) = (self.n_fft, self.block_len());
         ensure_shape(samples.len() % len == 0, || format!("{} samples for symbols of {len}", samples.len()))?;
-        ensure(len <= 2 * n, || format!("a filter of {} taps is longer than the FFT of {n}", self.window.len()))?;
         let scale = n as f64 / (self.n_active() as f64).sqrt();
-        let gains: Vec<C64> = (0..self.n_active()).map(|i| self.response(i) * scale).collect();
+        let window = self.window();
+        let filters: Vec<Vec<C64>> = (0..self.n_subbands).map(|b| self.shifted(&window, b)).collect();
+        let gains: Vec<C64> =
+            (0..self.n_active()).map(|i| self.response_of(&filters[i / self.subband_size], i) * scale).collect();
         let mut out = Vec::with_capacity(samples.len() / len * self.n_active());
         for block in samples.chunks_exact(len) {
             let mut buf = block.to_vec();
@@ -177,6 +213,22 @@ impl Ufmc {
     }
 }
 
+impl Modulate for Ufmc {
+    fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
+        ensure(x.n_streams() == 1, || format!("UFMC modulates one stream, not {}", x.n_streams()))?;
+        *out = Signal::from_stream(Ufmc::modulate(self, x.stream_slice(0))?, Hertz(1.0))?;
+        Ok(())
+    }
+}
+
+impl Demodulate for Ufmc {
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
+        ensure(y.n_streams() == 1, || format!("UFMC demodulates one stream, not {}", y.n_streams()))?;
+        *out = Symbols::from_stream(Ufmc::demodulate(self, y.stream(0))?)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,7 +237,7 @@ mod tests {
     #[test]
     fn the_sub_bands_are_orthogonal_and_the_filters_unit_energy() {
         let u = Ufmc::new(128, 6, 12, 32, 50.0).unwrap();
-        let e: f64 = u.filter(0).iter().map(C64::norm_sqr).sum();
+        let e: f64 = u.subband_taps(0).iter().map(C64::norm_sqr).sum();
         assert!((e - 1.0).abs() < 1e-12);
         // one sub-band alone leaves nothing on the others
         let mut d = vec![C64::new(0.0, 0.0); u.n_active()];
@@ -203,7 +255,7 @@ mod tests {
         // (L = 1: plain OFDM)
         let mut r = Rng::new(2);
         let mut level = |u: &Ufmc| {
-            let n = u.fft_len;
+            let n = u.n_fft;
             let mut p = vec![0.0; 8 * n];
             for _ in 0..200 {
                 let mut d = vec![C64::new(0.0, 0.0); u.n_active()];
@@ -219,10 +271,18 @@ mod tests {
             // half-way between subcarriers, where the sinc of OFDM has its sidelobes
             let at = |k: isize| p[(8 * k + 4).rem_euclid(8 * n as isize) as usize];
             let first = u.subcarrier(0);
-            10.0 * (at(first - 8) / at(first + 6)).log10()
+            com_math::lin2db(at(first - 8) / at(first + 6))
         };
         let ufmc = level(&Ufmc::new(128, 4, 12, 33, 60.0).unwrap());
         let ofdm = level(&Ufmc::new(128, 4, 12, 1, 60.0).unwrap());
         assert!(ufmc < ofdm - 20.0, "UFMC {ufmc} dB, OFDM {ofdm} dB");
+    }
+
+    #[test]
+    fn filters_longer_than_the_receiver_dft_are_rejected() {
+        assert!(Ufmc::new(64, 4, 12, 65, 40.0).is_ok());
+        assert!(Ufmc::new(64, 4, 12, 66, 40.0).is_err());
+        assert!(Ufmc::new(64, 4, 12, 0, 40.0).is_err());
+        assert!(Ufmc::new(64, 6, 12, 16, 40.0).is_err());
     }
 }

@@ -23,8 +23,8 @@
 //!
 //! # Examples
 //! ```
-//! use com_mimo::precoding::water_filling;
-//! let p = water_filling(&[4.0, 1.0, 0.1], 1.0)?;
+//! use com_mimo::precoding::water_filling_powers;
+//! let p = water_filling_powers(&[4.0, 1.0, 0.1], 1.0)?;
 //! assert!((p.iter().sum::<f64>() - 1.0).abs() < 1e-12);
 //! assert_eq!(p[2], 0.0);                       // the weakest mode stays off
 //! # Ok::<(), com_core::Error>(())
@@ -50,7 +50,7 @@ use ndarray::{Array2, ArrayView2};
 ///
 /// # Errors
 /// [`Error::Config`] for a negative gain or a non-positive power.
-pub fn water_filling(gains: &[f64], total_power: f64) -> Result<Vec<f64>> {
+pub fn water_filling_powers(gains: &[f64], total_power: f64) -> Result<Vec<f64>> {
     ensure(total_power > 0.0, || format!("the total power must be positive, got {total_power}"))?;
     ensure(gains.iter().all(|g| *g >= 0.0 && g.is_finite()), || "the gains must be non-negative".into())?;
     let mut order: Vec<usize> = (0..gains.len()).filter(|&i| gains[i] > 0.0).collect();
@@ -89,7 +89,7 @@ impl Eigenmode {
     /// false); modes without power are dropped.
     ///
     /// # Errors
-    /// As [`water_filling`], and [`Error::Config`] for a non-positive noise variance or a
+    /// As [`water_filling_powers`], and [`Error::Config`] for a non-positive noise variance or a
     /// zero channel.
     pub fn new(h: &ArrayView2<'_, C64>, total_power: f64, noise_var: f64, water_filling: bool) -> Result<Eigenmode> {
         ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
@@ -97,7 +97,7 @@ impl Eigenmode {
         let nonzero: Vec<usize> = (0..s.len()).filter(|&i| s[i] > 1e-12 * s[0].max(1e-300)).collect();
         ensure(!nonzero.is_empty(), || "the channel is zero".into())?;
         let powers_all = if water_filling {
-            self::water_filling(&s.iter().map(|x| x * x / noise_var).collect::<Vec<_>>(), total_power)?
+            water_filling_powers(&s.iter().map(|x| x * x / noise_var).collect::<Vec<_>>(), total_power)?
         } else {
             let p = total_power / nonzero.len() as f64;
             (0..s.len()).map(|i| if nonzero.contains(&i) { p } else { 0.0 }).collect()
@@ -187,7 +187,7 @@ mod tests {
     fn water_filling_satisfies_its_conditions() {
         let g = [3.0, 1.5, 0.4, 0.05];
         for p in [0.1, 1.0, 10.0, 100.0] {
-            let w = water_filling(&g, p).unwrap();
+            let w = water_filling_powers(&g, p).unwrap();
             assert!((w.iter().sum::<f64>() - p).abs() < 1e-12);
             // a common water level on the active modes, below the floor of the others
             let levels: Vec<f64> = (0..4).filter(|&i| w[i] > 0.0).map(|i| w[i] + 1.0 / g[i]).collect();
@@ -196,8 +196,8 @@ mod tests {
                 assert!(1.0 / g[i] >= levels[0] - 1e-12);
             }
         }
-        assert_eq!(water_filling(&[1.0, 1.0], 2.0).unwrap(), vec![1.0, 1.0]);
-        assert!(water_filling(&[1.0], 0.0).is_err());
+        assert_eq!(water_filling_powers(&[1.0, 1.0], 2.0).unwrap(), vec![1.0, 1.0]);
+        assert!(water_filling_powers(&[1.0], 0.0).is_err());
     }
 
     #[test]

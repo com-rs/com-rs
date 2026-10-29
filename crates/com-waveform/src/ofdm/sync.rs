@@ -51,7 +51,7 @@ use super::Ofdm;
 use com_core::Result;
 use com_core::ensure_shape;
 use com_core::rng::Rng;
-use com_math::{C64, cis};
+use com_math::C64;
 
 /// The preamble of Schmidl & Cox (with its cyclic prefix): QPSK on the even active
 /// subcarriers (scaled by $\sqrt{2}$ to keep the unit power), nothing on the odd ones.
@@ -62,11 +62,11 @@ pub fn preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
     let mut r = Rng::new(seed);
     let active: Vec<C64> = (0..ofdm.n_active)
         .map(|i| {
-            let s = cis(std::f64::consts::FRAC_PI_4 * (2 * r.below(4) + 1) as f64) * std::f64::consts::SQRT_2;
+            let s = r.qpsk() * std::f64::consts::SQRT_2;
             if ofdm.subcarrier(i).rem_euclid(2) == 0 { s } else { C64::new(0.0, 0.0) }
         })
         .collect();
-    ofdm.with_prefix(&ofdm.to_time(&active))
+    ofdm.with_prefix(&ofdm.to_time(&active)?)
 }
 
 /// The timing metric $M(d)$ for every start $d$ (halves of `half` samples).
@@ -121,6 +121,7 @@ pub fn synchronize(r: &[C64], ofdm: &Ofdm) -> Result<Estimate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use com_math::cis;
 
     #[test]
     fn the_preamble_has_two_identical_halves_and_noise_hurts_gracefully() {

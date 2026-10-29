@@ -16,20 +16,9 @@
 //!
 //! # Clipping
 //!
-//! An envelope limiter at the amplitude $A$ ($\gamma = A^{2}$, the clipping ratio
-//! $\mathrm{CR} = 10 \log_{10} \gamma$ dB above the average power) acting on a complex
-//! Gaussian signal of unit power is, by Bussgang's theorem, a gain plus an uncorrelated
-//! distortion, $y = \alpha x + d$, with (Ochiai & Imai 2002, Dardari et al. 2000)
-//!
-//! $$
-//! \alpha = 1 - e^{-\gamma} + \frac{\sqrt{\pi \gamma}}{2} \operatorname{erfc}\sqrt{\gamma},
-//! \qquad
-//! \mathbb{E}|y|^{2} = 1 - e^{-\gamma},
-//! \qquad
-//! \sigma_{d}^{2} = 1 - e^{-\gamma} - \alpha^{2}
-//! $$
-//!
-//! ([`clipping_bussgang`]): the signal-to-distortion ratio $\alpha^{2}/\sigma_{d}^{2}$ is the
+//! An envelope limiter acting on a complex Gaussian signal is, by Bussgang's theorem, a
+//! gain plus an uncorrelated distortion, whose closed form
+//! ([`com_dsp::nonlinear::clipping_bussgang`]) gives the signal-to-distortion ratio, the
 //! error floor of clipping.
 //!
 //! # Reduction techniques
@@ -103,7 +92,7 @@ use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_dsp::signal::map_envelope;
 use com_mapping::constellation::Constellation;
-use com_math::{C64, cis, db2lin, erfc, papr_db};
+use com_math::{C64, cis, db2lin, papr_db};
 use std::f64::consts::PI;
 
 // ------------------------------------------------------------------ distribution
@@ -130,34 +119,6 @@ pub fn ccdf_slm(n: usize, candidates: usize, papr_db: f64) -> f64 {
     ccdf_oversampled(n, papr_db).powi(candidates as i32)
 }
 
-/// The Bussgang decomposition $y = \alpha x + d$ of an envelope limiter acting on a
-/// complex Gaussian signal of unit power.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Bussgang {
-    /// Gain $\alpha$ of the signal.
-    pub gain: f64,
-    /// Output power $\mathbb{E}|y|^{2}$.
-    pub output_power: f64,
-    /// Power of the distortion $\sigma_{d}^{2}$.
-    pub distortion: f64,
-}
-
-impl Bussgang {
-    /// Signal-to-distortion ratio $\alpha^{2}/\sigma_{d}^{2}$ (dB).
-    pub fn sdr_db(&self) -> f64 {
-        10.0 * (self.gain * self.gain / self.distortion).log10()
-    }
-}
-
-/// The Bussgang decomposition of clipping at `ratio_db` above the average power
-/// (Ochiai & Imai 2002).
-pub fn clipping_bussgang(ratio_db: f64) -> Bussgang {
-    let g = db2lin(ratio_db);
-    let gain = 1.0 - (-g).exp() + (PI * g).sqrt() / 2.0 * erfc(g.sqrt());
-    let output_power = 1.0 - (-g).exp();
-    Bussgang { gain, output_power, distortion: (output_power - gain * gain).max(0.0) }
-}
-
 // ------------------------------------------------------------------ clipping
 
 /// Limit the envelope to `a`, keeping the phase.
@@ -166,7 +127,7 @@ fn limit(x: &mut [C64], a: f64) {
 }
 
 fn amplitude(ratio_db: f64) -> f64 {
-    10f64.powf(ratio_db / 20.0)
+    com_math::db2amp(ratio_db)
 }
 
 /// Clipping of the envelope at `ratio_db` above the (unit) average power
@@ -179,7 +140,7 @@ pub struct Clip {
 
 impl PaprReduction for Clip {
     fn reduce(&self, ofdm: &Ofdm, data: &[C64]) -> Result<(Vec<C64>, usize)> {
-        let mut x = ofdm.to_time(&ofdm.spread(data));
+        let mut x = ofdm.to_time(&ofdm.spread(data))?;
         limit(&mut x, amplitude(self.ratio_db));
         Ok((x, 0))
     }
@@ -198,11 +159,11 @@ pub struct ClipFilter {
 
 impl PaprReduction for ClipFilter {
     fn reduce(&self, ofdm: &Ofdm, data: &[C64]) -> Result<(Vec<C64>, usize)> {
-        let mut x = ofdm.to_time(&ofdm.spread(data));
+        let mut x = ofdm.to_time(&ofdm.spread(data))?;
         let a = amplitude(self.ratio_db);
         for _ in 0..self.iterations {
             limit(&mut x, a);
-            x = ofdm.filter(&x);
+            x = ofdm.filter(&x)?;
         }
         Ok((x, 0))
     }
@@ -227,7 +188,7 @@ impl Slm {
         if u == 0 {
             return vec![C64::new(1.0, 0.0); k];
         }
-        let mut r = Rng::new(self.seed ^ (u as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        let mut r = com_core::rng::member(self.seed, u as u64);
         (0..k).map(|_| cis(PI / 2.0 * r.below(4) as f64)).collect()
     }
 }
@@ -239,7 +200,7 @@ impl PaprReduction for Slm {
         let mut best = (f64::INFINITY, Vec::new(), 0);
         for u in 0..self.candidates {
             let p = self.phases(u, active.len());
-            let x = ofdm.to_time(&active.iter().zip(&p).map(|(a, b)| a * b).collect::<Vec<_>>());
+            let x = ofdm.to_time(&active.iter().zip(&p).map(|(a, b)| a * b).collect::<Vec<_>>())?;
             let v = papr_db(&x);
             if v < best.0 {
                 best = (v, x, u);
@@ -322,13 +283,13 @@ impl PaprReduction for Pts {
         let combinations = self.combinations()?;
         let active = ofdm.spread(data);
         let assign = self.assignment(active.len());
-        let parts: Vec<Vec<C64>> = (0..self.subblocks)
+        let parts = (0..self.subblocks)
             .map(|v| {
                 let masked: Vec<C64> =
                     active.iter().zip(&assign).map(|(a, &b)| if b == v { *a } else { C64::new(0.0, 0.0) }).collect();
                 ofdm.to_time(&masked)
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         let mut best = (f64::INFINITY, 0usize);
         let mut x = vec![C64::new(0.0, 0.0); ofdm.fft_len()];
         for index in 0..combinations {
@@ -407,7 +368,7 @@ impl PaprReduction for ToneReservation {
             .iter()
             .map(|&r| if r { C64::new(0.0, 0.0) } else { *it.next().unwrap_or(&C64::new(0.0, 0.0)) })
             .collect();
-        let mut x = ofdm.to_time(&active);
+        let mut x = ofdm.to_time(&active)?;
         let a = amplitude(self.ratio_db);
         for _ in 0..self.iterations {
             let mut clipped = x.clone();
@@ -417,12 +378,12 @@ impl PaprReduction for ToneReservation {
             }
             let noise: Vec<C64> = clipped.iter().zip(&x).map(|(c, v)| c - v).collect();
             let projected: Vec<C64> = ofdm
-                .to_active(&noise)
+                .to_active(&noise)?
                 .into_iter()
                 .zip(&mask)
                 .map(|(v, &r)| if r { v } else { C64::new(0.0, 0.0) })
                 .collect();
-            for (v, c) in x.iter_mut().zip(ofdm.to_time(&projected)) {
+            for (v, c) in x.iter_mut().zip(ofdm.to_time(&projected)?) {
                 *v += c * self.step;
             }
         }
@@ -462,7 +423,7 @@ impl PaprReduction for Ace {
         let tol = 1e-9 * max_re.max(max_im).max(1e-300);
         let original: Vec<C64> = data.iter().map(|d| pts[self.constellation.nearest(*d)]).collect();
         let mut active = data.to_vec();
-        let mut x = ofdm.to_time(&active);
+        let mut x = ofdm.to_time(&active)?;
         let a = amplitude(self.ratio_db);
         for _ in 0..self.iterations {
             let mut clipped = x.clone();
@@ -471,12 +432,12 @@ impl PaprReduction for Ace {
             if noise.iter().all(|v| v.norm_sqr() == 0.0) {
                 break;
             }
-            for ((v, c), p) in active.iter_mut().zip(ofdm.to_active(&noise)).zip(&original) {
+            for ((v, c), p) in active.iter_mut().zip(ofdm.to_active(&noise)?).zip(&original) {
                 let re = if p.re.abs() >= max_re - tol && c.re * p.re > 0.0 { c.re } else { 0.0 };
                 let im = if p.im.abs() >= max_im - tol && c.im * p.im > 0.0 { c.im } else { 0.0 };
                 *v += C64::new(re, im) * self.step;
             }
-            x = ofdm.to_time(&active);
+            x = ofdm.to_time(&active)?;
         }
         Ok((x, 0))
     }
@@ -563,7 +524,7 @@ impl PaprReduction for Companding {
         if let Companding::Exponential { degree } = self {
             ensure(*degree > 0.0, || "the degree must be positive".into())?;
         }
-        let mut x = ofdm.to_time(&ofdm.spread(data));
+        let mut x = ofdm.to_time(&ofdm.spread(data))?;
         Companding::apply(&mut x, |r| self.compress(r));
         Ok((x, 0))
     }
@@ -617,8 +578,8 @@ mod tests {
             let mut y = x.clone();
             limit(&mut y, amplitude(cr));
             let alpha: C64 = y.iter().zip(&x).map(|(a, b)| a * b.conj()).sum::<C64>() / power(&x) / x.len() as f64;
-            let th = clipping_bussgang(cr);
-            assert!((alpha.re - th.gain).abs() < 3e-3, "{cr} dB: {} vs {}", alpha.re, th.gain);
+            let th = com_dsp::nonlinear::clipping_bussgang(cr);
+            assert!((alpha - th.gain).norm() < 3e-3, "{cr} dB: {alpha} vs {}", th.gain);
             assert!((power(&y) - th.output_power).abs() < 3e-3);
             let d: f64 = y.iter().zip(&x).map(|(a, b)| (a - b * th.gain).norm_sqr()).sum::<f64>() / x.len() as f64;
             assert!((d / th.distortion - 1.0).abs() < 0.03);
@@ -660,7 +621,7 @@ mod tests {
         }
         // the exponential companding of degree 2 caps the PAPR at 3 dB
         let (x, _) = ofdm.modulate_with(&data, &Companding::Exponential { degree: 2.0 }).unwrap();
-        assert!(papr_db(&x) <= 10.0 * 2f64.log10() + 0.3);
+        assert!(papr_db(&x) <= com_math::lin2db(2.0) + 0.3);
     }
 
     #[test]

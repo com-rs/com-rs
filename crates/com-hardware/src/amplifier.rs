@@ -38,6 +38,7 @@
 
 use com_core::prelude::*;
 use com_dsp::compensation::dpd::polynomial_term;
+use com_dsp::filter::convolve_full;
 use com_dsp::signal::map_envelope;
 use com_math::cis;
 
@@ -180,15 +181,14 @@ impl MemoryPolynomial {
         }
     }
 
-    /// Amplify a block.
+    /// Amplify a block: every term is the causal filtering of its basis
+    /// ($y\[n\] = \sum_{k} \sum_{m} a_{km}\, x\[n - m\] |x\[n - m\]|^{k - 1}$), the samples
+    /// before the block taken as zero.
     pub fn amplify(&self, x: &[C64]) -> Vec<C64> {
         let mut y = vec![C64::new(0.0, 0.0); x.len()];
         for (k, taps) in &self.terms {
-            let basis = polynomial_term(x, *k);
-            for (m, a) in taps.iter().enumerate() {
-                for n in m..x.len() {
-                    y[n] += a * basis[n - m];
-                }
+            for (yn, v) in y.iter_mut().zip(convolve_full(taps, &polynomial_term(x, *k))) {
+                *yn += v;
             }
         }
         y
@@ -246,5 +246,51 @@ mod tests {
         let lin: C64 = pa.terms[0].1.iter().sum::<C64>() * 1e-4;
         assert!((y[9] - lin).norm() < 1e-9);
         assert_eq!(pa.linear_gain(), C64::new(1.0513, 0.0904));
+    }
+}
+
+#[cfg(test)]
+mod literature {
+    use super::{Rapp, Saleh};
+    use com_dsp::nonlinear::bussgang;
+    use com_math::C64;
+
+    /// H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi and R. Bouallegue,
+    /// "Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and
+    /// OFDM signals," EURASIP J. Adv. Signal Process. 2014:60, Tables 2 and 3: Bussgang's
+    /// gain and the distortion power of the SSPA (Rapp, $v = 1$) and of the TWTA (Saleh
+    /// with $A_{\mathrm{sat}} = 1$, $\phi_{0} = 0$ and $\pi/6$) at input back-offs of 4, 6
+    /// and 8 dB from the saturation, against their "simulation" columns (10⁶ symbols):
+    /// the gains within 2·10⁻³, the distortion powers within 1.5 %. Their "theoretical"
+    /// columns, from a polynomial fit of order 10 (eqs. (33)–(34)), are further from the
+    /// exact values (0.5904 + 0.1068j against 0.5917 + 0.1106j at 4 dB).
+    #[test]
+    fn bouhadda_2014_tables_2_3() {
+        let sspa = Rapp { gain: 1.0, saturation: 1.0, smoothness: 1.0 };
+        let twta = |phi0: f64| Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
+        let rows: [(&str, f64, f64, C64, f64); 9] = [
+            ("SSPA", 4.0, 0.0, C64::new(0.7699, 0.0), 4.4759e-3),
+            ("SSPA", 6.0, 0.0, C64::new(0.8307, 0.0), 1.8950e-3),
+            ("SSPA", 8.0, 0.0, C64::new(0.8798, 0.0), 7.0742e-4),
+            ("TWTA", 4.0, 0.0, C64::new(0.6042, 0.0), 1.0330e-2),
+            ("TWTA", 6.0, 0.0, C64::new(0.6976, 0.0), 4.9589e-3),
+            ("TWTA", 8.0, 0.0, C64::new(0.7784, 0.0), 2.1228e-3),
+            ("TWTA", 4.0, std::f64::consts::FRAC_PI_6, C64::new(0.5917, 0.1106), 1.1339e-2),
+            ("TWTA", 6.0, std::f64::consts::FRAC_PI_6, C64::new(0.6887, 0.0995), 5.5901e-3),
+            ("TWTA", 8.0, std::f64::consts::FRAC_PI_6, C64::new(0.7727, 0.0830), 2.4194e-3),
+        ];
+        for (model, ibo, phi0, k_table, d_table) in rows {
+            // IBO = A_sat² / σ² with A_sat = 1 (eq. (14))
+            let power = com_math::db2lin(-ibo);
+            let b = if model == "SSPA" {
+                bussgang(|r| C64::new(sspa.am_am(r), 0.0), power)
+            } else {
+                let t = twta(phi0);
+                bussgang(|r| C64::from_polar(t.am_am(r), t.am_pm(r)), power)
+            };
+            let (k, d) = (b.gain, b.distortion);
+            assert!((k - k_table).norm() < 2e-3, "{model} {ibo} dB: K = {k}");
+            assert!((d / d_table - 1.0).abs() < 0.015, "{model} {ibo} dB: σ_d² = {d}");
+        }
     }
 }

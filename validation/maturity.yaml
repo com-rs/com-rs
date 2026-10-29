@@ -1,0 +1,426 @@
+# The maturity of the modules of com-rs: for every module a user sees, its level, the
+# strongest evidence in a few words, the tests that give the evidence and the regimes not
+# covered yet. `python tools/maturity_table.py` renders docs/MATURITY.md, the table of
+# README.md and docs/python/maturity.rst from this file; `--check` (run by `just check`)
+# fails if one of them is out of date.
+#
+# theme:    one of the themes of the documentation, in the order of a link;
+# name:     the module as docs/MATURITY.md titles it; short: the name of the short tables;
+# modules:  the Rust paths, in Markdown;
+# level:    A (an external reference), B (a closed form), C (self-consistency), - (none);
+# summary:  the strongest evidence, a few words (the short tables);
+# python:   false for a module without Python bindings;
+# evidence, gaps: the cells of docs/MATURITY.md, in Markdown ("<br>" separates items).
+
+- theme: Foundations
+  name: "Constellations, mapping, demapping and closed-form error rates"
+  modules: "`com_mapping::{constellation, demapper, theory}`"
+  level: A
+  summary: "OptiCommPy outputs; closed forms of Proakis & Salehi"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_gray_mapping_points_and_labels`, `::test_gray_code`, `::test_modulate_and_demodulate`, `::test_theory_ber`, `::test_theory_ber_of_bpsk_is_exact_where_opticommpy_doubles_it`<br>• Proakis & Salehi, *Digital Communications*, 5th ed., 2008, Sec. 4.3: `specs/validation/proakis_awgn.yaml` (47 checks; CI, and `validation/tests/specs.rs::error_rates_follow_the_closed_forms`), `specs/validation/required_snr.yaml` (the inverted closed forms, `validation/tests/specs.rs::operating_points_follow_the_inverted_closed_forms`)<br>• Cho & Yoon, *IEEE Trans. Commun.* 50(7), 2002: Table I verbatim (`crates/com-mapping/src/theory.rs`, `literature::cho_2002_table_1`), the exact Gray BER of PAM, square and rectangular QAM (eqs. (9)–(22)) against an enumeration of the decision regions of the library's Gray labels (10⁻¹³), the 4–5 dB per extra bit of Fig. 2<br>• the density of the phase of a carrier in noise (Rice 1948; eq. (8) of Ahmed et al. 2007) integrates to the BER of BPSK and the SER of QPSK<br>• self-consistency: `crates/com-mapping/src/demapper.rs::llr_signs_and_max_log`, `::multi_stream_map_demap_round_trip`, `crates/comrs/tests/links.rs::llr_signs_are_the_hard_decisions`"
+  gaps: "• Proakis & Salehi is listed as needed in `references/README.md`<br>• `theory_ber` of Gray QAM is the nearest-neighbour approximation, optimistic for 64-QAM below 4 dB (example `ber_awgn`)<br>• custom constellations: self-consistency only"
+- theme: Foundations
+  name: "Capacity and cutoff rate of CM and BICM"
+  modules: "`com_mapping::theory::{constellation_mi, constellation_gmi}`, `com_mapping::bicm`"
+  level: A
+  summary: "Caire, Taricco & Biglieri 1998 Figs. 4–7"
+  evidence: "• `crates/com-mapping/src/bicm.rs::literature` against Caire, Taricco & Biglieri, *IEEE Trans. Inf. Theory* 44(3), 1998: Figs. 4–5 (CM and BICM capacity of 4PSK, 8PSK, 16QAM, Gray and set partitioning, AWGN and Rayleigh fading) within 0.1 bit<br>• `validation/tests/bicm.rs`: Figs. 6–7 and Sec. III-C (cutoff rates of 16- to 256QAM; 256QAM gaps of 2.55 dB at $R_{0} = 3$ and 0.34 dB at 7 over AWGN, BICM 4.0 dB ahead at 7 over Rayleigh fading), the quadrature against a Monte Carlo of eq. (19)<br>• `crates/com-mapping/src/bicm.rs::the_capacities_over_rayleigh_fading_match_a_simulation`, `::the_bhattacharyya_factor_of_bpsk_is_closed`, `::the_rayleigh_mean_of_the_cm_cutoff_rate_is_its_closed_form`"
+  gaps: "• the quasi-Gray labellings of 8-, 32- and 128QAM and the orthogonal signals of Figs. 8–9 are not implemented<br>• the \"more than 3 dB\" of Sec. III-C is 2.55 dB (2.7 dB read on Fig. 6)"
+- theme: Foundations
+  name: "Sources (bits, PRBS, uniform and shaped symbols)"
+  modules: "`com_mapping::source`"
+  level: C
+  summary: "periods and distributions"
+  evidence: "`crates/com-mapping/src/source.rs::prbs_periods_and_balance` (maximal periods of orders 7 to 31), `::shaped_symbols_follow_the_distribution`"
+  gaps: "the PRBS polynomials of ITU-T O.150 are not compared with the standard (status needed in `references/README.md`)"
+- theme: Foundations
+  name: "Differential PSK"
+  modules: "`com_mapping::differential`, `com_mapping::theory::ber_dpsk`"
+  level: B
+  summary: "closed forms of Proakis & Salehi and Pawula, Rice & Roberts"
+  evidence: "• `crates/com-mapping/src/differential.rs`, `literature::proakis_dbpsk_noncoherent_ber` (½ e^{−Eb/N0}, Proakis & Salehi, 5th ed., Sec. 4.5), `literature::pawula_rice_roberts_1982_mdpsk_ber` (DQPSK, D8PSK; Pawula, Rice & Roberts, *IEEE Trans. Commun.* 30(8), 1982, Sec. IV), `literature::proakis_coherent_detection_with_differential_decoding` (2p(1 − p))<br>• the same from Python: `tests/test_differential.py::test_proakis_dbpsk_noncoherent_ber_at_8_db`, `::test_pawula_rice_roberts_dqpsk_noncoherent_ber_at_8_db`, `::test_proakis_coherent_detection_with_differential_decoding`"
+  gaps: "• no published curve or table; Pawula, Rice & Roberts listed as needed<br>• AWGN only"
+- theme: Foundations
+  name: "Error rates with an imperfect channel estimate and over Jakes' fading"
+  modules: "`com_mapping::imperfect_csi`"
+  level: A
+  summary: "Chang & Su 2002 eqs. 31–53, Figs. 3–4"
+  evidence: "• `validation/tests/chang2002.rs` against Chang & Su, *IEEE Trans. Wireless Commun.* 1(4), 2002: eqs. 31, 32 and 53 (BPSK, Gray QPSK, Gray 16-QAM with an estimate of correlations ρ1, ρ2) and eqs. 40, 41 (DBPSK, Gray DQPSK over Jakes' fading) against Monte Carlo simulations of their model within three binomial standard errors (ignored); Fig. 4 (16-QAM floors, ρ1 from 0.999 to 1) and Fig. 3 (DBPSK floors) at the values read on the figures within 30 %<br>• `imperfect_csi::tests`: eq. 53 with Table I reduces to eq. 69 (the transcription of Table I), eqs. 42, 43, 68; `com_math::bessel_j0` against SciPy to 10⁻¹⁴; gallery `waveforms/plot_03_ofdm_theory_with_impairments.py`"
+  gaps: "• two misprints of the paper documented: the asymptote of 16-QAM is 0.4972/γ̄b (printed 0.4952/γ̄b); the curve of Fig. 3 labelled f_D T_s = 0.05 is f_D T_s = 0.005<br>• the weighting vectors of specific pilot patterns (their Sec. IV, Figs. 5–7) are not reproduced: the receiver gives (ρ1, ρ2)"
+- theme: Coding and shaping
+  name: "Convolutional codes (Viterbi, BCJR)"
+  modules: "`com_fec::conv`"
+  level: A
+  summary: "AFF3CT; Yasuda et al. Table I"
+  evidence: "• AFF3CT v4.7.1 (Cassagne et al., *SoftwareX* 10, 2019), recorded: `validation/tests/aff3ct.rs::conv_k7_viterbi_matches_aff3ct` ((133, 171), K = 7, 64 information bits, terminated, soft Viterbi; 0 to 4.5 dB, FER down to 2·10⁻⁴)<br>• `crates/com-fec/src/conv.rs::the_k7_code_has_free_distance_10`; `::viterbi_corrects_errors_and_bcjr_agrees`, `::recursive_codes_terminate_and_are_systematic`<br>• Sionna (Apache-2.0), its reference vectors: `tests/test_sionna_vectors.py::test_convolutional_codes` (rates 1/2, 1/3, 1/4, generators (5, 7), (15, 17), (5, 7, 7), (5, 7, 7, 7); codewords and Viterbi decisions bit for bit)"
+  gaps: "• BCJR (log-MAP, max-log) checked against Viterbi and through the turbo code only<br>• hard-decision Viterbi and other generators: self-consistency only<br>• BPSK over AWGN only"
+- theme: Coding and shaping
+  name: "Puncturing"
+  modules: "`com_fec::puncture`"
+  level: A
+  summary: "Yasuda et al. Table I; patterns of IEEE 802.11 and EN 300 421"
+  evidence: "• `crates/com-fec/src/puncture.rs`, `literature::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes` (free distances 6, 5, 4, 3 at rates 2/3 to 7/8, Yasuda, Kashiki & Hirata, *IEEE Trans. Commun.* 32(3), 1984, Table I; the patterns of IEEE 802.11-2020 Figs. 17-9 and 19-11 and ETSI EN 300 421 Table 1)<br>• `tests/test_fec_codes.py::test_free_distance_yasuda_1984_table_i`, `::test_punctured_rate_3_4_over_awgn_is_better_than_uncoded`"
+  gaps: "• no error-rate curve of a punctured code against a reference<br>• Yasuda et al. and EN 300 421 listed as needed"
+- theme: Coding and shaping
+  name: "Turbo codes (LTE)"
+  modules: "`com_fec::turbo`, `com_fec::interleaving`"
+  level: A
+  summary: "AFF3CT, K = 40 and 1024"
+  evidence: "• AFF3CT, recorded: `validation/tests/aff3ct.rs::turbo_lte_40_log_map_matches_aff3ct` (8 iterations of log-MAP, always run), `::turbo_lte_1024_max_log_map_matches_aff3ct` (6 iterations of max-log-MAP, ignored); QPP interleavers of 3GPP TS 36.212 Table 5.1.3-3<br>• `tests/test_performance.py::test_turbo_code_works_within_1_5_db_of_the_shannon_limit`<br>• Sionna (Apache-2.0), its reference vectors: `tests/test_sionna_vectors.py::test_lte_turbo_code` (K = 40, 112, 168, 432: codewords and the decisions of 10 iterations of log-MAP at 0 dB bit for bit); the 188 QPP coefficients of TS 36.212 Table 5.1.3-3 (transcribed from Sionna, each a permutation, `turbo::tests::the_lte_qpp_table_gives_permutations`)"
+  gaps: "• two block lengths, BPSK over AWGN, FER down to about 10⁻⁴<br>• TS 36.212 listed as needed: the QPP parameters are not checked against the table beyond these two lengths<br>• the punctured turbo code (`turbo_1_2`): self-consistency only"
+- theme: Coding and shaping
+  name: "LDPC codes"
+  modules: "`com_fec::ldpc`"
+  level: A
+  summary: "AFF3CT, PEG and DVB-S2 short code; Hu et al. 2005"
+  evidence: "• AFF3CT, recorded, on the same PEG matrices (alist files written by com-rs): `validation/tests/aff3ct.rs::ldpc_flooding_sum_product_matches_aff3ct`, `::ldpc_layered_normalized_min_sum_matches_aff3ct`, `::ldpc_flooding_offset_min_sum_matches_aff3ct`, `::ldpc_layered_sum_product_matches_aff3ct` (PEG (576, 288) and (648, 540)), `::ldpc_dvbs2_short_matches_aff3ct` (DVB-S2 short frame, rate 1/2, layered sum-product, ignored)<br>• `crates/com-fec/src/ldpc.rs`, `literature::hu_2005_peg_504_252_has_girth_8` (Hu, Eleftheriou & Arnold, *IEEE Trans. Inf. Theory* 51(1), 2005, Sec. VI)<br>• `tests/test_performance.py::test_ldpc_and_polar_codes_approach_the_normal_approximation`"
+  gaps: "• BPSK over AWGN, FER down to about 10⁻⁴ (2·10⁻³ for the DVB-S2 short code)<br>• the LDPC codes of 5G NR (TS 38.212 Sec. 5.3.2) and of IEEE 802.11 are not implemented (status next)<br>• Fig. 5 of Hu et al. is shown in the gallery (`docs/python/examples/coding/plot_02_hu2005_fig5.py`) for a visual comparison, not checked"
+- theme: Coding and shaping
+  name: "Polar codes (SC, CA-SCL)"
+  modules: "`com_fec::polar`"
+  level: A
+  summary: "AFF3CT, SC and CA-SCL"
+  evidence: "• AFF3CT, recorded, on the frozen sets of com-rs: `validation/tests/aff3ct.rs::polar_256_sc_matches_aff3ct`, `::polar_1024_sc_matches_aff3ct` (ignored), `::polar_256_ca_scl_matches_aff3ct` (L = 8, CRC11 of 5G NR, ignored)<br>• `crates/com-fec/src/polar.rs::the_list_and_the_crc_lower_the_block_error_rate`"
+  gaps: "• the Gaussian-approximation construction is not compared with a reference (AFF3CT reads the frozen sets of com-rs)<br>• Fig. 1 of Tal & Vardy (*IEEE Trans. Inf. Theory* 61(5), 2015) still to compare (status needed); the NR polar sequence and rate matching (TS 38.212 Secs. 5.3.1, 5.4.1) are not implemented (status next)"
+- theme: Coding and shaping
+  name: "5G NR channel codes: LDPC and polar with rate matching"
+  modules: "`com_fec::nr`"
+  level: A
+  summary: "Sionna vectors bit for bit; TS 38.212 tables"
+  evidence: "• the tables of 3GPP TS 38.212 V18.5.0 extracted from the standard (the 513 entries of the two LDPC base graphs, the polar sequence of 1024 positions, the input and sub-block interleavers), the base graphs and the polar sequence identical to the transcriptions of Sionna; `nr::ldpc::tests`, `nr::polar::tests` (dimensions, permutations, the extension structure, every lifting size encodes codewords, round trips through puncturing, shortening, repetition and parity-check bits)<br>• Sionna (Apache-2.0), its reference vectors: `tests/test_sionna_vectors.py::test_nr_ldpc` (the codewords of 28 (K', E) through its generator matrices, 64 to 8448 bits, both base graphs, the circular buffer with repetition), `::test_nr_polar_uplink` (five (A, E) of the uplink control information, CRC11, puncturing, shortening, repetition, the triangular interleaver), bit for bit<br>• `validation/tests/nr_codes.rs` (ignored): the block error rate at 1e-2 over BPSK within 0.2 to 1 dB of the normal approximation (Polyanskiy, Poor & Verdú 2010) for the LDPC code (measured 0.63 dB, K' = 500, E = 1000) and within 0.5 to 2 dB for the polar code (1.1 dB, A = 40, E = 128, L = 8); gallery `coding/plot_03_nr_codes.py`"
+  gaps: "• one code block: no segmentation, no limited buffer, no HARQ combining; the DCI CRC (24 ones prepended, RNTI masking) is left to the caller<br>• the decoders are those of `com_fec::ldpc` and `com_fec::polar`: not compared with the decoding of a reference implementation"
+- theme: Coding and shaping
+  name: "Reed–Solomon codes"
+  modules: "`com_fec::rs`"
+  level: A
+  summary: "AFF3CT; Lin & Costello; ETSI EN 300 744, CCSDS 131.0-B"
+  evidence: "• AFF3CT, recorded: `validation/tests/aff3ct.rs::rs_15_11_matches_aff3ct`, `::rs_63_55_matches_aff3ct`, `::rs_255_239_matches_aff3ct`<br>• `crates/com-fec/src/rs.rs`, `literature::lin_costello_sec_7_3_generator_of_the_15_9_code`, `literature::lin_costello_sec_7_4_three_errors_of_the_15_9_code` (Lin & Costello, *Error Control Coding*, 2nd ed., 2004), `literature::etsi_en_300_744_sec_4_3_2_generator_of_rs_204_188`, `literature::ccsds_131_0_b_sec_4_2_roots_of_rs_255_223`, `literature::rs_255_223_corrects_16_errors_and_not_17`, `literature::word_error_rate_matches_the_closed_form_at_p_s_0_01`<br>• `tests/test_fec_codes.py::test_rs_dvb_204_188_etsi_en_300_744_sec_4_3_2`, `::test_rs_ccsds_255_223_sec_4_2`, `::test_rs_closed_form_error_rates`"
+  gaps: "• erasure decoding: self-consistency only<br>• BPSK hard decisions over AWGN<br>• Lin & Costello, EN 300 744 and CCSDS 131.0-B listed as needed"
+- theme: Coding and shaping
+  name: "BCH codes"
+  modules: "`com_fec::bch`"
+  level: A
+  summary: "AFF3CT; generators of EN 302 307-1 Table 6a"
+  evidence: "• AFF3CT, recorded: `validation/tests/aff3ct.rs::bch_63_45_matches_aff3ct`, `::bch_127_92_matches_aff3ct`, `::bch_255_223_matches_aff3ct`<br>• `crates/com-fec/src/bch.rs::the_generators_of_dvb_s2_are_the_products_of_the_published_polynomials` (ETSI EN 302 307-1, Table 6a), `::up_to_t_errors_are_corrected_and_more_are_mostly_detected`<br>• `tests/test_fec_codes.py::test_bch_15_7_lin_costello_ch_6`"
+  gaps: "• the long shortened codes of DVB-S2 are checked against AFF3CT only inside the DVB-S2 chain (Table 13)<br>• the Python `BchCode` wraps the code for several blocks in the bindings: `com_fec::bch::Bch` does not implement `BlockCode`"
+- theme: Coding and shaping
+  name: "CRC"
+  modules: "`com_fec::crc`"
+  level: A
+  summary: "CRC polynomials of TS 38.212"
+  evidence: "`crates/com-fec/src/crc.rs`, `literature::ts_38_212_sec_5_1_generator_polynomials` (3GPP TS 38.212 V18.5.0, Sec. 5.1); the parity bits of CRC6 to CRC24C against the reference vectors of Sionna (`tests/test_sionna_vectors.py::test_crc`)"
+  gaps: "—"
+- theme: Coding and shaping
+  name: "Scrambling, interleaving"
+  modules: "`com_fec::{scrambling, interleaving}`"
+  level: C
+  summary: "balanced sequences, invertible permutations"
+  evidence: "self-consistency: `crates/com-fec/src/scrambling.rs::the_sequence_is_balanced_and_depends_on_its_seed`, `crates/com-fec/src/interleaving.rs::permutations_invert`"
+  gaps: "the Gold scrambler is not compared with TS 38.211 Sec. 5.2.1 (status needed)"
+- theme: Coding and shaping
+  name: "Finite-length bounds"
+  modules: "`com_fec::bounds`"
+  level: B
+  summary: "the Shannon limits of BPSK"
+  evidence: "`tests/test_performance.py::test_shannon_limits_of_bpsk` (0.187 dB at rate 1/2, −0.495 dB at 1/3), `crates/com-fec/src/bounds.rs::capacity_limits_and_monotonicity`"
+  gaps: "the normal approximation is not compared with the figures of Polyanskiy, Poor & Verdú (*IEEE Trans. Inf. Theory* 56(5), 2010)"
+- theme: Coding and shaping
+  name: "Distribution matching and probabilistic amplitude shaping"
+  modules: "`com_fec::ccdm`, `com_systems::pas`"
+  level: A
+  summary: "Schulte & Böcherer 2016 Fig. 2; Böcherer et al. 2015 Tables VI–X"
+  evidence: "• `validation/tests/shaping.rs::schulte_bocherer_2016_fig2_ccdm_rate_and_divergence` (Schulte & Böcherer, *IEEE Trans. Inf. Theory* 62(1), 2016, Fig. 2 and eqs. (10), (17), (22): the 50 points, rates within 6·10⁻⁷, divergences within 2·10⁻⁴ relative; ignored)<br>• `validation/tests/shaping.rs::bocherer_2015_table_vi_pas_dvbs2` to `::bocherer_2015_table_x_pas_dvbs2` (Böcherer, Steiner & Schulte, *IEEE Trans. Commun.* 63(12), 2015, Tables VI–X: PAS on the DVB-S2 LDPC codes with the bit mappers of Sec. VII-B, the SNR at the FER of the table within 0.05 dB at six points; ignored)<br>• `specs/pas_64qam.yaml` (the GMI against the closed form, `tests/test_performance.py::test_specification_reproduces_its_closed_forms[pas_64qam]`), `tests/test_performance.py::test_pas_is_bicm_without_shaping_and_gains_with_it`"
+  gaps: "• `Ccdm::from_distribution` rounds the composition by largest remainders, not by eq. (10) of Schulte & Böcherer: the two differ at 990 lengths n ≤ 10⁴ (the test builds the compositions of eq. (10) itself)<br>• the blocks `pas_encode` and `pas_decode` cannot use the DVB-S2 codes or the bit mapper (`Pas::with_bit_mapper`)"
+- theme: Waveforms
+  name: "OFDM, channel estimation and gain correction"
+  modules: "`com_waveform::ofdm::{grid, estimation, detection, link, correction}`, `com_dsp::{estimation, interpolation}`"
+  level: A
+  summary: "Cimini 1985 Figs. 3–7; Coleri et al. 2002 Sec. VI-B (with an oversampled comb)"
+  evidence: "• `validation/tests/cimini1985.rs` against Cimini, *IEEE Trans. Commun.* 33(7), 1985: the OFDM system of Sec. II-E simulated, the SIR at a BER of 10⁻² within 0.6 dB of Fig. 5 (four curves), the minima of Fig. 6 within a factor 1.5, the losses of Fig. 7 (pilot 500 Hz and 1 kHz away, correlation of eq. (23) from `Tdl`); `crates/com-waveform/src/ofdm/correction.rs::literature` (Figs. 3 and 4 within 0.3 dB) and Monte Carlo of eqs. (20), (21), (25)<br>• `validation/tests/nissel2017.rs::nissel_2017_fig_4_vehicular_a` (OFDM without prefix and CP-OFDM over Vehicular A at 50, 250 and 500 km/h within 30 % of Fig. 4 of Nissel & Rupp 2017), `::nissel_2017_eqs_16_17_are_the_rayleigh_closed_forms`<br>• `validation/tests/coleri2002.rs` against Coleri et al., *IEEE Trans. Broadcast.* 48(3), 2002: the ranking of the comb interpolations of Sec. VI-B, reproduced when the comb oversamples the channel (and not with the parameters of Table I, see the gaps); `crates/com-dsp/src/interpolation.rs::the_spline_is_that_of_scipy_with_not_a_knot_ends`, `::coleri_eq_19_is_the_quadratic_with_alpha_l_over_l`<br>• `specs/ofdm_eva.yaml` (the known channel against BPSK over Rayleigh fading, Proakis & Salehi eq. (13.3-7), within 10 %; `comrs verify`, on demand); `tests/test_performance.py::test_ofdm_turns_multipath_into_flat_rayleigh_subcarriers`<br>• self-consistency: `crates/com-waveform/src/ofdm/mod.rs::round_trip_unit_power_and_band_occupancy`, `crates/com-waveform/src/ofdm/estimation.rs::lmmse_beats_linear_interpolation_and_ls_has_the_noise_variance`, `tests/test_performance.py::test_lmmse_channel_estimation_beats_interpolation`, `::test_mimo_ofdm_ml_detection_collects_the_receive_diversity`"
+  gaps: "• the MSE of LMMSE estimation is not compared with the figures of Edfors et al. (*IEEE Trans. Commun.* 46(7), 1998)<br>• Coleri et al.: Table I is not self-consistent, so their Figs. 5–11 (block type, decision feedback, LMS) are not reproduced<br>• the \"6–7 dB\" of Cimini's text is 4.5 dB on his Fig. 5 and here<br>• the DMRS of TS 38.211 are not implemented (status next)"
+- theme: Waveforms
+  name: "OFDM synchronisation (Schmidl–Cox)"
+  modules: "`com_waveform::ofdm::sync`"
+  level: C
+  summary: "the error falls with the SNR"
+  evidence: "• `tests/test_performance.py::test_schmidl_cox_synchronisation` (timing within the prefix, frequency error decreasing with the SNR)<br>• `crates/com-waveform/src/ofdm/sync.rs::the_preamble_has_two_identical_halves_and_noise_hurts_gracefully`"
+  gaps: "the variance of the estimators is not compared with Schmidl & Cox (*IEEE Trans. Commun.* 45(12), 1997); Awoseyila et al. (*IEEE Trans. Consum. Electron.* 55(2), 2009, Figs. 4–6) listed as needed"
+- theme: Waveforms
+  name: "PAPR: distribution and reduction"
+  modules: "`com_waveform::papr`"
+  level: B
+  summary: "Ochiai & Imai 2001 eqs. (11), (27)"
+  evidence: "• `crates/com-waveform/src/papr.rs`, `literature::ochiai_2001_eqs_11_and_27` (Ochiai & Imai, *IEEE Trans. Commun.* 49(2), 2001), `::the_ccdf_of_ofdm_follows_ochiai_and_imai`, `::bussgang_matches_a_monte_carlo`<br>• `tests/test_performance.py::test_papr_ccdf_of_ofdm_follows_the_closed_forms`, `::test_slm_ccdf_is_the_power_of_the_original_one`, `::test_nyquist_rate_clipping_follows_bussgang`<br>• self-consistency of the reduction techniques: `crates/com-waveform/src/papr.rs::every_technique_reduces_the_papr_and_lossless_ones_recover_the_data`, `::ace_never_moves_a_point_across_a_decision_boundary`, `tests/test_performance.py::test_lossless_techniques_reduce_the_papr_tail`"
+  gaps: "the reduction techniques (clipping and filtering, SLM, PTS, tone reservation, ACE, companding) are not compared with the figures of their papers"
+- theme: Waveforms
+  name: "Constant-envelope OFDM"
+  modules: "`com_waveform::ce_ofdm`"
+  level: A
+  summary: "Thompson et al. 2008 eq. (15); Guerreiro et al. 2016 Fig. 1; López Morales et al. 2022 Fig. 3; Pacheco & Hatzinakos 2006 Fig. 1"
+  evidence: "• `specs/validation/thompson2008_eq15.yaml` (Thompson et al., *IEEE Trans. Commun.* 56(8), 2008, eq. (15): 16-QAM at 2πh = 0.5 and 0.7 above the threshold of the demodulator; CI, and `validation/tests/specs.rs::ce_ofdm_follows_the_linear_theory_of_thompson`)<br>• `validation/tests/ce_ofdm.rs` (simulations): Guerreiro et al., *IEEE Commun. Lett.* 20(11), 2016, Sec. III-A and Fig. 1 (the phase detector needs 10.8 and 11.6 dB at 10⁻³ for 2πh = 0.75 and 1.0: simulated 11.0 and 12.0 dB; the floor near 1.4·10⁻² at 2πh = 1.25); López Morales et al., *Globecom Workshops* 2022, Fig. 3 (GAMP within 1 dB of the optimum BER at 2πb = 1.4, measured 0.5 dB, the phase detector above 4·10⁻²); Pacheco & Hatzinakos, *ICASSP* 2006, Fig. 1 (the 99 % bandwidth of simulated OFDM-PM against `theory::occupied_bandwidth`, within 4 %); Ahmed & Zeidler, *IEEE Trans. Signal Process.* 63(17), 2015, Fig. 6 (the orderings of the arctangent, linear and enhanced receivers)<br>• `crates/com-waveform/src/ce_ofdm/theory.rs`, `literature::`: Ahmed & Zeidler 2015 eqs. (8), (17), (26); Ahmed et al., *MILCOM* 2012, eqs. (13)–(14) and Fig. 6 (cycle slips); Guerreiro et al., *VTC Fall* 2015, eq. (13) and Fig. 4; Guerreiro et al. 2016 (the gains of 1.9 and 3.5 dB); Pacheco & Hatzinakos 2006, Fig. 1<br>• cards `validation/cards/guerreiro2015_ce_ofdm_dc_power.yaml`, `guerreiro2016_ce_ofdm_optimum_gain.yaml`, `pacheco2006_pm_bandwidth.yaml`<br>• self-consistency: the spectrum against simulated blocks (`theory::tests::the_psd_is_that_of_a_simulated_block`, 1 % per band), the optimum gain against the distance of blocks that differ in one bit (3 %), the Bussgang analysis of the linear receivers against simulation (`tests::the_linear_receivers_follow_the_bussgang_analysis`, within 4 %), the effect of a cycle slip against the demodulator (10⁻⁹)<br>• `tests/test_waveform.py::test_ce_ofdm_16qam_link_follows_eq_15_of_thompson_2008`, `::test_ce_ofdm_low_complexity_receivers_follow_the_bussgang_analysis`, `::test_ce_ofdm_gamp_decodes_where_the_phase_wraps`, `::test_ce_ofdm_spectrum_gain_and_cycle_slips`"
+  gaps: "• the threshold of the phase demodulator has no model (the cycle-slip eliminator and the phase-locked loop of Ahmed et al., *MILCOM* 2007, and the slip mitigation of Ahmed et al. 2012 are not implemented)<br>• the Gaussian model of the theory holds within 1 % per band for 32 subcarriers, 10 % on single bins at the edges of the second-order products<br>• GAMP is a large-system algorithm: it reaches the optimum with a few hundred data subcarriers (at 2πh = 1.4 and 4 dB: BER 1.6·10⁻² for K = 63, 1.0·10⁻³ for 255, 8.1·10⁻⁴ for 511 against 8.5·10⁻⁴), and structured blocks with high peaks can trap it<br>• misprints found: Ahmed & Zeidler 2015, eq. (8), the coefficient of x⁹ (−127/181440, printed −41/60480); Pacheco & Hatzinakos 2006, Sec. 2.1, the variance jX²/2 of the text (jX²/3 in eq. (5)); the E_b/N_0 axis of Fig. 3 of López Morales et al. 2022 is shifted against Guerreiro et al. 2016 (6 dB at 2πb = 0.5, 2.5 dB at 1.4)<br>• Fig. 2 of Thompson et al. is shown in the gallery (`docs/python/examples/waveforms/plot_05_thompson2008_fig2.py`), not checked"
+- theme: Waveforms
+  name: "Chirp spread spectrum, the modulation of LoRa"
+  short: "Chirp spread spectrum (LoRa modulation)"
+  modules: "`com_waveform::css`"
+  level: A
+  summary: "Chiani & Elzanaty 2019 Table I; Afisiadis et al. 2020 Figs. 2, 7; Vangelista 2017 Fig. 1"
+  evidence: "• `crates/com-waveform/src/css/theory.rs`, `literature::`: Chiani & Elzanaty, *IEEE Internet Things J.* 6(5), 2019, Table I (maximum cross-correlation, SNR penalty, power of the lines 1/M, 99 % band for M = 2^3 to 2^7; 2^10 and 2^12 in `validation/tests/css.rs`), eq. (7) against the sampled waveforms, Property 4; Afisiadis et al., *IEEE Trans. Wireless Commun.* 19(2), 2020, Fig. 2 and eqs. (16)–(18), eqs. (38)–(43) against the DFT (10⁻⁹), Propositions 1–2; Vangelista, *IEEE Signal Process. Lett.* 24(12), 2017, Fig. 1 (AWGN), eqs. (9) and (16)<br>• `validation/tests/css.rs` (simulations): Afisiadis et al. 2020, Fig. 2 (SF 7 to 12 within 15 %) and Fig. 7 (the approximation (63) against a simulated interferer of −3 dB within 35 %; the aligned model pessimistic); Vangelista 2017, Fig. 1 over √0.8 δ + √0.2 δ(n−1) (FSK within 30 %; FSCM 1.4 to 2.2 times above the figure)<br>• cards `validation/cards/chiani2019_table1.yaml`, `chiani2019_b99.yaml`, `afisiadis2020_fig2.yaml`, `vangelista2017_fig1.yaml`<br>• `tests/test_waveform.py::test_css_round_trip_orthogonality_and_simulated_ser`, `::test_css_waveforms_spectrum_and_interference`"
+  gaps: "• the modulation and the receiver only: the whitening, Hamming codes, interleaver, Gray mapping, header and synchronisation of the LoRa PHY (Tapparel et al., *SPAWC* 2020) are not implemented (their exact tables are in the EPFL report cited by the paper, not in the paper)<br>• discrepancies: Afisiadis et al. 2020, eq. (58), the strongest interference bin is [−⌊τ⌉]_M, not ⌊τ⌉ (their eq. (40) peaks there); their eqs. (3)–(4) define the SNR as 1/N₀ with σ² = N₀/(2N), while Fig. 2 has the SNR per sample on its axis and eqs. (17)–(18) need N times it; Vangelista 2017, eq. (3), lacks the factor 1/2 of the quadratic phase (Chiani & Elzanaty), and the FSCM curve of his frequency-selective channel is about 0.5 dB below the simulation"
+- theme: Waveforms
+  name: "Continuous-phase modulation"
+  modules: "`com_waveform::cpm`"
+  level: A
+  summary: "Murota & Hirade 1981 Table I; MSK of Proakis & Salehi"
+  evidence: "• `crates/com-waveform/src/cpm/mod.rs`, `literature::murota_hirade_1981_gmsk_bandwidths` (the 99 % bandwidths of GMSK, Murota & Hirade, *IEEE Trans. Commun.* 29(7), 1981, Table I)<br>• `crates/com-waveform/src/cpm/mod.rs`, `literature::proakis_msk_as_oqpsk_coherent_ber`, `literature::proakis_msk_power_spectrum` (Proakis & Salehi, 5th ed., Secs. 3.3-2 and 3.4-3), `literature::anderson_aulin_sundberg_minimum_distance` (Aulin & Sundberg, *IEEE Trans. Commun.* 29(3), 1981), `literature::simon_wang_1984_differential_detection_degrades_with_bt`<br>• `specs/validation/msk_bpsk.yaml` (CI)"
+  gaps: "• no published BER curve of GMSK or of partial-response CPM with sequence detection; quaternary CPM: self-consistency only<br>• Murota & Hirade and Aulin & Sundberg listed as needed"
+- theme: Waveforms
+  name: "FBMC/OQAM"
+  modules: "`com_waveform::fbmc`"
+  level: A
+  summary: "Bouhadda et al. 2014 Table 1, Figs. 7, 10, 11; Nissel & Rupp 2017 eq. (17)"
+  evidence: "• `crates/com-waveform/src/fbmc/mod.rs::literature::bouhadda_2014_table_1` (the PHYDYAS transmultiplexer of Bouhadda et al., *EURASIP J. Adv. Signal Process.* 2014:60, Table 1, to the printed decimals)<br>• `validation/tests/bouhadda2014.rs` (Figs. 7, 10, 11: FBMC/OQAM and OFDM through the TWTA against the Gaussian model and the figure), `validation/tests/nissel2017.rs::nissel_2017_fig_2_fbmc_in_doubly_flat_fading` (Nissel & Rupp, *IEEE Commun. Lett.* 21(6), 2017, eq. (17))<br>• self-consistency: `crates/com-waveform/src/fbmc/mod.rs::the_pulses_are_real_orthogonal_and_of_unit_energy`, `::modulation_is_the_sum_of_the_pulses_and_demodulation_their_projection`, `::unit_power_and_half_the_noise_on_each_real_estimate`, `::the_spectrum_is_confined_where_that_of_ofdm_is_not`"
+  gaps: "• the Hermite prototype (Haas & Belfiore 1997) of Nissel & Rupp is not implemented: their FBMC curves of Figs. 3–4 are compared with PHYDYAS only qualitatively<br>• the BEP of Lemma 1 (Nissel & Rupp) and the equalisers that use the intrinsic interference are not implemented<br>• CMT and FMT (Farhang-Boroujeny 2011) are not implemented"
+- theme: Waveforms
+  name: "UFMC"
+  modules: "`com_waveform::ufmc`"
+  level: C
+  summary: "orthogonality of the sub-bands; sidelobes against OFDM"
+  evidence: "• `crates/com-waveform/src/ufmc.rs::the_sub_bands_are_orthogonal_and_the_filters_unit_energy`, `::the_sidelobes_fall_faster_than_those_of_ofdm`; the Dolph–Chebyshev filter against SciPy (`crates/com-dsp/src/window.rs::chebyshev_is_that_of_scipy`)"
+  gaps: "Schaich & Wild (2014) give no figure; the parameters and results of Vakilian et al. (2013) are not in `references/`"
+- theme: Waveforms
+  name: "OTFS and the delay–Doppler channel"
+  modules: "`com_waveform::otfs`, `com_channel::multipath::DelayDoppler`"
+  level: A
+  summary: "Raviteja et al. 2019 Theorem 1 and its example; Hadani et al. 2017 Fig. 5 qualitatively"
+  python: false
+  evidence: "• `crates/com-waveform/src/otfs.rs::literature::raviteja_2019_example_of_theorem_1` (the four matrices of the example of Raviteja et al., *IEEE Trans. Veh. Technol.* 68(1), 2019, verbatim)<br>• `validation/tests/raviteja2019.rs`: Theorem 1 through the channel to 10⁻¹⁰, eq. (13) with fractional Doppler shifts, and the diversity of OTFS with an MMSE detector against one-tap CP-OFDM over EVA at 120 km/h (Hadani et al., WCNC 2017, Fig. 5, qualitatively)<br>• `crates/com-waveform/src/otfs.rs::a_channel_without_delay_or_doppler_is_the_identity_and_rows_are_sparse`"
+  gaps: "• the message-passing detector and the BER of Fig. 1 of Raviteja et al. are not implemented; no published OTFS BER figure is reproduced quantitatively<br>• no pulse other than rectangular, no channel estimation (Wei et al. 2021)"
+- theme: MIMO
+  name: "MIMO detection"
+  modules: "`com_mimo::{detection, receiver}`"
+  level: A
+  summary: "Yang & Hanzo 2015 Table X; MRC closed forms"
+  evidence: "• `validation/tests/mimo.rs::diversity_orders_follow_yang_hanzo_2015_table_x` (Yang & Hanzo, *IEEE Commun. Surveys Tuts.* 17(4), 2015, Table X: the high-SNR slopes of ML, sphere, ZF, MMSE, ZF/MMSE-(O)SIC and K-best (K = 1, 2, 4) on 2 × 2 and 2 × 4 QPSK links within ±0.3 of the slope of MRC of the order of the table; ignored)<br>• `specs/mimo_diversity.yaml` (zero forcing against MRC of one branch, Proakis & Salehi eq. (13.4-15); `tests/test_performance.py::test_specification_reproduces_its_closed_forms[mimo_diversity]`), `validation/tests/mimo.rs::zero_forcing_over_rayleigh_fading` (ignored)<br>• `crates/com-mimo/src/detection.rs::the_sphere_decoder_is_the_exhaustive_ml_detector`, `::every_detector_is_exact_without_noise`, `::soft_outputs_agree_in_sign_with_the_decisions`"
+  gaps: "• on 2 × 4 the ZF- and MMSE-OSIC slopes lie between orders 3 and 4 at every reachable SNR (Table X: 3); the test bounds them by 3 and 4<br>• QPSK over i.i.d. Rayleigh fading, 2 × 2 and 2 × 4 only<br>• the soft outputs (LLRs) are checked for consistency only"
+- theme: MIMO
+  name: "Message-passing detection of large MIMO"
+  short: "Message-passing detection of large MIMO (LAMA, OAMP)"
+  modules: "`com_mimo::message_passing`: LAMA, OAMP, state evolution"
+  level: A
+  summary: "Jeon et al. 2018 Table II; Ma & Ping 2017 eq. (42), Figs. 2–3"
+  evidence: "• `validation/tests/message_passing.rs::table_ii_thresholds_of_square_qam` and `::table_ii_thresholds_of_bpsk_and_psk` (ignored): Jeon, Ghods, Maleki & Studer, arXiv:1811.01917, 2018, Table II: the minimum and exact recovery thresholds and the two critical noise variances of BPSK, QPSK, 16-, 64-, 256-QAM, 8- and 16-PSK, the 28 values within a unit of their last digit (64-PSK too, by hand)<br>• `::operating_points_of_section_v`: the 12.9 dB of the AWGN channel at a SER of 10⁻³ and the loss at βmin after 15 iterations (Sec. V-B)<br>• `::lama_decouples_a_large_system`: the simulated MSE of every iteration of 1024 × 2048 and 1024 × 1024 QPSK systems within four standard errors (plus 3 %) of the state evolution (Theorem 1); `::lama_on_128_by_64_16qam_is_close_to_the_io_bound` (Fig. 6(a), within 0.5 dB)<br>• Ma & Ping, *IEEE Access* 5, 2017: `::oamp_state_evolution_of_iid_gaussian_matrices_is_eq_42` (eq. (42), MF, PINV and LMMSE within 3 %); `::oamp_and_amp_on_iid_gaussian_bpsk_follow_their_state_evolution` (Fig. 2: simulation and state evolution, the shared fixed point of AMP and OAMP-LMMSE, the faster convergence of the latter); `::oamp_follows_its_state_evolution_on_an_ill_conditioned_matrix` (Fig. 3: OAMP-LMMSE and PINV follow it, AMP fails); all ignored"
+  gaps: "• two values of the text of Jeon et al. are not reproduced by the state evolution that reproduces its Table II: 13.5 dB at βmid after 90 iterations (13.17 dB) and the SER floor of 0.08 at βmax (0.208 at the tangent point); see the module documentation of the test<br>• the simulations use N = 1024 (8192 in Ma & Ping): in the waterfall the finite systems lag behind the state evolution (+9 % and +67 % at the iterations 4 and 5 of Fig. 2), so the tests compare before it<br>• no comparison with CHEMP or the damped AMP of the papers"
+- theme: MIMO
+  name: "Space-time block codes"
+  modules: "`com_mimo::stbc`"
+  level: A
+  summary: "Tarokh et al. 1999 eqs. (39)–(40); MRC closed forms"
+  evidence: "• `crates/com-mimo/src/stbc.rs`, `literature::tarokh_1999_rate_3_4_designs_are_orthogonal` (Tarokh, Jafarkhani & Calderbank, *IEEE Trans. Inf. Theory* 45(5), 1999, eqs. (39)–(40))<br>• Alamouti against MRC of 2 n_r branches (Proakis & Salehi eq. (13.4-15)): `specs/mimo_diversity.yaml`, `validation/tests/mimo.rs::alamouti_over_rayleigh_fading` (ignored), `tests/test_performance.py::test_alamouti_is_mrc_of_two_branches_at_half_power`"
+  gaps: "• the error rates of the rate-3/4 codes are not compared with the paper<br>• Fig. 4 of Alamouti (1998) is shown in the gallery (`docs/python/examples/mimo/plot_03_alamouti1998_fig4.py`), not checked"
+- theme: MIMO
+  name: "Capacity and precoding"
+  modules: "`com_mimo::{capacity, precoding}`"
+  level: A
+  summary: "Telatar 1999 Theorem 2, eqs. (13), (16)–(18), Figs. 1–4"
+  evidence: "• `crates/com-mimo/src/capacity.rs::literature` against Telatar, *Eur. Trans. Telecommun.* 10(6), 1999: Remark 3 and Examples 3–4, the contour levels of Fig. 1 ($k\\,C_{\\max}/6$, $C(20, 20) = 76.0$ nats at 20 dB), the limit (13) within 0.5 % at 20 antennas (Fig. 2), the ε-capacities of Fig. 3(c) within 0.15 nat and the crossing of Fig. 4(b)<br>• `crates/com-mimo/src/capacity.rs::the_ergodic_capacity_is_the_mean_of_the_realisations`, `::the_outage_probability_is_that_of_the_realisations` (eq. (8) and (16) against Monte Carlo), `::the_wishart_density_is_normalized_with_the_mean_of_the_trace`<br>• `tests/test_performance.py::test_ergodic_capacity_of_rayleigh_fading`; self-consistency: `crates/com-mimo/src/precoding.rs::water_filling_satisfies_its_conditions`, `::eigenmodes_diagonalise_the_channel`, `::zero_forcing_removes_the_interference_between_users`"
+  gaps: "• the outage capacity is in closed form for one antenna on one side only (Telatar's conjecture for the general case is not evaluated)<br>• no published precoding result"
+- theme: Wireless channels
+  name: "AWGN"
+  modules: "`com_channel::awgn`"
+  level: B
+  summary: "closed forms of the error rates"
+  evidence: "• `validation/tests/closed_forms.rs::bpsk_over_awgn_follows_q_of_sqrt_2_ebn0` (ignored), `specs/validation/proakis_awgn.yaml`<br>• `crates/com-channel/src/awgn.rs::noise_levels`, `::the_block_matches_the_function_and_is_the_identity_without_noise`"
+  gaps: "—"
+- theme: Wireless channels
+  name: "Flat fading and antenna correlation"
+  modules: "`com_channel::{fading, spatial}`"
+  level: B
+  summary: "BPSK over Rayleigh fading; MRC"
+  evidence: "• `validation/tests/closed_forms.rs::bpsk_over_flat_rayleigh_follows_the_closed_form` (ignored)<br>• `tests/test_performance.py::test_bpsk_over_flat_rayleigh_fading`, `specs/mimo_diversity.yaml`<br>• `crates/com-channel/src/fading.rs::gains_have_unit_power_and_the_requested_coherence`, `::mimo_entries_have_unit_power_and_the_kronecker_correlation`, `::rician_mean_and_block_coherence`"
+  gaps: "Rician fading and the Kronecker model: moments only, no error rate against a closed form"
+- theme: Wireless channels
+  name: "Tapped and clustered delay lines (TDL, CDL)"
+  modules: "`com_channel::{multipath, cdl}`"
+  level: A
+  summary: "ITU-R M.1225 and 3GPP TR 38.901 tables, verbatim"
+  evidence: "• `crates/com-channel/src/multipath.rs`, `literature::itu_r_m1225_tables_4_and_5`, `literature::itu_r_m1225_table_2_delay_spreads` (ITU-R M.1225, 1997)<br>• `crates/com-channel/src/cdl/mod.rs`, `literature::tr_38901_tables_7_7_1_1_to_5_entries`, `literature::tr_38901_section_7_7_3_unit_delay_spread_and_its_scaling`, `literature::tr_38901_tables_7_7_1_4_and_5_k_factor_of_the_first_cluster` (3GPP TR 38.901 V17.0.0); `tests/test_cdl.py` (the same tables from Python)<br>• `crates/com-channel/src/multipath.rs::taps_have_their_powers_and_the_jakes_autocorrelation` (the Clarke/Jakes autocorrelation)"
+  gaps: "• the EPA, EVA and ETU profiles of TS 36.101 Annex B.2 and the TDL profiles of TR 38.901 Table 7.7.2 are not compared with the documents (status needed)<br>• CDL: the arrays and the Doppler are checked for consistency only<br>• the TDL-A to TDL-E profiles of 3GPP TR 38.901 are not implemented (only its CDL)"
+- theme: Optical
+  name: "Fibre: linear, split-step Fourier, Manakov, back-propagation"
+  modules: "`com_channel::optical::{fiber, manakov}`, `com_math::nlse`, `com_dsp::compensation::dbp`"
+  level: A
+  summary: "OptiCommPy outputs; Häger & Pfister 2021 Fig. 5"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_linear_fiber_channel`, `::test_split_step_fourier`, `::test_manakov_split_step_with_wdm` (relative tolerance 10⁻⁸ on the same field), `::test_wdm_link_has_the_snr_of_opticommpy`<br>• `specs/validation/hager2021_fig5.yaml` (Häger & Pfister, *IEEE J. Sel. Areas Commun.* 39(1), 2021, Fig. 5: linear equalisation and DBP with one step per span over 25 × 80 km, within 0.13 dB of the digitised curves; CI)<br>• invariants: `crates/com-math/src/nlse.rs::lossless_split_step_conserves_energy`, `::fundamental_soliton_keeps_its_shape`, `::manakov_conserves_the_total_energy_and_converges_with_the_step`, `crates/comrs/tests/links.rs::nonlinear_phase_of_a_constant_field_is_gamma_p_leff`, `crates/com-channel/src/optical/fiber.rs::dbp_inverts_the_split_step`"
+  gaps: "• DBP with several steps per span and the dual-polarisation DBP: self-consistency only (`tests/test_performance.py::test_dual_polarisation_back_propagation_removes_the_self_interference`)<br>• the step rules are not compared with Sinkin et al. (2003)"
+- theme: Optical
+  name: "GN and EGN models"
+  modules: "`com_channel::optical::gn`"
+  level: A
+  summary: "Carena et al. 2014 Fig. 1(a); GNPy outputs"
+  evidence: "• `validation/tests/egn.rs::sci_of_pm_qpsk_follows_fig_1a_of_carena_2014` (Carena et al., *Opt. Express* 22(13), 2014, Fig. 1(a) at 1, 10, 20 and 50 spans, within 0.2 dB (GN) and 0.25 dB (EGN); ignored), `::egn_correction_is_the_first_order_perturbation_of_qpsk` (ignored)<br>• `crates/com-channel/src/optical/gn.rs::one_span_of_pm_qpsk_has_the_sci_of_carena`, `::the_moments_of_the_formats_are_those_of_carena`<br>• GNPy 3.0, recorded: `tests/test_gnpy_oracle.py::test_generalized_gn_model_with_counter_pumps` (0.02 dB)<br>• the Manakov simulation against the GN model (Poggiolini, *J. Lightw. Technol.* 30(24), 2012) and the EGN model: `specs/wdm_gn.yaml` (14 checks within 0.3 dB; `tests/test_performance.py::test_specification_reproduces_its_closed_forms[wdm_gn]`)"
+  gaps: "• between 2 and 5 spans the EGN curve of Fig. 1(a) lies up to 0.9 dB below the formulas of the same paper; the tests follow the formulas<br>• the ISRS GN model of `gn_snr_db` is not compared with Fig. 2 of Semrau & Bayvel (2018); the closed form of Semrau, Killey & Bayvel (2019) is listed as needed"
+- theme: Optical
+  name: "Raman amplification and ISRS"
+  modules: "`com_channel::optical::raman`"
+  level: A
+  summary: "GNPy outputs; Semrau & Bayvel 2018 eq. (10)"
+  evidence: "• GNPy 3.0, recorded: `tests/test_gnpy_oracle.py::test_power_profiles_and_spontaneous_noise_of_multi_pump_spans` (the power profiles of the channels and of a co-pump and two counter-pumps, the spontaneous noise; GNPy's Euler steps converge to them, 0.004 dB at 5 m)<br>• `crates/com-channel/src/optical/raman/mod.rs`, `literature::semrau_2018_eq_10_isrs_power_transfer` (Semrau & Bayvel, *J. Lightw. Technol.* 36(14), 2018, eq. (10), within 5 %)<br>• `specs/raman_wdm.yaml` (the GN model with the Raman power profiles, Semrau et al. 2019, within 0.21 dB; `tests/test_performance.py::test_specification_reproduces_its_closed_forms[raman_wdm]`)"
+  gaps: "the multi-pump designs of Perlin & Winful (*J. Lightw. Technol.* 20(2), 2002) cannot be reproduced: their gain spectrum is a figure only"
+- theme: Optical
+  name: "EDFA and PMD"
+  modules: "`com_channel::optical::{edfa, pmd}`"
+  level: B
+  summary: "the accumulated ASE"
+  evidence: "• `crates/comrs/tests/links.rs::ase_of_a_chain_of_amplifiers_adds_up`; `specs/wdm_dp16qam.yaml` (the ASE-limited SNR, Essiambre et al., *J. Lightw. Technol.* 28(4), 2010, eq. (54); `comrs verify`, on demand)<br>• self-consistency: `crates/com-channel/src/optical/pmd.rs::a_pmd_realisation_is_unitary_and_rotations_invert`, `::manakov_round_trip_and_pmd_equaliser`"
+  gaps: "• the ASE of OptiCommPy's `edfa` is not compared (it re-seeds its generator on every call)<br>• the coarse-step PMD model is not compared with Marcuse, Menyuk & Wai (1997), which is in `references/`"
+- theme: Optical
+  name: "Optical front ends (laser, modulators, photodiodes, coherent receiver)"
+  modules: "`com_hardware::optical`"
+  level: A
+  summary: "OptiCommPy outputs"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_mzm_and_phase_modulator`, `::test_iq_modulator`, `::test_optical_hybrid_and_coherent_receiver`, `::test_noiseless_photodiode_with_bandwidth_limitation`, `::test_wdm_grid`<br>• `crates/comrs/tests/links.rs::optical_transmitter_and_coherent_receiver_recover_the_symbols`<br>• closed forms (`tests/test_performance.py`): the transfer of the MZM and its extinction ratio (`::test_mzm_extinction_ratio_and_field_transfer`, within 10⁻⁶ dB), the harmonics of a sine drive against the Jacobi–Anger expansion J_k(m) (`::test_mzm_harmonics_follow_the_jacobi_anger_expansion`, within 10⁻¹²), the compression of 16-QAM by the IQ modulator and its arcsine predistortion (`::test_iq_modulator_compression_and_arcsine_predistortion`); gallery `optical/plot_06_mach_zehnder.py`"
+  gaps: "• the shot and thermal noise of the photodiodes and the laser phase noise are not compared with a reference<br>• the modulators are memoryless and chirp-free: no electrode bandwidth, no chirp of an unbalanced drive (Koyama & Iga, *J. Lightw. Technol.*, 1988, status next)"
+- theme: Hardware impairments
+  name: "Nonlinear amplifier driven by OFDM: output series, Bussgang's decomposition and in-band distortion"
+  short: "Nonlinear amplifier driven by OFDM"
+  modules: "`com_dsp::nonlinear`"
+  level: A
+  summary: "Banelli & Cacopardi 2000 eqs. 7–31, Fig. 5; Bouhadda et al. 2014, Tables 2–3"
+  evidence: "• `crates/com-hardware/src/amplifier.rs::literature::bouhadda_2014_tables_2_3` (the complex gain and distortion power of the SSPA and TWTA of Bouhadda et al. 2014, Tables 2–3)<br>• `validation/tests/banelli2000.rs` against Banelli & Cacopardi, *IEEE Trans. Commun.* 48(3), 2000: the series of eq. 7 by quadrature against the closed forms of eq. 28 with Table I (n = 0 to 4, 10⁻⁶) and Bussgang's gain of `clipping_bussgang`, its sum against the output power; the output back-offs of Fig. 5; the in-band distortion of the DAB signal (1536 of 2048 subcarriers, ×4) against a simulation through the limiter within 0.3 dB (whole band, edges, centre), the BER of DQPSK against a Monte Carlo of the whole chain and against the points read on Fig. 5 within a factor 1.5 (ignored)<br>• gallery `waveforms/plot_03_ofdm_theory_with_impairments.py`"
+  gaps: "• two misprints of the paper documented: eq. 31 (the output back-off is γ/(1 − e^{−γ}), printed γ·(1 − e^{−γ})) and the sign between eq. 28 and Table I<br>• the Bessel-series amplifier of their Fig. 3–4 (measured AM/AM and AM/PM) is not reproduced: its coefficients are not given"
+- theme: Hardware impairments
+  name: "Power amplifiers, IQ imbalance and digital predistortion"
+  modules: "`com_hardware::{amplifier, iq}`, `com_dsp::compensation::dpd`"
+  level: C
+  summary: "properties of the models"
+  evidence: "• `crates/com-hardware/src/amplifier.rs::rapp_is_linear_then_saturates_and_its_inverse_is_exact`, `::saleh_peaks_at_its_saturation_input`, `::the_memory_polynomial_is_linear_at_low_power`<br>• `crates/com-hardware/src/iq.rs::zero_imbalances_are_the_identity`<br>• `crates/com-dsp/src/compensation/dpd.rs::the_fit_recovers_a_memory_polynomial`, `tests/test_performance.py::test_digital_predistortion_linearises_the_amplifier`"
+  gaps: "• the memory polynomial and its indirect learning are not compared with the results of Ding et al. (*IEEE Trans. Commun.* 52(1), 2004)<br>• IQ imbalance: no error rate against a closed form"
+- theme: Hardware impairments
+  name: "Phase noise and frequency offset"
+  modules: "`com_hardware::oscillator`"
+  level: B
+  summary: "the variance of the Wiener increments"
+  evidence: "`crates/com-hardware/src/oscillator.rs::wiener_increments_have_the_linewidth_variance` (2π Δν T), `::the_origins_differ_by_the_first_increment`, `::zero_impairments_are_the_identity`"
+  gaps: "no comparison of the penalty of a receiver with a published curve (see the carrier recovery row)"
+- theme: Hardware impairments
+  name: "DAC and ADC"
+  modules: "`com_hardware::converter`"
+  level: B
+  summary: "Bennett 1948; the exact error of a Gaussian input; IEEE Std 1241; Walden 1999"
+  evidence: "• `validation/tests/converters.rs`: the SQNR of full-scale sines against 6.02 N + 1.76 dB (Bennett, *Bell Syst. Tech. J.* 27(3), 1948) within 0.15 dB from 6 to 12 bits, averaged over tones; the error of a Gaussian input against its exact integral (cross-checked with SciPy's quadrature) at 3, 5 and 8 bits and four loadings within 2 %; the ENOB from the SINAD (IEEE Std 1241) within 0.05 bit; the jitter-limited SNR −20 log₁₀(2π f σ_j) (Walden, *IEEE J. Sel. Areas Commun.* 17(4), 1999) within 0.2 dB; the zero-order hold within 10⁻⁶ and the bandwidth within 1 %; an OFDM 16-QAM link through 5- and 6-bit ADCs at the BER of the total noise (ignored)<br>• `crates/com-spec/src/blocks/wireless.rs::converters_in_a_link`"
+  gaps: "• `::optimal_uniform_quantizers_of_max_1960` compares the optimal steps and errors at 1 to 4 bits with the values of Max (*IRE Trans. Inf. Theory* 6(1), 1960) quoted from memory, to be checked against the paper (status needed): level A then<br>• no published error-rate figure of a converter-limited link"
+- theme: Receiver DSP
+  name: "Filters and resampling"
+  modules: "`com_dsp::{filter, resample, signal}`"
+  level: A
+  summary: "OptiCommPy outputs"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_pulse_shape_even_lengths`, `::test_pulse_shape_odd_length_sits_on_the_samples`, `::test_fir_filter`, `::test_low_pass_fir`, `::test_moving_average`, `::test_upsample_and_decimate`<br>• `crates/com-dsp/src/filter.rs::rrc_pair_is_nyquist_on_a_periodic_block`, `::rc_taps_are_nyquist`"
+  gaps: "`resample_fft` and `delay_fft`: self-consistency only"
+- theme: Receiver DSP
+  name: "Carrier recovery"
+  modules: "`com_dsp::sync::carrier`"
+  level: A
+  summary: "OptiCommPy outputs"
+  evidence: "OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_fourth_power_foe`, `::test_viterbi_viterbi`, `::test_blind_phase_search`, `::test_decision_directed_pll_with_pilots`; `::test_unwrap_matches_numpy`"
+  gaps: "the linewidth tolerance of BPS is not compared with Table I of Pfau et al. (*J. Lightw. Technol.* 27(8), 2009): the table includes a differential decoding the library does not have"
+- theme: Receiver DSP
+  name: "Clock recovery"
+  modules: "`com_dsp::sync::timing`"
+  level: A
+  summary: "OptiCommPy outputs"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_timing_error_detectors_and_interpolator`, `::test_gardner_clock_recovery`<br>• `crates/com-dsp/src/interpolation.rs::lagrange_cubic_is_exact_on_cubics`, `::gardner_loop_locks_on_a_delayed_signal`"
+  gaps: "the S-curve and jitter of the detector are not compared with Gardner (*IEEE Trans. Commun.* 34(5), 1986), listed as needed"
+- theme: Receiver DSP
+  name: "Frame synchronisation"
+  modules: "`com_dsp::sync::frame`"
+  level: C
+  summary: "the blocks find their offset"
+  evidence: "`crates/com-spec/src/blocks/tests.rs` (the `frame_sync` and `reference_sync` blocks), `tests/test_chain.py`, the example `coherent_link`"
+  gaps: "no unit test in `com_dsp::sync::frame`; no reference"
+- theme: Receiver DSP
+  name: "Adaptive equalisers"
+  modules: "`com_dsp::equalizer`"
+  level: A
+  summary: "OptiCommPy outputs; Kikuchi's singularity"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_adaptive_equalizer`, `::test_adaptive_equalizer_2x2` (CMA, RDE, NLMS, DD-LMS)<br>• `specs/polmux_cma.yaml`, `specs/polmux_cma_45deg.yaml` (the singularity of the blind 2 × 2 equaliser, Kikuchi 2008: 48 % of singular trials at 45°, none with the initialisation; `tests/test_performance.py::test_specification_reproduces_its_closed_forms[polmux_cma_45deg]`)<br>• `crates/com-dsp/src/equalizer.rs::nlms_converges_to_the_inverse_and_dd_lms_tracks`, `::kikuchi_initialisation_avoids_the_singularity_of_the_45_degree_rotation`"
+  gaps: "the singularity rate is compared with a qualitative statement (about half of the trials), not a published table"
+- theme: Receiver DSP
+  name: "Chromatic dispersion compensation"
+  modules: "`com_dsp::compensation::cd`"
+  level: A
+  summary: "Eghbali et al. 2014 Table I, Figs. 5 and 9"
+  evidence: "• `validation/tests/cd_filters.rs` against Eghbali, Johansson, Gustafsson & Savory, *J. Lightw. Technol.* 32(8), 2014: the factors $K$ and lengths $N$ of Table I (exact); the full-band least-squares taps against the integral of eq. 12; the error energy of the least-squares filter falling with its length and below Savory's (*Opt. Express* 16(2), 2008), whose error grows beyond its length rule (Sec. III-A2); the error against the penalty (Fig. 8); the BER of 16-QAM at 14 dB through the chain of Fig. 2 within 0.2 decade of Fig. 5 (back to back, eq. 9 and eq. 3 at 251 taps), and 119 band-limited taps as good as Savory's 251 (Fig. 9) (ignored)<br>• `crates/com-dsp/src/compensation/cd.rs::cdc_and_its_fir_invert_the_dispersion` (the inverse of `linear_fiber_channel`, itself equal to OptiCommPy's to 10⁻⁹); `com_math::fresnel` against SciPy to 10⁻¹⁴<br>• `tests/test_performance.py::test_dispersion_compensation_restores_back_to_back`; gallery `optical/plot_01_chromatic_dispersion.py`"
+  gaps: "• Sec. IV-A quotes $E = -220$ and $-63$ dB for the least-squares and frequency-sampling filters of 31 taps; we find $10\\log_{10}E = -113$ and $-34$ dB, that is $20\\log_{10}E = -227$ and $-68$ dB: the paper seems to quote $20\\log_{10}$ of the energy<br>• the BER points are read on the figures (about 0.05 decade); the band-limited filter amplifies the band outside the signal by more than 100 dB, which only ideal receive filters reject<br>• not compared with OptiCommPy's `edc` (which limits the SNR of a noiseless link to 23 dB)"
+- theme: Receiver DSP
+  name: "Blind estimation"
+  short: "Blind estimation: modulation recognition, M2M4 SNR, symbol rate"
+  modules: "`com_metrics::blind`, `com_dsp::cyclo`"
+  level: B
+  summary: "exact cumulants of the alphabets; consistency of the estimators"
+  evidence: "• `validation/tests/blind.rs`: the normalised fourth-order cumulants of BPSK, 4- and 8-PAM, QPSK, 8-PSK, 16- and 64-QAM (exact moments; against the values of Swami & Sadler, *IEEE Trans. Commun.* 48(3), 2000, quoted from memory); the convergence of the sample cumulants in noise; the likelihood classifier (Wei & Mendel, *IEEE Trans. Commun.* 48(2), 2000) at least as good as the cumulants (ignored); the M2M4 estimator (Pauluzzi & Beaulieu, *IEEE Trans. Commun.* 48(10), 2000) consistent, its error in 1/N, for PSK and for QAM up to 10 dB (ignored); the symbol rate of RRC signals at fractional oversampling within 10⁻³ (Gardner, *IEEE Signal Process. Mag.* 8(2), 1991)<br>• `crates/com-spec/src/blocks/wireless.rs::blind_classification_in_a_link`, `tests/test_performance.py::test_blind_classification_and_m2m4`; gallery `receiver/plot_04_modulation_recognition.py`"
+  gaps: "• no comparison with the figures of the papers (status needed): the cumulant values of Swami & Sadler, the bias and variance of M2M4, the classification rates<br>• M2M4 degrades for QAM at high SNR (documented and tested); the cumulants with the noise unknown shrink with the SNR<br>• the classifiers assume the timing and the carrier recovered (the cumulants tolerate a phase)"
+- theme: Metrics and analysis
+  name: "Error rates, SNR and EVM"
+  modules: "`com_metrics::errors`"
+  level: A
+  summary: "OptiCommPy outputs"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_fast_ber_calc`, `::test_evm`<br>• `crates/comrs/tests/links.rs::monte_carlo_error_rates_match_the_theory`"
+  gaps: "—"
+- theme: Metrics and analysis
+  name: "Information rates and shaping gains"
+  modules: "`com_metrics::information`, `com_mapping::theory::{mi, gmi}`"
+  level: A
+  summary: "Böcherer et al. 2015 Tables I, III; OptiCommPy outputs"
+  evidence: "• `validation/tests/shaping.rs::bocherer_2015_table_i_and_iii_shaping_gaps_of_ask` (Böcherer, Steiner & Schulte, *IEEE Trans. Commun.* 63(12), 2015, Tables I and III: the SNRs of optimised Maxwell–Boltzmann, uniform and BMD 4- to 64-ASK within 2·10⁻⁴ dB)<br>• `validation/tests/shaping.rs::liang_kahn_2025_eq27_ultimate_shaping_gain`, `::liang_kahn_2025_fig6_shaping_gain_of_256qam`, `::liang_kahn_2025_fig6_shaping_gains_256_to_65536_qam` (ignored) (Liang & Kahn, *J. Lightw. Technol.* 43(4), 2025, eq. (27) and Fig. 6)<br>• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_theoretical_mi_and_gmi`, `::test_monte_carlo_gmi`, `::test_monte_carlo_mi_close_to_opticommpy_below_saturation`, `::test_shaped_information_rates`<br>• Gauss–Hermite quadrature: `specs/validation/information_rates.yaml` (CI, `validation/tests/specs.rs::information_rates_follow_the_quadratures`), `specs/shaping_awgn.yaml` (30 checks)"
+  gaps: "• Fig. 6 of Liang & Kahn is compared qualitatively (largest gains 1.08 to 1.48 dB against about 1 to 1.4 dB read on the figure)<br>• the direct-detection channels of Liang & Kahn (SD, SV, KK) are not implemented"
+- theme: Metrics and analysis
+  name: "Receiver posteriors"
+  short: "Receiver posteriors (`air` metrics)"
+  modules: "`air` metrics) (`com_metrics::information::posterior_rates`"
+  level: C
+  summary: "consistency of the rates"
+  evidence: "`crates/com-metrics/src/lib.rs::noiseless_estimates`, `crates/comrs/tests/links.rs::information_rates_are_ordered_and_bounded`"
+  gaps: "no comparison with a published mismatched-decoding rate"
+- theme: Metrics and analysis
+  name: "Spectral metrics (PSD, ACLR, PAPR, CCDF)"
+  modules: "`com_metrics::spectrum`"
+  level: C
+  summary: "a tone lands in its bin"
+  evidence: "`crates/com-metrics/src/spectrum.rs::ccdf_counts_exceedances`, `::a_tone_lands_in_its_bin_and_a_band_limited_signal_has_a_high_aclr`"
+  gaps: "Welch's estimate and the ACLR are not compared with a reference implementation"
+- theme: Systems and standards
+  name: "DVB-S2"
+  modules: "`com_systems::dvbs2` (with `dvbs2::fec`)"
+  level: A
+  summary: "EN 302 307-1 Table 13 and the tables of the standard"
+  evidence: "• `specs/validation/dvbs2_table13.yaml` (ETSI EN 302 307-1 V1.4.1, Table 13: the 28 MODCODs, normal frames, the Es/N0 at a FER of 10 % within [threshold − 0.8 dB, threshold]; `comrs verify`, on demand)<br>• `tests/test_performance.py::test_dvbs2_waterfall_sits_below_the_threshold_of_table_13` (8PSK 3/5, short frames)<br>• `crates/com-systems/src/dvbs2/mod.rs::table_12_has_28_modcods_numbered_1_to_28`, `::table_11_gives_the_slots`, `::the_constellations_have_unit_energy_and_their_published_geometry` (Figures 9 to 12, Tables 9 and 10), `::the_plheader_decodes_and_the_pls_code_has_distance_32`, `::the_scrambling_and_the_bbframe_follow_the_standard`<br>• the short LDPC code of rate 1/2 against AFF3CT (`validation/tests/aff3ct.rs::ldpc_dvbs2_short_matches_aff3ct`)"
+  gaps: "• Table 13 gives the Es/N0 at a PER of 10⁻⁷; the search stops at a FER of 10 %, 0.17 to 0.38 dB below the table (0.41 to 0.72 dB for QPSK 1/4 to 2/5)<br>• `dvbs2_table13.yaml` is a long search and does not run in CI<br>• the curves of Morello & Mignone (*Proc. IEEE* 94(1), 2006) are listed as needed; DVB-S2X (EN 302 307-2) is not implemented (status next)<br>• AWGN only"
+- theme: Systems and standards
+  name: "5G NR numerology, SSB, cell search and PDSCH DMRS"
+  modules: "`com_waveform::ofdm::nr`"
+  level: A
+  summary: "py3gpp outputs; Lin et al. 2019"
+  evidence: "• `tests/test_nr_oracle.py` against py3gpp 0.6 (an open reimplementation of the 5G functions of MATLAB from TS 38.211, recorded outputs): the PSS and the SSS of seven cells, the PBCH DMRS of three SSB indices and the indices of the PBCH and of its DMRS, bit for bit; the PDSCH DMRS of 42 configurations (types 1 and 2, first symbol 2 and 3, the four additional positions, three identities and slots), values and indices; the OFDM modulation of a subframe at 15 and 30 kHz to 10⁻¹⁴<br>• `validation/tests/nr.rs`: the numerology of Lin et al. (*IEEE Commun. Standards Mag.* 3(3), 2019, Sec. II) and of LTE (Astély et al., *IEEE Commun. Mag.* 47(4), 2009: 4.7 and 16.7 µs prefixes); the SSB of Lin et al. Sec. III-A (4 × 240, sequences of 127, 1008 identities, each found back); the cell search in white noise at -6 dB; every subframe lasts 1 ms at every numerology; gallery `systems/plot_02_5g_nr.py`"
+  gaps: "• py3gpp lengthens the prefix of the first symbol of every slot, TS 38.211 that of every half subframe: they differ from 60 kHz (comrs keeps the standard, checked by the 1 ms of the subframe); its DMRS table also adds symbol 7 to 8- and 9-symbol allocations without additional position, which comrs does not implement<br>• the DMRS of shorter allocations, two-symbol DMRS, other ports, the PTRS, the CSI-RS and the PBCH coding need the tables of TS 38.211 / 38.212 (status needed)"
+- theme: Simulation and specifications
+  name: "Monte Carlo runner"
+  modules: "`com_sim`"
+  level: C
+  summary: "thread independence, stopping rules"
+  evidence: "`crates/comrs/tests/simulation.rs::results_do_not_depend_on_threads_or_batch_size_at_fixed_trials`, `::seeds_and_scenario_names_give_independent_streams`, `::the_estimates_are_consistent_with_the_truth`, `::precision_rule_reaches_the_requested_relative_half_width` and the other tests of the file; `crates/com-sim/src/stats.rs::wilson_with_no_error_and_merges`"
+  gaps: "the Wilson and normal intervals are not checked against published values"
+- theme: Simulation and specifications
+  name: "Specifications, verification and operating-point search"
+  modules: "`com_spec`"
+  level: B
+  summary: "the search against the inverted closed forms"
+  evidence: "• `specs/validation/required_snr.yaml` (QPSK, 16- and 64-QAM at a BER of 10⁻³ within 0.02 dB of the inverted closed forms; `validation/tests/specs.rs::operating_points_follow_the_inverted_closed_forms`), `crates/com-spec/src/search.rs::the_operating_points_follow_the_theory`<br>• `crates/comrs/tests/specs.rs::every_specification_runs_one_trial_per_condition`, `::every_specification_passes_the_check_of_its_ports`, `::a_specification_reproduces_its_rust_counterpart`; `crates/com-spec/src/verify.rs::values_curves_and_theory`; `crates/com-spec/tests/extension.rs`; `tests/test_chain.py` (the Rust and Python runners agree)"
+  gaps: "—"
+- theme: Simulation and specifications
+  name: "Recordings (SigMF, raw IQ, NPY)"
+  modules: "`com_spec::io`"
+  level: A
+  summary: "sigmf-python, the reference implementation, both ways"
+  evidence: "• `tests/test_sigmf.py` against sigmf-python 1.x, the reference implementation of SigMF: the recordings of comrs in the 28 sample formats (complex and real, every scalar type, little and big endian) pass its validation and read back the same samples; its recordings (two channels, two captures, an annotation, as files and as a `.sigmf` archive) read back the same in comrs (to 10⁻¹², 10⁻⁷ for the 32-bit integers, which sigmf-python scales in float32)<br>• `crates/com-spec/src/io.rs::every_sigmf_type_round_trips`, `::sigmf_headers_channels_and_annotations` (capture headers, trailing bytes, a non-conforming dataset), `::raw_round_trips_for_every_type`, `::npy_round_trips_and_reads_numpy_headers`, `::sigmf_keeps_the_metadata`; `specs/capture_16qam.yaml` on a synthetic capture; gallery `simulation/plot_03_sigmf_recordings.py`"
+  gaps: "• no real measurement in the repository<br>• the `core:sha512` checksum is not verified; compressed archives (`.sigmf` in gzip) are not read"

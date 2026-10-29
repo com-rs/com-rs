@@ -91,7 +91,7 @@ struct Dvbs2Link {
 impl Dvbs2Link {
     fn new(p: &Dvbs2Spec) -> Result<Dvbs2Link> {
         let frame: FrameSize = p.frame.parse().map_err(|e: Error| e.context("dvbs2"))?;
-        let mut link = Dvbs2::new(Modcod::parse(&p.modulation, &p.rate)?, frame, p.pilots, p.scrambling_code)?;
+        let mut link = Dvbs2::new(Modcod::from_name(&p.modulation, &p.rate)?, frame, p.pilots, p.scrambling_code)?;
         link.fec_mut().ldpc_mut().max_iterations = p.iterations;
         Ok(Dvbs2Link { link, frames: p.frames, symbol_rate: p.symbol_rate, max_log: p.max_log })
     }

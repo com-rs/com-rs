@@ -48,7 +48,7 @@ impl PyDvbs2 {
     #[pyo3(signature = (modulation, rate, *, frame = "normal", pilots = true, scrambling_code = 0))]
     fn new(modulation: &str, rate: &str, frame: &str, pilots: bool, scrambling_code: usize) -> PyResult<Self> {
         let frame: FrameSize = frame.parse().py()?;
-        let modcod = Modcod::parse(modulation, rate).py()?;
+        let modcod = Modcod::from_name(modulation, rate).py()?;
         Ok(PyDvbs2 { inner: Dvbs2::new(modcod, frame, pilots, scrambling_code).py()? })
     }
 

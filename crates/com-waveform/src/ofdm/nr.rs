@@ -186,8 +186,7 @@ pub fn modulate(nr: &Numerology, grid: &[C64], k: usize, n_fft: usize, first_sym
         }
         let t: Vec<C64> = ifft(&bins).into_iter().map(|v| v * scale).collect();
         let ncp = cp[(first_symbol + s) % cp.len()];
-        out.extend_from_slice(&t[n_fft - ncp..]);
-        out.extend(t);
+        com_dsp::signal::extend_with_prefix(&mut out, &t, ncp)?;
     }
     Ok(out)
 }

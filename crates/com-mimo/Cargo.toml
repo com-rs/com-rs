@@ -1,6 +1,6 @@
 [package]
 name = "com-mimo"
-description = "MIMO detection (linear, SIC, ML, sphere decoder, K-best), space-time block codes, precoding and capacity of com-rs"
+description = "MIMO detection (linear, SIC, ML, sphere decoder, K-best, message passing), space-time block codes, precoding and capacity of com-rs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

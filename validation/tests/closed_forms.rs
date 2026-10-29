@@ -42,7 +42,7 @@ fn simulate(seed: u64, mut link: impl FnMut(&[C64], &mut Rng) -> Vec<f64>) -> (u
 fn bpsk_over_awgn_follows_q_of_sqrt_2_ebn0() {
     for ebn0_db in [0.0, 2.0, 4.0, 6.0, 8.0] {
         let (errors, total) =
-            simulate(1, |x, rng| awgn::awgn_ebn0(x, ebn0_db, 1, 1.0, rng).iter().map(|v| v.re).collect());
+            simulate(1, |x, rng| awgn::awgn_ebn0(x, ebn0_db, 1.0, 1.0, rng).iter().map(|v| v.re).collect());
         let theory = qfunc((2.0 * db2lin(ebn0_db)).sqrt());
         assert!(within_three_sigma(errors, total, theory), "{ebn0_db} dB: {errors}/{total} vs {theory}");
     }
@@ -60,7 +60,23 @@ fn bpsk_over_flat_rayleigh_follows_the_closed_form() {
             y.stream(0).iter().zip(&h[0]).map(|(v, g)| ((v + rng.complex_gaussian() * sigma) * g.conj()).re).collect()
         });
         let g = db2lin(ebn0_db);
-        let theory = ber_rayleigh_mrc(g, 1);
+        let theory = ber_rayleigh_mrc(g, 1).unwrap();
         assert!(within_three_sigma(errors, total, theory), "{ebn0_db} dB: {errors}/{total} vs {theory}");
+    }
+}
+
+/// The capacity of the binary-input AWGN channel of `com_fec::bounds` (the moments of
+/// the information density) is the mutual information of 2-PAM of
+/// `com_mapping::theory` (a real channel of variance $\sigma^{2} = 1/\mathrm{SNR}$): two
+/// quadratures of the same integral.
+#[test]
+fn the_biawgn_capacity_is_the_mutual_information_of_bpsk() {
+    use comrs::fec::bounds::biawgn_capacity;
+    use comrs::mapping::constellation::ConstellationKind;
+    use comrs::mapping::theory;
+    for snr_db in [-6.0, -2.0, 0.0, 3.0, 8.0] {
+        let c = biawgn_capacity(comrs::math::db2lin(-snr_db));
+        let mi = theory::mi(ConstellationKind::Pam, 2, snr_db, None, 60).unwrap();
+        assert!((c - mi).abs() < 1e-6, "{snr_db} dB: {c} vs {mi}");
     }
 }

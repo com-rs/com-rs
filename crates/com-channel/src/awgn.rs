@@ -8,7 +8,9 @@
 //!   two conventions, for callers that add the noise themselves (several streams, a
 //!   fractional number of information bits per symbol);
 //! - [`Awgn`]: the [`Propagate`] block, at a given `E_s/N_0`, on every stream of a
-//!   [`Signal`] independently.
+//!   [`Signal`] independently, and [`Noise`], at a given variance;
+//! - [`add_noise`]: the kernel of all of them, white noise of a given variance added in
+//!   place.
 //!
 //! # Model
 //!
@@ -72,26 +74,48 @@ impl Propagate for Awgn {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         ensure(x.n_samples() > 0, || "empty signal".into())?;
         let power = x.power();
-        x.map_streams(out, |s, xs| {
-            let sd = self.noise_variance(power[s]).sqrt();
-            xs.iter().map(|v| v + rng.complex_gaussian() * sd).collect()
-        });
+        x.map_streams(out, |s, xs| noisy(xs, self.noise_variance(power[s]), rng));
         Ok(())
     }
+}
+
+/// Add circular complex Gaussian noise of variance `noise_var` ($\mathcal{CN}(0,
+/// \sigma^{2})$, $\sigma^{2}/2$ per dimension) to `x`, in place.
+///
+/// # Examples
+/// ```
+/// use com_channel::awgn::add_noise;
+/// use com_core::rng::Rng;
+/// use com_math::C64;
+/// let mut x = vec![C64::new(0.0, 0.0); 100_000];
+/// add_noise(&mut x, 0.5, &mut Rng::new(1));
+/// assert!((com_math::power(&x) - 0.5).abs() < 0.01);
+/// ```
+pub fn add_noise(x: &mut [C64], noise_var: f64, rng: &mut Rng) {
+    let sd = noise_var.sqrt();
+    for v in x {
+        *v += rng.complex_gaussian() * sd;
+    }
+}
+
+/// `x` plus noise of variance `noise_var` ([`add_noise`] of a copy).
+fn noisy(x: &[C64], noise_var: f64, rng: &mut Rng) -> Vec<C64> {
+    let mut y = x.to_vec();
+    add_noise(&mut y, noise_var, rng);
+    y
 }
 
 /// Add circular complex Gaussian noise for an SNR of `snr_db` within the bandwidth `b`
 /// of a signal sampled at `fs` (OptiCommPy `awgn`).
 pub fn awgn(x: &[C64], snr_db: f64, fs: f64, b: f64, rng: &mut Rng) -> Vec<C64> {
-    let s = snr_noise_variance(power(x), snr_db, fs, b).sqrt();
-    x.iter().map(|&v| v + rng.complex_gaussian() * s).collect()
+    noisy(x, snr_noise_variance(power(x), snr_db, fs, b), rng)
 }
 
-/// Add noise for an `E_b/N_0` of `ebn0_db` (signal of `bits_per_symbol` bits per symbol
-/// at `sps` samples per symbol, after a unit-energy matched filter).
-pub fn awgn_ebn0(x: &[C64], ebn0_db: f64, bits_per_symbol: usize, sps: f64, rng: &mut Rng) -> Vec<C64> {
-    let s = ebn0_noise_variance(power(x), ebn0_db, bits_per_symbol as f64, sps).sqrt();
-    x.iter().map(|&v| v + rng.complex_gaussian() * s).collect()
+/// Add noise for an `E_b/N_0` of `ebn0_db` (signal of `bits` information bits per
+/// symbol, fractional for a coded or shaped signal, at `sps` samples per symbol, after a
+/// unit-energy matched filter).
+pub fn awgn_ebn0(x: &[C64], ebn0_db: f64, bits: f64, sps: f64, rng: &mut Rng) -> Vec<C64> {
+    noisy(x, ebn0_noise_variance(power(x), ebn0_db, bits, sps), rng)
 }
 
 /// The noise variance of [`awgn`]: an SNR of `snr_db` within the bandwidth `b` of a
@@ -128,8 +152,7 @@ pub struct Noise {
 impl Propagate for Noise {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         ensure(self.variance >= 0.0, || format!("negative noise variance {}", self.variance))?;
-        let sd = self.variance.sqrt();
-        x.map_streams(out, |_, xs| xs.iter().map(|v| v + rng.complex_gaussian() * sd).collect());
+        x.map_streams(out, |_, xs| noisy(xs, self.variance, rng));
         Ok(())
     }
 }
@@ -152,7 +175,7 @@ mod tests {
         let s = Signal::from_streams(&[x.clone(), x.clone()], Hertz(1.0)).unwrap();
         let y = Awgn::new(EsN0(Db(7.0))).propagate(&s, &mut Rng::new(4)).unwrap();
         // same draws as the slice function at Es/N0 = Eb/N0 for one bit per symbol
-        let z = awgn_ebn0(&x, 7.0, 1, 1.0, &mut Rng::new(4));
+        let z = awgn_ebn0(&x, 7.0, 1.0, 1.0, &mut Rng::new(4));
         assert!(y.stream(0).iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-12));
         let quiet = Awgn::new(EsN0(Db(400.0))).propagate(&s, &mut Rng::new(4)).unwrap();
         assert!(quiet.stream(1).iter().zip(&x).all(|(a, b)| (a - b).norm() < 1e-12));

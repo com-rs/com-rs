@@ -29,6 +29,8 @@
 //!   it is exact up to the noise (-40 dB), the best by 20 dB; on a 128-subcarrier
 //!   part of the band the edges make it the second worst.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use comrs::channel::awgn::add_noise;
+use comrs::channel::multipath::Tdl;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::estimation::{FrequencyInterpolation, estimate};
 use comrs::waveform::ofdm::grid::{PilotPattern, ResourceGrid};
@@ -64,27 +66,25 @@ const METHODS: [FrequencyInterpolation; 5] = [
 /// subcarriers of a 1024-point FFT, a comb of one pilot in `spacing`, Rayleigh taps.
 fn mse_db(profile: &[(usize, f64)], band: usize, spacing: usize, snr_db: f64, trials: usize) -> Vec<f64> {
     let grid = ResourceGrid { n_subcarriers: band, n_symbols: 1, pattern: PilotPattern::Comb { spacing }, seed: 1 };
-    let total: f64 = profile.iter().map(|p| p.1 * p.1).sum();
-    let sigma2 = 10f64.powf(-snr_db / 10.0);
+    // static Rayleigh taps of the profile, delays in samples (a sampling rate of 1)
+    let taps: Vec<(f64, f64)> = profile.iter().map(|&(d, a)| (d as f64, comrs::math::lin2db(a * a))).collect();
+    let tdl = Tdl::new(&taps, 0.0, 1.0, 1, 1).unwrap();
+    let bins: Vec<usize> = (0..band).collect();
+    let sigma2 = comrs::math::db2lin(-snr_db);
     let tx = grid.map(&vec![C64::new(1.0, 0.0); grid.n_data()]).unwrap();
     let mut rng = Rng::new(5);
     let mut acc = [0.0; METHODS.len()];
     for _ in 0..trials {
-        let taps: Vec<C64> = profile.iter().map(|p| rng.complex_gaussian() * (p.1 / total.sqrt())).collect();
-        let h: Vec<C64> = (0..band)
-            .map(|k| {
-                let phase = |d: usize| comrs::math::cis(-std::f64::consts::TAU * (k * d) as f64 / 1024.0);
-                profile.iter().zip(&taps).map(|(p, a)| a * phase(p.0)).sum()
-            })
-            .collect();
-        let rx: Vec<C64> = tx.iter().zip(&h).map(|(x, g)| x * g + rng.complex_gaussian() * sigma2.sqrt()).collect();
+        let h = tdl.draw(1, &mut rng).frequency_response(0, &bins, 1024);
+        let mut rx: Vec<C64> = tx.iter().zip(&h).map(|(x, g)| x * g).collect();
+        add_noise(&mut rx, sigma2, &mut rng);
         for (a, m) in acc.iter_mut().zip(&METHODS) {
             let e = estimate(&grid, &rx, sigma2, m).unwrap();
             let data = (0..band).filter(|k| k % spacing != 0);
             *a += data.map(|k| (e[k] - h[k]).norm_sqr()).sum::<f64>() / (band - band / spacing) as f64;
         }
     }
-    acc.iter().map(|a| 10.0 * (a / trials as f64).log10()).collect()
+    acc.iter().map(|a| comrs::math::lin2db(a / trials as f64)).collect()
 }
 
 fn argmin(v: &[f64]) -> usize {

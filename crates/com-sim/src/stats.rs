@@ -30,11 +30,12 @@
 //! assert_eq!(est.value(), 5e-3);
 //! ```
 
-use com_math::erfcinv;
+use com_math::qfuncinv;
 
-/// `z = Φ⁻¹(1 - α/2)` of a two-sided confidence level `1 - α` (e.g. 1.96 for 0.95).
+/// `z = Φ⁻¹(1 - α/2) = Q⁻¹(α/2)` of a two-sided confidence level `1 - α` (e.g. 1.96
+/// for 0.95).
 pub fn z_score(confidence: f64) -> f64 {
-    std::f64::consts::SQRT_2 * erfcinv(1.0 - confidence.clamp(0.0, 1.0 - 1e-16))
+    qfuncinv((1.0 - confidence.clamp(0.0, 1.0 - 1e-16)) / 2.0)
 }
 
 /// Errors among trials of a Bernoulli event.

@@ -14,7 +14,8 @@
 //!   (here from below 1.25 bit/dim with 16QAM, from 1.5–1.75 with 64QAM) and gains
 //!   "about 4 dB" at $R_{0} = 7$ with 256QAM (4.0 dB here: CM 33.45 dB, BICM 29.4 dB).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use comrs::mapping::bicm::{Fading, bicm_cutoff_rate, cm_cutoff_rate};
+use comrs::mapping::bicm::{bicm_cutoff_rate, cm_cutoff_rate};
+use comrs::mapping::theory::Fading;
 use comrs::math::bisect;
 use comrs::prelude::*;
 

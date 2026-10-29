@@ -113,7 +113,12 @@ impl Css {
         self.oversampling * self.m()
     }
 
-    fn check(&self) -> Result<()> {
+    /// Check the configuration.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] unless the spreading factor lies in 1..=16 and the
+    /// oversampling factor is at least 1 (exactly 1 for the FSK reference).
+    pub fn check(&self) -> Result<()> {
         ensure((1..=16).contains(&self.sf), || format!("the spreading factor must lie in 1..=16, got {}", self.sf))?;
         ensure(self.oversampling >= 1, || "the oversampling factor must be at least 1".into())?;
         ensure(self.waveform == Waveform::LoRa || self.oversampling == 1, || {

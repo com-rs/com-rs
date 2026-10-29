@@ -91,7 +91,8 @@
 //!    Prentice Hall, 2001, Sec. 8.1.2 (the bit error probability of Reed–Solomon codes).
 
 use crate::algebraic::{berlekamp_massey, chien_search, eval_at_power};
-use crate::block::{BlockCode, container_traits, expect_len, hard};
+use crate::block::{BlockCode, container_traits, expect_len};
+use com_core::signal::hard_decisions;
 use com_core::{Error, Result, ensure};
 use com_math::gf2m::{Field, primitive_polynomial};
 use com_math::{bits_to_index, index_to_bits};
@@ -399,7 +400,7 @@ impl BlockCode for ReedSolomon {
     /// returns the message bits as received.
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
         expect_len(llr.len(), BlockCode::n(self), "LLRs")?;
-        Ok(self.decode(&hard(llr))?.0)
+        Ok(self.decode(&hard_decisions(llr))?.0)
     }
 }
 

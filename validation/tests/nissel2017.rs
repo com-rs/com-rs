@@ -60,7 +60,7 @@ fn through(taps: &Taps, start: usize, g: &[C64], q_start: usize, q: &[C64]) -> C
 /// exact diagonal of Q^H H G (Nissel & Rupp, eq. (8)), on the middle symbols.
 fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
     let c = Constellation::qam(64).unwrap().normalized();
-    let tdl = Tdl::new(Profile::VehicularA.taps(), doppler(kmh), FS, 1, 1).unwrap();
+    let tdl = Tdl::new(&Profile::VehicularA.taps(), doppler(kmh), FS, 1, 1).unwrap();
     let mut rng = Rng::new(seed);
     let (mut errors, mut total) = (0usize, 0usize);
     let n_cp = if scheme == Scheme::CpOfdm { 14 } else { 0 };
@@ -71,7 +71,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
         let bits: Vec<u8> = (0..M * k_c * 6).map(|_| rng.below(2) as u8).collect();
         let x = c.modulate(&bits).unwrap();
         let s = match scheme {
-            Scheme::Fbmc => fbmc.modulate(&oqam_stagger(&x, M)).unwrap(),
+            Scheme::Fbmc => fbmc.modulate(&oqam_stagger(&x, M).unwrap()).unwrap(),
             _ => ofdm.modulate(&x).unwrap(),
         };
         let taps = tdl.draw(s.len(), &mut rng);
@@ -80,7 +80,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
         let keep = 2..4;
         let z: Vec<C64> = if scheme == Scheme::Fbmc {
             {
-                let y = fbmc.demodulate(&r, 2 * k_c).unwrap();
+                let y = fbmc.demodulate(&r).unwrap();
                 let mut est = vec![0.0; y.len()];
                 for n in 2 * keep.start..2 * keep.end {
                     for m in 0..M {
@@ -89,7 +89,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
                         est[n * M + m] = (y[n * M + m] / h).re;
                     }
                 }
-                oqam_destagger(&est, M)
+                oqam_destagger(&est, M).unwrap()
             }
         } else {
             {
@@ -130,7 +130,7 @@ fn nissel_2017_eqs_16_17_are_the_rayleigh_closed_forms() {
         let eq16 = 0.5 - 0.5 / (1.0 + 2.0 / snr).sqrt();
         let eq17 = 0.5 - 3.0 / 8.0 / (1.0 + 10.0 / snr).sqrt() - 6.0 / 8.0 / (9.0 + 10.0 / snr).sqrt()
             + 5.0 / 8.0 / (25.0 + 10.0 / snr).sqrt();
-        assert!((eq16 - ber_rayleigh_mrc(snr / 2.0, 1)).abs() < 1e-15);
+        assert!((eq16 - ber_rayleigh_mrc(snr / 2.0, 1).unwrap()).abs() < 1e-15);
         assert!((eq17 - ber_16qam_rayleigh(snr / 4.0)).abs() < 1e-15);
     }
 }
@@ -150,14 +150,14 @@ fn nissel_2017_fig_2_fbmc_in_doubly_flat_fading() {
             let x = c.modulate(&bits).unwrap();
             let h = rng.complex_gaussian();
             let r: Vec<C64> = fbmc
-                .modulate(&oqam_stagger(&x, 64))
+                .modulate(&oqam_stagger(&x, 64).unwrap())
                 .unwrap()
                 .iter()
                 .map(|v| v * h + rng.complex_gaussian() * sigma2.sqrt())
                 .collect();
-            let y = fbmc.demodulate(&r, 8).unwrap();
+            let y = fbmc.demodulate(&r).unwrap();
             let est: Vec<f64> = y.iter().map(|v| (v / h).re).collect();
-            let rx = c.demodulate(&oqam_destagger(&est, 64));
+            let rx = c.demodulate(&oqam_destagger(&est, 64).unwrap());
             errors += rx.iter().zip(&bits).filter(|(a, b)| a != b).count();
             total += bits.len();
         }

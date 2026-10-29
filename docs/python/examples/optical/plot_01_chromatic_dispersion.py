@@ -24,7 +24,7 @@ _, x = comrs.symbols(c, 8192, rng)
 h = comrs.pulse_shape("rrc", SPS, n_taps=2 * 128 + 1, rolloff=0.1)
 tx = comrs.fir_filter(h, comrs.upsample(x, SPS))
 # the span loss is compensated by a noisy amplifier: an OSNR-limited link at 20 dB SNR
-rx = comrs.awgn(comrs.linear_fiber_channel(tx, fiber, 80.0, FS), 20.0, rng, fs=FS, bandwidth=RS)
+rx = comrs.awgn(comrs.linear_fiber_channel(tx, fiber, 80.0, FS), 20.0, rng, fs=FS, bandwidth_hz=RS)
 
 
 def symbols(r):
@@ -32,7 +32,7 @@ def symbols(r):
 
 
 cases = {
-    "back to back": comrs.awgn(tx, 20.0, rng, fs=FS, bandwidth=RS),
+    "back to back": comrs.awgn(tx, 20.0, rng, fs=FS, bandwidth_hz=RS),
     "80 km, no compensation": rx,
     "80 km, compensated": comrs.cdc(rx, fiber, 80.0, FS),
 }

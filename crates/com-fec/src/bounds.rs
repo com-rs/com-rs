@@ -44,7 +44,7 @@
 use com_math::{db2lin, gauss_hermite, ln_1p_exp, qfunc};
 
 /// The noise variance per dimension of BPSK at `ebn0_db` and the rate `rate`.
-pub fn noise_variance(ebn0_db: f64, rate: f64) -> f64 {
+pub fn bpsk_noise_variance(ebn0_db: f64, rate: f64) -> f64 {
     1.0 / (2.0 * rate * db2lin(ebn0_db))
 }
 
@@ -53,10 +53,10 @@ fn info_density(l: f64) -> f64 {
     1.0 - ln_1p_exp(-l) / std::f64::consts::LN_2
 }
 
-/// The first two moments of the information density at the noise variance `sigma2`.
-fn moments(sigma2: f64) -> (f64, f64) {
+/// The first two moments of the information density at the noise variance `noise_var`.
+fn moments(noise_var: f64) -> (f64, f64) {
     let (t, w) = gauss_hermite(64);
-    let (mu, s) = (2.0 / sigma2, 2.0 / sigma2.sqrt());
+    let (mu, s) = (2.0 / noise_var, 2.0 / noise_var.sqrt());
     let sp = std::f64::consts::PI.sqrt();
     let mut m1 = 0.0;
     let mut m2 = 0.0;
@@ -69,14 +69,14 @@ fn moments(sigma2: f64) -> (f64, f64) {
 }
 
 /// Capacity of the binary-input AWGN channel (bits per channel use) at the noise
-/// variance `sigma2` per dimension.
-pub fn biawgn_capacity(sigma2: f64) -> f64 {
-    moments(sigma2).0
+/// variance `noise_var` per dimension.
+pub fn biawgn_capacity(noise_var: f64) -> f64 {
+    moments(noise_var).0
 }
 
 /// Dispersion of the binary-input AWGN channel (bits² per channel use).
-pub fn biawgn_dispersion(sigma2: f64) -> f64 {
-    let (m1, m2) = moments(sigma2);
+pub fn biawgn_dispersion(noise_var: f64) -> f64 {
+    let (m1, m2) = moments(noise_var);
     (m2 - m1 * m1).max(0.0)
 }
 
@@ -84,7 +84,7 @@ pub fn biawgn_dispersion(sigma2: f64) -> f64 {
 /// binary code at `ebn0_db` (Polyanskiy, Poor & Verdú 2010).
 pub fn normal_approximation(n: usize, k: usize, ebn0_db: f64) -> f64 {
     let (nf, kf) = (n as f64, k as f64);
-    let s2 = noise_variance(ebn0_db, kf / nf);
+    let s2 = bpsk_noise_variance(ebn0_db, kf / nf);
     let (c, v) = (biawgn_capacity(s2), biawgn_dispersion(s2));
     qfunc((nf * c - kf + 0.5 * nf.log2()) / (nf * v).sqrt())
 }
@@ -92,7 +92,7 @@ pub fn normal_approximation(n: usize, k: usize, ebn0_db: f64) -> f64 {
 /// The smallest $E_{b}/N_{0}$ (dB) at which BPSK supports the rate `rate`
 /// ($n \to \infty$): the solution of $C = R$.
 pub fn shannon_limit_ebn0_db(rate: f64) -> f64 {
-    com_math::bisect(|e| biawgn_capacity(noise_variance(e, rate)) < rate, -2.0, 20.0, 100)
+    com_math::bisect(|e| biawgn_capacity(bpsk_noise_variance(e, rate)) < rate, -2.0, 20.0, 100)
 }
 
 #[cfg(test)]

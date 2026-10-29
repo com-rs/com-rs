@@ -44,7 +44,7 @@ pub fn chebyshev(n: usize, attenuation_db: f64) -> Vec<f64> {
         return vec![1.0; n];
     }
     let order = (n - 1) as f64;
-    let beta = ((10f64.powf(attenuation_db.abs() / 20.0)).acosh() / order).cosh();
+    let beta = ((com_math::db2amp(attenuation_db.abs())).acosh() / order).cosh();
     let odd = n % 2 == 1;
     let p: Vec<C64> = (0..n)
         .map(|k| {

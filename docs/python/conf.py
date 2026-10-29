@@ -89,12 +89,28 @@ def reset_style(gallery_conf, fname):
     )
 
 
+# the themes of the gallery, in the order of a link (the order of the API reference,
+# of the maturity table and of the comparisons with the literature)
+GALLERY_THEMES = [
+    "foundations",
+    "coding",
+    "waveforms",
+    "mimo",
+    "optical",
+    "hardware",
+    "receiver",
+    "analysis",
+    "systems",
+    "simulation",
+]
+
 sphinx_gallery_conf = {
-    # two galleries: the tutorials (step by step) and the classical results (with the
-    # sub-gallery `literature`, one script per figure or table of a reference)
+    # two galleries: the tutorials (step by step) and the classical results, one
+    # sub-gallery per theme (the reproductions of named figures in their theme)
     "examples_dirs": ["tutorials", "examples"],
     "gallery_dirs": ["auto_tutorials", "auto_examples"],
     "filename_pattern": r"/plot_",
+    "subsection_order": [f"examples/{t}" for t in GALLERY_THEMES],
     "within_subsection_order": "FileNameSortKey",
     "reset_modules": ("matplotlib", "conf.reset_style"),
     "download_all_examples": False,

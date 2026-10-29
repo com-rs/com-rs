@@ -59,9 +59,9 @@ use ndarray::ArrayView2;
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for a negative SNR.
-pub fn equal_power(h: &ArrayView2<'_, C64>, snr: f64) -> Result<f64> {
-    ensure(snr >= 0.0, || format!("the SNR must be non-negative, got {snr}"))?;
-    let a = identity(h.nrows()) + h.dot(&hermitian(h)).mapv(|x| x * (snr / h.ncols() as f64));
+pub fn equal_power(h: &ArrayView2<'_, C64>, snr_lin: f64) -> Result<f64> {
+    ensure(snr_lin >= 0.0, || format!("the SNR must be non-negative, got {snr_lin}"))?;
+    let a = identity(h.nrows()) + h.dot(&hermitian(h)).mapv(|x| x * (snr_lin / h.ncols() as f64));
     log2_det_hpd(&a.view())
 }
 
@@ -69,10 +69,10 @@ pub fn equal_power(h: &ArrayView2<'_, C64>, snr: f64) -> Result<f64> {
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for a non-positive SNR.
-pub fn water_filling(h: &ArrayView2<'_, C64>, snr: f64) -> Result<f64> {
+pub fn water_filling(h: &ArrayView2<'_, C64>, snr_lin: f64) -> Result<f64> {
     let (_, s, _) = svd(h);
     let g: Vec<f64> = s.iter().map(|x| x * x).collect();
-    let p = precoding::water_filling(&g, snr)?;
+    let p = precoding::water_filling_powers(&g, snr_lin)?;
     Ok(g.iter().zip(&p).map(|(g, p)| (1.0 + g * p).log2()).sum())
 }
 
@@ -119,7 +119,7 @@ pub fn wishart_eigenvalue_density(m: usize, n: usize, lambda: f64) -> f64 {
 }
 
 /// Ergodic capacity (bits per channel use) of the i.i.d. Rayleigh channel with `n_rx`
-/// receive and `n_tx` transmit antennas, the total SNR `snr` (linear) spread equally
+/// receive and `n_tx` transmit antennas, the total SNR `snr_lin` (linear) spread equally
 /// on the transmit antennas, the channel known at the receiver only: Telatar (1999),
 /// Theorem 2, eq. (8), integrated by Simpson's rule in $\lambda$ up to well beyond the
 /// largest eigenvalue after the change of variable $\lambda = u^{2}$ (the Laguerre
@@ -142,9 +142,9 @@ pub fn wishart_eigenvalue_density(m: usize, n: usize, lambda: f64) -> f64 {
 /// assert!(ergodic_rayleigh(4, 4, 1e3)? > 3.7 * ergodic_rayleigh(1, 1, 1e3)?);
 /// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn ergodic_rayleigh(n_rx: usize, n_tx: usize, snr: f64) -> Result<f64> {
+pub fn ergodic_rayleigh(n_rx: usize, n_tx: usize, snr_lin: f64) -> Result<f64> {
     ensure(n_rx >= 1 && n_tx >= 1, || format!("need at least one antenna on each side, got {n_rx} × {n_tx}"))?;
-    ensure(snr >= 0.0, || format!("the SNR must be non-negative, got {snr}"))?;
+    ensure(snr_lin >= 0.0, || format!("the SNR must be non-negative, got {snr_lin}"))?;
     let (m, n) = (n_rx.min(n_tx), n_rx.max(n_tx));
     // the largest eigenvalue concentrates at (√n + √m)², with fluctuations of order
     // √n + √m: the density is below e^{-40} beyond the upper limit
@@ -152,7 +152,7 @@ pub fn ergodic_rayleigh(n_rx: usize, n_tx: usize, snr: f64) -> Result<f64> {
     let upper = edge * edge + 10.0 * edge + 60.0;
     // λ = u²: the Laguerre functions oscillate with a nearly constant period in u
     let intervals = 400 + (120.0 * (upper * (m + n) as f64).sqrt()) as usize;
-    let g = snr / n_tx as f64;
+    let g = snr_lin / n_tx as f64;
     let c = simpson(
         |u| 2.0 * u * (g * u * u).ln_1p() * wishart_eigenvalue_density(m, n, u * u),
         0.0,
@@ -180,9 +180,9 @@ pub fn ergodic_rayleigh(n_rx: usize, n_tx: usize, snr: f64) -> Result<f64> {
 /// assert!((c / ergodic_rayleigh_limit(100.0) - 1.0).abs() < 5e-3);
 /// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn ergodic_rayleigh_limit(snr: f64) -> f64 {
-    let s = (1.0 + 4.0 * snr).sqrt();
-    (snr.ln() - 1.0 + (s - 1.0) / (2.0 * snr) + 2.0 * (1.0 / s).atanh()) / std::f64::consts::LN_2
+pub fn ergodic_rayleigh_limit(snr_lin: f64) -> f64 {
+    let s = (1.0 + 4.0 * snr_lin).sqrt();
+    (snr_lin.ln() - 1.0 + (s - 1.0) / (2.0 * snr_lin) + 2.0 * (1.0 / s).atanh()) / std::f64::consts::LN_2
 }
 
 fn ensure_single_side(n_rx: usize, n_tx: usize) -> Result<()> {
@@ -215,11 +215,11 @@ fn ensure_single_side(n_rx: usize, n_tx: usize) -> Result<()> {
 /// assert!((p - (1.0 - (-0.1f64).exp())).abs() < 1e-15);
 /// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn outage_rayleigh(n_rx: usize, n_tx: usize, snr: f64, rate: f64) -> Result<f64> {
+pub fn outage_rayleigh(n_rx: usize, n_tx: usize, snr_lin: f64, rate: f64) -> Result<f64> {
     ensure_single_side(n_rx, n_tx)?;
-    ensure(snr > 0.0, || format!("the SNR must be positive, got {snr}"))?;
+    ensure(snr_lin > 0.0, || format!("the SNR must be positive, got {snr_lin}"))?;
     let k = n_rx.max(n_tx) as f64;
-    Ok(gamma_p(k, n_tx as f64 * (rate * std::f64::consts::LN_2).exp_m1() / snr))
+    Ok(gamma_p(k, n_tx as f64 * (rate * std::f64::consts::LN_2).exp_m1() / snr_lin))
 }
 
 /// The $\varepsilon$-capacity (bits per channel use) of [`outage_rayleigh`]: the rate
@@ -238,14 +238,14 @@ pub fn outage_rayleigh(n_rx: usize, n_tx: usize, snr: f64, rate: f64) -> Result<
 /// assert!((outage_rayleigh(4, 1, 100.0, r)? / 1e-3 - 1.0).abs() < 1e-9);
 /// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn outage_capacity_rayleigh(n_rx: usize, n_tx: usize, snr: f64, eps: f64) -> Result<f64> {
+pub fn outage_capacity_rayleigh(n_rx: usize, n_tx: usize, snr_lin: f64, eps: f64) -> Result<f64> {
     ensure_single_side(n_rx, n_tx)?;
-    ensure(snr > 0.0, || format!("the SNR must be positive, got {snr}"))?;
+    ensure(snr_lin > 0.0, || format!("the SNR must be positive, got {snr_lin}"))?;
     ensure(eps > 0.0 && eps < 1.0, || format!("the outage probability must be in (0, 1), got {eps}"))?;
     let k = n_rx.max(n_tx) as f64;
     // P(k, x) < ε on the left of the quantile; search ln x for the dynamic range
     let ln_x = bisect(|u| gamma_p(k, u.exp()) < eps, -800.0, 10.0 + 2.0 * k.ln() + k.sqrt(), 200);
-    Ok((snr * ln_x.exp() / n_tx as f64).ln_1p() / std::f64::consts::LN_2)
+    Ok((snr_lin * ln_x.exp() / n_tx as f64).ln_1p() / std::f64::consts::LN_2)
 }
 
 #[cfg(test)]

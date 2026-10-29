@@ -641,7 +641,7 @@ mod tests {
         // a point cell: the factor itself
         for (n, phi) in [(1usize, 0.3), (5, 0.7), (20, 2.0)] {
             let x = phi / 2.0;
-            let chi = ((n as f64 * x).sin() / x.sin()).powi(2);
+            let chi = (n as f64 * com_math::diric(2.0 * x, n)).powi(2);
             assert!((fejer_cell_average(n, phi, 0.0, 0.0) / chi - 1.0).abs() < 1e-10, "{n} {phi}");
         }
         // a cell spanning one period of the phase along a side: the mean N
@@ -653,7 +653,7 @@ mod tests {
         for i in 0..k {
             for j in 0..k {
                 let p = phi + du * ((i as f64 + 0.5) / k as f64 - 0.5) + dv * ((j as f64 + 0.5) / k as f64 - 0.5);
-                mean += ((n as f64 * p / 2.0).sin() / (p / 2.0).sin()).powi(2) / (k * k) as f64;
+                mean += (n as f64 * com_math::diric(p, n)).powi(2) / (k * k) as f64;
             }
         }
         assert!((fejer_cell_average(n, phi, du, dv) / mean - 1.0).abs() < 1e-4);
@@ -672,7 +672,7 @@ mod tests {
             let default = gn.nli_psd(&s, f).unwrap();
             let df = 2e8f64.min(32e9 / 256.0);
             let fine = GnModel { resolution_hz: Some(df / 4.0), ..gn.clone() }.nli_psd(&s, f).unwrap();
-            let db = 10.0 * (default / fine).log10();
+            let db = com_math::lin2db(default / fine);
             assert!(db.abs() < 0.02, "{spans} spans: {db} dB");
         }
     }
@@ -743,7 +743,7 @@ mod tests {
             let m = GnModel { egn, resolution_hz: Some(rs / 64.0), ..GnModel::new(fiber.clone()) };
             // Simpson over the band
             let p = com_math::simpson(|f| m.nli_psd(&s, f).unwrap(), -rs / 2.0, rs / 2.0, 8);
-            10.0 * p.log10()
+            com_math::lin2db(p)
         };
         let (gn, egn) = (eta(None), eta(Some(FormatMoments { phi: -1.0, psi: 4.0 })));
         assert!((gn - 22.3).abs() < 0.15 && (egn - 18.1).abs() < 0.25, "GN {gn} EGN {egn}");

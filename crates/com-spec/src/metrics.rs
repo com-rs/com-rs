@@ -182,7 +182,7 @@ impl Metrics {
                 rec.errors(m, e as u64, s.coding.payload.len() as u64);
             } else {
                 let k = s.coding.payload.len() / s.coding.n_blocks.max(1);
-                let e = metrics::block_errors(&s.coding.payload, &s.coding.decoded, k)?;
+                let e = metrics::block_errors(&s.coding.decoded, &s.coding.payload, k)?;
                 rec.errors(m, e as u64, s.coding.n_blocks.max(1) as u64);
             }
         }
@@ -203,7 +203,7 @@ impl Metrics {
         let x: Vec<C64> = idx.iter().map(|&i| s.symbols[i]).collect();
         let mut z: Vec<C64> = idx.iter().map(|&i| s.samples[i]).collect();
         // independent of the scaling: on the samples as they are
-        let snr_eff_db = metrics::effective_snr_db(&z, &x);
+        let snr_eff_db = metrics::effective_snr_db(&z, &x)?;
         let g = match self.scale {
             Scale::None => C64::new(1.0, 0.0),
             Scale::Power => {
@@ -211,7 +211,7 @@ impl Metrics {
                 let px: f64 = x.iter().map(C64::norm_sqr).sum();
                 C64::new(if pz > 0.0 { (px / pz).sqrt() } else { 1.0 }, 0.0)
             }
-            Scale::Ls => metrics::ls_gain(&z, &x),
+            Scale::Ls => metrics::ls_gain(&z, &x)?,
         };
         for v in &mut z {
             *v *= g;
@@ -233,7 +233,7 @@ impl Metrics {
                     let tx: Vec<usize> = idx.iter().map(|&i| s.indices[i]).collect();
                     rec.errors("ser", metrics::symbol_errors(&c.decide(&z), &tx) as u64, tx.len() as u64);
                 }
-                "snr_db" => rec.value("snr_db", 10.0 * (sig2 / err2.max(f64::MIN_POSITIVE)).log10()),
+                "snr_db" => rec.value("snr_db", com_math::lin2db(sig2 / err2.max(f64::MIN_POSITIVE))),
                 "snr_eff_db" => rec.value("snr_eff_db", snr_eff_db),
                 "evm" => rec.value("evm", err2 / sig2),
                 "mse" => rec.value("mse", err2 / z.len() as f64),

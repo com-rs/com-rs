@@ -548,10 +548,10 @@ def ofdm_link_ber(ebn0_db, estimator, frames, seed):
         elif estimator == "lmmse":
             delays = [float(d) for d in taps.delays]
             hh = comrs.ofdm_estimate(
-                grid, rx, nv, "lmmse", delays=delays, powers=ch.powers, fft_len=OFDM_N
+                grid, rx, nv, "lmmse", delays=delays, powers=ch.powers, n_fft=OFDM_N
             )
         elif estimator == "robust":
-            hh = comrs.ofdm_estimate(grid, rx, nv, "lmmse", max_delay=OFDM_CP, fft_len=OFDM_N)
+            hh = comrs.ofdm_estimate(grid, rx, nv, "lmmse", max_delay=OFDM_CP, n_fft=OFDM_N)
         else:
             hh = comrs.ofdm_estimate(grid, rx, nv, "linear")
         mse += float(np.mean(np.abs(hh - h) ** 2)) / frames

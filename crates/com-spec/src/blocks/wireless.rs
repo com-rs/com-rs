@@ -303,7 +303,7 @@ impl TdlBlock {
                 ensure(e.rms_delay_s > 0.0 && e.resolution_s > 0.0, || {
                     "tdl: rms_delay_s and resolution_s must be positive".into()
                 })?;
-                Profile::Exponential { rms_delay: e.rms_delay_s, resolution: e.resolution_s }
+                Profile::Exponential { rms_delay_s: e.rms_delay_s, resolution_s: e.resolution_s }
             }
         };
         Ok(TdlBlock { taps: profile.taps(), doppler: p.doppler_hz, n_rx: p.n_rx })
@@ -316,9 +316,9 @@ impl Block for TdlBlock {
         s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
         let x = s.take_streams();
         let (nt, n) = (x.len(), x[0].len());
-        let tdl = Tdl::new(self.taps.clone(), self.doppler, s.fs(), self.n_rx, nt)?;
+        let tdl = Tdl::new(&self.taps, self.doppler, s.fs(), self.n_rx, nt)?;
         let taps = tdl.draw(n, rng);
-        let y = tdl.apply(&x, &taps)?;
+        let y = taps.apply(&x)?;
         s.set_streams(y);
         s.channel.csi = Some(Csi::Taps(taps));
         Ok(())
@@ -770,7 +770,7 @@ mod tests {
             5,
         );
         assert_eq!(s.coding.llr.len(), 800);
-        let hard: Vec<u8> = s.coding.llr.iter().map(|l| u8::from(*l < 0.0)).collect();
+        let hard: Vec<u8> = com_core::signal::hard_decisions(&s.coding.llr);
         assert_eq!(hard, s.bits);
     }
 
@@ -833,7 +833,7 @@ mod tests {
                 ],
                 6,
             );
-            let hard: Vec<u8> = s.coding.llr.iter().map(|l| u8::from(*l < 0.0)).collect();
+            let hard: Vec<u8> = com_core::signal::hard_decisions(&s.coding.llr);
             assert_eq!(hard, s.bits, "{detector}");
         }
     }

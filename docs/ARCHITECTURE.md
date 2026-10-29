@@ -107,15 +107,15 @@ contain" column is as binding as the first one.
 | Crate | Layer | Owns | Must not contain | Depends on |
 | --- | --- | --- | --- | --- |
 | `com-core` | 0 | Signal containers, verb traits, unit newtypes, the generator and its streams, the error type | Any algorithm; any heavy dependency | `num-complex`, `ndarray`, `thiserror` |
-| `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`), Gauss–Hermite quadrature, FFT plans, complex linear algebra, nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
-| `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, synchronisation, equalisation, estimation, compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
+| `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`, `qfuncinv`, `diric`), Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans and their unitary and centred forms, complex linear algebra (tridiagonal systems included), nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, LFSR sequences, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
+| `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, cyclic prefixes and frequency shifts, synchronisation, equalisation, estimation, interpolation, spectral estimation, memoryless nonlinearities driven by Gaussian signals (Bussgang), compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
 | `com-fec` | 2 | Channel codes, CRC, scrambling, interleaving, puncturing, distribution matching, finite-length bounds | Modulation or channel knowledge beyond LLR input | 0 |
 | `com-mapping` | 2 | Constellations, labelling, hard and soft demapping, differential PSK, sources, the closed forms of error and information rates | Pulse shaping or framing | 0 |
-| `com-waveform` | 2 | Time–frequency structure: OFDM and its grid, PAPR, CE-OFDM, CPM | Channel models; MIMO detection algorithms | 0, 1, `com-mapping`, `com-mimo` (ADR 0009) |
+| `com-waveform` | 2 | Time–frequency structure: OFDM and its grid, PAPR, CE-OFDM, CPM, CSS, FBMC/OQAM, UFMC, OTFS | Channel models; MIMO detection algorithms | 0, 1, `com-mapping`, `com-mimo` (ADR 0009) |
 | `com-mimo` | 2 | Detection, the receiver of a link, space-time codes, precoding, capacity | Waveform-specific resource mapping | 0, `com-mapping` (ADR 0008) |
-| `com-channel` | 2 | Propagation media: AWGN, fading, spatial correlation, TDL and CDL multipath, optical fibre | Component non-idealities | 0, 1 |
+| `com-channel` | 2 | Propagation media: AWGN, fading, spatial correlation, TDL and CDL multipath, delay–Doppler channels, optical fibre | Component non-idealities | 0, 1 |
 | `com-hardware` | 2 | Transmitter and receiver non-idealities, electrical and optical | Propagation effects | 0, 1 |
-| `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, spectral estimates | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
+| `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, metrics of spectra (ACLR) | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
 | `com-sim` | 3 | Monte Carlo engine, grids, stopping rules, callbacks, loggers, statistics | Physical-layer algorithms | 0 (`rayon`) |
 | `com-spec` | 4 | Specifications, their blocks and registry, verification, operating-point search, recordings I/O, the `comrs` command (ADR 0004) | Algorithms of the blocks (they live in layers 0–2) | 0–3, `com-systems` (ADR 0010); `serde`, `serde_yaml`, `toml` |
 | `com-systems` | 4 | Chains of standards and assemblies of several layer-2 crates: `dvbs2` (with its FEC), `pas` | New algorithms (they belong in layers 1–2) | 0–2 |
@@ -162,6 +162,7 @@ The following cases are settled. Treat them as precedent.
 | IQ imbalance | `com_hardware::iq` | A component of the transmitter or receiver |
 | CE-OFDM | `com_waveform::ce_ofdm` | A waveform: a real OFDM signal driving a phase modulator |
 | LS / LMMSE estimators | `com_dsp::estimation` | Waveform-agnostic |
+| Interpolation between known positions (linear, quadratic, spline, band-limited, cubic Lagrange) | `com_dsp::interpolation` | Waveform-agnostic; shared by the pilot interpolation of OFDM and the timing recovery |
 | Pilot interpolation on a resource grid | `com_waveform::ofdm::estimation` | Depends on the grid layout |
 | MIMO detectors (ZF, MMSE, SIC, ML, sphere, K-best) | `com_mimo::detection` | Operate on a generic $y = H x + w$ model |
 | The receiver of a link (layers, Alamouti, soft outputs) | `com_mimo::receiver` | Waveform-agnostic; used by the OFDM link and the `mimo_rx` block |
@@ -174,6 +175,14 @@ The following cases are settled. Treat them as precedent.
 | DVB-S2 BCH and LDPC codes and their tables | `com_systems::dvbs2::fec` | Only make sense for one standard |
 | Probabilistic amplitude shaping | `com_systems::pas` | Assembles the CCDM and the LDPC code of `com-fec` and a PAM of `com-mapping` |
 | `ber_to_q_db` | `com_metrics::errors` | A way of reporting a measured error rate |
+| Bussgang's decomposition, the output series of a nonlinearity driven by a Gaussian signal | `com_dsp::nonlinear` | Shared by the clipping of OFDM (`com_waveform::papr`) and the amplifier models (`com_hardware::amplifier`), which are siblings of layer 2 |
+| Welch's PSD and the averaged periodogram | `com_dsp::spectrum` | Spectral estimation, used by tests of the waveforms; `com_metrics::spectrum` re-exports them next to the ACLR |
+| Cyclic prefix, frequency shift, unitary and centred FFT | `com_dsp::signal`, `com_math::fft` | Shared by OFDM, CE-OFDM, NR, OTFS and the oscillator impairments |
+| Delay–Doppler channel and its random model | `com_channel::multipath::{DelayDoppler, DelayDopplerModel}` | A medium; OTFS only takes its paths (`Otfs::effective_channel`) |
+| SER of $M$ orthogonal signals detected noncoherently | `com_mapping::theory::ser_orthogonal_noncoherent` | Shared by noncoherent FSK and chirp spread spectrum |
+| Mutual information over fading (CM and BICM capacities) | `com_mapping::theory::{constellation_mi, constellation_gmi}` | One kernel for the closed forms over AWGN and Rayleigh fading; `com_mapping::bicm` keeps the cutoff rates |
+| Hard decisions of LLRs | `com_core::signal::hard_decisions` | The sign convention of LLRs is fixed in `com-core`; used by codes, demappers and blocks |
+| BPSK-over-AWGN LLRs of the code tests | `com_validation::bpsk_awgn_llr` | A test link, not a channel model of the library |
 
 ## Naming conventions
 
@@ -277,10 +286,11 @@ pub trait Impair {
 }
 ```
 
-Implementations: every `BlockCode` of `com-fec` (`Encode`, `Decode`); `Constellation`
-(`Map`, `Demap`); `Ofdm` (`Modulate`, `Demodulate`); `Eigenmode`, `LinearPrecoder`,
+Implementations: every `BlockCode` of `com-fec`, BCH included (`Encode`, `Decode`;
+`Dvbs2Fec` of `com-systems` is a `BlockCode`); `Constellation` (`Map`, `Demap`); `Ofdm`, `Ufmc`,
+`Otfs` (`Modulate`, `Demodulate`); `Eigenmode`, `LinearPrecoder`,
 `Ostbc` (`Precode`); `detection::Coherent` (`Detect`); `Awgn`, `Noise`, `Rayleigh`,
-`Mimo`, `Tdl`, `Cdl`, `Ssfm` (`Propagate`); `Rapp`, `Saleh`, `MemoryPolynomial`,
+`Mimo`, `Tdl`, `Cdl`, `DelayDopplerModel`, `Ssfm` (`Propagate`); `Rapp`, `Saleh`, `MemoryPolynomial`,
 `PhaseNoise`, `Cfo`, `TxIq`, `RxIq` (`Impair`). The other blocks expose slice-based
 functions and methods.
 
@@ -339,6 +349,8 @@ let fiber = FiberParams { span_km: 100.0, n_spans: 10, ..FiberParams::default() 
 let ofdm = Ofdm { n_cp: 16, dft_spread: true, ..Ofdm::new(256, 200)? };
 ```
 
+A modem that samples a filter once at construction (`Fbmc`, its prototype) keeps its
+fields private behind getters, so that the cached taps cannot disagree with them.
 `CpmConfig::build` is the one configuration validated by a separate `build` step,
 since it tabulates the phase response. The enums that will gain variants are
 `#[non_exhaustive]` (`com_core::Error`, `equalizer::Algorithm`, `filter::{PulseShape,
@@ -649,7 +661,14 @@ A result is checked against one of four kinds of reference, from the strongest:
    the configuration.
 
 `MATURITY.md` grades every module by the strongest evidence it has: **A** for 1–3,
-**B** for 4 only, **C** for self-consistency only (round trips, invariants).
+**B** for 4 only, **C** for self-consistency only (round trips, invariants). It is
+generated, with the maturity tables of the README and of the Python documentation,
+from `validation/maturity.yaml` (`just maturity`); `LITERATURE.md` is generated from
+`validation/literature.yaml` (`just literature`). Both group their rows by the themes
+of the documentation (foundations, coding and shaping, waveforms, MIMO, wireless
+channels, optical, hardware impairments, receiver DSP, metrics and analysis, systems
+and standards, simulation and specifications), as the Python API reference and the
+gallery do.
 
 ### Specifications with expectations
 
@@ -740,10 +759,11 @@ with a Git tag `vX.Y.Z` (`release.yml`). Papers depend on a tag, never on a bran
    crate joins the registry with `com_spec::blocks::register` (ADR 0006).
 5. Add unit and invariant tests.
 6. Check it against its reference: a `mod literature` test or a specification of
-   `specs/validation/` with `expect`, and a row in the validation tables of the README
-   and in `MATURITY.md`.
+   `specs/validation/` with `expect`; its entry in `validation/maturity.yaml` and, for a
+   document, in `validation/literature.yaml` (`just maturity`, `just literature`).
 7. Add the Python binding if users need it (`bindings/com-py`), then `just gen-python`
-   and `just api-index`.
+   and `just api-index`, and list it in its theme of `docs/python/api/index.rst` (a test
+   fails otherwise).
 8. Update the changelog.
 
 ### Working with a coding agent

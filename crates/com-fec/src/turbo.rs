@@ -33,10 +33,11 @@
 //! 3. J. Sun and O. Y. Takeshita, "Interleavers for turbo codes using permutation
 //!    polynomials over integer rings," *IEEE Trans. Inf. Theory*, 51(1), 101–119, 2005.
 
-use crate::block::{BlockCode, container_traits, expect_len, hard};
+use crate::block::{BlockCode, container_traits, expect_len};
 use crate::conv::{Trellis, bcjr};
 use crate::interleaving::Interleaver;
 use com_core::Result;
+use com_core::signal::hard_decisions;
 
 /// A parallel concatenation of two $(13, 15)_{8}$ recursive systematic codes.
 #[derive(Clone, Debug, PartialEq)]
@@ -190,7 +191,7 @@ impl BlockCode for TurboCode {
             ext2 = self.interleaver.deinterleave(&e2);
             app = self.interleaver.deinterleave(&app2[..k]);
         }
-        Ok(hard(&app))
+        Ok(hard_decisions(&app))
     }
 }
 
@@ -211,7 +212,7 @@ mod tests {
         assert_eq!(lte_qpp(41), None);
     }
     use crate::block::testing::awgn_llr;
-    use crate::bounds::noise_variance;
+    use crate::bounds::bpsk_noise_variance;
     use com_core::rng::Rng;
 
     #[test]
@@ -223,7 +224,7 @@ mod tests {
             let info: Vec<u8> = (0..512).map(|_| r.bit()).collect();
             let c = code.encode_block(&info).unwrap();
             // Eb/N0 = 1 dB at rate ≈ 1/3
-            let s2 = noise_variance(1.0, code.code_rate());
+            let s2 = bpsk_noise_variance(1.0, code.code_rate());
             let y = awgn_llr(&c, s2, &mut r);
             code.iterations = 1;
             e1 += code.decode_block(&y).unwrap().iter().zip(&info).filter(|(a, b)| a != b).count();

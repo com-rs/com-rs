@@ -301,3 +301,60 @@ def test_css_waveforms_spectrum_and_interference():
     ser = comrs.css_ser_interference(9, -12.0, -3.0)
     assert comrs.css_ser(9, -12.0) < ser < 1e-2
     assert comrs.css_ser_interference(9, -12.0, -3.0, frame=10) > ser
+
+
+# ------------------------------------------------------------ filtered multicarrier, OTFS
+
+
+def test_fbmc_and_ufmc_round_trips_and_shapes():
+    f = comrs.Fbmc(16, overlap=4)
+    c = np.exp(2j * np.pi * np.arange(16 * 6) / 7)
+    s = f.modulate(comrs.oqam_stagger(c, 16))
+    assert s.size == f.n_samples(12) and (f.n_fft, f.overlap) == (16, 4)
+    back = comrs.oqam_destagger(f.demodulate(s).real, 16)
+    assert np.max(np.abs(back - c)) < 1e-2
+    # a signal of another length is not a whole number of half-symbols
+    with pytest.raises(ValueError):
+        f.demodulate(s[:-1])
+    with pytest.raises(ValueError):
+        comrs.oqam_stagger(c[:5], 16)
+    u = comrs.Ufmc(64, 4, 12, 16, sidelobe_db=40.0)
+    d = np.exp(2j * np.pi * np.arange(96) / 5)
+    x = u.modulate(d)
+    assert (x.size, u.block_len, u.n_active) == (2 * 79, 79, 48)
+    np.testing.assert_allclose(u.demodulate(x), d, atol=1e-9)
+    with pytest.raises(ValueError):
+        comrs.Ufmc(64, 4, 12, 66)
+
+
+def test_otfs_round_trip_and_effective_channel():
+    o = comrs.Otfs(16, 8, n_cp=4)
+    x = np.exp(2j * np.pi * np.arange(128) / 7)
+    s = o.modulate(x)
+    assert s.size == o.block_len == 132
+    np.testing.assert_allclose(o.demodulate(s), x, atol=1e-12)
+    # one path of delay 2 and one Doppler bin: the effective channel is a permutation
+    # with unit-modulus entries, and it maps the frame through the channel
+    fs = 128.0
+    h = o.effective_channel([(1.0 + 0.0j, 2, 1.0)], fs)
+    assert h.shape == (128, 128)
+    np.testing.assert_allclose(np.abs(h).sum(axis=1), 1.0, atol=1e-12)
+    # r[n] = h e^{j2πν(n - l)/fs} s[n - l], the samples before the frame being zero
+    n = np.arange(s.size)
+    r = np.concatenate([np.zeros(2), s[:-2]]) * np.exp(2j * np.pi * 1.0 * (n - 2) / fs)
+    np.testing.assert_allclose(o.demodulate(r), h @ x, atol=1e-9)
+    paths = comrs.delay_doppler_paths("eva", 100.0, 15.36e6, comrs.Rng(1))
+    assert len(paths) == 9 and all(abs(p[2]) <= 100.0 for p in paths)
+
+
+def test_information_rates_over_fading():
+    awgn = comrs.theory_mi(16, 10.0)
+    rayleigh = comrs.theory_mi(16, 10.0, fading="rayleigh")
+    assert rayleigh < awgn
+    gray = comrs.Constellation("qam", 16)
+    assert comrs.cm_capacity(gray, 10.0, "rayleigh") == pytest.approx(
+        comrs.theory_mi(16, 10.0, fading="rayleigh", points=16), abs=1e-9
+    )
+    assert comrs.theory_gmi(16, 10.0, fading="rayleigh") <= rayleigh + 1e-9
+    with pytest.raises(ValueError):
+        comrs.theory_mi(16, 10.0, fading="rician")

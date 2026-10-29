@@ -76,7 +76,7 @@ pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f
     let b = cn.bits_per_symbol();
     let h = entropy(&p);
     let btx = cn.demodulate(&t);
-    let llr = cn.llr(&r, sigma2, Some(&p), false);
+    let llr = cn.llr(&r, sigma2, Some(&p), false)?;
     let gmi = gmi_from_llr(&llr, &btx, b, h);
     Ok((gmi, gmi / h))
 }
@@ -174,9 +174,9 @@ pub fn information_rates(
     let mi = h - acc / rx.len() as f64 / std::f64::consts::LN_2;
     let b = cn.bits_per_symbol();
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
-    let llr = cn.llr(&y, sigma2, Some(&p), false);
+    let llr = cn.llr(&y, sigma2, Some(&p), false)?;
     let gmi = gmi_from_llr(&llr, &bits, b, h);
-    let snr_db = 10.0 * (a.norm_sqr() * ex / err.max(f64::MIN_POSITIVE)).log10();
+    let snr_db = com_math::lin2db(a.norm_sqr() * ex / err.max(f64::MIN_POSITIVE));
     Ok(InformationRates { mi, gmi, ngmi: gmi / h, snr_db, entropy: h })
 }
 
@@ -270,13 +270,13 @@ pub fn posterior_rates(
     z: &[C64],
     indices: &[usize],
     c: &Constellation,
-    sigma2: f64,
+    noise_var: f64,
     px: Option<&[f64]>,
 ) -> Result<PosteriorRates> {
     same_len(z.len(), indices.len(), "received symbols and transmitted indices")?;
     ensure(!z.is_empty(), || "empty symbol sequences".into())?;
-    ensure(sigma2 > 0.0 && sigma2.is_finite(), || {
-        format!("the receiver's noise variance must be positive, got {sigma2}")
+    ensure(noise_var > 0.0 && noise_var.is_finite(), || {
+        format!("the receiver's noise variance must be positive, got {noise_var}")
     })?;
     let cn = c.normalized();
     let m = cn.order();
@@ -287,7 +287,8 @@ pub fn posterior_rates(
     let lp = log_priors(&p);
     let h = entropy(&p);
     // distances d[k][j] = |z_k - x_j|² / σ̂², computed once
-    let d: Vec<f64> = z.iter().flat_map(|zk| cn.points().iter().map(move |p| (zk - p).norm_sqr() / sigma2)).collect();
+    let d: Vec<f64> =
+        z.iter().flat_map(|zk| cn.points().iter().map(move |p| (zk - p).norm_sqr() / noise_var)).collect();
     let air_at = |s: f64| -> f64 {
         let mut terms = vec![0.0; m];
         let mut acc = 0.0;
@@ -325,7 +326,7 @@ pub fn posterior_rates(
     let (scale, air_opt) = maximise_scale(air_at);
     let (scale_bmd, air_bmd_opt) = maximise_scale(bmd_at);
     let mse = z.iter().zip(indices).map(|(zk, &i)| (zk - cn.points()[i]).norm_sqr()).sum::<f64>() / n;
-    let calibration = sigma2 / mse.max(f64::MIN_POSITIVE);
+    let calibration = noise_var / mse.max(f64::MIN_POSITIVE);
     Ok(PosteriorRates { air, air_bmd, air_opt, air_bmd_opt, scale, scale_bmd, calibration })
 }
 

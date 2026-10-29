@@ -1,5 +1,7 @@
-//! Capacity and cutoff rate of coded modulation (CM) and bit-interleaved coded
-//! modulation (BICM) with uniform inputs (Caire, Taricco & Biglieri 1998, Sec. III).
+//! Cutoff rates of coded modulation (CM) and bit-interleaved coded modulation (BICM)
+//! with uniform inputs (Caire, Taricco & Biglieri 1998, Sec. III); their capacities are
+//! the mutual information and the generalized mutual information of
+//! [`crate::theory::constellation_mi`] and [`crate::theory::constellation_gmi`].
 //!
 //! A constellation $\mathcal{X}$ of $M = 2^{m}$ points with unit mean energy carries
 //! the label of `points()[i]` in the bits of `i` (Gray for the families of
@@ -8,14 +10,16 @@
 //! constellation sees a real channel, as in [`crate::theory`]), the SNR is
 //! $1/\sigma^{2}$, and the gain $g$ is 1 ([`Fading::Awgn`]) or Rayleigh,
 //! $\mathbb{E}|g|^{2} = 1$, known at the receiver ([`Fading::Rayleigh`], perfect CSI
-//! and ideal interleaving). With $\mathcal{X}_{b}^{i}$ the points whose bit $i$ is $b$:
+//! and ideal interleaving; [`Fading`] is that of [`crate::theory`]). With $\mathcal{X}_{b}^{i}$ the points whose bit $i$ is $b$:
 //!
-//! - the CM capacity (eq. (10)), the mutual information [`cm_capacity`],
+//! - the CM capacity (eq. (10)), the mutual information
+//!   ([`crate::theory::constellation_mi`] with `px = None`),
 //!   $\tilde{C} = m - \mathbb{E}\left[\log_{2} \sum_{z \in \mathcal{X}} p(y|z) / p(y|x)\right]$;
-//! - the BICM capacity (eq. (14)), [`bicm_capacity`],
+//! - the BICM capacity (eq. (14)) ([`crate::theory::constellation_gmi`] with
+//!   `px = None`),
 //!   $\hat{C} = m - \sum_{i=1}^{m} \mathbb{E}_{b,y}\left[\log_{2} \sum_{z \in \mathcal{X}} p(y|z)
 //!   / \sum_{z \in \mathcal{X}_{b}^{i}} p(y|z)\right] \le \tilde{C}$ (eq. (16)), the
-//!   generalized mutual information of [`crate::theory::gmi`];
+//!   generalized mutual information;
 //! - the CM cutoff rate (eq. (17)), in closed form, [`cm_cutoff_rate`],
 //!   $\tilde{R}_{0} = m - \log_{2} \frac{1}{M} \sum_{x, z} \mathbb{E}_{g}\, e^{-|g|^{2}
 //!   |x - z|^{2} / (4\sigma^{2})}$, where the mean over Rayleigh fading is
@@ -32,15 +36,18 @@
 //!
 //! # Examples
 //! ```
-//! use com_mapping::bicm::{self, Fading};
+//! use com_mapping::bicm::bicm_cutoff_rate;
 //! use com_mapping::constellation::{Constellation, ConstellationKind};
+//! use com_mapping::theory::{Fading, constellation_gmi, constellation_mi};
 //! // 16-QAM at 10 dB: BICM with Gray labels loses little, with set partitioning much
 //! let gray = Constellation::qam(16)?;
 //! let sp = Constellation::set_partitioning(ConstellationKind::Qam, 16)?;
-//! let cm = bicm::cm_capacity(&gray, 10.0, Fading::Awgn, 16)?;
-//! let g = bicm::bicm_capacity(&gray, 10.0, Fading::Awgn, 16)?;
-//! let s = bicm::bicm_capacity(&sp, 10.0, Fading::Awgn, 16)?;
+//! let cm = constellation_mi(&gray, 10.0, None, Fading::Awgn, 16)?;
+//! let g = constellation_gmi(&gray, 10.0, None, Fading::Awgn, 16)?;
+//! let s = constellation_gmi(&sp, 10.0, None, Fading::Awgn, 16)?;
 //! assert!(cm > g && cm - g < 0.05 && g - s > 0.3);
+//! // the cutoff rate lies below the capacity
+//! assert!(bicm_cutoff_rate(&gray, 10.0, Fading::Awgn, 16)? < g);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -52,72 +59,17 @@
 //!    40(5), 873–884, 1992.
 
 use crate::constellation::Constellation;
-use crate::theory::{TheorySetup, bit_expectations, gmi_of, mi_of, setup};
+use crate::theory::{Fading, TheorySetup, bit_expectations, over_fading, setup};
 use com_core::Result;
 use com_math::{db2lin, log_sum_exp_iter};
-
-/// The fading of [`cm_capacity`], [`bicm_capacity`], [`cm_cutoff_rate`] and
-/// [`bicm_cutoff_rate`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fading {
-    /// No fading: $g = 1$.
-    Awgn,
-    /// Flat Rayleigh fading, $g \sim \mathcal{CN}(0, 1)$ independent from symbol to
-    /// symbol (ideal interleaving), known at the receiver.
-    Rayleigh,
-}
-
-/// The mean of `f(snr_db)` over the channel: `f(snr_db)` itself without fading, and
-/// $\mathbb{E}\, f(\mathrm{snr} + 10 \log_{10} |g|^{2})$ over Rayleigh fading.
-fn over_fading(f: impl Fn(f64) -> Result<f64>, snr_db: f64, fading: Fading) -> Result<f64> {
-    if fading == Fading::Awgn {
-        return f(snr_db);
-    }
-    // u = ln |g|², of density e^{u - e^u}; below e^{lo} the integrand is f(0) to first
-    // order, with the mass 1 - e^{-e^{lo}}
-    let lo = (1e-4 / db2lin(snr_db).max(1.0)).ln();
-    let hi = 40f64.ln();
-    let n = ((8.0 * (hi - lo)).ceil() as usize).div_ceil(2) * 2;
-    let h = (hi - lo) / n as f64;
-    let at = |u: f64| -> Result<f64> { Ok((u - u.exp()).exp() * f(snr_db + 10.0 * u / std::f64::consts::LN_10)?) };
-    let mut acc = at(lo)? + at(hi)?;
-    for k in 1..n {
-        acc += if k % 2 == 1 { 4.0 } else { 2.0 } * at(lo + k as f64 * h)?;
-    }
-    let tail = -(-lo.exp()).exp_m1() * f(snr_db + 10.0 * lo / std::f64::consts::LN_10)?;
-    Ok(acc * h / 3.0 + tail)
-}
-
-fn uniform(c: &Constellation, snr_db: f64, points: usize) -> Result<TheorySetup> {
-    setup(c, None, snr_db, points)
-}
-
-/// The CM capacity (bits per channel use) of a constellation with uniform inputs, eq.
-/// (10) of Caire et al. 1998 (see the module): the mutual information of
-/// [`crate::theory::mi`], averaged over the fading.
-///
-/// # Errors
-/// [`com_core::Error::Config`] for an invalid constellation.
-pub fn cm_capacity(c: &Constellation, snr_db: f64, fading: Fading, points: usize) -> Result<f64> {
-    over_fading(|s| Ok(mi_of(&uniform(c, s, points)?)), snr_db, fading)
-}
-
-/// The BICM capacity (bits per channel use) of a labelled constellation with uniform
-/// inputs, eq. (14) of Caire et al. 1998 (see the module): the generalized mutual
-/// information of [`crate::theory::gmi`], averaged over the fading.
-///
-/// # Errors
-/// [`com_core::Error::Config`] for an invalid constellation.
-pub fn bicm_capacity(c: &Constellation, snr_db: f64, fading: Fading, points: usize) -> Result<f64> {
-    over_fading(|s| Ok(gmi_of(&uniform(c, s, points)?)), snr_db, fading)
-}
 
 /// The CM cutoff rate (bits per channel use) of a constellation with uniform inputs,
 /// eq. (17) of Caire et al. 1998 in closed form (see the module).
 ///
 /// # Examples
 /// ```
-/// use com_mapping::bicm::{cm_cutoff_rate, Fading};
+/// use com_mapping::bicm::cm_cutoff_rate;
+/// use com_mapping::theory::Fading;
 /// use com_mapping::constellation::Constellation;
 /// // BPSK: 1 - log2(1 + e^{-Es/N0})
 /// let c = Constellation::psk(2)?;
@@ -151,7 +103,7 @@ pub fn cm_cutoff_rate(c: &Constellation, snr_db: f64, fading: Fading) -> f64 {
 /// [`com_core::Error::Config`] for an invalid constellation.
 pub fn bicm_cutoff_rate(c: &Constellation, snr_db: f64, fading: Fading, points: usize) -> Result<f64> {
     let b = c.bits_per_symbol() as f64;
-    let factor = over_fading(|s| Ok(bhattacharyya(&uniform(c, s, points)?)), snr_db, fading)?;
+    let factor = over_fading(|s| Ok(bhattacharyya(&setup(c, None, s, points)?)), snr_db, fading)?;
     Ok(b * (1.0 - factor.ln_1p() / std::f64::consts::LN_2))
 }
 
@@ -171,6 +123,7 @@ fn bhattacharyya(s: &TheorySetup) -> f64 {
 mod tests {
     use super::*;
     use crate::constellation::ConstellationKind;
+    use crate::theory::{constellation_gmi, constellation_mi};
     use com_core::rng::Rng;
 
     #[test]
@@ -213,8 +166,8 @@ mod tests {
             bicm.push(v);
         }
         for (v, want) in [
-            (&cm, cm_capacity(&c, snr_db, Fading::Rayleigh, 16).unwrap()),
-            (&bicm, bicm_capacity(&c, snr_db, Fading::Rayleigh, 16).unwrap()),
+            (&cm, constellation_mi(&c, snr_db, None, Fading::Rayleigh, 16).unwrap()),
+            (&bicm, constellation_gmi(&c, snr_db, None, Fading::Rayleigh, 16).unwrap()),
         ] {
             let mean = v.iter().sum::<f64>() / n as f64;
             let sd = (v.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / (n * (n - 1)) as f64).sqrt();
@@ -243,12 +196,12 @@ mod tests {
             let gray = Constellation::new(kind, m).unwrap();
             let sp = Constellation::set_partitioning(kind, m).unwrap();
             for snr_db in [0.0, 6.0, 12.0] {
-                let cm = cm_capacity(&gray, snr_db, Fading::Awgn, 16).unwrap();
-                let g = bicm_capacity(&gray, snr_db, Fading::Awgn, 16).unwrap();
-                let s = bicm_capacity(&sp, snr_db, Fading::Awgn, 16).unwrap();
+                let cm = constellation_mi(&gray, snr_db, None, Fading::Awgn, 16).unwrap();
+                let g = constellation_gmi(&gray, snr_db, None, Fading::Awgn, 16).unwrap();
+                let s = constellation_gmi(&sp, snr_db, None, Fading::Awgn, 16).unwrap();
                 assert!(cm >= g - 1e-12 && g > s, "{kind:?} {snr_db} dB: {cm} {g} {s}");
                 // relabelling does not change the CM capacity
-                assert!((cm_capacity(&sp, snr_db, Fading::Awgn, 16).unwrap() - cm).abs() < 1e-9);
+                assert!((constellation_mi(&sp, snr_db, None, Fading::Awgn, 16).unwrap() - cm).abs() < 1e-9);
             }
         }
     }
@@ -258,6 +211,7 @@ mod tests {
 mod literature {
     use super::*;
     use crate::constellation::ConstellationKind;
+    use crate::theory::{constellation_gmi, constellation_mi};
     use com_math::bisect;
 
     fn pair(kind: ConstellationKind, m: usize) -> (Constellation, Constellation) {
@@ -276,24 +230,24 @@ mod literature {
         let (p8, _) = pair(ConstellationKind::Psk, 8);
         let (q16, sp16) = pair(ConstellationKind::Qam, 16);
         for (got, want) in [
-            (cm_capacity(&p8, 10.0, Fading::Awgn, 12).unwrap(), 2.7),
-            (cm_capacity(&q16, 10.0, Fading::Awgn, 12).unwrap(), 3.15),
-            (bicm_capacity(&sp16, 10.0, Fading::Awgn, 12).unwrap(), 2.4),
-            (cm_capacity(&q16, 10.0, Fading::Rayleigh, 8).unwrap(), 2.6),
-            (bicm_capacity(&sp16, 15.0, Fading::Rayleigh, 8).unwrap(), 3.0),
+            (constellation_mi(&p8, 10.0, None, Fading::Awgn, 12).unwrap(), 2.7),
+            (constellation_mi(&q16, 10.0, None, Fading::Awgn, 12).unwrap(), 3.15),
+            (constellation_gmi(&sp16, 10.0, None, Fading::Awgn, 12).unwrap(), 2.4),
+            (constellation_mi(&q16, 10.0, None, Fading::Rayleigh, 8).unwrap(), 2.6),
+            (constellation_gmi(&sp16, 15.0, None, Fading::Rayleigh, 8).unwrap(), 3.0),
         ] {
             assert!((got - want).abs() < 0.1, "{got} vs {want}");
         }
         for (kind, m) in [(ConstellationKind::Psk, 4), (ConstellationKind::Psk, 8), (ConstellationKind::Qam, 16)] {
             let (gray, sp) = pair(kind, m);
             for snr_db in [-5.0, 0.0, 5.0, 10.0, 20.0] {
-                let gap = cm_capacity(&gray, snr_db, Fading::Awgn, 12).unwrap()
-                    - bicm_capacity(&gray, snr_db, Fading::Awgn, 12).unwrap();
+                let gap = constellation_mi(&gray, snr_db, None, Fading::Awgn, 12).unwrap()
+                    - constellation_gmi(&gray, snr_db, None, Fading::Awgn, 12).unwrap();
                 assert!((-1e-12..0.1).contains(&gap), "{kind:?} {m}, {snr_db} dB: {gap}");
             }
             if m > 4 {
                 let need = |c: &Constellation| {
-                    bisect(|s| bicm_capacity(c, s, Fading::Awgn, 12).unwrap() < 2.0, -10.0, 30.0, 30)
+                    bisect(|s| constellation_gmi(c, s, None, Fading::Awgn, 12).unwrap() < 2.0, -10.0, 30.0, 30)
                 };
                 let loss = need(&sp) - need(&gray);
                 assert!((2.0..6.0).contains(&loss), "{kind:?} {m}: {loss} dB");

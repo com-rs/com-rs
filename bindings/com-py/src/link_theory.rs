@@ -4,7 +4,7 @@
 //! (Banelli & Cacopardi 2000).
 
 use crate::{FArr, cvec, farr, fvec, map_real};
-use comrs::hardware::gaussian_input;
+use comrs::dsp::nonlinear;
 use comrs::mapping::imperfect_csi as csi;
 use num_complex::Complex64 as C64;
 use pyo3::exceptions::PyValueError;
@@ -22,7 +22,7 @@ use pyo3::prelude::*;
 ///     ebn0_db (float | array_like): the mean `Eb/N0` (dB).
 ///     rho1 (float): the real correlation coefficient.
 ///     rho2 (float): the imaginary correlation coefficient.
-///     sigma_ratio (float): σ2/σ1 (16-QAM only: PSK does not depend on |Ĥ|).
+///     sigma_ratio (float): σ2/σ1 (16-QAM only: PSK does not depend on `|Ĥ|`).
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `Eb/N0`.
@@ -105,9 +105,9 @@ fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 #[pyfunction]
 #[pyo3(signature = (f, n_terms = 60))]
 fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: usize) -> PyResult<FArr<'py>> {
-    let r = farr(py, gaussian_input::series_grid());
+    let r = farr(py, nonlinear::series_grid());
     let values: Vec<C64> = cvec(&f.call1((r,))?)?;
-    Ok(farr(py, gaussian_input::output_series_sampled(&values, n_terms)))
+    Ok(farr(py, nonlinear::output_series_sampled(&values, n_terms)))
 }
 
 /// The power of the useful term and of the distortion on each of `bins` frequency bins,
@@ -132,7 +132,7 @@ fn distortion_spectrum<'py>(
     if occupied == 0 || occupied > bins {
         return Err(PyValueError::new_err(format!("need 0 < occupied ≤ bins, got {occupied} and {bins}")));
     }
-    let (u, d) = gaussian_input::distortion_spectrum(&fvec(c)?, occupied, bins);
+    let (u, d) = nonlinear::distortion_spectrum(&fvec(c)?, occupied, bins);
     Ok((farr(py, u), farr(py, d)))
 }
 

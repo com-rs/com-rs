@@ -45,11 +45,11 @@
 //! let f = Fbmc::new(16, 4)?;
 //! // 6 complex symbols per subcarrier: 12 real half-symbols
 //! let c: Vec<C64> = (0..16 * 6).map(|i| C64::new(if i % 3 == 0 { 1.0 } else { -1.0 }, if i % 5 == 0 { -1.0 } else { 1.0 })).collect();
-//! let a = oqam_stagger(&c, 16);
+//! let a = oqam_stagger(&c, 16)?;
 //! let s = f.modulate(&a)?;
-//! assert_eq!(s.len(), f.len(12));
-//! let y = f.demodulate(&s, 12)?;
-//! let back = oqam_destagger(&y.iter().map(|v| v.re).collect::<Vec<f64>>(), 16);
+//! assert_eq!(s.len(), f.n_samples(12));
+//! let y = f.demodulate(&s)?;
+//! let back = oqam_destagger(&y.iter().map(|v| v.re).collect::<Vec<f64>>(), 16)?;
 //! // PHYDYAS is nearly perfect reconstruction: a residual of a few 1e-3
 //! assert!(back.iter().zip(&c).all(|(a, b)| (a - b).norm() < 1e-2));
 //! # Ok::<(), com_core::Error>(())
@@ -119,36 +119,35 @@ impl Prototype {
 /// An FBMC/OQAM modem (see the module).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fbmc {
-    subcarriers: usize,
+    n_fft: usize,
     overlap: usize,
     taps: Vec<f64>,
 }
 
 impl Fbmc {
-    /// `subcarriers` $M$ (even) with the PHYDYAS prototype of overlapping factor
-    /// `overlap`.
+    /// `n_fft` subcarriers $M$ (even) with the PHYDYAS prototype of overlapping factor
+    /// `overlap`. The prototype is sampled once here: the fields are read through
+    /// getters.
     ///
     /// # Errors
     /// [`Error::Config`] for an odd or zero number of subcarriers or an unknown
     /// overlapping factor.
-    pub fn new(subcarriers: usize, overlap: usize) -> Result<Fbmc> {
-        Fbmc::with_prototype(subcarriers, overlap, Prototype::Phydyas)
+    pub fn new(n_fft: usize, overlap: usize) -> Result<Fbmc> {
+        Fbmc::with_prototype(n_fft, overlap, Prototype::Phydyas)
     }
 
     /// [`Fbmc::new`] with another prototype.
     ///
     /// # Errors
     /// As [`Fbmc::new`].
-    pub fn with_prototype(subcarriers: usize, overlap: usize, prototype: Prototype) -> Result<Fbmc> {
-        ensure(subcarriers >= 2 && subcarriers % 2 == 0, || {
-            format!("FBMC/OQAM needs an even number of subcarriers, got {subcarriers}")
-        })?;
-        Ok(Fbmc { subcarriers, overlap, taps: prototype.taps(subcarriers, overlap)? })
+    pub fn with_prototype(n_fft: usize, overlap: usize, prototype: Prototype) -> Result<Fbmc> {
+        ensure(n_fft >= 2 && n_fft % 2 == 0, || format!("FBMC/OQAM needs an even number of subcarriers, got {n_fft}"))?;
+        Ok(Fbmc { n_fft, overlap, taps: prototype.taps(n_fft, overlap)? })
     }
 
     /// The number of subcarriers $M$.
-    pub fn subcarriers(&self) -> usize {
-        self.subcarriers
+    pub fn n_fft(&self) -> usize {
+        self.n_fft
     }
 
     /// The overlapping factor $K$.
@@ -163,13 +162,29 @@ impl Fbmc {
 
     /// The number of samples of `half_symbols` real symbols per subcarrier:
     /// $(n - 1) M/2 + L$.
-    pub fn len(&self, half_symbols: usize) -> usize {
-        if half_symbols == 0 { 0 } else { (half_symbols - 1) * self.subcarriers / 2 + self.taps.len() }
+    pub fn n_samples(&self, half_symbols: usize) -> usize {
+        if half_symbols == 0 { 0 } else { (half_symbols - 1) * self.n_fft / 2 + self.taps.len() }
+    }
+
+    /// The number of half-symbols of a signal of `n_samples` samples, the inverse of
+    /// [`Fbmc::n_samples`].
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if no whole number of half-symbols has this length.
+    pub fn half_symbols(&self, n_samples: usize) -> Result<usize> {
+        let (half, l) = (self.n_fft / 2, self.taps.len());
+        if n_samples == 0 {
+            return Ok(0);
+        }
+        ensure_shape(n_samples >= l && (n_samples - l) % half == 0, || {
+            format!("{n_samples} samples are not a whole number of half-symbols ((n - 1) {half} + {l})")
+        })?;
+        Ok((n_samples - l) / half + 1)
     }
 
     /// The pulse $g_{m,n}$ on its support: `(first sample, values)`.
     pub fn pulse(&self, m: usize, n: usize) -> (usize, Vec<C64>) {
-        let mm = self.subcarriers as f64;
+        let mm = self.n_fft as f64;
         let centre = (self.taps.len() - 1) as f64 / 2.0;
         let phase = cis(std::f64::consts::FRAC_PI_2 * ((m + n) % 4) as f64);
         let values = self
@@ -178,7 +193,7 @@ impl Fbmc {
             .enumerate()
             .map(|(i, h)| cis(std::f64::consts::TAU * m as f64 * (i as f64 - centre) / mm) * phase * *h)
             .collect();
-        (n * self.subcarriers / 2, values)
+        (n * self.n_fft / 2, values)
     }
 
     /// The intrinsic interference $\langle g_{m+\Delta m, n+\Delta n}, g_{m,n} \rangle =
@@ -187,7 +202,7 @@ impl Fbmc {
     /// $\Delta m = \Delta n = 0$, purely imaginary otherwise (Bouhadda et al. 2014, eq. (7)
     /// and Table 1). The subcarrier index is taken modulo $M$.
     pub fn interference(&self, m: usize, n: usize, dm: isize, dn: isize) -> C64 {
-        let mm = self.subcarriers as isize;
+        let mm = self.n_fft as isize;
         let m2 = (m as isize + dm).rem_euclid(mm) as usize;
         // a common time origin far enough for negative shifts
         let base = 4 * self.overlap;
@@ -206,12 +221,12 @@ impl Fbmc {
     /// # Errors
     /// [`Error::Shape`] unless `a` holds whole half-symbols.
     pub fn modulate(&self, a: &[f64]) -> Result<Vec<C64>> {
-        let m = self.subcarriers;
+        let m = self.n_fft;
         ensure_shape(a.len() % m == 0, || format!("{} real symbols for {m} subcarriers", a.len()))?;
         let half_symbols = a.len() / m;
         let shift = (self.taps.len() - 1) / 2;
         let plan = fft::plan(m);
-        let mut s = vec![C64::new(0.0, 0.0); self.len(half_symbols)];
+        let mut s = vec![C64::new(0.0, 0.0); self.n_samples(half_symbols)];
         let mut v = vec![C64::new(0.0, 0.0); m];
         for (n, row) in a.chunks_exact(m).enumerate() {
             for (k, (vk, ak)) in v.iter_mut().zip(row).enumerate() {
@@ -227,17 +242,15 @@ impl Fbmc {
         Ok(s)
     }
 
-    /// Project `r` on every pulse of `half_symbols` half-symbols: $y_{m,n} =
-    /// \langle r, g_{m,n} \rangle$, laid out `y[n * M + m]`; the real parts estimate the
-    /// symbols, the imaginary parts hold the intrinsic interference.
+    /// Project `r`, the [`Fbmc::n_samples`] of a whole number of half-symbols, on every
+    /// pulse: $y_{m,n} = \langle r, g_{m,n} \rangle$, laid out `y[n * M + m]`; the real
+    /// parts estimate the symbols, the imaginary parts hold the intrinsic interference.
     ///
     /// # Errors
-    /// [`Error::Shape`] if `r` is shorter than [`Fbmc::len`] of `half_symbols`.
-    pub fn demodulate(&self, r: &[C64], half_symbols: usize) -> Result<Vec<C64>> {
-        let m = self.subcarriers;
-        ensure_shape(r.len() >= self.len(half_symbols), || {
-            format!("{} samples for {half_symbols} half-symbols ({} needed)", r.len(), self.len(half_symbols))
-        })?;
+    /// As [`Fbmc::half_symbols`] of the length of `r`.
+    pub fn demodulate(&self, r: &[C64]) -> Result<Vec<C64>> {
+        let m = self.n_fft;
+        let half_symbols = self.half_symbols(r.len())?;
         let shift = (self.taps.len() - 1) / 2;
         let plan = fft::plan(m);
         let mut y = Vec::with_capacity(half_symbols * m);
@@ -262,10 +275,12 @@ impl Fbmc {
 /// half-symbol and the imaginary part on the odd one for the even subcarriers, the
 /// reverse for the odd subcarriers.
 ///
-/// # Panics
-/// If `c` does not hold whole symbols of `m` subcarriers.
-pub fn oqam_stagger(c: &[C64], m: usize) -> Vec<f64> {
-    assert!(m > 0 && c.len() % m == 0, "whole symbols of {m} subcarriers");
+/// # Errors
+/// [`Error::Shape`] if `c` does not hold whole symbols of `m` subcarriers.
+pub fn oqam_stagger(c: &[C64], m: usize) -> Result<Vec<f64>> {
+    ensure_shape(m > 0 && c.len() % m == 0, || {
+        format!("{} symbols are not whole symbols of {m} subcarriers", c.len())
+    })?;
     let mut a = vec![0.0; 2 * c.len()];
     for (k, row) in c.chunks_exact(m).enumerate() {
         for (sub, v) in row.iter().enumerate() {
@@ -274,16 +289,19 @@ pub fn oqam_stagger(c: &[C64], m: usize) -> Vec<f64> {
             a[(2 * k + 1) * m + sub] = second;
         }
     }
-    a
+    Ok(a)
 }
 
 /// The inverse of [`oqam_stagger`]: complex symbols from the real estimates
 /// `a[n * M + m]` of an even number of half-symbols.
 ///
-/// # Panics
-/// If `a` does not hold an even number of half-symbols of `m` subcarriers.
-pub fn oqam_destagger(a: &[f64], m: usize) -> Vec<C64> {
-    assert!(m > 0 && a.len() % (2 * m) == 0, "an even number of half-symbols of {m} subcarriers");
+/// # Errors
+/// [`Error::Shape`] if `a` does not hold an even number of half-symbols of `m`
+/// subcarriers.
+pub fn oqam_destagger(a: &[f64], m: usize) -> Result<Vec<C64>> {
+    ensure_shape(m > 0 && a.len() % (2 * m) == 0, || {
+        format!("{} real symbols are not an even number of half-symbols of {m} subcarriers", a.len())
+    })?;
     let mut c = Vec::with_capacity(a.len() / 2);
     for pair in a.chunks_exact(2 * m) {
         let (first, second) = pair.split_at(m);
@@ -291,7 +309,7 @@ pub fn oqam_destagger(a: &[f64], m: usize) -> Vec<C64> {
             c.push(if sub % 2 == 0 { C64::new(first[sub], second[sub]) } else { C64::new(second[sub], first[sub]) });
         }
     }
-    c
+    Ok(c)
 }
 
 #[cfg(test)]
@@ -332,7 +350,7 @@ mod tests {
         let n = 5;
         let a: Vec<f64> = (0..8 * n).map(|_| r.gaussian()).collect();
         let s = f.modulate(&a).unwrap();
-        let mut direct = vec![C64::new(0.0, 0.0); f.len(n)];
+        let mut direct = vec![C64::new(0.0, 0.0); f.n_samples(n)];
         for nn in 0..n {
             for m in 0..8 {
                 let (start, g) = f.pulse(m, nn);
@@ -342,7 +360,7 @@ mod tests {
             }
         }
         assert!(s.iter().zip(&direct).all(|(x, y)| (x - y).norm() < 1e-12));
-        let y = f.demodulate(&s, n).unwrap();
+        let y = f.demodulate(&s).unwrap();
         for nn in 0..n {
             for m in 0..8 {
                 let (start, g) = f.pulse(m, nn);
@@ -365,7 +383,7 @@ mod tests {
         assert!((p - 1.0).abs() < 0.02, "{p}");
         let sigma2: f64 = 0.1;
         let noisy: Vec<C64> = s.iter().map(|v| v + r.complex_gaussian() * sigma2.sqrt()).collect();
-        let y = f.demodulate(&noisy, n).unwrap();
+        let y = f.demodulate(&noisy).unwrap();
         let err: Vec<f64> = y.iter().zip(&a).map(|(v, a)| v.re - a).collect();
         let var = err.iter().map(|e| e * e).sum::<f64>() / err.len() as f64;
         assert!((var / (sigma2 / 2.0) - 1.0).abs() < 0.03, "{var}");
@@ -395,7 +413,7 @@ mod tests {
             }
         }
         let at = |k: f64| p[((k * 16.0).round() as isize).rem_euclid(16 * m as isize) as usize];
-        let fbmc_db = 10.0 * (at(8.5) / at(0.0)).log10();
+        let fbmc_db = com_math::lin2db(at(8.5) / at(0.0));
         // OFDM: a rectangular symbol of M samples, |sinc(8.5)|²
         let ofdm_db = 20.0 * com_math::sinc(8.5).abs().log10();
         assert!(fbmc_db < -50.0 && ofdm_db > -30.0, "FBMC {fbmc_db} dB, OFDM {ofdm_db} dB");
@@ -404,10 +422,11 @@ mod tests {
     #[test]
     fn staggering_round_trips() {
         let c: Vec<C64> = (0..12).map(|i| C64::new(i as f64, -(i as f64) - 0.5)).collect();
-        let a = oqam_stagger(&c, 4);
+        let a = oqam_stagger(&c, 4).unwrap();
         assert_eq!(a.len(), 24);
         assert_eq!((a[0], a[4], a[1], a[5]), (0.0, -0.5, -1.5, 1.0));
-        assert_eq!(oqam_destagger(&a, 4), c);
+        assert_eq!(oqam_destagger(&a, 4).unwrap(), c);
+        assert!(oqam_stagger(&c[..5], 4).is_err() && oqam_destagger(&a[..20], 4).is_err());
     }
 }
 

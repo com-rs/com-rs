@@ -5,6 +5,7 @@ trials."""
 import doctest
 import inspect
 import math
+import pathlib
 import re
 
 import numpy as np
@@ -518,3 +519,14 @@ def test_conditions_keep_their_python_values():
         trial, [{"obj": marker}, {"obj": marker, "x": 2}], name="o", stop={"max_trials": 1}
     )
     assert res[0].condition["obj"] is marker and res[1].index == 1
+
+
+def test_every_exported_name_is_in_the_api_reference():
+    """The API reference (docs/python/api/index.rst) lists every name of ``comrs.__all__``
+    once, in its theme, so that a new binding cannot be left undocumented."""
+    page = pathlib.Path(__file__).parents[1] / "docs" / "python" / "api" / "index.rst"
+    listed = re.findall(r"^   ([A-Za-z_][A-Za-z0-9_]*)$", page.read_text(), flags=re.M)
+    exported = sorted(set(comrs.__all__) - {"__version__"})
+    assert sorted(set(exported) - set(listed)) == [], "exported but not documented"
+    assert sorted(set(listed) - set(exported)) == [], "documented but not exported"
+    assert len(listed) == len(set(listed)), "listed twice"

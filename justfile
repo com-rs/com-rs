@@ -37,6 +37,8 @@ check:
     ruff check python tests docs/python tools
     ruff format --check python tests docs/python tools
     python3 tools/api_index.py --check
+    python tools/literature_table.py --check
+    python tools/maturity_table.py --check
     python tools/gen_stubs.py --check
     python tools/gen_blocks.py --check
 
@@ -47,6 +49,16 @@ deny:
 # Regenerate docs/API.md, the index of every public item (read it before adding one)
 api-index:
     python3 tools/api_index.py
+
+# Regenerate docs/LITERATURE.md, the comparisons with the literature, from
+# validation/literature.yaml
+literature:
+    python tools/literature_table.py
+
+# Regenerate docs/MATURITY.md and the maturity tables of README.md and
+# docs/python/maturity.rst from validation/maturity.yaml
+maturity:
+    python tools/maturity_table.py
 
 # Regenerate the stub of the extension and the classes of comrs.blocks (after changing
 # a binding or a block; the extension built)

@@ -30,6 +30,18 @@ use crate::error::{Error, Result, same_len};
 use crate::units::Hertz;
 use ndarray::{Array2, ArrayView1, ArrayViewMut1};
 
+/// The hard decisions of log-likelihood ratios: a negative LLR is a 1, any other a 0
+/// (see the module for the sign convention).
+///
+/// # Examples
+/// ```
+/// use com_core::signal::hard_decisions;
+/// assert_eq!(hard_decisions(&[2.0, -0.5, 0.0]), vec![0, 1, 0]);
+/// ```
+pub fn hard_decisions(llr: &[f64]) -> Vec<u8> {
+    llr.iter().map(|l| u8::from(*l < 0.0)).collect()
+}
+
 macro_rules! container {
     ($(#[$doc:meta])* $name:ident, $elem:ty, $zero:expr) => {
         $(#[$doc])*

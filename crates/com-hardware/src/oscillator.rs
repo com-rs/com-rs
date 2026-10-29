@@ -96,9 +96,7 @@ pub fn wiener_phase(sd: f64, n: usize, origin: PhaseOrigin, rng: &mut Rng) -> Ve
 /// of the block), $0$ otherwise.
 pub fn frequency_offset(x: &mut [C64], omega: f64, centred: bool) {
     let nc = if centred { x.len() as f64 / 2.0 } else { 0.0 };
-    for (k, v) in x.iter_mut().enumerate() {
-        *v *= cis(omega * (k as f64 - nc));
-    }
+    com_dsp::signal::rotate(x, omega, nc);
 }
 
 /// The Wiener phase noise of an oscillator, drawn independently for every stream.

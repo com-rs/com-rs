@@ -17,7 +17,8 @@
 //!   branch is dropped, so that one call consumes exactly two uniforms);
 //! - [`Rng::complex_gaussian`] is circular with `E|z|² = 1`;
 //! - [`stream`]: `seed = sm(sm(sm(base ⊕ fnv1a(experiment)) ⊕ condition) ⊕ trial)` with
-//!   `sm` one SplitMix64 step.
+//!   `sm` one SplitMix64 step; [`member`]: `seed ⊕ index · φ`, the members of a family of
+//!   deterministic sequences shared by a transmitter and its receiver.
 //!
 //! # Examples
 //! ```
@@ -120,6 +121,13 @@ impl Rng {
         C64::new(r * c, r * s)
     }
 
+    /// A unit-energy QPSK point $e^{j\pi(2i + 1)/4}$, $i$ uniform in `0..4` (pilots and
+    /// preambles drawn from a seed).
+    #[inline]
+    pub fn qpsk(&mut self) -> C64 {
+        C64::from_polar(1.0, std::f64::consts::FRAC_PI_4 * (2 * self.below(4) + 1) as f64)
+    }
+
     /// A uniform random permutation of `v` in place (Fisher–Yates, Durstenfeld's
     /// version): for $i = n - 1, \dots, 1$, swap $v_{i}$ and $v_{j}$ with $j$ uniform in
     /// $\\{0, \dots, i\\}$ ([`Rng::below`]), $n - 1$ draws in all.
@@ -166,6 +174,22 @@ pub type SimRng = Rng;
 /// ```
 pub fn batch_rng(master_seed: u64, batch: u64) -> SimRng {
     stream(master_seed, "", 0, batch)
+}
+
+/// The generator of the member `index` of a family of deterministic sequences drawn from
+/// `seed` (the pilots of the REs of a grid, the phase sequences of SLM):
+/// `Rng::new(seed ⊕ index · φ)`, $\varphi$ the 64-bit golden ratio of SplitMix64. Unlike
+/// [`stream`] it is a plain function of the two numbers, which the transmitter and the
+/// receiver share.
+///
+/// # Examples
+/// ```
+/// use com_core::rng::member;
+/// assert_eq!(member(7, 3).next_u64(), member(7, 3).next_u64());
+/// assert_ne!(member(7, 3).next_u64(), member(7, 4).next_u64());
+/// ```
+pub fn member(seed: u64, index: u64) -> Rng {
+    Rng::new(seed ^ index.wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 
 /// An independent generator for `(base_seed, experiment, condition, trial)`.

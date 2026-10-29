@@ -23,8 +23,6 @@
 //!
 //! 1. 3GPP TS 38.211, *NR; Physical channels and modulation*, Sec. 5.2.1.
 
-pub use com_math::sequences::lfsr;
-
 /// The Gold scrambler of 3GPP with the initial value `c_init`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scrambler {

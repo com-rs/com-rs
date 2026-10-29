@@ -140,7 +140,7 @@ fn classify_modulation<'py>(
 #[pyfunction]
 fn snr_m2m4_db(x: &Bound<'_, PyAny>, constellation: &PyConstellation) -> PyResult<f64> {
     let snr = blind::snr_m2m4(&cvec(x)?, &constellation.inner).py()?;
-    Ok(10.0 * snr.log10())
+    Ok(comrs::math::lin2db(snr))
 }
 
 /// The symbol rate of a linearly modulated signal from the strongest line of the

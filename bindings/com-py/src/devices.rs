@@ -18,8 +18,8 @@ use pyo3::prelude::*;
 ///     snr_db (float): the SNR (dB).
 ///     rng (Rng): the generator.
 ///     fs (float): sampling rate (Hz).
-///     bandwidth (float): the bandwidth of the SNR (Hz); with the default `fs = 1`,
-///         `bandwidth = 1`, the SNR is per sample.
+///     bandwidth_hz (float): the bandwidth of the SNR (Hz); with the default `fs = 1`,
+///         `bandwidth_hz = 1`, the SNR is per sample.
 ///
 /// Returns:
 ///     numpy.ndarray: the noisy signal (complex128).
@@ -31,16 +31,16 @@ use pyo3::prelude::*;
 ///     >>> round(comrs.snr_db(y, x))
 ///     10
 #[pyfunction]
-#[pyo3(signature = (x, snr_db, rng, *, fs = 1.0, bandwidth = 1.0))]
+#[pyo3(signature = (x, snr_db, rng, *, fs = 1.0, bandwidth_hz = 1.0))]
 fn awgn<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
     snr_db: f64,
     mut rng: PyRefMut<'py, PyRng>,
     fs: f64,
-    bandwidth: f64,
+    bandwidth_hz: f64,
 ) -> PyResult<CArr<'py>> {
-    Ok(carr(py, awgn_ch::awgn(&cvec(x)?, snr_db, fs, bandwidth, &mut rng.inner)))
+    Ok(carr(py, awgn_ch::awgn(&cvec(x)?, snr_db, fs, bandwidth_hz, &mut rng.inner)))
 }
 
 /// Add noise for an `E_b/N_0` of `ebn0_db`: `σ² = P_x · sps / (b · E_b/N_0)` for `b`
@@ -49,7 +49,8 @@ fn awgn<'py>(
 /// Args:
 ///     x (array_like): the signal.
 ///     ebn0_db (float): `E_b/N_0` (dB).
-///     bits_per_symbol (int): bits per symbol `b`.
+///     bits_per_symbol (float): information bits per symbol `b` (fractional for a
+///         coded or shaped signal).
 ///     rng (Rng): the generator.
 ///     sps (float): samples per symbol.
 ///
@@ -69,7 +70,7 @@ fn awgn_ebn0<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
     ebn0_db: f64,
-    bits_per_symbol: usize,
+    bits_per_symbol: f64,
     mut rng: PyRefMut<'py, PyRng>,
     sps: f64,
 ) -> PyResult<CArr<'py>> {

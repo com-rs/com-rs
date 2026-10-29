@@ -7,7 +7,7 @@
 //! `e = |x[1]|² (|x[0]|² - |x[2]|²)` ([`gardner_ted_nyquist`]),
 //!
 //! which is zero on average when the samples `x[0]`, `x[2]` sit on the symbol instants.
-//! [`interpolate_cubic`] evaluates the cubic Lagrange (Farrow) interpolator of four
+//! [`lagrange_cubic`] evaluates the cubic Lagrange (Farrow) interpolator of four
 //! samples at a fractional position `μ ∈ [-1, 1]` (OptiCommPy `interpolator`), and
 //! [`GardnerLoop`] closes the loop: every other output sample, the detector output goes
 //! through a proportional-integral filter (`k_p`, `k_i`) that moves the fractional
@@ -16,15 +16,17 @@
 //!
 //! # Examples
 //! ```
-//! use com_dsp::sync::timing::{gardner_ted, interpolate_cubic};
+//! use com_dsp::interpolation::lagrange_cubic;
+//! use com_dsp::sync::timing::gardner_ted;
 //! use com_math::C64;
 //! // a symmetric transition sampled at the right instants gives no error
 //! let e = gardner_ted(&[C64::new(1.0, 0.0), C64::new(0.0, 0.0), C64::new(-1.0, 0.0)]);
 //! assert_eq!(e, 0.0);
 //! let x = [C64::new(1.0, 0.0), C64::new(2.0, 0.0), C64::new(3.0, 0.0), C64::new(4.0, 0.0)];
-//! assert!((interpolate_cubic(&x, 0.0) - x[2]).norm() < 1e-15);   // μ = 0 returns x[2]
+//! assert!((lagrange_cubic(&x, 0.0) - x[2]).norm() < 1e-15); // μ = 0 returns x[2]
 //! ```
 
+use crate::interpolation::lagrange_cubic;
 use com_math::C64;
 
 /// Gardner timing error of three consecutive samples at two samples per symbol.
@@ -35,17 +37,6 @@ pub fn gardner_ted(x: &[C64; 3]) -> f64 {
 /// Gardner timing error for Nyquist pulses (power version).
 pub fn gardner_ted_nyquist(x: &[C64; 3]) -> f64 {
     x[1].norm_sqr() * (x[0].norm_sqr() - x[2].norm_sqr())
-}
-
-/// Cubic interpolation of four samples at the fractional position `t` (`t = 0` returns
-/// `x[2]`, `t = 1` returns `x[3]`, `t = -1` returns `x[1]`).
-pub fn interpolate_cubic(x: &[C64; 4], t: f64) -> C64 {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    x[0] * (-t3 / 6.0 + t / 6.0)
-        + x[1] * (t3 / 2.0 + t2 / 2.0 - t)
-        + x[2] * (-t3 / 2.0 - t2 + t / 2.0 + 1.0)
-        + x[3] * (t3 / 6.0 + t2 / 2.0 + t / 3.0)
 }
 
 /// The Gardner clock-recovery loop.
@@ -90,7 +81,7 @@ impl GardnerLoop {
         let (mut n, mut m) = (2usize, 2usize);
         let mut last = 0;
         while n + 1 < ln && m + 2 < n_samples {
-            out[n] = interpolate_cubic(&[sig[m - 2], sig[m - 1], sig[m], sig[m + 1]], t_nco);
+            out[n] = lagrange_cubic(&[sig[m - 2], sig[m - 1], sig[m], sig[m + 1]], t_nco);
             if n % 2 == 0 {
                 let w = [out[n - 2], out[n - 1], out[n]];
                 let ted = if self.nyquist { gardner_ted_nyquist(&w) } else { gardner_ted(&w) };
@@ -125,15 +116,6 @@ mod tests {
     use crate::filter::{PulseShape, fir_filter, pulse_shape};
     use crate::resample::{delay_fft, upsample};
     use com_core::rng::Rng;
-
-    #[test]
-    fn interpolator_is_exact_on_cubics() {
-        let f = |t: f64| 1.0 + 2.0 * t - 0.5 * t * t + 0.25 * t * t * t;
-        let x = [f(-2.0), f(-1.0), f(0.0), f(1.0)].map(|v| C64::new(v, 0.0));
-        for t in [-0.7, 0.0, 0.3, 0.9] {
-            assert!((interpolate_cubic(&x, t).re - f(t)).abs() < 1e-12);
-        }
-    }
 
     #[test]
     fn gardner_loop_locks_on_a_delayed_signal() {

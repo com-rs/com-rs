@@ -8,7 +8,7 @@
 //! | [`blind`] | estimates from the received samples alone: fourth-order cumulants, modulation classification by cumulants and by likelihood, the M2M4 SNR |
 //! | [`errors`] | error counts and rates ([`bit_errors`], [`symbol_errors`], [`block_errors`], [`ber`]), SNR ([`snr_db`], [`effective_snr_db`]), [`ls_gain`], [`fast_ber_calc`], [`evm`], [`ber_to_q_db`] |
 //! | [`information`] | [`entropy`], [`monte_carlo_gmi`], [`monte_carlo_mi`], [`information_rates`], [`posterior_rates`] |
-//! | [`spectrum`] | PAPR and its CCDF, Welch's power spectral density, the adjacent channel leakage ratio |
+//! | [`spectrum`] | PAPR and its CCDF, the adjacent channel leakage ratio, Welch's power spectral density (re-exported from `com_dsp::spectrum`) |
 //!
 //! The items of [`errors`] and [`information`] are re-exported at the root.
 //!
@@ -58,7 +58,7 @@
 //! assert!((r.ber / theory - 1.0).abs() < 0.15);
 //! // Es/N0 = Eb/N0 + 10 log10(b); the estimate normalises the noisy signal to unit power,
 //! // which biases it up by about 10 log10(1 + N0/Es) (0.17 dB here), as in OptiCommPy
-//! assert!((r.snr_db - (8.0 + 10.0 * 4f64.log10())).abs() < 0.25);
+//! assert!((r.snr_db - (8.0 + com_math::lin2db(4.0))).abs() < 0.25);
 //! let (gmi, ngmi) = metrics::monte_carlo_gmi(&rx, &tx, &c, None).unwrap();
 //! assert!(gmi > 3.8 && gmi < 4.0 && (ngmi - gmi / 4.0).abs() < 1e-12);
 //! ```

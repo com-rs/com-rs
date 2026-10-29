@@ -61,6 +61,7 @@ use com_core::signal::{Signal, Symbols};
 use com_core::traits::{Demodulate, Modulate};
 use com_core::units::Hertz;
 use com_core::{Result, ensure, ensure_shape};
+use com_dsp::signal::{extend_with_prefix, strip_prefix};
 use com_math::C64;
 use com_math::fft;
 
@@ -157,32 +158,39 @@ impl Ofdm {
     /// The time block (without prefix, $L N$ samples) of the values of the active
     /// subcarriers.
     ///
-    /// # Panics
-    /// If `active` does not have $K$ values.
-    pub fn to_time(&self, active: &[C64]) -> Vec<C64> {
-        assert_eq!(active.len(), self.n_active, "one value per active subcarrier");
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `active` does not have $K$ values.
+    pub fn to_time(&self, active: &[C64]) -> Result<Vec<C64>> {
+        ensure_shape(active.len() == self.n_active, || {
+            format!("{} values for {} active subcarriers", active.len(), self.n_active)
+        })?;
         let mut bins = vec![C64::new(0.0, 0.0); self.fft_len()];
         for (i, v) in active.iter().enumerate() {
             bins[self.bin(i)] = *v;
         }
         let s = self.scale();
-        fft::ifft(&bins).into_iter().map(|v| v * s).collect()
+        Ok(fft::ifft(&bins).into_iter().map(|v| v * s).collect())
     }
 
     /// The values of the active subcarriers of a time block (without prefix).
     ///
-    /// # Panics
-    /// If `block` does not have $L N$ samples.
-    pub fn to_active(&self, block: &[C64]) -> Vec<C64> {
-        assert_eq!(block.len(), self.fft_len(), "a block of L N samples");
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `block` does not have $L N$ samples.
+    pub fn to_active(&self, block: &[C64]) -> Result<Vec<C64>> {
+        ensure_shape(block.len() == self.fft_len(), || {
+            format!("a block of {} samples for an IFFT of {}", block.len(), self.fft_len())
+        })?;
         let bins = fft::fft(block);
         let s = 1.0 / self.scale();
-        (0..self.n_active).map(|i| bins[self.bin(i)] * s).collect()
+        Ok((0..self.n_active).map(|i| bins[self.bin(i)] * s).collect())
     }
 
     /// Keep only the active subcarriers of a time block (an ideal band-pass filter).
-    pub fn filter(&self, block: &[C64]) -> Vec<C64> {
-        self.to_time(&self.to_active(block))
+    ///
+    /// # Errors
+    /// As [`Ofdm::to_active`].
+    pub fn filter(&self, block: &[C64]) -> Result<Vec<C64>> {
+        self.to_time(&self.to_active(block)?)
     }
 
     /// Prepend the cyclic prefix to a time block.
@@ -190,11 +198,8 @@ impl Ofdm {
     /// # Errors
     /// [`com_core::Error::Shape`] if the prefix is longer than the block.
     pub fn with_prefix(&self, block: &[C64]) -> Result<Vec<C64>> {
-        let cp = self.oversampling * self.n_cp;
-        ensure_shape(cp <= block.len(), || format!("a cyclic prefix of {cp} samples for a block of {}", block.len()))?;
-        let mut out = Vec::with_capacity(block.len() + cp);
-        out.extend_from_slice(&block[block.len() - cp..]);
-        out.extend_from_slice(block);
+        let mut out = Vec::with_capacity(block.len() + self.oversampling * self.n_cp);
+        extend_with_prefix(&mut out, block, self.oversampling * self.n_cp)?;
         Ok(out)
     }
 
@@ -238,7 +243,7 @@ impl Ofdm {
         let mut side = Vec::with_capacity(data.len() / k);
         for chunk in data.chunks(k) {
             let (block, s) = reduction.reduce(self, chunk)?;
-            out.extend(self.with_prefix(&block)?);
+            extend_with_prefix(&mut out, &block, self.oversampling * self.n_cp)?;
             side.push(s);
         }
         Ok((out, side))
@@ -258,12 +263,11 @@ impl Ofdm {
         ensure_shape(side.len() == samples.len() / len, || {
             format!("{} side informations for {} blocks", side.len(), samples.len() / len)
         })?;
-        let cp = self.oversampling * self.n_cp;
         let mut out = Vec::new();
         for (block, &s) in samples.chunks(len).zip(side) {
-            let mut b = block[cp..].to_vec();
+            let mut b = strip_prefix(block, self.oversampling * self.n_cp)?.to_vec();
             reduction.restore_time(&mut b);
-            out.extend(reduction.recover(self, self.to_active(&b), s)?);
+            out.extend(reduction.recover(self, self.to_active(&b)?, s)?);
         }
         Ok(out)
     }
@@ -302,7 +306,7 @@ pub struct NoReduction;
 
 impl PaprReduction for NoReduction {
     fn reduce(&self, ofdm: &Ofdm, data: &[C64]) -> Result<(Vec<C64>, usize)> {
-        Ok((ofdm.to_time(&ofdm.spread(data)), 0))
+        Ok((ofdm.to_time(&ofdm.spread(data))?, 0))
     }
 }
 

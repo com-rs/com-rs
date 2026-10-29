@@ -561,7 +561,7 @@ mod tests {
         let p = raman.solve(&fiber, &raman.spectral_slices(&[&x], fs, fiber.fc_hz)).unwrap();
         for f in [-0.6e12, 0.6e12] {
             let k = p.freqs_hz[..p.n_signals].iter().position(|v| (v - fiber.fc_hz - f).abs() < 1.0).unwrap();
-            let measured = 10.0 * (tone_power(&y, fs, f) / tone_power(&x, fs, f)).log10();
+            let measured = com_math::lin2db(tone_power(&y, fs, f) / tone_power(&x, fs, f));
             assert!((measured - p.net_gain_db(k)).abs() < 1e-6, "{f}: {measured} vs {}", p.net_gain_db(k));
         }
     }

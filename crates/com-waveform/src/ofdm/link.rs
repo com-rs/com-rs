@@ -68,8 +68,9 @@ pub struct OfdmFrame {
 ///
 /// # Errors
 /// [`com_core::Error::Shape`] for antennas of different lengths,
-/// [`com_core::Error::Config`] for a grid without data resource element, and the errors
-/// of the modulator.
+/// [`com_core::Error::Config`] for a grid without data resource element, a grid whose
+/// width is not the number of active subcarriers, or a DFT-spread modulator (the pilots
+/// of the grid are resource elements), and the errors of the modulator.
 pub fn transmit(
     ofdm: &Ofdm,
     grid: &ResourceGrid,
@@ -82,6 +83,16 @@ pub fn transmit(
     ensure_shape(streams.iter().all(|x| x.len() == n_data), || {
         format!("the antennas carry different lengths: {:?}", streams.iter().map(Vec::len).collect::<Vec<_>>())
     })?;
+    ofdm.check()?;
+    ensure(grid.n_subcarriers == ofdm.n_active, || {
+        format!(
+            "a grid of {} subcarriers for an OFDM modulator of {} active subcarriers",
+            grid.n_subcarriers, ofdm.n_active
+        )
+    })?;
+    // the pilots of the grid are resource elements: a DFT spreading would mix them with
+    // the data
+    ensure(!ofdm.dft_spread, || "the OFDM link maps a resource grid: DFT spreading is not supported".into())?;
     let per_grid = grid.n_data();
     ensure(per_grid > 0, || "the grid has no data resource element".into())?;
     let n_grids = n_data.div_ceil(per_grid).max(1);
@@ -102,7 +113,7 @@ pub fn transmit(
         for chunk in data.chunks(per_grid) {
             let g = grid.map_port(chunk, port, n_ports)?;
             for sym in g.chunks(k) {
-                time.extend(ofdm.with_prefix(&ofdm.to_time(sym))?.into_iter().map(|v| v * scale));
+                time.extend(ofdm.with_prefix(&ofdm.to_time(sym)?)?.into_iter().map(|v| v * scale));
             }
         }
         out.push(time);
@@ -150,7 +161,7 @@ impl OfdmFrame {
                     format!("the signal of {} samples is shorter than the OFDM frame ({} samples)", x.len(), start + ln)
                 })?;
                 let block: Vec<C64> = x[start..start + ln].iter().map(|v| v / self.scale).collect();
-                grid.extend(self.ofdm.to_active(&block));
+                grid.extend(self.ofdm.to_active(&block)?);
             }
             rx.push(grid);
         }

@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs" / "API.md"
 RUST_ITEM = re.compile(
-    r"^(?P<indent>\s*)pub(?:\((?:crate|super)\))?\s+"
+    r"^(?P<indent>\s*)pub\s+"
     r"(?P<kind>(?:const\s+|async\s+|unsafe\s+)?fn|struct|enum|trait|type|const|static)\s+"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
@@ -90,7 +90,7 @@ def rust_items(path: Path) -> list[tuple[str, str, str]]:
         sig = " ".join(sig_lines)
         sig = re.sub(r"\s+", " ", sig)
         sig = re.sub(r"\s*\{$", "", sig).rstrip(";").strip()
-        sig = re.sub(r"^pub(\((?:crate|super)\))?\s+", "", sig)
+        sig = re.sub(r"^pub\s+", "", sig)
         sig = re.sub(r"\s*where .*$", "", sig)
         if len(sig) > 160:  # a long constant or array: the name is what matters
             sig = sig[:157].rstrip() + "…"

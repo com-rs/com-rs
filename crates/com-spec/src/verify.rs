@@ -322,13 +322,13 @@ impl Expectation {
                 let need = |w: &str| Error::Config(format!("expectation {:?}: dvbs2_esn0_db needs {w}", s.name));
                 let m = t.modulation.as_deref().ok_or_else(|| need("modulation"))?;
                 let r = t.rate.as_deref().ok_or_else(|| need("rate"))?;
-                com_systems::dvbs2::Modcod::parse(m, r)?.threshold_db() + t.offset_db
+                com_systems::dvbs2::Modcod::from_name(m, r)?.threshold_db() + t.offset_db
             }
             "ber_rayleigh" => {
                 ensure(t.m <= 4 && (t.kind == "qam" || t.kind == "psk"), || {
                     format!("expectation {:?}: ber_rayleigh is for BPSK and QPSK", s.name)
                 })?;
-                theory::ber_rayleigh_mrc(db2lin(ebn0(&t)? + t.offset_db), t.branches)
+                theory::ber_rayleigh_mrc(db2lin(ebn0(&t)? + t.offset_db), t.branches)?
             }
             other => {
                 return Err(Error::Config(format!(

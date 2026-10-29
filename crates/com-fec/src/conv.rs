@@ -332,9 +332,9 @@ container_traits!(ConvolutionalCode);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::hard;
     use crate::block::testing::awgn_llr;
     use com_core::rng::Rng;
+    use com_core::signal::hard_decisions;
 
     #[test]
     fn the_k7_code_has_free_distance_10() {
@@ -351,12 +351,12 @@ mod tests {
         let info: Vec<u8> = (0..200).map(|_| r.bit()).collect();
         let c = code.encode_block(&info).unwrap();
         let y = awgn_llr(&c, 0.6, &mut r);
-        assert!(hard(&y).iter().zip(&c).filter(|(a, b)| a != b).count() > 5);
+        assert!(hard_decisions(&y).iter().zip(&c).filter(|(a, b)| a != b).count() > 5);
         assert_eq!(code.decode_block(&y).unwrap(), info);
         let app = bcjr(&code.trellis, &y, &[], true, true).unwrap();
-        assert_eq!(hard(&app[..200]), info);
+        assert_eq!(hard_decisions(&app[..200]), info);
         let maxlog = bcjr(&code.trellis, &y, &[], true, false).unwrap();
-        assert_eq!(hard(&maxlog[..200]), info);
+        assert_eq!(hard_decisions(&maxlog[..200]), info);
     }
 
     #[test]

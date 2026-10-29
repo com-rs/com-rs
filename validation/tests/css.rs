@@ -24,6 +24,8 @@
 //!   for M = 2^10 and 2^12 (the 99 % band 0.990 B and 0.986 B, the maximum
 //!   cross-correlation 0.0075 for 2^12).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use comrs::channel::awgn::add_noise;
+use comrs::dsp::filter::convolve_full;
 use comrs::prelude::*;
 use comrs::waveform::css::{Css, Waveform, theory};
 
@@ -33,13 +35,11 @@ fn ser_channel(css: &Css, h: &[f64], snr_db: f64, n_sym: usize, seed: u64) -> f6
     let m = css.m();
     let s: Vec<usize> = (0..n_sym).map(|_| rng.below(m)).collect();
     let x = css.modulate(&s).unwrap();
-    let sigma = (1.0 / comrs::math::db2lin(snr_db)).sqrt();
-    let y: Vec<C64> = (0..x.len())
-        .map(|n| {
-            h.iter().enumerate().filter(|(d, _)| n >= *d).map(|(d, hd)| x[n - d] * *hd).sum::<C64>()
-                + rng.complex_gaussian() * sigma
-        })
-        .collect();
+    // the causal filter, then the noise
+    let hc: Vec<C64> = h.iter().map(|&v| C64::new(v, 0.0)).collect();
+    let mut y = convolve_full(&hc, &x);
+    y.truncate(x.len());
+    add_noise(&mut y, comrs::math::db2lin(-snr_db), &mut rng);
     let d = css.demodulate(&y).unwrap();
     d.iter().zip(&s).filter(|(a, b)| a != b).count() as f64 / n_sym as f64
 }
@@ -106,10 +106,10 @@ fn vangelista2017_fig1_frequency_selective() {
 fn afisiadis2020_fig2_monte_carlo() {
     for sf in 7u32..=12 {
         // the SNR of a SER of 1e-2: 200 errors expected
-        let snr = comrs::math::bisect(|s| theory::ser(sf, s) > 1e-2, -35.0, 0.0, 60);
+        let snr = comrs::math::bisect(|s| theory::ser(sf, s).unwrap() > 1e-2, -35.0, 0.0, 60);
         let css = Css::lora(sf);
         let sim = ser_channel(&css, &[1.0], snr, 20_000, u64::from(sf));
-        let want = theory::ser(sf, snr);
+        let want = theory::ser(sf, snr).unwrap();
         assert!((sim / want - 1.0).abs() < 0.15, "SF {sf} {snr} dB: {sim} vs {want}");
     }
 }
@@ -120,7 +120,7 @@ fn afisiadis2020_fig7_interference() {
     for (sf, snr) in [(9u32, -14.0), (9, -12.0), (9, -10.0), (10, -16.0), (10, -14.0), (11, -17.0)] {
         let n = 40_000;
         let sim = ser_interferer(sf, snr, -3.0, false, n, 2);
-        let approx = theory::ser_interference(sf, snr, -3.0, 0.2);
+        let approx = theory::ser_interference(sf, snr, -3.0, 0.2).unwrap();
         assert!(sim * n as f64 > 40.0, "SF {sf} {snr} dB: {sim}");
         assert!((approx / sim - 1.0).abs() < 0.35, "SF {sf} {snr} dB: approximation {approx} vs simulation {sim}");
         // the chip- and phase-aligned model overestimates the SER
@@ -133,9 +133,9 @@ fn afisiadis2020_fig7_interference() {
 #[ignore = "statistical validation: run with --ignored"]
 fn chiani2019_table1_large_spreading_factors() {
     for (sf, b99) in [(10u32, 0.990), (12, 0.986)] {
-        let b = theory::occupied_bandwidth(sf, 0.99, 0.6);
+        let b = theory::occupied_bandwidth(sf, 0.99, 0.6).unwrap();
         assert!((b / b99 - 1.0).abs() < 0.005, "SF {sf}: {b}");
     }
-    let c = theory::max_cross_correlation(12);
+    let c = theory::max_cross_correlation(12).unwrap();
     assert!((c - 0.0075).abs() < 2e-4, "{c}");
 }

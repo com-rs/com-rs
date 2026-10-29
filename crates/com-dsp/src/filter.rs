@@ -71,7 +71,7 @@ impl PulseShape {
     ///
     /// # Errors
     /// [`Error::Config`] for another name.
-    pub fn parse(kind: &str, rolloff: f64) -> Result<PulseShape> {
+    pub fn from_name(kind: &str, rolloff: f64) -> Result<PulseShape> {
         match kind.to_ascii_lowercase().as_str() {
             "rect" => Ok(PulseShape::Rect),
             "nrz" => Ok(PulseShape::Nrz),
@@ -242,12 +242,10 @@ pub fn convolve_full(h: &[C64], x: &[C64]) -> Vec<C64> {
     a
 }
 
-/// FIR filtering with complex taps and the `same` alignment.
+/// FIR filtering with complex taps and the `same` alignment: as many samples as `x`
+/// (zeros for no tap).
 pub fn fir_filter_complex(h: &[C64], x: &[C64]) -> Vec<C64> {
-    if x.is_empty() || h.is_empty() {
-        return Vec::new();
-    }
-    if h.is_empty() {
+    if h.is_empty() || x.is_empty() {
         return vec![C64::new(0.0, 0.0); x.len()];
     }
     let full = convolve_full(h, x);

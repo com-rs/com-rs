@@ -1,0 +1,716 @@
+# Comparisons of com-rs with the literature: one entry per document of references/
+# (status "have"), per reference implementation, and per document whose values are
+# quoted without the file. `python3 tools/literature_table.py` renders docs/LITERATURE.md
+# and checks that every test named here exists (`just check`).
+#
+# badge:
+#   green  - the published values (tables, closed forms, points of figures within a stated
+#            tolerance, claims of the text) are reproduced by automated tests;
+#   orange - partly: a qualitative comparison, a loose tolerance, a subset of the
+#            document, values quoted without the document, or an unexplained gap;
+#   red    - the code follows the document but no test compares it with its values.
+# remarks: inconsistencies found in the document itself (misprints, figures that
+#   contradict the text); they do not lower the badge when the corrected result is
+#   reproduced.
+#
+# tests: `path` or `path::name` (the name must appear in the file).
+
+- id: caire1998
+  area: Foundations
+  ref: "G. Caire, G. Taricco, E. Biglieri, Bit-interleaved coded modulation, IT 44(3), 1998"
+  module: com_mapping::{theory, bicm}
+  tested: "Figs. 4-5 (CM and BICM capacity, Gray and set partitioning, AWGN and Rayleigh) within 0.1 bit; Figs. 6-7 and Sec. III-C (cutoff rates of 16- to 256QAM); the quadrature against a Monte Carlo of eq. (19)"
+  tests:
+    - crates/com-mapping/src/bicm.rs::caire_1998_figs_4_5_capacity
+    - validation/tests/bicm.rs::caire_1998_fig_6_awgn_cutoff_rate
+    - validation/tests/bicm.rs::caire_1998_fig_7_rayleigh_cutoff_rate
+  badge: green
+  not_covered: "the quasi-Gray labellings of 8-, 32- and 128QAM; the orthogonal signals of Figs. 8-9"
+  remarks:
+    - "Sec. III-C: \"CM 256QAM gains more than 3 dB over BICM at R0 = 3\"; eqs. (17)-(21) give 2.55 dB and Fig. 6 itself about 2.7 dB"
+- id: cho2002
+  area: Foundations
+  ref: "K. Cho, D. Yoon, On the general BER expression of one- and two-dimensional amplitude modulations, TCOM 50(7), 2002"
+  module: com_mapping::theory
+  tested: "Table I verbatim; the exact BER of Gray PAM, square and rectangular QAM, eqs. (9)-(22); Fig. 2"
+  tests:
+    - crates/com-mapping/src/theory.rs::cho_2002_table_1
+    - crates/com-mapping/src/theory.rs::cho_2002_fig_2_cost_of_an_extra_bit
+  badge: green
+  remarks:
+    - "\"4-5 dB per extra bit\" at 1e-3 holds from 4- to 32-PAM; the step is 3.73 dB from 2 to 4 and above 5 dB beyond 32"
+- id: chang2002
+  area: Foundations
+  ref: "M.-X. Chang, Y. T. Su, Performance analysis of equalized OFDM systems in Rayleigh fading, TWC 1(4), 2002"
+  module: com_mapping::imperfect_csi
+  tested: "eqs. 31, 32, 40, 41, 53, 69 and Table I against Monte Carlo; Figs. 3 and 4 within 30 %"
+  tests:
+    - validation/tests/chang2002.rs
+  badge: green
+  not_covered: "the weighting vectors of specific pilot patterns (Sec. IV)"
+  remarks:
+    - "the asymptote of 16-QAM is 0.4972/gamma_b, printed 0.4952/gamma_b"
+    - "the curve of Fig. 3 labelled fD Ts = 0.05 is fD Ts = 0.005"
+- id: proakis2008
+  area: Foundations
+  ref: "J. G. Proakis, M. Salehi, Digital Communications, 5th ed., 2008"
+  module: com_mapping::theory, com_waveform::cpm, com_mapping::differential
+  tested: "the error rates over AWGN (47 checks), MSK, DBPSK, MRC (eq. 13.4-15)"
+  tests:
+    - specs/validation/proakis_awgn.yaml
+    - specs/mimo_diversity.yaml
+  badge: orange
+  not_covered: "the textbook is not in references/: the formulas are quoted"
+- id: pawula1982
+  area: Foundations
+  ref: "R. F. Pawula, S. O. Rice, J. H. Roberts, Distribution of the phase angle between two vectors perturbed by Gaussian noise, TCOM 30(8), 1982"
+  module: com_mapping::differential
+  tested: "the BER of DQPSK and D8PSK (Sec. IV)"
+  tests:
+    - crates/com-mapping/src/differential.rs::pawula_rice_roberts_1982_mdpsk_ber
+  badge: orange
+  not_covered: "the paper is not in references/"
+- id: ts38212
+  area: Coding and shaping
+  ref: "3GPP TS 38.212 V18.5.0, NR multiplexing and channel coding"
+  module: com_fec::{crc, nr}
+  tested: "the CRC polynomials of Sec. 5.1; the LDPC base graphs, lifting sizes, polar sequence and interleavers of Secs. 5.3-5.4, extracted from the standard"
+  tests:
+    - crates/com-fec/src/crc.rs::ts_38_212_sec_5_1_generator_polynomials
+    - tests/test_sionna_vectors.py::test_nr_ldpc
+  badge: green
+  not_covered: "segmentation, limited buffer, HARQ"
+- id: ieee80211
+  area: Coding and shaping
+  ref: "IEEE 802.11-2020, Figs. 17-9 and 19-11"
+  module: com_fec::puncture
+  tested: "the puncturing patterns of the rates 2/3, 3/4, 5/6"
+  tests:
+    - crates/com-fec/src/puncture.rs::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes
+  badge: green
+  not_covered: "the LDPC codes of Wi-Fi"
+- id: hu2005
+  area: Coding and shaping
+  ref: "X.-Y. Hu, E. Eleftheriou, D. M. Arnold, Regular and irregular progressive edge-growth Tanner graphs, IT 51(1), 2005"
+  module: com_fec::ldpc
+  tested: "the girth 8 of the PEG (504, 252) code of Sec. VI; the decoders against AFF3CT on PEG matrices"
+  tests:
+    - crates/com-fec/src/ldpc.rs::hu_2005_peg_504_252_has_girth_8
+  badge: orange
+  not_covered: "Fig. 5 is shown in the gallery, not checked"
+- id: berrou1993
+  area: Coding and shaping
+  ref: "C. Berrou, A. Glavieux, P. Thitimajshima, Near Shannon limit error-correcting coding and decoding: turbo-codes, ICC 1993"
+  module: com_fec::turbo
+  tested: "the turbo decoder, against the recorded outputs of AFF3CT and the vectors of Sionna (LTE codes)"
+  tests:
+    - validation/tests/aff3ct.rs::turbo_lte_40_log_map_matches_aff3ct
+  badge: orange
+  not_covered: "the code and the curve of the paper itself"
+- id: bocherer2015
+  area: Coding and shaping
+  ref: "G. Böcherer, F. Steiner, P. Schulte, Bandwidth efficient and rate-matched LDPC coded modulation, TCOM 63(12), 2015"
+  module: com_systems::pas, com_metrics::information
+  tested: "Tables I and III (shaping gaps of ASK within 2e-4 dB) and Tables VI-X (PAS on the DVB-S2 codes within 0.05 dB); Fig. 8"
+  tests:
+    - validation/tests/shaping.rs::bocherer_2015_table_i_and_iii_shaping_gaps_of_ask
+    - validation/tests/shaping.rs::bocherer_2015_table_vi_pas_dvbs2
+    - specs/pas_64qam.yaml
+  badge: green
+- id: schulte2016
+  area: Coding and shaping
+  ref: "P. Schulte, G. Böcherer, Constant composition distribution matching, IT 62(1), 2016"
+  module: com_fec::ccdm
+  tested: "Fig. 2 and eqs. (10), (17), (22): the 50 points, rates within 6e-7, divergences within 2e-4"
+  tests:
+    - validation/tests/shaping.rs::schulte_bocherer_2016_fig2_ccdm_rate_and_divergence
+  badge: green
+  not_covered: "Ccdm::from_distribution rounds by largest remainders, not by eq. (10) (they differ at 990 lengths up to 1e4)"
+- id: liang2025
+  area: Coding and shaping
+  ref: "E. M. Liang, J. M. Kahn, Probabilistic shaping distributions for optical communications, JLT 43(4), 2025"
+  module: com_metrics::information
+  tested: "the ultimate shaping gain of eq. (27); the shaping gains of MB square QAM of Fig. 6"
+  tests:
+    - validation/tests/shaping.rs::liang_kahn_2025_eq27_ultimate_shaping_gain
+    - validation/tests/shaping.rs::liang_kahn_2025_fig6_shaping_gain_of_256qam
+  badge: orange
+  not_covered: "Fig. 6 is compared qualitatively (1.08 to 1.48 dB against about 1 to 1.4 dB read); the direct-detection channels"
+- id: polyanskiy2010
+  area: Coding and shaping
+  ref: "Y. Polyanskiy, H. V. Poor, S. Verdú, Channel coding rate in the finite blocklength regime, IT 56(5), 2010"
+  module: com_fec::bounds
+  tested: "the normal approximation is used as a bound of the NR codes, not compared with the paper"
+  tests: []
+  badge: red
+  not_covered: "the figures of the paper"
+- id: yasuda1984
+  area: Coding and shaping
+  ref: "Y. Yasuda, K. Kashiki, Y. Hirata, High-rate punctured convolutional codes, TCOM 32(3), 1984"
+  module: com_fec::puncture
+  tested: "Table I: the free distances of the K = 7 punctured codes"
+  tests:
+    - crates/com-fec/src/puncture.rs::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes
+  badge: orange
+  not_covered: "the paper is not in references/"
+- id: cimini1985
+  area: Waveforms
+  ref: "L. J. Cimini, Jr., Analysis and simulation of a digital mobile channel using OFDM, TCOM 33(7), 1985"
+  module: com_waveform::ofdm::correction
+  tested: "eqs. (20), (21), (25) against Monte Carlo; Figs. 3-4 within 0.3 dB; Figs. 5-7 by simulation of the system (SIR at 1e-2 within 0.6 dB)"
+  tests:
+    - crates/com-waveform/src/ofdm/correction.rs::cimini_1985_figs_3_4
+    - validation/tests/cimini1985.rs::cimini_1985_fig_5_flat_fading
+    - validation/tests/cimini1985.rs::cimini_1985_eq_23_and_fig_7_delay_spread
+  badge: green
+  remarks:
+    - "eq. (19) lacks the -1 of its first term"
+    - "the coherence bandwidth of eq. (23) is 1/(4 Delta), not 1/Delta"
+    - "the phase of eq. (25) is that of an exponential profile, not of the two-ray model of eq. (23)"
+    - "the \"6-7 dB\" improvement of the text is 4.5 dB on Fig. 5"
+- id: ochiai2001
+  area: Waveforms
+  ref: "H. Ochiai, H. Imai, On the distribution of the peak-to-average power ratio in OFDM signals, TCOM 49(2), 2001"
+  module: com_waveform::papr
+  tested: "the PAPR CCDF of eqs. (11) and (27), against simulation"
+  tests:
+    - crates/com-waveform/src/papr.rs::ochiai_2001_eqs_11_and_27
+  badge: green
+  not_covered: "the reduction techniques (SLM, PTS, tone reservation, ACE, companding) are not compared with their papers"
+- id: ochiai2002
+  area: Waveforms
+  ref: "H. Ochiai, H. Imai, Performance analysis of deliberately clipped OFDM signals, TCOM 50(1), 2002"
+  module: com_waveform::papr
+  tested: "the Bussgang gain and distortion of clipping, against Monte Carlo and against the series of Banelli & Cacopardi"
+  tests:
+    - crates/com-waveform/src/papr.rs::bussgang_matches_a_monte_carlo
+  badge: green
+- id: thompson2008
+  area: Waveforms
+  ref: "S. C. Thompson et al., Constant envelope OFDM, TCOM 56(8), 2008"
+  module: com_waveform::ce_ofdm
+  tested: "eq. (15): 16-QAM at 2 pi h = 0.5 and 0.7 above the threshold"
+  tests:
+    - specs/validation/thompson2008_eq15.yaml
+  badge: green
+- id: ahmed2007
+  area: Waveforms
+  ref: "A. U. Ahmed, S. C. Thompson, J. R. Zeidler, Threshold extending receiver structures for CE-OFDM, MILCOM 2007"
+  module: com_mapping::theory::phase_pdf, com_waveform::ce_ofdm::theory
+  tested: "the phase density of eq. (8), the linear model of eq. (13)"
+  tests:
+    - validation/tests/ce_ofdm.rs
+  badge: green
+  not_covered: "the cycle-slip eliminator and the PLL"
+- id: ahmed2012
+  area: Waveforms
+  ref: "A. U. Ahmed et al., Subcarrier based threshold performance enhancement in CE-OFDM, MILCOM 2012"
+  module: com_waveform::ce_ofdm::theory
+  tested: "eqs. (11)-(14), Figs. 4-6"
+  tests:
+    - validation/tests/ce_ofdm.rs
+  badge: green
+  not_covered: "the slip mitigation of Sec. VI"
+- id: ahmed2015
+  area: Waveforms
+  ref: "A. U. Ahmed, J. R. Zeidler, Novel low-complexity receivers for constant envelope OFDM, TSP 63(17), 2015"
+  module: com_waveform::ce_ofdm
+  tested: "Figs. 4-6, eqs. (8), (17), (26), against the Bussgang analysis"
+  tests:
+    - validation/tests/ce_ofdm.rs
+  badge: green
+  remarks:
+    - "eq. (8): the coefficient of x^9 is -127/181440"
+- id: pacheco2006
+  area: Waveforms
+  ref: "R. A. Pacheco, D. Hatzinakos, Error rate analysis of phase-modulated OFDM in AWGN channels, ICASSP 2006"
+  module: com_waveform::ce_ofdm::theory
+  tested: "eqs. (2)-(5), Fig. 1"
+  tests:
+    - validation/tests/ce_ofdm.rs
+    - validation/cards/pacheco2006_pm_bandwidth.yaml
+  badge: green
+  not_covered: "Sec. 3"
+  remarks:
+    - "the variance of the phase is X^2/2 per subcarrier, printed X^2/3"
+- id: guerreiro2015
+  area: Waveforms
+  ref: "J. Guerreiro, R. Dinis, P. Montezuma, Optimum performance and spectral characterization of CE-OFDM signals, VTC Fall 2015"
+  module: com_waveform::ce_ofdm::theory
+  tested: "eqs. (12)-(14), (20), Figs. 3-4, 7"
+  tests:
+    - validation/cards/guerreiro2015_ce_ofdm_dc_power.yaml
+  badge: green
+- id: guerreiro2016
+  area: Waveforms
+  ref: "J. Guerreiro, R. Dinis, P. Montezuma, On the detection of CE-OFDM signals, IEEE Commun. Lett. 20(11), 2016"
+  module: com_waveform::ce_ofdm::theory
+  tested: "eqs. (4), (7), (8), Sec. III-A, Fig. 1 (10.8 and 11.6 dB at 1e-3: simulated 11.0 and 12.0 dB)"
+  tests:
+    - validation/tests/ce_ofdm.rs
+    - validation/cards/guerreiro2016_ce_ofdm_optimum_gain.yaml
+  badge: green
+  not_covered: "Sec. III-B (multipath)"
+- id: lopez2022
+  area: Waveforms
+  ref: "M. J. López Morales, R. Dinis, A. García Armada, Near-optimal detection of CE-OFDM signals via GAMP, Globecom Workshops 2022"
+  module: com_waveform::ce_ofdm::gamp
+  tested: "Algorithm 1, Fig. 3 (GAMP within 1 dB)"
+  tests:
+    - validation/tests/ce_ofdm.rs
+  badge: orange
+  not_covered: "multipath; GAMP needs large blocks"
+  remarks:
+    - "the Eb/N0 axis of Fig. 3 is shifted against Guerreiro et al. 2016"
+- id: vangelista2017
+  area: Waveforms
+  ref: "L. Vangelista, Frequency shift chirp modulation: the LoRa modulation, IEEE SPL 24(12), 2017"
+  module: com_waveform::css
+  tested: "eqs. (9), (16), (17); Fig. 1 over AWGN and over the two-tap channel"
+  tests:
+    - validation/tests/css.rs::vangelista2017_fig1_frequency_selective
+    - validation/cards/vangelista2017_fig1.yaml
+  badge: orange
+  not_covered: "over the two-tap channel the simulated FSCM is 1.2 to 2.5 times above the points read (about 0.5 dB), unexplained"
+  remarks:
+    - "eq. (3) lacks the factor 1/2 of the quadratic phase (Chiani & Elzanaty)"
+- id: chiani2019
+  area: Waveforms
+  ref: "M. Chiani, A. Elzanaty, On the LoRa modulation for IoT: waveform properties and spectral analysis, IEEE IoT J. 6(5), 2019"
+  module: com_waveform::css
+  tested: "Table I (cross-correlation, SNR penalty, lines, 99 % band), eqs. (5), (7)-(9), (13), (20)-(25), Property 4"
+  tests:
+    - crates/com-waveform/src/css/theory.rs::chiani_2019_table_1
+    - validation/tests/css.rs::chiani2019_table1_large_spreading_factors
+    - validation/cards/chiani2019_table1.yaml
+  badge: green
+- id: afisiadis2020
+  area: Waveforms
+  ref: "O. Afisiadis et al., On the error rate of the LoRa modulation with interference, TWC 19(2), 2020"
+  module: com_waveform::css::theory
+  tested: "eqs. (16)-(18), (38)-(43), (58)-(67), Propositions 1-2, Figs. 2 and 7"
+  tests:
+    - validation/tests/css.rs::afisiadis2020_fig2_monte_carlo
+    - validation/tests/css.rs::afisiadis2020_fig7_interference
+    - validation/cards/afisiadis2020_fig2.yaml
+  badge: green
+  remarks:
+    - "eq. (58): the strongest interference bin is [-round(tau)]_M, printed round(tau)"
+    - "the SNR of eqs. (3)-(4) is per sample while eq. (17) needs the SNR per symbol"
+- id: tapparel2020
+  area: Waveforms
+  ref: "J. Tapparel et al., An open-source LoRa physical layer prototype on GNU Radio, SPAWC 2020"
+  module: com_waveform::css
+  tested: "the chirps of eqs. (1)-(3), the waveform used by the tests of Chiani and Afisiadis"
+  tests:
+    - validation/tests/css.rs
+  badge: orange
+  not_covered: "the LoRa PHY chain (whitening, Hamming codes, interleaving, header, synchronisation)"
+- id: farhang2011
+  area: Waveforms
+  ref: "B. Farhang-Boroujeny, OFDM versus filter bank multicarrier, IEEE SPM 28(3), 2011"
+  module: com_waveform::fbmc
+  tested: "SMT (FBMC/OQAM): real orthogonality and spectral confinement against OFDM"
+  tests:
+    - crates/com-waveform/src/fbmc/mod.rs::the_spectrum_is_confined_where_that_of_ofdm_is_not
+  badge: orange
+  not_covered: "a tutorial: CMT and FMT are not implemented"
+- id: bouhadda2014
+  area: Waveforms
+  ref: "H. Bouhadda et al., Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and OFDM signals, EURASIP JASP 2014:60"
+  module: com_waveform::fbmc, com_dsp::nonlinear
+  tested: "Table 1 (PHYDYAS); Tables 2-3 (Bussgang K and distortion of the SSPA and TWTA); Figs. 7, 10, 11"
+  tests:
+    - crates/com-waveform/src/fbmc/mod.rs::bouhadda_2014_table_1
+    - crates/com-hardware/src/amplifier.rs::bouhadda_2014_tables_2_3
+    - validation/tests/bouhadda2014.rs::bouhadda_2014_figs_10_11_corrected_gain
+    - validation/tests/bouhadda2014.rs::bouhadda_2014_fig_7_phase_rotation
+  badge: green
+  remarks:
+    - "Fig. 7: the curves labelled IBO = 4 dB are at 8 dB (the value of the text)"
+    - "the \"loss of about 7 dB\" of FBMC at a BER of 5e-3 is 0.2 dB (2.6 dB at 5e-4)"
+    - "Table 1: the rows m0 - 1 and m0 + 1 are exchanged with respect to the phases of eq. (3)"
+    - "in eqs. (31)-(34) sigma is the standard deviation per dimension, not that of eq. (35)"
+- id: schaich2014
+  area: Waveforms
+  ref: "F. Schaich, T. Wild, Waveform contenders for 5G - OFDM vs. FBMC vs. UFMC, ISCCSP 2014"
+  module: com_waveform::ufmc
+  tested: "eq. (1) and the receiver on the even bins of a 2N DFT: orthogonality of the sub-bands, sidelobes against OFDM"
+  tests:
+    - crates/com-waveform/src/ufmc.rs::the_sub_bands_are_orthogonal_and_the_filters_unit_energy
+    - crates/com-waveform/src/ufmc.rs::the_sidelobes_fall_faster_than_those_of_ofdm
+  badge: orange
+  not_covered: "the paper has no figure; the filter parameters of Vakilian et al. (2013) are not in references/"
+- id: nissel2017
+  area: Waveforms
+  ref: "R. Nissel, M. Rupp, OFDM and FBMC-OQAM in doubly-selective channels: calculating the bit error probability, IEEE Commun. Lett. 21(6), 2017"
+  module: com_waveform::{ofdm, fbmc}
+  tested: "eqs. (16)-(17) (the Rayleigh closed forms of com_mapping); Fig. 2 (FBMC in doubly-flat fading); Fig. 4 (OFDM and CP-OFDM over Vehicular A, 50-500 km/h, within 30 %)"
+  tests:
+    - validation/tests/nissel2017.rs::nissel_2017_eqs_16_17_are_the_rayleigh_closed_forms
+    - validation/tests/nissel2017.rs::nissel_2017_fig_2_fbmc_in_doubly_flat_fading
+    - validation/tests/nissel2017.rs::nissel_2017_fig_4_vehicular_a
+  badge: orange
+  not_covered: "the Hermite prototype (Haas & Belfiore 1997, not in references/): the FBMC curves of Figs. 3-4 are compared with PHYDYAS qualitatively; the BEP of Lemma 1"
+- id: hadani2017
+  area: Waveforms
+  ref: "R. Hadani et al., Orthogonal time frequency space modulation, WCNC 2017"
+  module: com_waveform::otfs
+  tested: "Fig. 5, qualitatively: the diversity of OTFS with an MMSE detector against one-tap CP-OFDM over EVA at 120 km/h"
+  tests:
+    - validation/tests/raviteja2019.rs::hadani_2017_fig_5_diversity_of_otfs
+  badge: orange
+  not_covered: "the TDL-C channel and the frame of the paper; the DFE receivers; Fig. 9 (stability of the SNR)"
+- id: raviteja2019
+  area: Waveforms
+  ref: "P. Raviteja, Y. Hong, E. Viterbo, E. Biglieri, Practical pulse-shaping waveforms for reduced-cyclic-prefix OTFS, TVT 68(1), 2019"
+  module: com_waveform::otfs, com_channel::multipath::DelayDoppler
+  tested: "Theorem 1 (eq. (12)) and its example verbatim; Theorem 1 through the channel to 1e-10; eq. (13) with fractional Doppler shifts"
+  tests:
+    - crates/com-waveform/src/otfs.rs::raviteja_2019_example_of_theorem_1
+    - validation/tests/raviteja2019.rs::raviteja_2019_theorem_1_through_the_channel
+  badge: green
+  not_covered: "Fig. 1 (message-passing detector, M = 512, N = 128); the prolate spheroidal pulses"
+- id: murota1981
+  area: Waveforms
+  ref: "K. Murota, K. Hirade, GMSK modulation for digital mobile radio telephony, TCOM 29(7), 1981"
+  module: com_waveform::cpm
+  tested: "Table I: the 99 % bandwidths of GMSK"
+  tests:
+    - crates/com-waveform/src/cpm/mod.rs::murota_hirade_1981_gmsk_bandwidths
+  badge: orange
+  not_covered: "the paper is not in references/"
+- id: telatar1999
+  area: MIMO
+  ref: "E. Telatar, Capacity of multi-antenna Gaussian channels, Eur. Trans. Telecommun. 10(6), 1999"
+  module: com_mimo::capacity
+  tested: "Theorem 2 (eq. (8)) and eq. (16) against Monte Carlo; Remark 3, Examples 3-5; the contour levels of Fig. 1; the limit (13) of Fig. 2; Figs. 3-4"
+  tests:
+    - crates/com-mimo/src/capacity.rs::telatar_1999_figs_1_2_and_eq_13
+    - crates/com-mimo/src/capacity.rs::telatar_1999_figs_3_4_outage
+    - crates/com-mimo/src/capacity.rs::the_ergodic_capacity_is_the_mean_of_the_realisations
+  badge: green
+  not_covered: "the outage for more than one antenna on both sides (Telatar's conjecture)"
+- id: alamouti1998
+  area: MIMO
+  ref: "S. M. Alamouti, A simple transmit diversity technique for wireless communications, JSAC 16(8), 1998"
+  module: com_mimo::stbc
+  tested: "the scheme against MRC of 2 nr branches (closed form)"
+  tests:
+    - validation/tests/mimo.rs::alamouti_over_rayleigh_fading
+  badge: orange
+  not_covered: "Fig. 4 is shown in the gallery, not checked"
+- id: tarokh1999
+  area: MIMO
+  ref: "V. Tarokh, H. Jafarkhani, A. R. Calderbank, Space-time block codes from orthogonal designs, IT 45(5), 1999"
+  module: com_mimo::stbc
+  tested: "the rate-3/4 designs of eqs. (39)-(40) are orthogonal"
+  tests:
+    - crates/com-mimo/src/stbc.rs::tarokh_1999_rate_3_4_designs_are_orthogonal
+  badge: green
+  not_covered: "the error rates of the paper"
+- id: yang2015
+  area: MIMO
+  ref: "S. Yang, L. Hanzo, Fifty years of MIMO detection, IEEE Commun. Surveys Tuts. 17(4), 2015"
+  module: com_mimo::detection
+  tested: "Table X: the diversity orders of ML, sphere, ZF, MMSE, (O)SIC and K-best on 2 x 2 and 2 x 4 within +-0.3"
+  tests:
+    - validation/tests/mimo.rs::diversity_orders_follow_yang_hanzo_2015_table_x
+  badge: orange
+  not_covered: "on 2 x 4 the ZF- and MMSE-OSIC slopes lie between 3 and 4 at every reachable SNR (Table X: 3)"
+- id: jeon2018
+  area: MIMO
+  ref: "C. Jeon, R. Ghods, A. Maleki, C. Studer, Optimal data detection in large MIMO, arXiv 1811.01917, 2018"
+  module: com_mimo::message_passing
+  tested: "Table II (28 thresholds and critical noise variances within a unit of the last digit); the operating points of Sec. V"
+  tests:
+    - validation/tests/message_passing.rs::table_ii_thresholds_of_square_qam
+    - validation/tests/message_passing.rs::operating_points_of_section_v
+  badge: orange
+  remarks:
+    - "two values of the text are not reproduced by the state evolution that reproduces Table II: 13.5 dB at beta_mid (13.17 dB) and the SER floor of 0.08 at beta_max (0.208)"
+- id: ma2017
+  area: MIMO
+  ref: "J. Ma, L. Ping, Orthogonal AMP, IEEE Access 5, 2017"
+  module: com_mimo::message_passing
+  tested: "eq. (42), Figs. 2 and 3: state evolution against simulation on i.i.d. and ill-conditioned matrices"
+  tests:
+    - validation/tests/message_passing.rs
+  badge: orange
+  not_covered: "the simulations use N = 1024 (8192 in the paper): in the waterfall the finite systems lag behind the state evolution"
+- id: tr38901
+  area: Wireless channels
+  ref: "3GPP TR 38.901 V17.0.0, channel model from 0.5 to 100 GHz"
+  module: com_channel::cdl
+  tested: "the CDL-A to CDL-E tables 7.7.1-1 to 7.7.1-5, the delay scaling of Sec. 7.7.3, the K-factors"
+  tests:
+    - crates/com-channel/src/cdl/mod.rs::tr_38901_tables_7_7_1_1_to_5_entries
+    - crates/com-channel/src/cdl/mod.rs::tr_38901_section_7_7_3_unit_delay_spread_and_its_scaling
+  badge: green
+  not_covered: "the TDL profiles of Table 7.7.2 are not implemented"
+- id: m1225
+  area: Wireless channels
+  ref: "ITU-R M.1225 (1997), evaluation of IMT-2000 radio technologies"
+  module: com_channel::multipath::Profile
+  tested: "the pedestrian and vehicular profiles A and B (Tables 4 and 5) and their delay spreads (Table 2)"
+  tests:
+    - crates/com-channel/src/multipath.rs::itu_r_m1225_tables_4_and_5
+    - crates/com-channel/src/multipath.rs::itu_r_m1225_table_2_delay_spreads
+  badge: green
+- id: poggiolini2012
+  area: Optical
+  ref: "P. Poggiolini, The GN model of non-linear propagation in uncompensated coherent optical systems, JLT 30(24), 2012"
+  module: com_channel::optical::gn
+  tested: "the GN integral and the closed form, against a Manakov split-step simulation"
+  tests:
+    - specs/wdm_gn.yaml
+  badge: orange
+  not_covered: "no figure of the paper is reproduced"
+- id: carena2014
+  area: Optical
+  ref: "A. Carena et al., EGN model of non-linear fiber propagation, Opt. Express 22(13), 2014"
+  module: com_channel::optical::gn
+  tested: "the SCI of PM-QPSK of Fig. 1(a) at 1, 10, 20 and 50 spans (GN within 0.2 dB, EGN within 0.25 dB); the moments of the formats"
+  tests:
+    - validation/tests/egn.rs::sci_of_pm_qpsk_follows_fig_1a_of_carena_2014
+    - crates/com-channel/src/optical/gn.rs::the_moments_of_the_formats_are_those_of_carena
+  badge: green
+  remarks:
+    - "between 2 and 5 spans the EGN curve of Fig. 1(a) lies up to 0.9 dB below the formulas of the same paper"
+- id: serena2020
+  area: Optical
+  ref: "P. Serena et al., On numerical simulations of ultra-wideband long-haul optical communication systems, JLT 38(5), 2020"
+  module: com_channel::optical::manakov
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the split-step accuracy and the ISRS in simulations are not compared with the paper"
+- id: bromage2004
+  area: Optical
+  ref: "J. Bromage, Raman amplification for fiber communications systems, JLT 22(1), 2004"
+  module: com_channel::optical::raman
+  tested: "the Raman power equations (eqs. (1), (4)), checked through the recorded outputs of GNPy"
+  tests:
+    - tests/test_gnpy_oracle.py::test_power_profiles_and_spontaneous_noise_of_multi_pump_spans
+  badge: orange
+  not_covered: "no figure of the paper is reproduced"
+- id: semrau2018
+  area: Optical
+  ref: "D. Semrau, P. Bayvel, The GN model in the presence of inter-channel stimulated Raman scattering, JLT 36(14), 2018"
+  module: com_channel::optical::{raman, gn}
+  tested: "the ISRS power transfer of eq. (10) within 5 %"
+  tests:
+    - crates/com-channel/src/optical/raman/mod.rs::semrau_2018_eq_10_isrs_power_transfer
+  badge: orange
+  not_covered: "the ISRS GN model against Fig. 2"
+- id: marcuse1997
+  area: Optical
+  ref: "D. Marcuse, C. R. Menyuk, P. K. A. Wai, Application of the Manakov-PMD equation, JLT 15(9), 1997"
+  module: com_channel::optical::pmd
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the coarse-step PMD model is checked for unitarity only"
+- id: sinkin2003
+  area: Optical
+  ref: "O. V. Sinkin et al., Optimization of the split-step Fourier method, JLT 21(1), 2003"
+  module: com_math::nlse
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the step rules"
+- id: hager2021
+  area: Optical
+  ref: "C. Häger, H. D. Pfister, Physics-based deep learning for fiber-optic communication systems, JSAC 39(1), 2021"
+  module: com_channel::optical::fiber, com_dsp::compensation::dbp
+  tested: "Fig. 5: linear equalisation and DBP with one step per span over 25 x 80 km, within 0.13 dB of the digitised curves"
+  tests:
+    - specs/validation/hager2021_fig5.yaml
+  badge: green
+- id: banelli2000
+  area: Hardware impairments
+  ref: "P. Banelli, S. Cacopardi, Theoretical analysis and performance of OFDM signals in nonlinear AWGN channels, TCOM 48(3), 2000"
+  module: com_dsp::nonlinear
+  tested: "eqs. 7, 9, 17-21, 28, 31, Table I, Fig. 5"
+  tests:
+    - validation/tests/banelli2000.rs
+  badge: green
+  not_covered: "the measured amplifier of Figs. 3-4 (coefficients not given)"
+  remarks:
+    - "eq. 31: the output back-off is gamma/(1 - e^-gamma), printed gamma (1 - e^-gamma)"
+    - "eq. 28 and Table I disagree in sign"
+- id: ding2004
+  area: Hardware impairments
+  ref: "L. Ding et al., A robust digital baseband predistorter constructed using memory polynomials, TCOM 52(1), 2004"
+  module: com_hardware::amplifier, com_dsp::compensation::dpd
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the memory polynomial and its indirect learning against the results of the paper"
+- id: ip2008
+  area: Receiver DSP
+  ref: "E. Ip, J. M. Kahn, Compensation of dispersion and nonlinear impairments using digital backpropagation, JLT 26(20), 2008"
+  module: com_dsp::compensation::dbp
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "DBP with few steps per span is compared with Häger & Pfister, not with this paper"
+- id: eghbali2014
+  area: Receiver DSP
+  ref: "A. Eghbali et al., Optimal least-squares FIR filters for compensation of chromatic dispersion, JLT 32(8), 2014"
+  module: com_dsp::compensation::cd
+  tested: "Table I (exact), eqs. 12-19, Figs. 5, 8 and 9"
+  tests:
+    - validation/tests/cd_filters.rs
+    - validation/cards/eghbali2014_table1.yaml
+  badge: green
+  remarks:
+    - "Sec. IV-A quotes E = -220 and -63 dB; the computed energies are -113 and -34 dB, i.e. the paper seems to quote 20 log10 of the energy"
+- id: kikuchi2008
+  area: Receiver DSP
+  ref: "K. Kikuchi, Performance analyses of polarization demultiplexing based on the constant-modulus algorithm, Opt. Express 16(2), 2008"
+  module: com_dsp::equalizer
+  tested: "the singularity of the blind 2 x 2 equaliser at 45 degrees (48 % of the trials) and its initialisation"
+  tests:
+    - specs/polmux_cma_45deg.yaml
+    - crates/com-dsp/src/equalizer.rs::kikuchi_initialisation_avoids_the_singularity_of_the_45_degree_rotation
+  badge: orange
+  not_covered: "compared with a qualitative statement (about half of the trials), not a table"
+- id: edfors1998
+  area: Receiver DSP
+  ref: "O. Edfors et al., OFDM channel estimation by singular value decomposition, TCOM 46(7), 1998"
+  module: com_waveform::ofdm::estimation, com_dsp::estimation
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the MSE of LMMSE estimation against the figures"
+- id: coleri2002
+  area: Receiver DSP
+  ref: "S. Coleri, M. Ergen, A. Puri, A. Bahai, Channel estimation techniques based on pilot arrangement in OFDM systems, TBC 48(3), 2002"
+  module: com_waveform::ofdm::estimation, com_dsp::estimation
+  tested: "eq. (19); the ranking of the comb interpolations of Sec. VI-B on the channels of eq. (23) and Table II"
+  tests:
+    - validation/tests/coleri2002.rs::coleri_2002_interpolation_ranking
+    - crates/com-dsp/src/interpolation.rs::coleri_eq_19_is_the_quadratic_with_alpha_l_over_l
+  badge: orange
+  not_covered: "the ranking holds only when the comb oversamples the channel and at high SNR; Figs. 5-11 (block type, decision feedback, LMS)"
+  remarks:
+    - "eq. (19): alpha = l/N is a misprint for l/L"
+    - "Table I is not self-consistent: 128 carriers of a 1024-point FFT at 44.1 kHz cannot span 17.5 kHz, and 70 Hz of Doppler over a 29 ms symbol decorrelates the channel within the symbol"
+    - "with L = 8 the comb samples delays below 128 samples only, while channel 1 has a path at 137"
+- id: schmidl1997
+  area: Receiver DSP
+  ref: "T. M. Schmidl, D. C. Cox, Robust frequency and timing synchronization for OFDM, TCOM 45(12), 1997"
+  module: com_waveform::ofdm::sync
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the variance of the estimators against the paper (only qualitative self-tests)"
+- id: swami2000
+  area: Receiver DSP
+  ref: "A. Swami, B. M. Sadler, Hierarchical digital modulation classification using cumulants, TCOM 48(3), 2000"
+  module: com_metrics::blind
+  tested: "the normalised fourth-order cumulants of the alphabets (values quoted from memory)"
+  tests:
+    - validation/tests/blind.rs
+  badge: orange
+  not_covered: "the paper is not in references/; the classification rates"
+- id: dvbs2
+  area: Systems and standards
+  ref: "ETSI EN 302 307-1 V1.4.1, DVB-S2"
+  module: com_systems::dvbs2, com_fec::{bch, ldpc}
+  tested: "Table 13: the Es/N0 of the 28 MODCODs (normal frames) at a FER of 10 %; Tables 6a, 9-12; the PL header and the PLS code"
+  tests:
+    - specs/validation/dvbs2_table13.yaml
+    - crates/com-systems/src/dvbs2/mod.rs::table_12_has_28_modcods_numbered_1_to_28
+    - crates/com-fec/src/bch.rs::the_generators_of_dvb_s2_are_the_products_of_the_published_polynomials
+  badge: orange
+  not_covered: "Table 13 is at a PER of 1e-7; the search stops at a FER of 10 % (0.17 to 0.72 dB below the table)"
+- id: lin2019
+  area: Systems and standards
+  ref: "X. Lin et al., 5G New Radio: unveiling the essentials, IEEE Commun. Standards Mag. 3(3), 2019"
+  module: com_waveform::ofdm::nr
+  tested: "the NR numerology (Sec. II) and the SSB (Sec. III-A)"
+  tests:
+    - validation/tests/nr.rs
+  badge: green
+- id: astely2009
+  area: Systems and standards
+  ref: "D. Astély et al., LTE: the evolution of mobile broadband, IEEE Commun. Mag. 47(4), 2009"
+  module: com_waveform::ofdm::nr
+  tested: "the LTE numerology (15 kHz, 4.7 and 16.7 us prefixes, 14 or 12 symbols)"
+  tests:
+    - validation/tests/nr.rs
+  badge: green
+- id: eizmendi2014
+  area: Systems and standards
+  ref: "I. Eizmendi et al., DVB-T2: the second generation of terrestrial digital video broadcasting, TBC 60(2), 2014"
+  module: "-"
+  tested: "-"
+  tests: []
+  badge: red
+  not_covered: "the DVB-T2 options and the P1 symbol are not implemented"
+- id: sigmf
+  area: Simulation and specifications
+  ref: "SigMF specification 1.x"
+  module: com_spec::io
+  tested: "the 28 sample formats, captures and annotations, against sigmf-python"
+  tests:
+    - tests/test_sigmf.py
+  badge: green
+  not_covered: "the sha512 checksum, compressed archives"
+- id: opticommpy
+  area: Reference implementations
+  ref: "OptiCommPy 0.11 (recorded outputs)"
+  module: mapping, metrics, filters, equalisers, carrier and clock recovery, fibre, optical front ends
+  tested: "the same inputs give the same outputs (relative tolerance down to 1e-8)"
+  tests:
+    - tests/test_oracle.py
+  badge: green
+  remarks:
+    - "theoryBER of BPSK counts two neighbours and doubles the BER"
+- id: gnpy
+  area: Reference implementations
+  ref: "GNPy 3.0 (recorded outputs)"
+  module: com_channel::optical::{gn, raman}
+  tested: "the generalised GN model with counter-pumps (0.02 dB); the power profiles and spontaneous noise of multi-pump spans"
+  tests:
+    - tests/test_gnpy_oracle.py
+  badge: green
+- id: aff3ct
+  area: Reference implementations
+  ref: "AFF3CT v4.7.1 (Cassagne et al., SoftwareX 10, 2019), recorded outputs"
+  module: com_fec
+  tested: "the error rates of 17 configurations: RS, BCH, (133, 171) Viterbi, LDPC (flooding and layered), LTE turbo, polar SC and CA-SCL"
+  tests:
+    - validation/tests/aff3ct.rs
+  badge: green
+- id: sionna
+  area: Reference implementations
+  ref: "Sionna (Apache-2.0), its reference vectors"
+  module: com_fec::{crc, conv, turbo, nr}
+  tested: "CRC parity bits, convolutional and LTE turbo codewords and decisions bit for bit, NR LDPC and polar codewords"
+  tests:
+    - tests/test_sionna_vectors.py
+  badge: green
+- id: py3gpp
+  area: Reference implementations
+  ref: "py3gpp 0.6 (recorded outputs)"
+  module: com_waveform::ofdm::nr
+  tested: "PSS, SSS, PBCH DMRS bit for bit; the PDSCH DMRS of 42 configurations; the OFDM modulation of a subframe to 1e-14"
+  tests:
+    - tests/test_nr_oracle.py
+  badge: green
+  remarks:
+    - "py3gpp lengthens the prefix of the first symbol of every slot, TS 38.211 of every half subframe: they differ from 60 kHz"
+    - "py3gpp adds symbol 7 to 8- and 9-symbol DMRS allocations without additional position"
+- id: scipy
+  area: Reference implementations
+  ref: "SciPy 1.18 (values recorded in the tests)"
+  module: com_math, com_dsp::{window, interpolation}
+  tested: "gammaln, gammainc, exp1, erf, i0e, j0; chebwin; CubicSpline (not-a-knot)"
+  tests:
+    - crates/com-math/src/lib.rs::gamma_e1_and_erf_against_scipy
+    - crates/com-dsp/src/window.rs::chebyshev_is_that_of_scipy
+    - crates/com-dsp/src/interpolation.rs::the_spline_is_that_of_scipy_with_not_a_knot_ends
+  badge: green

@@ -1,4 +1,4 @@
-//! OFDM through a nonlinear amplifier (`comrs::hardware::gaussian_input`) against P.
+//! OFDM through a nonlinear amplifier (`comrs::dsp::nonlinear`) against P.
 //! Banelli and S. Cacopardi, "Theoretical analysis and performance of OFDM signals in
 //! nonlinear AWGN channels," *IEEE Trans. Commun.* 48(3), 430–441, 2000
 //! (`references/2000_banelli_ofdm-nonlinear-awgn_tcom.pdf`):
@@ -6,7 +6,7 @@
 //! - eq. 7 (the series of the output autocorrelation, computed by quadrature for any
 //!   nonlinearity) against the closed forms of eq. 28 for the soft envelope limiter of an
 //!   ideally predistorted amplifier, with the coefficients $d_{i,n}$ of Table I, and
-//!   against Bussgang's gain of `comrs::waveform::papr::clipping_bussgang` (Ochiai & Imai
+//!   against Bussgang's gain of `comrs::dsp::nonlinear::clipping_bussgang` (Ochiai & Imai
 //!   2002); the coefficients sum to the output power. Eq. 28 and Table I disagree in
 //!   sign: the exact integral equals eq. 28 with $+\sum_{i} d_{i,n}\gamma^{i+1}$ for the
 //!   $d_{i,n}$ of Table I (or with the printed minus and the signs of Table I reversed),
@@ -22,12 +22,11 @@
 //!   read on the figure, and against a Monte Carlo simulation of the whole chain.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use comrs::hardware::gaussian_input::{distortion_spectrum, output_series};
+use comrs::dsp::nonlinear::{clipping_bussgang, distortion_spectrum, output_series};
 use comrs::mapping::theory::ber_dpsk;
 use comrs::math::erfc;
 use comrs::math::fft::{fft, ifft};
 use comrs::prelude::*;
-use comrs::waveform::papr::clipping_bussgang;
 use std::f64::consts::PI;
 
 /// Eq. 28 for 2σ² = 1, n = 0 to 4, with the d_{i,n} of Table I and the sign `sign` in
@@ -66,14 +65,14 @@ fn banelli2000_eq28_table1_and_eq31() {
         assert!(gamma_db > 3.0 || (eq28(g, -1.0)[2] - c[2]).abs() > 1e-4);
         // c0 = α² with Bussgang's gain of clipping (Ochiai & Imai 2002)
         let bg = clipping_bussgang(gamma_db);
-        assert!((c[0] - bg.gain * bg.gain).abs() < 1e-6);
+        assert!((c[0] - bg.gain.norm_sqr()).abs() < 1e-6);
         // the coefficients sum to the output power 1 - e^{-γ}
         let p_out: f64 = c.iter().sum();
         assert!((p_out - (1.0 - (-g).exp())).abs() < 5e-4, "γ = {gamma_db} dB: Σ c_n = {p_out}");
     }
     // eq. 31: γ/(1 - e^{-γ}) gives the OBOs of Fig. 5; the printed γ(1 - e^{-γ}) does not
-    let obo = |g: f64| 10.0 * (g / (1.0 - (-g).exp())).log10();
-    let printed = |g: f64| 10.0 * (g * (1.0 - (-g).exp())).log10();
+    let obo = |g: f64| comrs::math::lin2db(g / (1.0 - (-g).exp()));
+    let printed = |g: f64| comrs::math::lin2db(g * (1.0 - (-g).exp()));
     assert!((obo(db2lin(3.0)) - 3.64).abs() < 0.01 && (obo(db2lin(6.0)) - 6.08).abs() < 0.01);
     assert!((printed(db2lin(3.0)) - 3.64).abs() > 1.0);
 }
