@@ -2,8 +2,9 @@
 
 use crate::{params, search, verify};
 use com_core::{Error, Result};
+use com_sim::callbacks::SkipAfter;
 use com_sim::grid::{Condition, Grid, Value};
-use com_sim::stopping::Stop;
+use com_sim::stopping::{Stop, check_confidence};
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
 use std::collections::BTreeMap;
@@ -23,7 +24,8 @@ pub struct Spec {
     pub batch: u64,
     /// Worker threads (0: all cores).
     pub threads: usize,
-    /// Confidence level of the reported intervals.
+    /// Confidence level of the reported intervals and of the precision targets of the
+    /// stopping rule, in $(0, 1)$.
     pub confidence: f64,
     /// The conditions.
     pub grid: Grid,
@@ -37,8 +39,8 @@ pub struct Spec {
     pub stop: Stop,
     /// Print one line per condition.
     pub progress: bool,
-    /// Skip the rest of a sweep below an error floor.
-    pub skip_below: Option<(String, f64, String)>,
+    /// Skip the rest of a sweep below an error floor (`callbacks: {skip_below: …}`).
+    pub skip_below: Option<SkipAfter>,
     /// Time every block of every trial (see [`Link::trial`](crate::Link::trial)).
     pub profile: bool,
     /// CSV output.
@@ -113,14 +115,15 @@ struct StopSpec {
 }
 
 impl StopSpec {
-    fn rule(&self) -> Result<Stop> {
+    /// The rule, its precision targets at the confidence level of the specification.
+    fn rule(&self, confidence: f64) -> Result<Stop> {
         for (m, r) in &self.precision {
             if !(r.is_finite() && *r > 0.0) {
                 return Err(Error::Config(format!("stop: precision of {m:?} must be a positive number, got {r}")));
             }
         }
         let mut targets: Vec<Stop> = self.min_errors.iter().map(|(m, k)| Stop::min_errors(m, *k)).collect();
-        targets.extend(self.precision.iter().map(|(m, r)| Stop::precision(m, *r)));
+        targets.extend(self.precision.iter().map(|(m, r)| Stop::precision_at(m, *r, confidence)));
         let mut caps: Vec<Stop> = Vec::new();
         if let Some(n) = self.max_trials {
             caps.push(Stop::max_trials(n));
@@ -253,6 +256,7 @@ impl Spec {
             return Err(Error::Config(format!("stop: {k} must be a finite number, got null or a non-finite value")));
         }
         let raw: RawSpec = serde_json::from_value(v).map_err(|e| Error::Config(format!("specification: {e}")))?;
+        check_confidence(raw.confidence, "confidence")?;
         let mut grid = if raw.cases.is_empty() {
             Grid::new()
         } else {
@@ -287,9 +291,9 @@ impl Spec {
             fiber: raw.fiber,
             link: raw.link,
             metrics: raw.metrics,
-            stop: raw.stop.rule()?,
+            stop: raw.stop.rule(raw.confidence)?,
             progress: raw.callbacks.progress,
-            skip_below: raw.callbacks.skip_below.map(|s| (s.metric, s.threshold, s.along)),
+            skip_below: raw.callbacks.skip_below.map(|s| SkipAfter::below(&s.metric, s.threshold, &s.along)),
             profile: raw.profile,
             csv: raw.output.csv,
             json: raw.output.json,
@@ -375,6 +379,28 @@ mod tests {
         }
         assert!(s("{precision: {snr_db: .inf}, max_trials: 5}").is_err());
         assert_eq!(s("{max_time_s: 0.5}").unwrap().stop.to_string(), "time ≥ 0.5 s");
+    }
+
+    #[test]
+    fn the_confidence_is_a_probability_and_reaches_the_precision_targets() {
+        let s = |c: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nconfidence: {c}"));
+        for bad in ["95", "1", "0", "-0.5", "1.5"] {
+            let e = s(bad).unwrap_err().to_string();
+            assert!(e.contains("confidence") && e.contains("between 0 and 1"), "{bad}: {e}");
+        }
+        let spec = Spec::from_yaml(
+            "name: t\nlink: [source]\nconfidence: 0.99\nstop: {precision: {snr_db: 0.1}, max_trials: 5}",
+        )
+        .unwrap();
+        assert_eq!(spec.stop.to_string(), "(precision(snr_db) ≤ 0.1 at 0.99 or trials ≥ 5)");
+        // the runner refuses it too, whoever builds it
+        let spec = Spec::from_yaml("name: t\nlink: [source]\nstop: {max_trials: 2}").unwrap();
+        let e = spec
+            .bare_runner(&crate::RunOptions::default())
+            .confidence(95.0)
+            .run(&crate::SpecScenario::new(&spec), &spec.grid)
+            .unwrap_err();
+        assert!(e.to_string().contains("between 0 and 1"), "{e}");
     }
 
     #[test]

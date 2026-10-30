@@ -1,7 +1,8 @@
 //! The Monte Carlo runner of Python: Python trials on the Rust runner.
 //!
 //! [`PyScenario`] implements [`Scenario`] by calling the Python trial (and setup) under
-//! the GIL; the runner runs it with one thread (Python blocks are not thread-safe), so
+//! the GIL; the runner runs it with one thread (Python blocks are not thread-safe; a
+//! chain runs on more when its caller or its specification asks for them), so
 //! that `comrs.sim.run` and the Python path of `Chain.run` share the Rust runner, its
 //! statistics, its stopping rules (parsed by Rust from the `stop` mapping of a
 //! specification), its statuses, its condition labels and its CSV and JSON loggers.
@@ -13,14 +14,14 @@ use crate::rng::PyRng;
 use crate::spec::{condition_dict, result_with};
 use crate::{IntoPy, json};
 use comrs::core::rng::Rng;
-use comrs::sim::callbacks::{ProgressBar, SkipAfter};
+use comrs::sim::callbacks::ProgressBar;
 use comrs::sim::grid::{Condition, Grid, Value};
 use comrs::sim::loggers::{CsvLogger, JsonLogger};
 use comrs::sim::runner::{ConditionResult, Runner};
 use comrs::sim::scenario::{Record, Scenario};
 use comrs::sim::stats::{ErrorRate, Estimate, Mean};
 use comrs::sim::stopping::Stop;
-use comrs::spec::Spec;
+use comrs::spec::{RunOptions, Spec};
 use comrs::spec::metrics::Metrics;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -733,11 +734,10 @@ impl Scenario for PyScenario {
     }
 }
 
-/// Run a Python scenario on the Rust runner, with one thread and the GIL released
-/// between the trials; a Python exception is raised again with a note naming where it
-/// happened.
+/// Run a Python scenario on the Rust runner, with the GIL released between the trials;
+/// a Python exception is raised again with a note naming where it happened.
 fn run_scenario(py: Python<'_>, scenario: &PyScenario, grid: &Grid, runner: Runner) -> PyResult<Vec<ConditionResult>> {
-    let out = py.detach(|| runner.threads(1).run(scenario, grid));
+    let out = py.detach(|| runner.run(scenario, grid));
     match out {
         Ok(r) => Ok(r),
         Err(e) => {
@@ -799,9 +799,11 @@ fn sim_run(
         conds.push((condition_of(d.as_any())?, d.into_any().unbind()));
     }
     let grid = Grid::from_conditions(conds.iter().map(|(c, _)| c.clone()).collect());
+    // Python trials are not thread-safe: one thread
     let mut runner = Runner::new()
         .seed(seed)
         .batch(batch)
+        .threads(1)
         .stop(stop.map_or(Stop::max_trials(100), |s| s.inner.clone()))
         .confidence(confidence);
     if progress {
@@ -831,27 +833,51 @@ fn sim_run(
         .collect())
 }
 
-/// Run a chain with Python blocks on the Rust runner: the settings of the specification
-/// `spec` (its seed, batch, stopping rule, confidence, callbacks and outputs; its link is
-/// ignored; `stop` replaces its rule), the blocks of a condition from
-/// `setup(condition)`, a callable `apply(frame, rng)`.
+/// Run a chain with Python blocks on the Rust runner: the runner of the specification
+/// `spec` (``com_spec::Spec::runner``: its seed, batch, stopping rule, confidence,
+/// callbacks and outputs, overridden by the arguments given; its link is ignored), the
+/// blocks of a condition from `setup(condition)`, a callable `apply(frame, rng)`.
+///
+/// Python blocks are not thread-safe: the chain runs on one thread unless `threads`, or
+/// the ``threads`` of the specification, asks for more (the results do not depend on
+/// it when the blocks draw from the generator they are given only).
 ///
 /// Args:
 ///     spec (dict): the settings of the campaign.
 ///     setup (callable): ``setup(condition) -> apply``.
-///     progress (bool): progress lines on the standard error.
+///     progress (bool): progress lines on the standard error (or those of the
+///         specification).
 ///     stop (Stop | None): a rule instead of the one of the specification.
+///     threads (int | None): worker threads (0: all cores).
+///     batch (int | None): trials between two checks of the stopping rule.
+///     fast_dev_run (bool): one batch per condition, the stopping rule ignored.
+///     csv_path (str | os.PathLike | None): the CSV report, instead of the one of the
+///         specification.
+///     json_path (str | os.PathLike | None): the JSON report, instead of the one of the
+///         specification.
 ///
 /// Returns:
 ///     list[dict]: one dict per condition, as :func:`comrs.run_spec`.
+///
+/// Raises:
+///     ValueError: for an invalid specification or stopping rule.
 #[pyfunction]
-#[pyo3(name = "_run_chain", signature = (spec, setup, *, progress = false, stop = None))]
+#[pyo3(
+    name = "_run_chain",
+    signature = (spec, setup, *, progress = false, stop = None, threads = None, batch = None, fast_dev_run = false, csv_path = None, json_path = None)
+)]
+#[allow(clippy::too_many_arguments, reason = "the options of a run, keyword-only in Python")]
 fn run_chain<'py>(
     py: Python<'py>,
     spec: &Bound<'py, PyAny>,
     setup: Py<PyAny>,
     progress: bool,
     stop: Option<PyRef<'py, PyStop>>,
+    threads: Option<usize>,
+    batch: Option<u64>,
+    fast_dev_run: bool,
+    csv_path: Option<PathBuf>,
+    json_path: Option<PathBuf>,
 ) -> PyResult<Bound<'py, PyList>> {
     let mut v = json(py, spec)?;
     if let Some(o) = v.as_object_mut() {
@@ -864,23 +890,19 @@ fn run_chain<'py>(
         .into_iter()
         .map(|c| Ok((c.clone(), condition_dict(py, &c)?.into_any().unbind())))
         .collect::<PyResult<Vec<_>>>()?;
-    let mut runner = Runner::new()
-        .seed(spec.seed)
-        .batch(spec.batch)
-        .stop(stop.map_or_else(|| spec.stop.clone(), |s| s.inner.clone()))
-        .confidence(spec.confidence)
-        .config(spec.source.to_string());
-    if progress || spec.progress {
-        runner = runner.callback(ProgressBar::default());
-    }
-    if let Some((m, t, a)) = &spec.skip_below {
-        runner = runner.callback(SkipAfter::below(m, *t, a));
-    }
-    if let Some(p) = &spec.csv {
-        runner = runner.logger(CsvLogger::new(p));
-    }
-    if let Some(p) = &spec.json {
-        runner = runner.logger(JsonLogger::new(p));
+    let threads = threads.or_else(|| spec.source.get("threads").map(|_| spec.threads)).or(Some(1));
+    let opts = RunOptions {
+        threads,
+        batch,
+        fast_dev_run,
+        progress: progress.then_some(true),
+        profile: None,
+        csv: csv_path,
+        json: json_path,
+    };
+    let mut runner = spec.runner(&opts);
+    if let Some(s) = stop {
+        runner = runner.stop(s.inner.clone());
     }
     let confidence = spec.confidence;
     let scenario = PyScenario {

@@ -405,7 +405,9 @@ class Chain(Block):
             stop (dict | Stop | None): the stopping rule.
             seed (int | None): the base seed.
             name (str | None): the campaign name.
-            threads (int | None): worker threads of a native chain (0: all cores).
+            threads (int | None): worker threads (0: all cores); a chain with Python
+                blocks runs on one thread unless this, or the ``threads`` of the
+                settings, asks for more (Python blocks are not thread-safe).
             progress (bool): print one line per condition on the standard error.
             **extra: other fields of the specification (``batch``, ``profile``,
                 ``fiber``, ``output``…).
@@ -429,7 +431,7 @@ class Chain(Block):
             spec["link"] = self.to_spec()["link"]
             res = run_spec(spec, threads=threads, progress=progress, base_dir=self.base_dir)
             return Results(res, spec)
-        results = self._run_python(spec, rule, progress)
+        results = self._run_python(spec, rule, progress, threads)
         return Results(results, {**spec, "block_order": [n for n, _ in self.flatten()]})
 
     def profile(self, **run: Any) -> list[dict[str, Any]]:
@@ -455,7 +457,9 @@ class Chain(Block):
         run.setdefault("metrics", ["ber"])
         return self.run(profile=True, **run).profile()
 
-    def _run_python(self, spec: dict[str, Any], rule: Any, progress: bool) -> list[dict[str, Any]]:
+    def _run_python(
+        self, spec: dict[str, Any], rule: Any, progress: bool, threads: int | None = None
+    ) -> list[dict[str, Any]]:
         """The campaign of a chain with Python blocks, on the Rust runner."""
         profile = bool(spec.get("profile", False))
         fiber = spec.get("fiber")
@@ -464,7 +468,7 @@ class Chain(Block):
         def setup(cond: dict[str, Any]) -> Callable[[Frame, Rng], None]:
             return self.bind(cond, fiber=fiber, name=name, profile=profile)
 
-        return _run_chain(spec, setup, progress=progress, stop=rule)
+        return _run_chain(spec, setup, progress=progress, stop=rule, threads=threads)
 
     def __repr__(self) -> str:
         inner = ",\n".join(f"    {k}={v!r}" for k, v in self._blocks.items())

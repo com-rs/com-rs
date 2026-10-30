@@ -193,14 +193,7 @@ pub fn search(spec: &Spec, opts: &RunOptions) -> Result<Vec<SearchResult>> {
             // a single condition: index 0, so every value of the variable sees the same
             // random streams (common random numbers)
             let grid = Grid::from_conditions(vec![cond.clone()]);
-            let runner = com_sim::runner::Runner::new()
-                .seed(spec.seed)
-                .batch(opts.batch.unwrap_or(spec.batch))
-                .threads(opts.threads.unwrap_or(spec.threads))
-                .stop(spec.stop.clone())
-                .confidence(spec.confidence)
-                .fast_dev_run(opts.fast_dev_run);
-            let r = runner.run(&SpecScenario::new(spec), &grid)?.remove(0);
+            let r = spec.bare_runner(opts).run(&SpecScenario::new(spec), &grid)?.remove(0);
             let est = r
                 .metric(&s.metric)
                 .ok_or_else(|| Error::Config(format!("search: no metric {:?} in ({})", s.metric, cond.label())))?;
