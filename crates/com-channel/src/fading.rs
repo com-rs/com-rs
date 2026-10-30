@@ -119,7 +119,7 @@ pub trait Fading {
         if let Some(fs) = self.sample_rate() {
             same_rate(x.sample_rate(), fs, "the channel")?;
         }
-        let taps = self.draw_taps(x.n_samples(), rng)?;
+        let taps = self.draw_taps(x.len(), rng)?;
         out.set_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
         Ok(taps)
     }
@@ -148,7 +148,7 @@ impl Rayleigh {
     /// # Errors
     /// [`Error::Config`] for a zero coherence.
     pub fn fade(&self, x: &Signal, rng: &mut SimRng) -> Result<(Signal, Vec<Vec<C64>>)> {
-        let mut out = Signal::zeros(x.n_streams(), x.n_samples(), x.sample_rate());
+        let mut out = Signal::zeros(x.n_streams(), x.len(), x.sample_rate());
         let gains = self.fade_into(x, rng, &mut out)?;
         Ok((out, gains))
     }
@@ -156,12 +156,12 @@ impl Rayleigh {
     /// [`Rayleigh::fade`] into `out`, reshaped to `x` (its storage reused): the gains.
     fn fade_into(self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<Vec<Vec<C64>>> {
         ensure(self.coherence >= 1, || "the coherence must be at least one sample".into())?;
-        out.reshape(x.n_streams(), x.n_samples(), x.sample_rate());
+        out.resize(x.n_streams(), x.len(), x.sample_rate());
         let mut gains = Vec::with_capacity(x.n_streams());
         for s in 0..x.n_streams() {
-            let mut h = Vec::with_capacity(x.n_samples());
+            let mut h = Vec::with_capacity(x.len());
             let mut g = C64::new(0.0, 0.0);
-            for k in 0..x.n_samples() {
+            for k in 0..x.len() {
                 if k % self.coherence == 0 {
                     g = rng.complex_gaussian();
                 }

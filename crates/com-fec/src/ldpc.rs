@@ -964,7 +964,7 @@ mod tests {
         let p = coded.as_slice().as_ptr();
         code.encode_into(&info, &mut coded).unwrap();
         assert_eq!(coded.as_slice().as_ptr(), p);
-        assert_eq!(coded.stream_slice(1), code.encode_stream(info.stream_slice(1)).unwrap());
+        assert_eq!(coded.stream(1), code.encode_stream(info.stream(1)).unwrap());
         let llr = Llr::new(coded.as_array().mapv(|b| 4.0 * (1.0 - 2.0 * f64::from(b))));
         let mut decoded = Bits::zeros(2, 96);
         let p = decoded.as_slice().as_ptr();

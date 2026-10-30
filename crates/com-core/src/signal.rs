@@ -21,7 +21,7 @@
 //! let b = Bits::from_stream(vec![0, 1, 1, 0]).unwrap();
 //! assert_eq!((b.n_streams(), b.len()), (1, 4));
 //! let s = Signal::zeros(2, 1024, Hertz(64e9));
-//! assert_eq!((s.n_streams(), s.n_samples()), (2, 1024));
+//! assert_eq!((s.n_streams(), s.len()), (2, 1024));
 //! assert_eq!(s.stream(1).len(), 1024);
 //! ```
 
@@ -106,20 +106,20 @@ macro_rules! container {
                 self.0.is_empty()
             }
 
-            /// Stream `i`.
-            pub fn stream(&self, i: usize) -> ArrayView1<'_, $elem> {
+            /// Stream `i` as a slice (the layout is always standard).
+            pub fn stream(&self, i: usize) -> &[$elem] {
+                let n = self.len();
+                &self.as_slice()[i * n..(i + 1) * n]
+            }
+
+            /// Stream `i` as an `ndarray` view.
+            pub fn stream_view(&self, i: usize) -> ArrayView1<'_, $elem> {
                 self.0.row(i)
             }
 
-            /// Stream `i`, mutable.
-            pub fn stream_mut(&mut self, i: usize) -> ArrayViewMut1<'_, $elem> {
+            /// Stream `i` as a mutable `ndarray` view.
+            pub fn stream_view_mut(&mut self, i: usize) -> ArrayViewMut1<'_, $elem> {
                 self.0.row_mut(i)
-            }
-
-            /// Stream `i` as a slice (the layout is always standard).
-            pub fn stream_slice(&self, i: usize) -> &[$elem] {
-                let n = self.len();
-                &self.as_slice()[i * n..(i + 1) * n]
             }
 
             /// All the elements, stream after stream.
@@ -142,7 +142,7 @@ macro_rules! container {
             }
 
             /// Stream `i` as a mutable slice.
-            pub fn stream_slice_mut(&mut self, i: usize) -> &mut [$elem] {
+            pub fn stream_mut(&mut self, i: usize) -> &mut [$elem] {
                 let n = self.len();
                 &mut self.as_slice_mut()[i * n..(i + 1) * n]
             }
@@ -232,13 +232,28 @@ impl Signal {
     }
 
     /// Number of samples per stream.
-    pub fn n_samples(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    /// Whether the streams are empty.
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     /// Stream `i` as a slice.
     pub fn stream(&self, i: usize) -> &[C64] {
-        self.data.stream_slice(i)
+        self.data.stream(i)
+    }
+
+    /// Stream `i` as an `ndarray` view.
+    pub fn stream_view(&self, i: usize) -> ArrayView1<'_, C64> {
+        self.data.stream_view(i)
+    }
+
+    /// Stream `i` as a mutable slice.
+    pub fn stream_mut(&mut self, i: usize) -> &mut [C64] {
+        self.data.stream_mut(i)
     }
 
     /// The streams, one vector each (the inverse of [`Signal::from_streams`]).
@@ -267,9 +282,9 @@ impl Signal {
         self.data.as_array_mut()
     }
 
-    /// Reshape to `n_streams × n_samples` at `sample_rate` (the content is reset when
-    /// the shape changes), for the `_into` methods.
-    pub fn reshape(&mut self, n_streams: usize, n_samples: usize, sample_rate: Hertz) {
+    /// Resize to `n_streams × n_samples` at `sample_rate` (the content is reset when the
+    /// shape changes), for the `_into` methods.
+    pub fn resize(&mut self, n_streams: usize, n_samples: usize, sample_rate: Hertz) {
         self.data.resize(n_streams, n_samples);
         self.sample_rate = sample_rate;
     }
@@ -277,7 +292,7 @@ impl Signal {
     /// Make `self` the single stream `x` at `sample_rate`, reusing its storage when the
     /// length is unchanged (ADR 0011).
     pub fn set_stream(&mut self, x: &[C64], sample_rate: Hertz) {
-        self.reshape(1, x.len(), sample_rate);
+        self.resize(1, x.len(), sample_rate);
         self.data.as_slice_mut().copy_from_slice(x);
     }
 
@@ -299,9 +314,9 @@ impl Signal {
         for s in streams {
             same_len(s.len(), n, "streams")?;
         }
-        self.reshape(streams.len(), n, sample_rate);
+        self.resize(streams.len(), n, sample_rate);
         for (i, x) in streams.iter().enumerate() {
-            self.data.stream_slice_mut(i).copy_from_slice(x);
+            self.data.stream_mut(i).copy_from_slice(x);
         }
         Ok(())
     }
@@ -319,10 +334,10 @@ impl Signal {
         out: &mut Signal,
         mut f: impl FnMut(usize, &[C64]) -> Result<Vec<C64>>,
     ) -> Result<()> {
-        out.reshape(self.n_streams(), self.n_samples(), self.sample_rate());
+        out.resize(self.n_streams(), self.len(), self.sample_rate());
         for s in 0..self.n_streams() {
             let y = f(s, self.stream(s))?;
-            expect_len(y.len(), self.n_samples(), "samples returned")?;
+            expect_len(y.len(), self.len(), "samples returned")?;
             for (o, v) in out.as_array_mut().row_mut(s).iter_mut().zip(y) {
                 *o = v;
             }
@@ -360,13 +375,13 @@ impl Signal {
     pub fn map_streams_in_place(&self, out: &mut Signal, mut f: impl FnMut(usize, &mut [C64])) {
         out.assign(self);
         for s in 0..out.n_streams() {
-            f(s, out.data.stream_slice_mut(s));
+            f(s, out.data.stream_mut(s));
         }
     }
 
     /// Mean power of every stream, `mean(|x|²)`.
     pub fn power(&self) -> Vec<f64> {
-        let n = self.n_samples().max(1) as f64;
+        let n = self.len().max(1) as f64;
         (0..self.n_streams()).map(|i| self.stream(i).iter().map(C64::norm_sqr).sum::<f64>() / n).collect()
     }
 }
@@ -448,7 +463,7 @@ mod tests {
         let mut b = Bits::zeros(2, 3);
         let p = b.as_slice().as_ptr();
         b.assign(&Array2::from_elem((2, 3), 1));
-        b.stream_slice_mut(1)[0] = 0;
+        b.stream_mut(1)[0] = 0;
         assert_eq!((b.as_slice().as_ptr(), b.as_slice()), (p, &[1, 1, 1, 0, 1, 1][..]));
     }
 

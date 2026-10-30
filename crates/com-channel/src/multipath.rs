@@ -33,7 +33,7 @@
 //! let ch = Tdl::new(TdlParams { taps: Profile::Eva.taps(), sample_rate: 15.36e6, ..TdlParams::default() })?;
 //! let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6))?;
 //! let (y, h) = ch.fade(&x, &mut batch_rng(1, 0))?;
-//! assert_eq!(y.n_samples(), 64);
+//! assert_eq!(y.len(), 64);
 //! assert_eq!(h.delays().last(), Some(&39));                     // 2.51 µs at 15.36 MHz
 //! # Ok::<(), com_core::Error>(())
 //! ```

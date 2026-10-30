@@ -173,8 +173,8 @@ macro_rules! container_traits {
                 $crate::block::whole_blocks(info.len(), k, "bits")?;
                 out.resize(info.n_streams(), info.len() / k * n);
                 for s in 0..info.n_streams() {
-                    let o = out.stream_slice_mut(s);
-                    for (b, c) in info.stream_slice(s).chunks(k).zip(o.chunks_mut(n)) {
+                    let o = out.stream_mut(s);
+                    for (b, c) in info.stream(s).chunks(k).zip(o.chunks_mut(n)) {
                         $crate::block::BlockCode::encode_block_into(self, b, c)?;
                     }
                 }
@@ -192,8 +192,8 @@ macro_rules! container_traits {
                 $crate::block::whole_blocks(llr.len(), n, "LLRs")?;
                 out.resize(llr.n_streams(), llr.len() / n * k);
                 for s in 0..llr.n_streams() {
-                    let o = out.stream_slice_mut(s);
-                    for (l, d) in llr.stream_slice(s).chunks(n).zip(o.chunks_mut(k)) {
+                    let o = out.stream_mut(s);
+                    for (l, d) in llr.stream(s).chunks(n).zip(o.chunks_mut(k)) {
                         $crate::block::BlockCode::decode_block_into(self, l, d)?;
                     }
                 }

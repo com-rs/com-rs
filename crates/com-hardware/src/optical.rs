@@ -333,8 +333,7 @@ impl Photodiode {
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn detect_signal(&self, x: &Signal, rng: &mut Rng) -> Result<Vec<f64>> {
-        let p: Vec<f64> =
-            (0..x.n_samples()).map(|k| (0..x.n_streams()).map(|s| x.stream(s)[k].norm_sqr()).sum()).collect();
+        let p: Vec<f64> = (0..x.len()).map(|k| (0..x.n_streams()).map(|s| x.stream(s)[k].norm_sqr()).sum()).collect();
         self.detect_power(&p, x.sample_rate().0, rng)
     }
 

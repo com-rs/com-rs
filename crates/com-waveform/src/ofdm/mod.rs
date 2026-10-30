@@ -346,7 +346,7 @@ pub(crate) fn check_input(y: &Signal, rate: Hertz, what: &str) -> Result<()> {
 impl Modulate for Ofdm {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OFDM modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&Ofdm::modulate(self, x.stream_slice(0))?, self.sample_rate);
+        out.set_stream(&Ofdm::modulate(self, x.stream(0))?, self.sample_rate);
         Ok(())
     }
 }
@@ -418,7 +418,7 @@ mod tests {
         let o = Ofdm::new(32, 20).unwrap();
         let d = Symbols::from_stream(vec![C64::new(1.0, 0.0); 40]).unwrap();
         let x = Modulate::modulate(&o, &d).unwrap();
-        assert_eq!((x.n_samples(), x.sample_rate()), (2 * 128, Hertz(1.0)));
+        assert_eq!((x.len(), x.sample_rate()), (2 * 128, Hertz(1.0)));
         let mut o2 = o.clone();
         let back = Demodulate::demodulate(&mut o2, &x).unwrap();
         assert!(back.as_slice().iter().all(|v| (v - C64::new(1.0, 0.0)).norm() < 1e-12));

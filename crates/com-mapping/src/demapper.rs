@@ -294,7 +294,7 @@ impl Map for Constellation {
         }
         out.resize(bits.n_streams(), bits.len() / b);
         for s in 0..bits.n_streams() {
-            let idx = self.indices(bits.stream_slice(s))?;
+            let idx = self.indices(bits.stream(s))?;
             for (o, i) in out.stream_mut(s).iter_mut().zip(idx) {
                 *o = self.points()[i];
             }
@@ -307,7 +307,7 @@ impl Demap for Constellation {
     fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> {
         out.resize(y.n_streams(), y.len() * self.bits_per_symbol());
         for s in 0..y.n_streams() {
-            self.llr_into(y.stream_slice(s), noise_var, None, Jacobian::Exact, out.stream_slice_mut(s))?;
+            self.llr_into(y.stream(s), noise_var, None, Jacobian::Exact, out.stream_mut(s))?;
         }
         Ok(())
     }

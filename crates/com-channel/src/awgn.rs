@@ -49,7 +49,7 @@ use com_math::{db2lin, power};
 /// let mut ch = Awgn::new(EsN0(Db(10.0)));
 /// let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 1024], Hertz(1.0))?;
 /// let y = ch.propagate(&x, &mut rng)?;
-/// assert_eq!(y.n_samples(), 1024);
+/// assert_eq!(y.len(), 1024);
 /// # Ok::<(), com_core::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,7 +72,7 @@ impl Awgn {
 
 impl Propagate for Awgn {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        ensure_shape(x.n_samples() > 0, || "empty signal".into())?;
+        ensure_shape(x.len() > 0, || "empty signal".into())?;
         let power = x.power();
         x.map_streams(out, |s, xs| noisy(xs, self.noise_variance(power[s]), rng));
         Ok(())
