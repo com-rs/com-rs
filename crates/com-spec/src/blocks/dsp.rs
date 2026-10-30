@@ -6,9 +6,9 @@ use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
 use com_core::rng::Rng;
-use com_dsp::equalizer::AdaptiveEqualizer;
 use com_dsp::equalizer::Algorithm;
 use com_dsp::equalizer::Singularity;
+use com_dsp::equalizer::{AdaptiveEqualizer, EqualizerOutput};
 use com_dsp::filter;
 use com_dsp::filter::PulseShape;
 use com_dsp::resample;
@@ -335,16 +335,9 @@ impl Block for Equalizer {
         let needs_ref = self.schedule.iter().any(|(a, _)| *a == Algorithm::Nlms);
         let x: Vec<Vec<C64>> = s.streams().map(|v| signal::pnorm(v)).collect();
         let out = eq.run(&x, if needs_ref { Some(&reference) } else { None }, c.points())?;
-        if out.symbols.len() == 2 {
-            // |correlation| of the two outputs over the second half: near 1 when both
-            // converged to the same polarisation (the singularity)
-            let (a, b) = (&out.symbols[0], &out.symbols[1]);
-            let h = a.len() / 2;
-            let c: C64 = a[h..].iter().zip(&b[h..]).map(|(u, v)| u * v.conj()).sum();
-            let e = |v: &[C64]| v.iter().map(C64::norm_sqr).sum::<f64>();
-            let rho = c.norm() / (e(&a[h..]) * e(&b[h..])).sqrt().max(f64::MIN_POSITIVE);
+        if let Some(rho) = out.output_correlation() {
             s.record(&self.label, "correlation", rho);
-            s.record(&self.label, "singular", f64::from(u8::from(rho > 0.5)));
+            s.record(&self.label, "singular", f64::from(u8::from(rho > EqualizerOutput::SINGULAR_CORRELATION)));
         }
         s.set_streams(out.symbols);
         s.sps = 1.0;

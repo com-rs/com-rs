@@ -297,12 +297,7 @@ impl PyPaprReduction {
     #[staticmethod]
     #[pyo3(signature = (subblocks, *, phases=4, partition="pseudorandom", seed=0))]
     fn pts(subblocks: usize, phases: usize, partition: &str, seed: u64) -> PyResult<Self> {
-        let partition = match partition {
-            "adjacent" => Partition::Adjacent,
-            "interleaved" => Partition::Interleaved,
-            "pseudorandom" => Partition::Pseudorandom(seed),
-            other => return Err(PyValueError::new_err(format!("unknown partition {other:?}"))),
-        };
+        let partition = Partition::from_name(partition, seed).py()?;
         Ok(boxed(Pts { subblocks, phases, partition }, format!("pts({subblocks}, {phases})")))
     }
 
@@ -458,11 +453,7 @@ fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py
 #[pyo3(signature = (n, papr_db, *, oversampled=true, candidates=1))]
 fn theory_papr_ccdf(n: usize, papr_db: &Bound<'_, PyAny>, oversampled: bool, candidates: usize) -> PyResult<Py<PyAny>> {
     map_real(papr_db, |t| {
-        Ok(if oversampled {
-            papr::ccdf_slm(n, candidates, t)
-        } else {
-            papr::ccdf_nyquist(n, t).powi(i32::try_from(candidates).unwrap_or(1))
-        })
+        Ok(if oversampled { papr::ccdf_slm(n, candidates, t) } else { papr::ccdf_slm_nyquist(n, candidates, t) })
     })
 }
 

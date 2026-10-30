@@ -87,7 +87,7 @@
 //!    (arXiv:1602.06509).
 
 use crate::detection::MimoDetector;
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::linalg::svd;
 use com_math::{C64, golden_max};
@@ -430,6 +430,29 @@ pub enum AmpVariance {
     Residual,
 }
 
+impl std::str::FromStr for AmpVariance {
+    type Err = Error;
+
+    /// The variance of a name: `postulated` or `residual`, case-insensitive.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_mimo::message_passing::AmpVariance;
+    /// assert_eq!("residual".parse::<AmpVariance>()?, AmpVariance::Residual);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    fn from_str(name: &str) -> Result<AmpVariance> {
+        match name.to_ascii_lowercase().as_str() {
+            "postulated" => Ok(AmpVariance::Postulated),
+            "residual" => Ok(AmpVariance::Residual),
+            other => Err(Error::Config(format!("unknown variance {other:?}: postulated or residual"))),
+        }
+    }
+}
+
 /// The iterations of a message-passing detector.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Trace {
@@ -533,6 +556,31 @@ pub enum OampLinear {
     PseudoInverse,
     /// The LMMSE filter $v^{2} H^{H} (v^{2} H H^{H} + \sigma^{2} I)^{-1}$ (optimal, Lemma 1).
     Lmmse,
+}
+
+impl std::str::FromStr for OampLinear {
+    type Err = Error;
+
+    /// The estimator of a name: `lmmse`, `pinv` (the pseudo-inverse) or `mf` (the
+    /// matched filter), case-insensitive.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_mimo::message_passing::OampLinear;
+    /// assert_eq!("pinv".parse::<OampLinear>()?, OampLinear::PseudoInverse);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    fn from_str(name: &str) -> Result<OampLinear> {
+        match name.to_ascii_lowercase().as_str() {
+            "lmmse" => Ok(OampLinear::Lmmse),
+            "pinv" => Ok(OampLinear::PseudoInverse),
+            "mf" => Ok(OampLinear::MatchedFilter),
+            other => Err(Error::Config(format!("unknown linear estimator {other:?}: lmmse, pinv or mf"))),
+        }
+    }
 }
 
 impl OampLinear {

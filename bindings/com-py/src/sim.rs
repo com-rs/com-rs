@@ -719,17 +719,11 @@ impl Scenario for PyScenario {
                     let frame = Py::new(py, PyFrame { inner }).map_err(|e| self.fail(e))?;
                     let apply =
                         s.state.as_ref().ok_or_else(|| comrs::Error::Config("a chain needs its blocks".into()))?;
+                    let metrics =
+                        s.metrics.as_ref().ok_or_else(|| comrs::Error::Config("a chain needs its metrics".into()))?;
                     apply.call1(py, (frame.clone_ref(py), generator.clone_ref(py))).and_then(|_| {
                         // what `Link::trial` records after the blocks
-                        let f = &frame.borrow(py).inner;
-                        if let Some(m) = &s.metrics {
-                            m.record(f, record).map_err(crate::err)?;
-                        }
-                        for (k, v) in &f.values {
-                            record.value(k, *v);
-                        }
-                        record.merge(&f.probes);
-                        Ok(())
+                        metrics.record_frame(&frame.borrow(py).inner, record).map_err(crate::err)
                     })
                 }
             };

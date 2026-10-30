@@ -478,11 +478,12 @@ impl Block for OfdmTx {
 // ---------------------------------------------------------------------- detection
 
 block_params! {
+    /// The detector of a receiver block (`mimo_rx`, `ofdm_rx`), its parameters shared.
     struct DetectorSpec {
-        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest", "amp", "oamp"],
-            "zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
-        k: usize [8] >= 1, "paths of kbest";
-        iterations: usize [10] >= 1, "iterations of amp and oamp";
+        detector: String ["mmse"] one_of (DetectorKind::NAMES),
+            "zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
+        k: usize [DetectorKind::DEFAULT_PATHS => "8"] >= 1, "paths of kbest";
+        iterations: usize [DetectorKind::DEFAULT_ITERATIONS => "10"] >= 1, "iterations of amp and oamp";
         llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp)";
     }
 }
@@ -497,7 +498,7 @@ impl Detection {
     fn new(p: &DetectorSpec) -> Result<Detection> {
         let kind = DetectorKind::from_name(&p.detector, p.k)?.with_iterations(p.iterations)?;
         ensure(!p.llr || kind.has_soft_output(), || {
-            "the sic and sphere detectors have no soft output: use llr: false and a demap block".into()
+            format!("the {} detector has no soft output: use llr: false and a demap block", kind.name())
         })?;
         Ok(Detection { kind, llr: p.llr })
     }
@@ -540,11 +541,7 @@ block_params! {
     struct OfdmRxSpec {
         estimation: Estimation ["perfect"] one_of ["perfect", "ls", "lmmse"],
             "perfect (the channel of the channel block), ls (linear interpolation) or lmmse (uniform delay profile over the prefix)";
-        detector: String ["mmse"] one_of ["zf", "mmse", "sic", "ml", "sphere", "kbest", "amp", "oamp"],
-            "zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
-        k: usize [8] >= 1, "paths of kbest";
-        iterations: usize [10] >= 1, "iterations of amp and oamp";
-        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp)";
+        detection: DetectorSpec [flatten], "the detector";
     }
 }
 
@@ -573,14 +570,7 @@ struct OfdmRx {
 
 impl OfdmRx {
     fn new(p: &OfdmRxSpec) -> Result<OfdmRx> {
-        let estimation = p.estimation;
-        let detection = Detection::new(&DetectorSpec {
-            detector: p.detector.clone(),
-            k: p.k,
-            iterations: p.iterations,
-            llr: p.llr,
-        })?;
-        Ok(OfdmRx { estimation, detection })
+        Ok(OfdmRx { estimation: p.estimation, detection: Detection::new(&p.detection)? })
     }
 }
 

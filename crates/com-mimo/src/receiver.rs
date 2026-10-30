@@ -72,22 +72,16 @@ impl std::str::FromStr for DetectorKind {
     /// # Errors
     /// [`Error::Config`] for another name.
     fn from_str(name: &str) -> Result<DetectorKind> {
-        Ok(match name.to_ascii_lowercase().as_str() {
-            "zf" => DetectorKind::Zf,
-            "mmse" => DetectorKind::Mmse,
-            "sic" | "mmse_sic" => DetectorKind::Sic,
-            "zf_sic" => DetectorKind::ZfSic,
-            "ml" => DetectorKind::Ml,
-            "sphere" => DetectorKind::Sphere,
-            "kbest" => DetectorKind::KBest(DetectorKind::DEFAULT_PATHS),
-            "amp" | "lama" => DetectorKind::Amp(DetectorKind::DEFAULT_ITERATIONS),
-            "oamp" => DetectorKind::Oamp(DetectorKind::DEFAULT_ITERATIONS),
-            other => {
-                return Err(Error::Config(format!(
-                    "unknown detector {other:?}: zf, mmse, sic, zf_sic, ml, sphere, kbest, amp or oamp"
-                )));
-            }
-        })
+        let name = name.to_ascii_lowercase();
+        let canonical = match name.as_str() {
+            "mmse_sic" => "sic",
+            "lama" => "amp",
+            other => other,
+        };
+        DetectorKind::ALL
+            .into_iter()
+            .find(|d| d.name() == canonical)
+            .ok_or_else(|| Error::Config(format!("unknown detector {name:?}: {}", DetectorKind::NAMES.join(", "))))
     }
 }
 
@@ -97,6 +91,58 @@ impl DetectorKind {
 
     /// The iterations of AMP and OAMP when their name does not give them.
     pub const DEFAULT_ITERATIONS: usize = 10;
+
+    /// Every detector, K-best with [`DetectorKind::DEFAULT_PATHS`] paths and AMP and
+    /// OAMP with [`DetectorKind::DEFAULT_ITERATIONS`] iterations.
+    pub const ALL: [DetectorKind; 9] = [
+        DetectorKind::Zf,
+        DetectorKind::Mmse,
+        DetectorKind::Sic,
+        DetectorKind::ZfSic,
+        DetectorKind::Ml,
+        DetectorKind::Sphere,
+        DetectorKind::KBest(DetectorKind::DEFAULT_PATHS),
+        DetectorKind::Amp(DetectorKind::DEFAULT_ITERATIONS),
+        DetectorKind::Oamp(DetectorKind::DEFAULT_ITERATIONS),
+    ];
+
+    /// The names of [`DetectorKind::ALL`] ([`DetectorKind::name`]), in order: the list
+    /// of the detector names that the specifications take theirs from.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_mimo::receiver::DetectorKind;
+    /// assert_eq!(DetectorKind::NAMES.len(), DetectorKind::ALL.len());
+    /// for (name, d) in DetectorKind::NAMES.iter().zip(DetectorKind::ALL) {
+    ///     assert_eq!((d.name(), name.parse::<DetectorKind>()?), (*name, d));
+    /// }
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub const NAMES: [&'static str; 9] = {
+        let mut names = [""; 9];
+        let mut i = 0;
+        while i < names.len() {
+            names[i] = DetectorKind::ALL[i].name();
+            i += 1;
+        }
+        names
+    };
+
+    /// The name of the detector, as [`DetectorKind::from_str`](std::str::FromStr::from_str)
+    /// reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            DetectorKind::Zf => "zf",
+            DetectorKind::Mmse => "mmse",
+            DetectorKind::Sic => "sic",
+            DetectorKind::ZfSic => "zf_sic",
+            DetectorKind::Ml => "ml",
+            DetectorKind::Sphere => "sphere",
+            DetectorKind::KBest(_) => "kbest",
+            DetectorKind::Amp(_) => "amp",
+            DetectorKind::Oamp(_) => "oamp",
+        }
+    }
 
     /// The same detector with `iterations` iterations, for AMP and OAMP (the others are
     /// returned unchanged).
@@ -183,7 +229,7 @@ impl Receiver {
     /// [`Error::Config`] when LLRs are asked from a detector without soft output.
     pub fn new(kind: DetectorKind, c: Constellation, llr: bool) -> Result<Receiver> {
         ensure(!llr || kind.has_soft_output(), || {
-            "the sic and sphere detectors have no soft output: demap their decisions instead".into()
+            format!("the {} detector has no soft output: demap its decisions instead", kind.name())
         })?;
         let linear = match kind {
             DetectorKind::Zf => Some(Linear::zf(c.clone())),

@@ -35,6 +35,7 @@ metrics                :func:`ber`, :func:`snr_db`, :func:`fast_ber_calc`, :func
                        :func:`information_rates`, :func:`posterior_rates`
 closed forms           :func:`theory_ber`, :func:`theory_ser`, :func:`theory_mi`,
                        :func:`theory_gmi`, :func:`theory_ber_gray`,
+                       :func:`theory_ber_rayleigh_mrc`,
                        :func:`theory_phase_pdf`, :func:`theory_ber_dpsk`,
                        :func:`differential_phase_tail`, :func:`theory_papr_ccdf`,
                        :func:`theory_rs_wer`, :func:`theory_rs_ser`,
@@ -375,6 +376,7 @@ from comrs._comrs import (
     theory_ber_dpsk_jakes,
     theory_ber_gray,
     theory_ber_imperfect_csi,
+    theory_ber_rayleigh_mrc,
     theory_cumulants,
     theory_gmi,
     theory_jitter_snr_db,
@@ -632,6 +634,7 @@ __all__ = [
     "theory_ber_dpsk_jakes",
     "theory_ber_gray",
     "theory_ber_imperfect_csi",
+    "theory_ber_rayleigh_mrc",
     "theory_cumulants",
     "theory_gmi",
     "theory_jitter_snr_db",

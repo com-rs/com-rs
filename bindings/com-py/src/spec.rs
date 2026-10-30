@@ -71,20 +71,36 @@ pub(crate) fn result_with<'py>(
     d.set_item("status", r.status.as_str())?;
     d.set_item("trials", r.trials)?;
     d.set_item("wall_s", r.wall_s)?;
-    let metrics = PyDict::new(py);
-    for (k, e) in r.record.iter() {
-        let m = PyDict::new(py);
-        let (lo, hi) = e.interval(confidence);
-        m.set_item("value", e.value())?;
-        m.set_item("lo", lo)?;
-        m.set_item("hi", hi)?;
-        m.set_item("kind", if matches!(e, Estimate::Rate(_)) { "rate" } else { "mean" })?;
-        m.set_item("count", e.count())?;
-        m.set_item("total", e.total())?;
-        metrics.set_item(k, m)?;
-    }
-    d.set_item("metrics", metrics)?;
+    d.set_item("metrics", record_dict(py, &r.record, confidence)?)?;
     Ok(d)
+}
+
+/// One estimate as Python sees it in a dict: ``value``, ``lo``, ``hi`` (the interval at
+/// `confidence`), ``kind`` (``rate`` or ``mean``), ``count`` (the errors of a rate, the
+/// values of a mean) and ``total`` (the events of a rate).
+pub(crate) fn estimate_dict<'py>(py: Python<'py>, e: &Estimate, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
+    let m = PyDict::new(py);
+    let (lo, hi) = e.interval(confidence);
+    m.set_item("value", e.value())?;
+    m.set_item("lo", lo)?;
+    m.set_item("hi", hi)?;
+    m.set_item("kind", if matches!(e, Estimate::Rate(_)) { "rate" } else { "mean" })?;
+    m.set_item("count", e.count())?;
+    m.set_item("total", e.total())?;
+    Ok(m)
+}
+
+/// The estimates of a record, ``{name: estimate_dict}``.
+pub(crate) fn record_dict<'py>(
+    py: Python<'py>,
+    rec: &comrs::sim::scenario::Record,
+    confidence: f64,
+) -> PyResult<Bound<'py, PyDict>> {
+    let metrics = PyDict::new(py);
+    for (k, e) in rec.iter() {
+        metrics.set_item(k, estimate_dict(py, e, confidence)?)?;
+    }
+    Ok(metrics)
 }
 
 /// Run a declarative campaign with the Rust runner (parallel, reproducible).
@@ -311,22 +327,16 @@ fn verify_spec<'py>(
     progress: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
     let spec = load(py, spec)?;
-    if spec.expect.is_empty() {
-        return Err(PyValueError::new_err("the specification has no expect list"));
-    }
     let opts = RunOptions { threads, progress: Some(progress), ..RunOptions::default() };
     let out = PyDict::new(py);
-    let checks = if spec.search.is_some() {
-        let found = py.detach(|| search::search(&spec, &opts)).py()?;
-        let items = found.iter().map(|r| search_result(py, r)).collect::<PyResult<Vec<_>>>()?;
-        out.set_item("results", PyList::new(py, items)?)?;
-        verify::verify_search(&spec.expect, &found).py()?
-    } else {
-        let results = py.detach(|| run(&spec, &opts)).py()?;
-        let items = results.iter().map(|r| result(py, r, spec.confidence)).collect::<PyResult<Vec<_>>>()?;
-        out.set_item("results", PyList::new(py, items)?)?;
-        verify::verify(&spec.expect, &results, spec.confidence).py()?
+    let (ran, checks) = py.detach(|| verify::verify_spec(&spec, &opts)).py()?;
+    let items = match &ran {
+        verify::Verified::Search(found) => found.iter().map(|r| search_result(py, r)).collect::<PyResult<Vec<_>>>()?,
+        verify::Verified::Run(results) => {
+            results.iter().map(|r| result(py, r, spec.confidence)).collect::<PyResult<Vec<_>>>()?
+        }
     };
+    out.set_item("results", PyList::new(py, items)?)?;
     let cs = PyList::empty(py);
     for c in &checks {
         let d = PyDict::new(py);
@@ -461,10 +471,7 @@ fn read_sigmf(
     let scale = if autoscale { r.full_scale().unwrap_or(1.0) } else { 1.0 };
     let get = |k: usize| r.channel(k).into_iter().map(|v| v / scale).collect::<Vec<_>>();
     let x = match channel {
-        Some(k) if k >= r.num_channels => {
-            return Err(PyValueError::new_err(format!("channel {k} of a recording of {}", r.num_channels)));
-        }
-        Some(k) => crate::carr(py, get(k)).into_any().unbind(),
+        Some(k) => crate::carr(py, r.try_channel(k).py()?.into_iter().map(|v| v / scale).collect()).into_any().unbind(),
         None if r.num_channels == 1 => crate::carr(py, get(0)).into_any().unbind(),
         None => crate::mat(py, (0..r.num_channels).map(get).collect())?.into_any().unbind(),
     };
@@ -514,25 +521,11 @@ fn write_sigmf(
         Some(d) => Some(json(py, d)?),
         None => None,
     };
-    let mut ann = Vec::new();
-    for a in annotations.iter().flat_map(|l| l.iter()) {
-        let a = json(py, &a)?;
-        let known = ["sample_start", "sample_count", "label", "comment", "freq_lower_edge", "freq_upper_edge"];
-        if let Some(k) = a.as_object().and_then(|o| o.keys().find(|k| !known.contains(&k.as_str()))) {
-            return Err(PyValueError::new_err(format!("unknown annotation key {k:?} (one of {known:?})")));
-        }
-        let start = a["sample_start"]
-            .as_u64()
-            .ok_or_else(|| PyValueError::new_err("every annotation needs a non-negative integer sample_start"))?;
-        ann.push(comrs::io::Annotation {
-            sample_start: start as usize,
-            sample_count: a["sample_count"].as_u64().map(|v| v as usize),
-            label: a["label"].as_str().map(str::to_string),
-            comment: a["comment"].as_str().map(str::to_string),
-            freq_lower_edge: a["freq_lower_edge"].as_f64(),
-            freq_upper_edge: a["freq_upper_edge"].as_f64(),
-        });
-    }
+    let ann = annotations
+        .iter()
+        .flat_map(|l| l.iter())
+        .map(|a| comrs::io::Annotation::from_mapping(&json(py, &a)?).py())
+        .collect::<PyResult<Vec<_>>>()?;
     comrs::io::write_sigmf_annotated(&base, &crate::cvec(samples)?, dt, fs, frequency, extra.as_ref(), &ann).py()
 }
 

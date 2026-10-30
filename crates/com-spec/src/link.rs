@@ -117,11 +117,7 @@ impl Link {
         if self.profile {
             rec.value("link.time_ms", t_link.elapsed().as_secs_f64() * 1e3);
         }
-        self.metrics.record(&s, rec)?;
-        for (k, v) in &s.values {
-            rec.value(k, *v);
-        }
-        rec.merge(&s.probes);
+        self.metrics.record_frame(&s, rec)?;
         Ok(s)
     }
 }

@@ -1386,7 +1386,7 @@ class OfdmRx(Native):
 
     Args:
         estimation (str): perfect (the channel of the channel block), ls (linear interpolation) or lmmse (uniform delay profile over the prefix); one of perfect, ls, lmmse; default perfect
-        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, ml, sphere, kbest, amp, oamp; default mmse
+        detector (str): zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
         iterations (int): iterations of amp and oamp; default 10
         llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
@@ -1422,7 +1422,7 @@ class MimoRx(Native):
     Needs: samples, constellation, csi. Gives: noise, llr.
 
     Args:
-        detector (str): zf, mmse, sic (MMSE-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, ml, sphere, kbest, amp, oamp; default mmse
+        detector (str): zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
         iterations (int): iterations of amp and oamp; default 10
         llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
@@ -1455,7 +1455,7 @@ class PasEncode(Native):
         k (int): information bits of the code; above n(m-1)/m the signs also carry data (γ > 0) [bits]; default n(m-1)/m
         var_degree (int): variable-node degree of the PEG code; default 3
         seed (int): seed of the PEG construction; default 1
-        rule (str): check-node rule, as fec_encode; one of sum_product, min_sum, normalized_min_sum, offset_min_sum; default sum_product
+        rule (str): check-node rule; one of sum_product, min_sum, normalized_min_sum, offset_min_sum; default sum_product
         alpha (float): scale or offset of min-sum; default 0.8
         layered (bool): layered schedule; default true
         iterations (int): decoding iterations at most; default 50
@@ -1526,7 +1526,7 @@ class PasDecode(Native):
         k (int): information bits of the code; above n(m-1)/m the signs also carry data (γ > 0) [bits]; default n(m-1)/m
         var_degree (int): variable-node degree of the PEG code; default 3
         seed (int): seed of the PEG construction; default 1
-        rule (str): check-node rule, as fec_encode; one of sum_product, min_sum, normalized_min_sum, offset_min_sum; default sum_product
+        rule (str): check-node rule; one of sum_product, min_sum, normalized_min_sum, offset_min_sum; default sum_product
         alpha (float): scale or offset of min-sum; default 0.8
         layered (bool): layered schedule; default true
         iterations (int): decoding iterations at most; default 50
