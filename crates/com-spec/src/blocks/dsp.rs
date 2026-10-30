@@ -331,8 +331,9 @@ impl Block for Equalizer {
         let c = s.constellation("adaptive_equalizer")?.clone();
         // every polarisation (or antenna) is a mode of the butterfly
         let n = s.n_streams();
-        let reference: Vec<Vec<C64>> = (0..n).map(|i| part(&s.symbols, i, n)).collect();
         let needs_ref = self.schedule.iter().any(|(a, _)| *a == Algorithm::Nlms);
+        let reference: Vec<Vec<C64>> =
+            if needs_ref { (0..n).map(|i| part(&s.symbols, i, n, "symbols")).collect::<Result<_>>()? } else { Vec::new() };
         let x: Vec<Vec<C64>> = s.streams().map(|v| signal::pnorm(v)).collect();
         let out = eq.run(&x, if needs_ref { Some(&reference) } else { None }, c.points())?;
         if let Some(rho) = out.output_correlation() {

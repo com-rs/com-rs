@@ -36,10 +36,60 @@ fn build(p: Json, label: String, _: &BuildContext) -> com_core::Result<Box<dyn B
     Ok(Box::new(Scale { p: ScaleSpec::parse("scale_probe", p)?, label }))
 }
 
+block_params! {
+    /// The parameters of `learned_gain` (none).
+    struct LearnedSpec {}
+}
+
+/// A block trained once per condition: the gain that brings the training samples to
+/// unit power, applied to every trial, which records the gain and the number of
+/// symbols it was trained on.
+struct Learned {
+    gain: f64,
+    trained_on: usize,
+    label: String,
+}
+
+impl Block for Learned {
+    fn apply(&self, s: &mut Frame, _: &mut Rng) -> com_core::Result<()> {
+        s.streams_mut().flatten().for_each(|v| *v *= self.gain);
+        s.record(&self.label, "gain", self.gain);
+        s.record(&self.label, "trained_on", self.trained_on as f64);
+        Ok(())
+    }
+
+    fn needs_training(&self) -> bool {
+        true
+    }
+
+    fn train(&mut self, s: &Frame, _: &mut Rng) -> com_core::Result<()> {
+        assert!(s.antennas.is_empty(), "a per-polarisation block is trained on one polarisation");
+        self.gain = 1.0 / s.mean_power().sqrt();
+        self.trained_on = s.symbols.len();
+        Ok(())
+    }
+}
+
+fn build_learned(p: Json, label: String, _: &BuildContext) -> com_core::Result<Box<dyn Block>> {
+    LearnedSpec::parse("learned_gain", p)?;
+    Ok(Box::new(Learned { gain: 0.0, trained_on: 0, label }))
+}
+
 fn register() {
-    // the tests of this file share the registry: the first one registers the block
+    // the tests of this file share the registry: the first one registers the blocks
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
+        blocks::register(Extension {
+            info: block_info!(
+                per_polarization "learned_gain",
+                "Bring the samples to unit power with a gain trained once per condition.",
+                LearnedSpec,
+                needs [Samples],
+                gives [],
+            ),
+            build: build_learned,
+        })
+        .unwrap();
         blocks::register(Extension {
             info: block_info!(
                 per_polarization "scale_probe",
@@ -89,5 +139,22 @@ fn a_specification_runs_an_external_block() {
     .unwrap();
     let r = run(&spec, &RunOptions::default()).unwrap();
     assert!((r[0].metric("gain.power").unwrap().value() - 9.0).abs() < 1e-9);
+    assert_eq!(r[0].metric("ser").unwrap().value(), 0.0);
+}
+
+#[test]
+fn a_per_polarisation_block_is_trained_on_one_polarisation() {
+    register();
+    // two polarisations of 256 symbols scaled by 3: the gain trained on polarisation x
+    // brings them back to unit power
+    let spec = Spec::from_yaml(
+        "name: trained\nseed: 2\nlink: [{type: source, constellation: QPSK, n_symbols: 256, pols: 2}, \
+         {type: scale_probe, factor: 3, record: none}, {type: learned_gain, label: rx}]\n\
+         metrics: {report: [ser]}\nstop: {max_trials: 3}",
+    )
+    .unwrap();
+    let r = run(&spec, &RunOptions::default()).unwrap();
+    assert!((r[0].metric("rx.gain").unwrap().value() - 1.0 / 3.0).abs() < 1e-9);
+    assert_eq!(r[0].metric("rx.trained_on").unwrap().value(), 256.0);
     assert_eq!(r[0].metric("ser").unwrap().value(), 0.0);
 }
