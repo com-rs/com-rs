@@ -182,19 +182,19 @@ struct CurveSpec {
 impl CurveSpec {
     /// The curve at `x`, interpolated linearly; `None` outside the curve or next to a
     /// missing point.
-    fn at(&self, x: f64) -> Result<Option<f64>> {
+    fn at(&self, x: f64) -> Option<f64> {
         let n = self.x.len();
         if x < self.x[0] - 1e-12 || x > self.x[n - 1] + 1e-12 {
-            return Ok(None);
+            return None;
         }
         let i = self.x.iter().position(|&xi| xi >= x - 1e-12).unwrap_or(n - 1);
         if (self.x[i] - x).abs() <= 1e-12 {
-            return Ok(self.y[i]);
+            return self.y[i];
         }
-        Ok(match (self.y[i - 1], self.y[i]) {
+        match (self.y[i - 1], self.y[i]) {
             (Some(a), Some(b)) => Some(a + (b - a) * (x - self.x[i - 1]) / (self.x[i] - self.x[i - 1])),
             _ => None,
-        })
+        }
     }
 }
 
@@ -282,7 +282,7 @@ impl Expectation {
             return Ok(Some(v));
         }
         if let Some(c) = &s.curve {
-            return c.at(cond.f64(&c.along)?);
+            return Ok(c.at(cond.f64(&c.along)?));
         }
         let t: Theory = parse("expect theory", substitute(s.theory.as_ref().unwrap_or(&Json::Null), cond)?)?;
         t.value(&s.name).map(Some)
@@ -636,7 +636,8 @@ mod tests {
         assert!(e.contains("unknown field `branches`"), "{e}");
         let e = check(json!({"function": "bler", "m": 4})).unwrap_err().to_string();
         assert!(e.contains("unknown variant `bler`") && e.contains("gn_snr_db"), "{e}");
-        let rayleigh = |kind: &str| check(json!({"function": "ber_rayleigh", "kind": kind, "ebn0_db": 6, "branches": 1}));
+        let rayleigh =
+            |kind: &str| check(json!({"function": "ber_rayleigh", "kind": kind, "ebn0_db": 6, "branches": 1}));
         assert_eq!(rayleigh("QAM").unwrap(), rayleigh("qam").unwrap());
         assert!(rayleigh("pam").is_err());
     }
@@ -653,9 +654,8 @@ mod tests {
         let spec = |top: &str, fiber: &str| {
             Spec::from_yaml(&format!("name: g\n{top}link: [source]\nexpect: [{}]", theory(fiber))).unwrap()
         };
-        let expected = |s: &Spec| {
-            Expectation::from_json(&s.expect[0]).unwrap().expected(&Condition::new()).unwrap().unwrap()
-        };
+        let expected =
+            |s: &Spec| Expectation::from_json(&s.expect[0]).unwrap().expected(&Condition::new()).unwrap().unwrap();
         let by_spec = expected(&spec("fiber: {n_spans: 10, span_km: 100}\n", ""));
         let by_theory = expected(&spec("", "fiber: {n_spans: 10, span_km: 100}, "));
         let merged = expected(&spec("fiber: {n_spans: 10}\n", "fiber: {span_km: 100}, "));

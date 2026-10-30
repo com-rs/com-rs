@@ -1,6 +1,6 @@
 //! Sources: simulated symbols (`source`) and measured recordings (`capture`, `reference_sync`).
 
-use super::{Block, Extension, BuildContext, CaptureState, ConstellationParam, Frame, Layout, parse_constellation};
+use super::{Block, BuildContext, CaptureState, ConstellationParam, Extension, Frame, Layout, parse_constellation};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -176,7 +176,8 @@ fn read_reference(path: &std::path::Path, c: &Constellation) -> Result<Vec<usize
 impl Capture {
     fn new(p: &CaptureSpec, ctx: &BuildContext) -> Result<Capture> {
         let dt = p.datatype.as_deref().map(crate::io::Datatype::parse).transpose()?;
-        let crate::io::Samples { samples, sample_rate: fs_file } = crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
+        let crate::io::Samples { samples, sample_rate: fs_file } =
+            crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
         let fs =
             p.fs.or(fs_file)
                 .ok_or_else(|| Error::Config(format!("capture {}: the file has no sampling rate, give fs", p.file)))?;

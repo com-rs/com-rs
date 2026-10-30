@@ -392,8 +392,9 @@ fn pilot_pattern(v: &NameOr<PilotSpec>) -> Result<PilotPattern> {
     match v.get("ofdm_tx pilots")? {
         Named::Name(s) if s.eq_ignore_ascii_case("none") => Ok(PilotPattern::None),
         Named::Name(s) => Err(Error::Config(format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))),
-        Named::Params(p) => PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time)
-            .map_err(|e| e.context("ofdm_tx")),
+        Named::Params(p) => {
+            PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+        }
     }
 }
 

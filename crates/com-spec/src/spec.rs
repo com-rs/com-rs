@@ -203,9 +203,9 @@ impl Format {
     /// ```
     pub fn read(self, text: &str) -> Result<Json> {
         match self {
-            Format::Yaml => serde_norway::from_str::<Unique>(text)
-                .map(|u| u.0)
-                .map_err(|e| Error::Config(format!("YAML: {e}"))),
+            Format::Yaml => {
+                serde_norway::from_str::<Unique>(text).map(|u| u.0).map_err(|e| Error::Config(format!("YAML: {e}")))
+            }
             Format::Json => {
                 serde_json::from_str::<Unique>(text).map(|u| u.0).map_err(|e| Error::Config(format!("JSON: {e}")))
             }
@@ -362,11 +362,8 @@ impl Spec {
         if raw.link.is_empty() {
             return Err(Error::Config("the link has no block".into()));
         }
-        let expect = raw
-            .expect
-            .into_iter()
-            .map(|e| verify::resolve_fiber(e, raw.fiber.as_ref()))
-            .collect::<Result<Vec<_>>>()?;
+        let expect =
+            raw.expect.into_iter().map(|e| verify::resolve_fiber(e, raw.fiber.as_ref())).collect::<Result<Vec<_>>>()?;
         for e in &expect {
             verify::Expectation::from_json(e)?;
         }
@@ -513,10 +510,9 @@ mod tests {
         let e = Spec::from_yaml("name: g\nlink: [source]\ncases: [{m: 4}, {m: 16}]\ngrid: {m: [64]}").unwrap_err();
         assert!(e.to_string().contains("\"m\" twice"), "{e}");
         // a key repeated in a mapping of the document, of the grid or of a block
-        for text in [
-            "name: g\nlink: [source]\ngrid: {m: [4], m: [16]}",
-            "name: g\nlink: [{type: awgn, snr_db: 3, snr_db: 5}]",
-        ] {
+        for text in
+            ["name: g\nlink: [source]\ngrid: {m: [4], m: [16]}", "name: g\nlink: [{type: awgn, snr_db: 3, snr_db: 5}]"]
+        {
             let e = Spec::from_yaml(text).unwrap_err().to_string();
             assert!(e.contains("\"m\" is given twice") || e.contains("\"snr_db\" is given twice"), "{e}");
         }

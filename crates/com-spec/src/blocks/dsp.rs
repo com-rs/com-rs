@@ -108,7 +108,7 @@ block_params! {
     /// A pulse: the parameters shared by `pulse_shape`, `matched_filter` and `wdm_tx`.
     #[derive(Clone, Debug)]
     pub(super) struct PulseSettings {
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "the pulse: rect, nrz, rc or rrc";
+        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "the pulse";
         rolloff: f64 [0.1] >= 0 <= 1, "roll-off of rc and rrc";
         n_taps: usize [1025] >= 1, "taps of rc and rrc (odd: on the sampling instants)";
     }
@@ -344,8 +344,11 @@ impl Block for Equalizer {
         // every polarisation (or antenna) is a mode of the butterfly
         let n = s.n_streams();
         let needs_ref = self.schedule.iter().any(|(a, _)| *a == Algorithm::Nlms);
-        let reference: Vec<Vec<C64>> =
-            if needs_ref { (0..n).map(|i| part(&s.symbols, i, n, "symbols")).collect::<Result<_>>()? } else { Vec::new() };
+        let reference: Vec<Vec<C64>> = if needs_ref {
+            (0..n).map(|i| part(&s.symbols, i, n, "symbols")).collect::<Result<_>>()?
+        } else {
+            Vec::new()
+        };
         let x: Vec<Vec<C64>> = s.streams().map(|v| signal::pnorm(v)).collect();
         let out = eq.run(&x, if needs_ref { Some(&reference) } else { None }, c.points())?;
         if let Some(rho) = out.output_correlation() {

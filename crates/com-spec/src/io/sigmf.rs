@@ -1,7 +1,7 @@
 //! SigMF recordings: the metadata, the captures, the annotations, the archives.
 
-use super::raw::{decode_all, write_creating_dirs, write_raw};
 use super::Datatype;
+use super::raw::{decode_all, write_creating_dirs, write_raw};
 use com_core::{Error, Result, ensure};
 use com_math::C64;
 use serde_json::{Value as Json, json};

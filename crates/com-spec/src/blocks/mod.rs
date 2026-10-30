@@ -89,15 +89,15 @@ pub(crate) mod tests;
 
 pub use crate::params::parse;
 pub use context::BuildContext;
-use context::{FIBER_DOC, FiberSpec};
 pub(crate) use context::merge_fiber;
+use context::{FIBER_DOC, FiberSpec};
 pub use frame::{CaptureState, ChannelState, Coding, Frame, InFlight, Layout, ReceiverState};
 pub use optical::WdmFrame;
 use per_pol::{part, per_pol};
 pub use registry::{BlockInfo, Extension, build, check_link, json_schema, register, registry};
 pub(crate) use registry::{build_parts, with_registry};
-pub use schema::{Fact, Mapping, NameOr, Named, ParamDefault, ParamInfo, Params};
 use schema::NumberOrList;
+pub use schema::{Fact, Mapping, NameOr, Named, ParamDefault, ParamInfo, Params};
 pub use wireless::{Csi, OfdmFrame};
 
 /// A block of a link.

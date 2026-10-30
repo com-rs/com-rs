@@ -1,7 +1,7 @@
 //! Measurements in the middle of a link: probes, recordings of the signal (`dump`) and
 //! the declared posterior of a classic receiver.
 
-use super::{Block, Extension, BuildContext, Frame};
+use super::{Block, BuildContext, Extension, Frame};
 use crate::io::Datatype;
 use crate::metrics::{Metric, Metrics, MetricsWindow};
 use com_core::Error;

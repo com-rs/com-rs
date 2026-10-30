@@ -1,8 +1,8 @@
 //! What the builders need besides the parameters of a block: [`BuildContext`], with
 //! the fibre and Raman parameters of the specification.
 
-use super::schema::Mapping;
 use super::Params;
+use super::schema::Mapping;
 use com_channel::optical::fiber::FiberParams;
 use com_channel::optical::raman::{Direction, Raman, RamanGain, RamanPump};
 use com_core::{Error, Result};
@@ -200,7 +200,9 @@ mod tests {
         for p in FiberSpec::params().into_iter().chain(RamanSpec::params()) {
             if let ParamDefault::Value(v, text) = p.default {
                 let shown: f64 = text.parse().unwrap_or(f64::NAN);
-                let ok = v.as_f64().map_or(text == v.to_string(), |x| x == shown);
+                let ok = v
+                    .as_f64()
+                    .map_or(serde_json::from_str::<serde_json::Value>(&text).ok().as_ref() == Some(&v), |x| x == shown);
                 assert!(ok, "{}: {text} for {v}", p.name);
             }
         }

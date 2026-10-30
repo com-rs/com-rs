@@ -158,14 +158,18 @@ impl CsvLogger {
         let (columns_head, columns_metrics) = self.columns.split_at(4 + self.keys.len());
         let condition = &head[1..head.len() - 3];
         let mut row = vec![Self::cell("index", &head[0].1, false)];
-        row.extend(self.keys.iter().map(|k| {
-            condition.iter().find(|(c, _)| c == k).map(|(_, v)| Self::cell(k, v, false)).unwrap_or_default()
-        }));
+        row.extend(
+            self.keys.iter().map(|k| {
+                condition.iter().find(|(c, _)| c == k).map(|(_, v)| Self::cell(k, v, false)).unwrap_or_default()
+            }),
+        );
         row.extend(head[head.len() - 3..].iter().map(|(k, v)| Self::cell(k, v, false)));
         debug_assert_eq!(row.len(), columns_head.len());
-        row.extend(columns_metrics.iter().map(|c| {
-            metrics.iter().find(|(k, _)| k == c).map(|(_, v)| Self::cell(c, v, true)).unwrap_or_default()
-        }));
+        row.extend(
+            columns_metrics
+                .iter()
+                .map(|c| metrics.iter().find(|(k, _)| k == c).map(|(_, v)| Self::cell(c, v, true)).unwrap_or_default()),
+        );
         if let Some(out) = self.out.as_mut() {
             writeln!(out, "{}", row.join(","))?;
             out.flush()?;

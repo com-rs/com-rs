@@ -64,7 +64,7 @@ impl Scalar {
 ///
 /// Integer samples are converted to floating point without scaling; the unsigned types
 /// are centred by $2^{b-1}$ (128 for `cu8`), as the reference implementation
-/// `sigmf-python` does. [`SigMF::full_scale`] gives the scale of its `autoscale`.
+/// `sigmf-python` does. [`SigMF::full_scale`](super::SigMF::full_scale) gives the scale of its `autoscale`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Datatype {
     /// Complex (interleaved I and Q) or real.

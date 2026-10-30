@@ -71,7 +71,7 @@
 use super::dsp::PulseSettings;
 use super::fiber::AmplifierSettings;
 use super::fiber::fiber_json;
-use super::{Block, Extension, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList};
+use super::{Block, BuildContext, Extension, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList};
 use com_channel::optical::manakov::ManakovSsfm;
 use com_channel::optical::pmd::{Jones, PmdLink};
 use com_core::rng::Rng;
@@ -324,8 +324,10 @@ struct ManakovDbpBlock(com_dsp::compensation::dbp::Dbp);
 
 impl ManakovDbpBlock {
     fn new(p: &DbpSpec, ctx: &BuildContext) -> Result<ManakovDbpBlock> {
-        let link =
-            ManakovSsfm { amplification: p.amplification.parse()?, ..ManakovSsfm::new(ctx.fiber(fiber_json(p.fiber.as_ref()))?) };
+        let link = ManakovSsfm {
+            amplification: p.amplification.parse()?,
+            ..ManakovSsfm::new(ctx.fiber(fiber_json(p.fiber.as_ref()))?)
+        };
         Ok(ManakovDbpBlock(link.dbp(p.steps_per_span, p.nonlinear_scale)))
     }
 }

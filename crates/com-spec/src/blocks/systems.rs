@@ -24,7 +24,7 @@
 //!
 //! 1. ETSI EN 302 307-1 V1.4.1, *DVB-S2*, 2014 (see `com_systems::dvbs2`).
 
-use super::{Block, Extension, Coding, Frame};
+use super::{Block, Coding, Extension, Frame};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_systems::dvbs2::{Dvbs2, FrameSize, Modcod, bbframe, bbframe_data, decode_plheader};

@@ -1,6 +1,6 @@
 //! Single-polarisation fibre propagation and its compensation: linear fibre, split-step Fourier, EDFA, dispersion compensation, digital back-propagation.
 
-use super::{Block, Extension, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping};
+use super::{Block, BuildContext, Extension, FIBER_DOC, FiberSpec, Frame, Mapping};
 use com_channel::optical::edfa::Edfa;
 use com_channel::optical::fiber::FiberParams;
 use com_channel::optical::fiber::linear_fiber_channel;

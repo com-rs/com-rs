@@ -175,10 +175,9 @@ impl Theory {
                 // Maxwell-Boltzmann priors on the unit-energy uniform constellation, as
                 // the source with mb_lambda
                 let px = match t.mb_lambda {
-                    Some(l) => Some(com_mapping::source::maxwell_boltzmann(
-                        &Constellation::new(t.kind, t.m)?.normalized(),
-                        l,
-                    )),
+                    Some(l) => {
+                        Some(com_mapping::source::maxwell_boltzmann(&Constellation::new(t.kind, t.m)?.normalized(), l))
+                    }
                     None => None,
                 };
                 let snr = t.snr_db.or(t.ebn0_db.map(|e| e + bits(t.m))).ok_or_else(|| {

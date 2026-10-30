@@ -47,7 +47,7 @@
 //!    Trans. Inf. Theory*, 44(3), 927–946, 1998.
 
 use super::schema::{ParamType, variants_schema};
-use super::{Block, Extension, Coding, ConstellationParam, Frame, ParamInfo, Params, parse_constellation};
+use super::{Block, Coding, ConstellationParam, Extension, Frame, ParamInfo, Params, parse_constellation};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_fec::block::BlockCode;
@@ -169,8 +169,9 @@ block_params! {
 /// `fec_encode` and `fec_decode` (and `pas_encode` and `pas_decode`) build the same
 /// code from one mapping, and the construction is deterministic.
 fn peg(n: usize, k: usize, var_degree: usize, seed: u64) -> Result<LdpcCode> {
-    /// The codes built, the last ones kept.
-    static BUILT: std::sync::Mutex<Vec<((usize, usize, usize, u64), LdpcCode)>> = std::sync::Mutex::new(Vec::new());
+    /// The codes built, by `(n, k, var_degree, seed)`, the last ones kept.
+    type Built = Vec<((usize, usize, usize, u64), LdpcCode)>;
+    static BUILT: std::sync::Mutex<Built> = std::sync::Mutex::new(Vec::new());
     const KEPT: usize = 8;
     let key = (n, k, var_degree, seed);
     let found = BUILT.lock().ok().and_then(|b| b.iter().find(|(k, _)| *k == key).map(|(_, c)| c.clone()));
