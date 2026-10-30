@@ -144,7 +144,7 @@ impl Block for PulseShaping {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let k = s.int_sps("pulse_shape")?;
         ensure(k == 1, || "pulse_shape expects symbols (1 sample per symbol)".into())?;
-        s.samples = signal::pnorm(&filter::fir_filter(&self.taps, &resample::upsample(&s.samples, self.sps)));
+        s.samples = signal::pnorm(&filter::upfirdn(&self.taps, &s.samples, self.sps, 1));
         s.sps = self.sps as f64;
         Ok(())
     }

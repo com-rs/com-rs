@@ -393,6 +393,69 @@ impl Fir {
     }
 }
 
+/// Upsample, filter and downsample: insert `up - 1` zeros after every sample of `x`,
+/// filter with the real taps `h` with the `same` alignment ([`fir_filter`]), then keep
+/// the samples $0, D, 2 D, \ldots$ ($D$ = `down`). The result is that of
+/// `downsample(&fir_filter(h, &upsample(x, up)), down, 0)` of [`crate::resample`], bit
+/// for bit for finite samples and taps, without its intermediate signals: when the
+/// filter or the upsampled signal is short (the direct convolution of
+/// [`fir_filter`]), only the kept samples are computed, from the polyphase components
+/// of `h` (the zeros of the upsampled signal are skipped, every sample adds its terms
+/// in the order of the full convolution); otherwise the upsampled signal is filtered
+/// by FFT and decimated in place. As [`crate::resample::upsample`] and
+/// [`crate::resample::downsample`], `up = 0` gives no sample and `down = 0` keeps
+/// every sample.
+///
+/// Unlike `scipy.signal.upfirdn`, which returns the whole linear convolution, the
+/// output has the $\lceil U N / D \rceil$ samples of the `same` alignment ($N$ samples
+/// of `x`, $U$ = `up`).
+///
+/// # Examples
+/// ```
+/// use com_dsp::filter::{fir_filter, upfirdn};
+/// use com_dsp::resample::{downsample, upsample};
+/// use com_math::C64;
+/// let h = [0.25, 0.5, 1.0, 0.5, 0.25];
+/// let x: Vec<C64> = (0..50).map(|n| C64::new((0.3 * n as f64).cos(), (0.2 * n as f64).sin())).collect();
+/// let y = upfirdn(&h, &x, 4, 3);
+/// assert_eq!(y.len(), 67);
+/// assert_eq!(y, downsample(&fir_filter(&h, &upsample(&x, 4)), 3, 0));
+/// ```
+pub fn upfirdn(h: &[f64], x: &[C64], up: usize, down: usize) -> Vec<C64> {
+    let down = down.max(1);
+    let len = x.len() * up;
+    let n_out = len.div_ceil(down);
+    if h.is_empty() || len == 0 {
+        return vec![C64::new(0.0, 0.0); n_out];
+    }
+    let hc: Vec<C64> = h.iter().map(|&v| C64::new(v, 0.0)).collect();
+    let start = (h.len() - 1) / 2;
+    if h.len().min(len) > DIRECT_MAX_TAPS {
+        let mut y = vec![C64::new(0.0, 0.0); len];
+        convolve_window(&hc, None, &crate::resample::upsample(x, up), start, &mut y);
+        for q in 1..n_out {
+            y[q] = y[q * down];
+        }
+        y.truncate(n_out);
+        return y;
+    }
+    // the sample `n` of the full convolution sums `h[n - m U] x[m]` over the input
+    // samples `m` in increasing order, as the direct convolution adds them
+    (0..len)
+        .step_by(down)
+        .map(|j| {
+            let n = j + start;
+            let first = n.saturating_sub(h.len() - 1).div_ceil(up);
+            let last = (n / up).min(x.len() - 1);
+            let mut acc = C64::new(0.0, 0.0);
+            for (m, &xm) in x.iter().enumerate().take(last + 1).skip(first) {
+                acc += hc[n - m * up] * xm;
+            }
+            acc
+        })
+        .collect()
+}
+
 /// Scale the taps `h` in place to unit energy, $h_{l} / \sqrt{\sum_{i} h_{i}^{2}}$ (taps
 /// that are all zero are left unchanged).
 ///
@@ -615,5 +678,26 @@ mod tests {
             }
         }
         assert!(fast.iter().zip(&slow).all(|(a, b)| (a - b).norm() < 1e-9));
+    }
+
+    #[test]
+    fn upfirdn_is_the_chain_of_upsample_fir_filter_and_downsample_bit_for_bit() {
+        use crate::resample::{downsample, upsample};
+        let bits = |v: &[C64]| v.iter().map(|z| (z.re.to_bits(), z.im.to_bits())).collect::<Vec<_>>();
+        // the direct path (short filter or signal), the overlap-add and the single FFT
+        for n_taps in [0, 1, 4, 7, 33, 101] {
+            let h: Vec<f64> = (0..n_taps).map(|k| (0.37 * k as f64).cos() / (1.0 + k as f64)).collect();
+            for n in [0, 1, 5, 40, 300, 2000] {
+                let x: Vec<C64> =
+                    (0..n).map(|i| C64::new((0.11 * i as f64).sin(), (0.07 * i as f64).cos() - 0.5)).collect();
+                for up in [0, 1, 2, 3, 4] {
+                    for down in [0, 1, 2, 3, 5] {
+                        let chain = downsample(&fir_filter(&h, &upsample(&x, up)), down, 0);
+                        let y = upfirdn(&h, &x, up, down);
+                        assert_eq!(bits(&y), bits(&chain), "{n_taps} taps, {n} samples, up {up}, down {down}");
+                    }
+                }
+            }
+        }
     }
 }
