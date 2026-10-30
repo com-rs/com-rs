@@ -50,8 +50,14 @@
 //! E(d) = \sum_{m=0}^{W-1} |r[d + m]|^{2},
 //! $$
 //!
-//! [`delayed_correlation`] and [`windowed_energy`], computed as direct sums (the order of
-//! the operations of the published estimators).
+//! [`delayed_correlation`] and [`windowed_energy`], for every $d$ in $O(n)$ instead of
+//! $O(nW)$: the terms are cut into blocks of $W$, and the window that starts at $d$ is
+//! the sum of the terms of its block from $d$ (accumulated from the end of the block)
+//! and of the terms of the next block up to $d + W - 1$ (accumulated from its start),
+//! the decomposition of van Herk (1992) and Gil & Werman (1993). No sum is subtracted
+//! (unlike running sums): a window of zeros (a zero-padded capture) gives zero exactly,
+//! the rounding error is bounded as that of the direct sum, and a window that starts a
+//! block is the direct sum itself.
 //!
 //! # Examples
 //! ```
@@ -69,13 +75,21 @@
 //! let y = align(&z, s.delay, s.rotation, x.len());
 //! assert!((y[250] - x[250]).norm() < 1e-12);
 //! ```
+//!
+//! # References
+//!
+//! 1. M. van Herk, "A fast algorithm for local minimum and maximum filters on
+//!    rectangular and octagonal kernels," *Pattern Recognit. Lett.*, 13(7), 517–521, 1992.
+//! 2. J. Gil and M. Werman, "Computing 2-D min, median, and max filters," *IEEE Trans.
+//!    Pattern Anal. Mach. Intell.*, 15(5), 504–507, 1993.
 
 use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::fft;
 use com_math::ln_1p_exp;
+use com_math::stats::Correlation;
 use std::f64::consts::TAU;
-use std::ops::Range;
+use std::ops::{Add, Range};
 
 /// The result of [`frame_sync`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,8 +109,9 @@ pub struct FrameSync {
 /// constellation (4 for square QAM), or `None` to remove the exact phase.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if the positions do not lie in `reference`, or if no delay
-/// in `[-max_delay, max_delay]` keeps them inside `z`.
+/// [`com_core::Error::Config`] if the positions do not lie in `reference`,
+/// [`com_core::Error::Shape`] if no delay in `[-max_delay, max_delay]` keeps them inside
+/// `z` (a received block too short, as for the window of [`periodic_offset`]).
 pub fn frame_sync(
     z: &[C64],
     reference: &[C64],
@@ -107,7 +122,7 @@ pub fn frame_sync(
     ensure(positions.end <= reference.len() && !positions.is_empty(), || {
         format!("the known symbols {positions:?} must lie in the {} reference symbols", reference.len())
     })?;
-    let ex: f64 = reference[positions.clone()].iter().map(C64::norm_sqr).sum();
+    let known = &reference[positions.clone()];
     let mut best: Option<(isize, C64, f64)> = None;
     let md = max_delay as isize;
     for d in -md..=md {
@@ -116,24 +131,25 @@ pub fn frame_sync(
         if lo < 0 || hi > z.len() as isize {
             continue;
         }
-        let mut c = C64::new(0.0, 0.0);
-        let mut ez = 0.0;
-        for n in positions.clone() {
-            let v = z[(n as isize + d) as usize];
-            c += v * reference[n].conj();
-            ez += v.norm_sqr();
-        }
-        let q = if ez > 0.0 && ex > 0.0 { c.norm() / (ez * ex).sqrt() } else { 0.0 };
+        let c = Correlation::between(&z[lo as usize..hi as usize], known);
+        let q = c.coefficient();
         if !matches!(best, Some(b) if q <= b.2) {
-            best = Some((d, c, q));
+            best = Some((d, c.cross, q));
         }
     }
     let (delay, c, quality) = best.ok_or_else(|| {
-        com_core::Error::Config(format!(
+        com_core::Error::Shape(format!(
             "no delay within ±{max_delay} keeps the known symbols {positions:?} inside the {} received samples",
             z.len()
         ))
     })?;
+    Ok(FrameSync { delay, rotation: derotation(c, symmetry), quality })
+}
+
+/// The rotation $e^{-j\hat\varphi}$ that removes the phase $\hat\varphi$ of the
+/// correlation `c`, rounded to the nearest multiple of $2\pi/M$ for a rotational
+/// symmetry $M$ = `symmetry` (exact for `None` or 0).
+fn derotation(c: C64, symmetry: Option<u32>) -> C64 {
     let phi = c.arg();
     let phi = match symmetry {
         Some(m) if m > 0 => {
@@ -142,7 +158,7 @@ pub fn frame_sync(
         }
         _ => phi,
     };
-    Ok(FrameSync { delay, rotation: C64::from_polar(1.0, -phi), quality })
+    C64::from_polar(1.0, -phi)
 }
 
 /// `y[n] = rotation · z[n + delay]` for `n = 0..len` (zero outside `z`).
@@ -209,18 +225,11 @@ pub fn periodic_offset(
     let c: Vec<C64> = fft::ifft(&prod).into_iter().map(|v| v.conj()).collect();
     let (k, ck) =
         c.iter().enumerate().fold((0, C64::new(0.0, 0.0)), |b, (k, v)| if v.norm() > b.1.norm() { (k, *v) } else { b });
-    let ea: f64 = a.iter().map(C64::norm_sqr).sum();
-    let er: f64 = (0..l).map(|t| reference[(start + t + k) % p].norm_sqr()).sum();
-    let quality = if ea > 0.0 && er > 0.0 { ck.norm() / (ea * er).sqrt() } else { 0.0 };
-    let phi = ck.arg();
-    let phi = match symmetry {
-        Some(m) if m > 0 => {
-            let step = TAU / m as f64;
-            (phi / step).round() * step
-        }
-        _ => phi,
-    };
-    Ok(PeriodicOffset { offset: k, rotation: C64::from_polar(1.0, -phi), quality })
+    // the correlation of the FFT, with the energies of the window and of its reference
+    let energy_a: f64 = a.iter().map(C64::norm_sqr).sum();
+    let energy_b: f64 = (0..l).map(|t| reference[(start + t + k) % p].norm_sqr()).sum();
+    let quality = Correlation { cross: ck, energy_a, energy_b }.coefficient();
+    Ok(PeriodicOffset { offset: k, rotation: derotation(ck, symmetry), quality })
 }
 
 /// The correlation $P(d) = \sum_{m=0}^{W-1} r^{*}[d + m]\, r[d + m + \text{lag}]$ of `r`
@@ -240,20 +249,46 @@ pub fn periodic_offset(
 /// assert!((p[0].arg() - 0.3).abs() < 1e-12);
 /// ```
 pub fn delayed_correlation(r: &[C64], lag: usize, window: usize) -> Vec<C64> {
-    (0..=r.len().saturating_sub(lag + window))
-        .take_while(|&d| d + lag + window <= r.len())
-        .map(|d| (0..window).map(|m| r[d + m].conj() * r[d + m + lag]).sum())
-        .collect()
+    if lag > r.len() {
+        return Vec::new();
+    }
+    let terms: Vec<C64> = r.iter().zip(&r[lag..]).map(|(a, b)| a.conj() * b).collect();
+    sliding_sums(&terms, window)
 }
 
 /// The energy $E(d) = \sum_{m=0}^{W-1} |r[d + m]|^{2}$ of `r` over a window of $W$ =
 /// `window` samples, for every start $d$ from 0 to `r.len() - window` (empty if `r` is
 /// shorter).
 pub fn windowed_energy(r: &[C64], window: usize) -> Vec<f64> {
-    (0..=r.len().saturating_sub(window))
-        .take_while(|&d| d + window <= r.len())
-        .map(|d| (0..window).map(|m| r[d + m].norm_sqr()).sum())
-        .collect()
+    let terms: Vec<f64> = r.iter().map(C64::norm_sqr).collect();
+    sliding_sums(&terms, window)
+}
+
+/// The sums of the `t.len() - w + 1` windows of `w` consecutive terms of `t` (none if
+/// `t` is shorter; zeros for `w = 0`), by the block prefix and suffix sums of the module
+/// documentation.
+fn sliding_sums<T: Copy + Default + Add<Output = T>>(t: &[T], w: usize) -> Vec<T> {
+    let n = t.len();
+    if w == 0 {
+        return vec![T::default(); n + 1];
+    }
+    if n < w {
+        return Vec::new();
+    }
+    // prefix[i]: the terms of the block of i up to i, from its start (the direct sum);
+    // suffix[i]: the terms of the block of i from i, from its end
+    let mut prefix = Vec::with_capacity(n);
+    for (i, &v) in t.iter().enumerate() {
+        let p = if i % w == 0 { T::default() + v } else { prefix[i - 1] + v };
+        prefix.push(p);
+    }
+    let mut suffix = t.to_vec();
+    for i in (0..n.saturating_sub(1)).rev() {
+        if (i + 1) % w != 0 {
+            suffix[i] = t[i] + suffix[i + 1];
+        }
+    }
+    (0..=n - w).map(|d| if d % w == 0 { prefix[d + w - 1] } else { suffix[d] + prefix[d + w - 1] }).collect()
 }
 
 /// The decision rule of [`locate_sync_word`].
@@ -325,8 +360,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_window_outside_the_received_block_is_a_shape_error_in_both_synchronisations() {
+        let x: Vec<C64> = (0..20).map(|k| C64::from_polar(1.0, 0.7 * f64::from(k))).collect();
+        assert!(matches!(frame_sync(&x[..5], &x, 0..10, 2, None), Err(com_core::Error::Shape(_))));
+        assert!(matches!(periodic_offset(&x[..5], &x, 0, 10, None), Err(com_core::Error::Shape(_))));
+        assert!(matches!(frame_sync(&x, &x, 15..25, 2, None), Err(com_core::Error::Config(_))));
+    }
+
+    #[test]
     fn the_windowed_sums_are_the_direct_sums_and_short_inputs_give_nothing() {
-        let r: Vec<C64> = (0..9).map(|n| C64::new(f64::from(n), 1.0 - f64::from(n) / 3.0)).collect();
+        // small integers: every sum is exact, whatever its order
+        let r: Vec<C64> = (0..9).map(|n| C64::new(f64::from(n), 1.0 - f64::from(n % 3))).collect();
         let p = delayed_correlation(&r, 3, 4);
         assert_eq!(p.len(), 3);
         for (d, v) in p.iter().enumerate() {
@@ -337,5 +381,39 @@ mod tests {
         assert_eq!(e.len(), 6);
         assert_eq!(e[2], (2..6).map(|n| r[n].norm_sqr()).sum::<f64>());
         assert!(delayed_correlation(&r, 6, 4).is_empty() && windowed_energy(&r, 10).is_empty());
+        assert_eq!(delayed_correlation(&r, 10, 0), Vec::<C64>::new());
+        assert_eq!(windowed_energy(&r, 0), vec![0.0; 10]);
+    }
+
+    /// The direct sums of the former code: the same values to the rounding of the sums,
+    /// the same bits at the starts of the blocks, and exact zeros on zero padding.
+    #[test]
+    fn the_block_sums_are_the_former_direct_sums_to_the_rounding() {
+        let mut rng = com_core::rng::Rng::new(4);
+        let mut r: Vec<C64> = (0..2000).map(|_| rng.complex_gaussian() * 10.0).collect();
+        r.extend(vec![C64::new(0.0, 0.0); 300]);
+        for (lag, w) in [(64, 64), (256, 32), (1, 1), (3, 1000)] {
+            let p = delayed_correlation(&r, lag, w);
+            let e = windowed_energy(&r, w);
+            assert_eq!((p.len(), e.len()), (r.len() - lag - w + 1, r.len() - w + 1));
+            for (d, v) in p.iter().enumerate() {
+                let want: C64 = (0..w).map(|m| r[d + m].conj() * r[d + m + lag]).sum();
+                let scale: f64 = (0..w).map(|m| (r[d + m].conj() * r[d + m + lag]).norm()).sum();
+                assert!((v - want).norm() <= 1e-15 * w as f64 * scale, "lag {lag}, window {w}, d {d}");
+                if d % w == 0 {
+                    assert_eq!(*v, want);
+                }
+                if d >= 2000 {
+                    assert_eq!(*v, C64::new(0.0, 0.0));
+                }
+            }
+            for (d, v) in e.iter().enumerate() {
+                let want: f64 = (0..w).map(|m| r[d + m].norm_sqr()).sum();
+                assert!((v - want).abs() <= 1e-15 * w as f64 * want, "window {w}, d {d}");
+                if d >= 2000 {
+                    assert_eq!(*v, 0.0);
+                }
+            }
+        }
     }
 }
