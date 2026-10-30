@@ -2,7 +2,7 @@
 //! the moments of a format, the Raman profiles of a span and the WDM grid.
 
 use crate::fiber::PyFiber;
-use crate::{FArr, IntoPy, farr, fvec, json};
+use crate::{FArr, IntoPy, count, farr, fvec, json};
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum, closed_form_nli_psd};
 use comrs::hardware::optical as devices;
 use comrs::math::dbm2w;
@@ -240,8 +240,8 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 ///     >>> comrs.wdm_grid(3, 50e9).tolist()
 ///     [-50000000000.0, 0.0, 50000000000.0]
 #[pyfunction]
-fn wdm_grid(py: Python<'_>, n: usize, spacing: f64) -> FArr<'_> {
-    farr(py, devices::wdm_grid(n, spacing))
+fn wdm_grid(py: Python<'_>, n: i64, spacing: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, devices::wdm_grid(count(n, "n")?, spacing)))
 }
 
 /// Register the bindings of this module.

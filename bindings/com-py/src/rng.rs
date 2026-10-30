@@ -1,6 +1,6 @@
 //! The random generator and the math helpers.
 
-use crate::{CArr, FArr, IArr, carr, count, farr, map_real};
+use crate::{CArr, FArr, IArr, IntoPy, carr, count, farr, map_real};
 use comrs::core::rng::{Rng, stream};
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
@@ -33,6 +33,33 @@ impl PyRng {
     #[new]
     fn new(seed: u64) -> Self {
         PyRng { inner: Rng::new(seed) }
+    }
+
+    /// The state of the generator (pickling: a copy continues its draws).
+    fn __getstate__(&self) -> [u64; 4] {
+        self.inner.state()
+    }
+
+    fn __setstate__(&mut self, state: [u64; 4]) -> PyResult<()> {
+        self.inner = Rng::from_state(state).py()?;
+        Ok(())
+    }
+
+    fn __getnewargs__(&self) -> (u64,) {
+        (0,)
+    }
+
+    fn __copy__(&self) -> Self {
+        PyRng { inner: self.inner.clone() }
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        PyRng { inner: self.inner.clone() }
+    }
+
+    fn __repr__(&self) -> String {
+        let s = self.inner.state();
+        format!("Rng(state=[{:#018x}, {:#018x}, {:#018x}, {:#018x}])", s[0], s[1], s[2], s[3])
     }
 
     /// The generator of trial `trial` of condition `condition` of experiment `name`
@@ -117,10 +144,6 @@ impl PyRng {
             return Err(PyValueError::new_err("high must be positive"));
         }
         Ok((0..n).map(|_| self.inner.below(high) as i64).collect::<Vec<_>>().into_pyarray(py))
-    }
-
-    fn __repr__(&self) -> String {
-        "comrs.Rng(<state>)".into()
     }
 }
 

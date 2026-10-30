@@ -2,7 +2,7 @@
 //! Fourier method (one polarisation) and the Manakov equation (two polarisations).
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec, json, rng_of};
+use crate::{CArr, IntoPy, carr, cvec, json, py_bool, rng_of};
 use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::fiber::{self as channels, Amplification, Precision, Ssfm};
@@ -333,6 +333,18 @@ pub struct PySsfm {
 
 #[pymethods]
 impl PySsfm {
+    fn __repr__(&self) -> String {
+        let s = &self.inner;
+        format!(
+            "Ssfm(n_spans={}, span_km={}, step_km={}, amplification='{}', raman={})",
+            s.fiber.n_spans,
+            s.fiber.span_km,
+            s.step_km,
+            format!("{:?}", s.amplification).to_lowercase(),
+            py_bool(s.raman.is_some())
+        )
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, step_km = 1.0, amplification = "edfa", raman = None))]
     fn new(
@@ -444,6 +456,10 @@ pub struct PyManakov {
 
 #[pymethods]
 impl PyManakov {
+    fn __repr__(&self) -> String {
+        format!("Manakov(n_spans={}, rms_dgd_s={:e})", self.inner.fiber.n_spans, self.inner.pmd.rms_dgd_s())
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, pmd_ps_sqrt_km = 0.0, sections_per_span = 10, rng = None))]
     fn new(
@@ -567,6 +583,18 @@ pub struct PyManakovSsfm {
 
 #[pymethods]
 impl PyManakovSsfm {
+    fn __repr__(&self) -> String {
+        let m = &self.inner;
+        format!(
+            "ManakovSsfm(n_spans={}, rule={:?}, max_iterations={}, tolerance={:e}, amplification='{}')",
+            m.fiber.n_spans,
+            m.rule,
+            m.max_iterations,
+            m.tolerance,
+            format!("{:?}", m.amplification).to_lowercase()
+        )
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
     #[allow(clippy::too_many_arguments)]

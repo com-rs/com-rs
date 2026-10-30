@@ -1,7 +1,7 @@
 //! Algebraic codes and puncturing: Reed–Solomon and BCH codes, the puncturing patterns
 //! of the convolutional and turbo codes, the free distance of a punctured code.
 
-use crate::{BArr, IArr, IntoPy, bvec, fvec, iarr, map_real, uvec};
+use crate::{BArr, IArr, IntoPy, bvec, extract_error, fvec, iarr, map_real, uvec};
 use comrs::fec::bch::Bch;
 use comrs::fec::block::BlockCode;
 use comrs::fec::conv::Trellis;
@@ -20,9 +20,9 @@ pub(crate) fn puncturer(pattern: &Bound<'_, PyAny>) -> PyResult<Puncturer> {
     if let Ok(name) = pattern.extract::<String>() {
         return Puncturer::from_name(&name).py();
     }
-    let rows: Vec<Vec<u8>> = pattern
-        .extract()
-        .map_err(|_| PyValueError::new_err("the puncturing pattern is a name or a list of rows of 0 and 1"))?;
+    let rows: Vec<Vec<u8>> = pattern.extract().map_err(|e| {
+        extract_error(pattern.py(), &e, "the puncturing pattern is a name or a list of rows of 0 and 1")
+    })?;
     let refs: Vec<&[u8]> = rows.iter().map(Vec::as_slice).collect();
     Puncturer::new(&refs).py()
 }

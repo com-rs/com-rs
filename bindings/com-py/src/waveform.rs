@@ -3,7 +3,7 @@
 
 use crate::comm::PyConstellation;
 use crate::kind;
-use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, cvec, farr, fvec, iarr, map_real, uvec};
+use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, count, cvec, farr, fvec, iarr, map_real, uvec};
 use comrs::math::C64;
 use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
 use comrs::waveform::cpm::{self, Cpm, CpmConfig, FrequencyPulse, ModulationIndex};
@@ -730,8 +730,8 @@ impl PyCeOfdm {
 ///     >>> round(float(comrs.ce_ofdm_imp_powers(1.0, 3)[0]), 6) == round(math.exp(-1), 6)
 ///     True
 #[pyfunction]
-fn ce_ofdm_imp_powers<'py>(py: Python<'py>, two_pi_h: f64, n: usize) -> FArr<'py> {
-    farr(py, theory::imp_powers(two_pi_h, n))
+fn ce_ofdm_imp_powers<'py>(py: Python<'py>, two_pi_h: f64, n: i64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, theory::imp_powers(two_pi_h, count(n, "n")?)))
 }
 
 /// The optimum asymptotic gain `G` of CE-OFDM over linear OFDM in AWGN, `(2πh)²`, or
@@ -1005,8 +1005,9 @@ fn css_continuous_spectrum<'py>(py: Python<'py>, sf: u32, f: &Bound<'py, PyAny>)
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (units of `B`) and powers.
 #[pyfunction]
-fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
-    let (f, p): (Vec<f64>, Vec<f64>) = css_theory::spectral_lines(sf, n_max).py()?.into_iter().unzip();
+fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: i64) -> PyResult<(FArr<'py>, FArr<'py>)> {
+    let lines = css_theory::spectral_lines(sf, count(n_max, "n_max")?).py()?;
+    let (f, p): (Vec<f64>, Vec<f64>) = lines.into_iter().unzip();
     Ok((farr(py, f), farr(py, p)))
 }
 

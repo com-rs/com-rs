@@ -3,7 +3,7 @@
 //! puncturing patterns are in [`crate::fec_codes`]).
 
 use crate::fec_codes::{pattern_rows, puncturer};
-use crate::{BArr, FArr, IArr, IntoPy, bvec, farr, fvec, iarr, map_real, uvec};
+use crate::{BArr, FArr, IArr, IntoPy, bvec, count, extract_error, farr, fvec, iarr, map_real, py_bool, uvec};
 use comrs::fec::block::BlockCode;
 use comrs::fec::bounds;
 use comrs::fec::ccdm::Ccdm;
@@ -56,6 +56,10 @@ pub struct PyCrc {
 
 #[pymethods]
 impl PyCrc {
+    fn __repr__(&self) -> String {
+        format!("Crc('{}')", self.inner.name())
+    }
+
     #[new]
     fn new(name: &str) -> PyResult<Self> {
         Ok(PyCrc { inner: Crc::from_name(name).py()? })
@@ -119,6 +123,10 @@ pub struct PyScrambler {
 
 #[pymethods]
 impl PyScrambler {
+    fn __repr__(&self) -> String {
+        format!("Scrambler(c_init={})", self.inner.c_init)
+    }
+
     #[new]
     fn new(c_init: u32) -> Self {
         PyScrambler { inner: Scrambler { c_init } }
@@ -131,8 +139,8 @@ impl PyScrambler {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` bits (uint8).
-    fn sequence<'py>(&self, py: Python<'py>, n: usize) -> BArr<'py> {
-        self.inner.sequence(n).into_pyarray(py)
+    fn sequence<'py>(&self, py: Python<'py>, n: i64) -> PyResult<BArr<'py>> {
+        Ok(self.inner.sequence(count(n, "n")?).into_pyarray(py))
     }
 
     /// Scramble (or descramble) bits.
@@ -192,8 +200,8 @@ impl PyInterleaver {
     ///     True
     #[staticmethod]
     #[pyo3(signature = (n, *, seed=0))]
-    fn random(n: usize, seed: u64) -> Self {
-        PyInterleaver { inner: Interleaver::random(n, seed) }
+    fn random(n: i64, seed: u64) -> PyResult<Self> {
+        Ok(PyInterleaver { inner: Interleaver::random(count(n, "n")?, seed) })
     }
 
     /// Write row by row, read column by column.
@@ -267,6 +275,10 @@ impl PyInterleaver {
     fn __len__(&self) -> usize {
         self.inner.len()
     }
+
+    fn __repr__(&self) -> String {
+        format!("Interleaver(len={})", self.inner.len())
+    }
 }
 
 impl PyInterleaver {
@@ -325,6 +337,16 @@ pub struct PyConv {
 
 #[pymethods]
 impl PyConv {
+    fn __repr__(&self) -> String {
+        format!(
+            "ConvolutionalCode(k={}, n={}, constraint={}, punctured={})",
+            self.inner.k(),
+            self.inner.n(),
+            self.inner.code.trellis.constraint,
+            py_bool(self.punctured)
+        )
+    }
+
     #[new]
     #[pyo3(signature = (k, *, generators=vec![0o133, 0o171], constraint=7, hard_decision=false, puncture=None))]
     fn new(
@@ -469,6 +491,16 @@ impl Turbo {
 
 #[pymethods]
 impl PyTurbo {
+    fn __repr__(&self) -> String {
+        format!(
+            "TurboCode(k={}, n={}, iterations={}, punctured={})",
+            self.inner.block().k(),
+            self.inner.block().n(),
+            self.inner.code().iterations,
+            py_bool(matches!(self.inner, Turbo::Punctured(_)))
+        )
+    }
+
     #[new]
     #[pyo3(signature = (k, *, iterations=8, exact=true, qpp=None, seed=7, puncture=None))]
     fn new(
@@ -483,7 +515,7 @@ impl PyTurbo {
             Some(q) if q.is_instance_of::<PyString>() => Interleaver::from_name(&q.extract::<String>()?, k).py()?,
             Some(q) => {
                 let (f1, f2): (usize, usize) =
-                    q.extract().map_err(|_| PyValueError::new_err("qpp is \"lte\" or a pair (f1, f2)"))?;
+                    q.extract().map_err(|e| extract_error(q.py(), &e, "qpp is \"lte\" or a pair (f1, f2)"))?;
                 Interleaver::qpp(k, f1, f2).py()?
             }
             None => Interleaver::random(k, seed),
@@ -592,6 +624,10 @@ pub struct PyLdpc {
 
 #[pymethods]
 impl PyLdpc {
+    fn __repr__(&self) -> String {
+        format!("LdpcCode(n={}, k={})", self.inner.n(), self.inner.k())
+    }
+
     #[new]
     fn new(n: usize, rows: Vec<Vec<usize>>) -> PyResult<Self> {
         Ok(PyLdpc { inner: LdpcCode::from_rows(n, rows).py()? })
@@ -749,6 +785,10 @@ pub struct PyPolar {
 
 #[pymethods]
 impl PyPolar {
+    fn __repr__(&self) -> String {
+        format!("PolarCode(n={}, k={})", self.inner.n(), self.inner.k())
+    }
+
     #[new]
     #[pyo3(signature = (n, k, *, design_ebn0_db=2.0, crc=None, list_size=1))]
     fn new(n: usize, k: usize, design_ebn0_db: f64, crc: Option<&str>, list_size: usize) -> PyResult<Self> {
@@ -852,6 +892,16 @@ pub struct PyNrLdpc {
 
 #[pymethods]
 impl PyNrLdpc {
+    fn __repr__(&self) -> String {
+        format!(
+            "NrLdpc(k={}, n={}, base_graph={}, lifting_size={})",
+            self.inner.k(),
+            self.inner.n(),
+            self.inner.base_graph(),
+            self.inner.lifting_size()
+        )
+    }
+
     #[new]
     #[pyo3(signature = (
         k,
@@ -962,6 +1012,10 @@ pub struct PyNrPolar {
 
 #[pymethods]
 impl PyNrPolar {
+    fn __repr__(&self) -> String {
+        format!("NrPolar(k={}, n={}, mother_length={})", self.inner.k(), self.inner.n(), self.inner.mother_length())
+    }
+
     #[new]
     #[pyo3(signature = (k, n, *, link="uplink", list_size=8))]
     fn new(k: usize, n: usize, link: &str, list_size: usize) -> PyResult<Self> {
@@ -1086,6 +1140,10 @@ pub struct PyCcdm {
 
 #[pymethods]
 impl PyCcdm {
+    fn __repr__(&self) -> String {
+        format!("Ccdm(n={}, k={})", self.inner.n(), self.inner.k())
+    }
+
     #[new]
     fn new(composition: Vec<usize>) -> PyResult<Self> {
         Ok(PyCcdm { inner: Ccdm::new(composition).py()? })
@@ -1100,8 +1158,8 @@ impl PyCcdm {
     /// Returns:
     ///     Ccdm: the matcher.
     #[staticmethod]
-    fn from_distribution(p: &Bound<'_, PyAny>, n: usize) -> PyResult<Self> {
-        Ok(PyCcdm { inner: Ccdm::from_distribution(&fvec(p)?, n).py()? })
+    fn from_distribution(p: &Bound<'_, PyAny>, n: i64) -> PyResult<Self> {
+        Ok(PyCcdm { inner: Ccdm::from_distribution(&fvec(p)?, count(n, "n")?).py()? })
     }
 
     /// numpy.ndarray: Occurrences of every symbol in a block (int64).

@@ -6,7 +6,7 @@
 
 use crate::comm::PyConstellation;
 use crate::rng::PyRng;
-use crate::{CArr, FArr, IntoPy, carray, farr};
+use crate::{CArr, FArr, IntoPy, carray, count, farr};
 use comrs::channel::fading::Mimo;
 use comrs::channel::spatial::{Kronecker, exponential_correlation as exp_corr};
 use comrs::mimo::capacity;
@@ -195,8 +195,8 @@ fn mimo_channel(
 ///     >>> comrs.exponential_correlation(3, 0.5).real.tolist()
 ///     [[1.0, 0.5, 0.25], [0.5, 1.0, 0.5], [0.25, 0.5, 1.0]]
 #[pyfunction]
-fn exponential_correlation<'py>(py: Python<'py>, n: usize, rho: C64) -> Bound<'py, PyArray2<C64>> {
-    exp_corr(n, rho).into_pyarray(py)
+fn exponential_correlation<'py>(py: Python<'py>, n: i64, rho: C64) -> PyResult<Bound<'py, PyArray2<C64>>> {
+    Ok(exp_corr(count(n, "n")?, rho).into_pyarray(py))
 }
 
 /// Detect the transmitted symbols of a MIMO link `y = H x + w`.

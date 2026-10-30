@@ -44,6 +44,15 @@ pub struct PyDvbs2 {
 
 #[pymethods]
 impl PyDvbs2 {
+    fn __repr__(&self) -> String {
+        format!(
+            "Dvbs2(modcod={}, k={}, plframe_len={})",
+            self.inner.modcod().number().map_or_else(|_| "?".to_string(), |m| m.to_string()),
+            self.inner.k(),
+            self.inner.plframe_len()
+        )
+    }
+
     #[new]
     #[pyo3(signature = (modulation, rate, *, frame = "normal", pilots = true, scrambling_code = 0))]
     fn new(modulation: &str, rate: &str, frame: &str, pilots: bool, scrambling_code: usize) -> PyResult<Self> {

@@ -241,6 +241,17 @@ pub(crate) fn map_real(x: &Bound<'_, PyAny>, f: impl Fn(f64) -> PyResult<f64>) -
     Ok(out.into_pyarray(py).into_any().unbind())
 }
 
+/// The error of a failed extraction, with the message `msg`: a `TypeError` for a value of
+/// the wrong type, a `ValueError` for a value out of range (a negative or too large
+/// integer, which Python reports as an `OverflowError`).
+pub(crate) fn extract_error(py: Python<'_>, e: &PyErr, msg: &str) -> PyErr {
+    if e.is_instance_of::<pyo3::exceptions::PyTypeError>(py) {
+        pyo3::exceptions::PyTypeError::new_err(msg.to_string())
+    } else {
+        PyValueError::new_err(msg.to_string())
+    }
+}
+
 /// A count given as a Python integer: a negative one is a `ValueError` (not the
 /// `OverflowError` of an unsigned conversion).
 pub(crate) fn count(n: i64, what: &str) -> PyResult<usize> {

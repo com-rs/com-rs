@@ -3,7 +3,7 @@
 //! free-space optics, and the PIN-FET receiver of visible-light links.
 
 use crate::rng::PyRng;
-use crate::{FArr, IntoPy, farr, fvec, map_real};
+use crate::{FArr, IntoPy, count, farr, fvec, map_real};
 use comrs::channel::owc::atmospheric::{self as fso, GammaGamma, PointingError, Turbulence, Wave};
 use comrs::channel::owc::indoor::{
     self, Detector, Emitter, Illumination, ImpulseResponse, Reflectance, Resolution, Room,
@@ -289,9 +289,10 @@ impl PyRoom {
         partitions: Vec<[usize; 3]>,
     ) -> PyResult<PyIllumination> {
         let e = emitters(positions, directions, mode, power_w)?;
+        let (n_emitters, n_orders) = (e.len(), partitions.len());
         let room = self.inner;
         let inner = py.detach(|| room.illuminate(&e, &Resolution::new(bin_s, partitions))).py()?;
-        Ok(PyIllumination { inner })
+        Ok(PyIllumination { inner, n_emitters, n_orders })
     }
 
     fn __repr__(&self) -> String {
@@ -304,10 +305,17 @@ impl PyRoom {
 #[pyclass(name = "OwcIllumination", module = "comrs")]
 pub struct PyIllumination {
     inner: Illumination,
+    /// The number of emitters and of orders (partitions), for the `repr`.
+    n_emitters: usize,
+    n_orders: usize,
 }
 
 #[pymethods]
 impl PyIllumination {
+    fn __repr__(&self) -> String {
+        format!("OwcIllumination(emitters={}, orders={})", self.n_emitters, self.n_orders)
+    }
+
     /// The impulse responses at a detector: the line of sight, then each order of
     /// reflection, on the same bins.
     ///
@@ -389,6 +397,10 @@ pub struct PyGammaGamma {
 
 #[pymethods]
 impl PyGammaGamma {
+    fn __getnewargs__(&self) -> (f64, f64) {
+        (self.inner.alpha, self.inner.beta)
+    }
+
     #[new]
     fn new(alpha: f64, beta: f64) -> PyResult<Self> {
         Ok(PyGammaGamma { inner: GammaGamma::new(alpha, beta).py()? })
@@ -447,8 +459,8 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> FArr<'py> {
-        farr(py, (0..n).map(|_| self.inner.draw(&mut rng.inner)).collect())
+    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 
     fn __repr__(&self) -> String {
@@ -471,6 +483,18 @@ pub struct PyPointingError {
 
 #[pymethods]
 impl PyPointingError {
+    fn __repr__(&self) -> String {
+        let p = &self.inner;
+        format!(
+            "PointingError(beam_radius_m={}, aperture_radius_m={}, jitter_m={})",
+            p.beam_radius_m, p.aperture_radius_m, p.jitter_m
+        )
+    }
+
+    fn __getnewargs__(&self) -> (f64, f64, f64) {
+        (self.inner.beam_radius_m, self.inner.aperture_radius_m, self.inner.jitter_m)
+    }
+
     #[new]
     fn new(beam_radius_m: f64, aperture_radius_m: f64, jitter_m: f64) -> PyResult<Self> {
         Ok(PyPointingError { inner: PointingError::new(beam_radius_m, aperture_radius_m, jitter_m).py()? })
@@ -522,8 +546,8 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> FArr<'py> {
-        farr(py, (0..n).map(|_| self.inner.draw(&mut rng.inner)).collect())
+    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 }
 
@@ -551,6 +575,11 @@ pub struct PyFso {
 
 #[pymethods]
 impl PyFso {
+    fn __repr__(&self) -> String {
+        let f = &self.inner;
+        format!("Fso(loss_db={}, turbulence={:?}, pointing={:?})", f.loss_db, f.turbulence, f.pointing)
+    }
+
     #[new]
     #[pyo3(signature = (loss_db=0.0, *, turbulence=None, scintillation_index=None, pointing=None))]
     fn new(
@@ -590,8 +619,11 @@ impl PyFso {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> PyResult<FArr<'py>> {
-        Ok(farr(py, (0..n).map(|_| self.inner.gain(&mut rng.inner)).collect::<comrs::Result<Vec<_>>>().py()?))
+    fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(
+            py,
+            (0..count(n, "n")?).map(|_| self.inner.gain(&mut rng.inner)).collect::<comrs::Result<Vec<_>>>().py()?,
+        ))
     }
 }
 

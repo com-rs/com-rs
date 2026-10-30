@@ -3,7 +3,7 @@
 
 use crate::comm::PyConstellation;
 use crate::fiber::PyFiber;
-use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, cvec, farr, fvec, mat, streams_in, uvec};
+use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, count, cvec, farr, fvec, mat, streams_in, uvec};
 use comrs::dsp::compensation::cd;
 use comrs::dsp::equalizer::{AdaptiveEqualizer, Algorithm, Singularity};
 use comrs::dsp::filter::{LowPass, PulseShape};
@@ -60,8 +60,8 @@ fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, roll
 /// Returns:
 ///     numpy.ndarray: `n_symbols·sps` gains in FFT order (float64).
 #[pyfunction]
-fn rrc_spectrum(py: Python<'_>, n_symbols: usize, sps: usize, rolloff: f64) -> FArr<'_> {
-    farr(py, filter::rrc_spectrum(n_symbols, sps, rolloff))
+fn rrc_spectrum(py: Python<'_>, n_symbols: i64, sps: usize, rolloff: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, filter::rrc_spectrum(count(n_symbols, "n_symbols")?, sps, rolloff)))
 }
 
 /// FIR filtering with the `same` alignment (OptiCommPy `firFilter`); the taps may be
@@ -145,8 +145,8 @@ fn decimate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, sps_in: usize, sps_out:
 /// Returns:
 ///     numpy.ndarray: `n_out` samples (complex128).
 #[pyfunction]
-fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: usize) -> PyResult<CArr<'py>> {
-    Ok(carr(py, resample::resample_fft(&cvec(x)?, n_out)))
+fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, resample::resample_fft(&cvec(x)?, count(n_out, "n_out")?)))
 }
 
 /// Low-pass FIR of cut-off `fc` at the sampling rate `fs`, unit DC gain (OptiCommPy
@@ -162,9 +162,9 @@ fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: usize) -> Py
 ///     numpy.ndarray: the taps (float64).
 #[pyfunction]
 #[pyo3(signature = (fc, fs, n_taps, *, kind = "rect"))]
-fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: usize, kind: &str) -> PyResult<FArr<'py>> {
+fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: i64, kind: &str) -> PyResult<FArr<'py>> {
     let k: LowPass = kind.parse().py()?;
-    Ok(farr(py, filter::low_pass_fir(fc, fs, n_taps, k)))
+    Ok(farr(py, filter::low_pass_fir(fc, fs, count(n_taps, "n_taps")?, k)))
 }
 
 /// Scale to unit mean power.
@@ -215,8 +215,8 @@ fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64
 /// Returns:
 ///     numpy.ndarray: the averaged signal, of the length of `x` (complex128).
 #[pyfunction]
-fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize) -> PyResult<CArr<'py>> {
-    Ok(carr(py, filter::moving_average(&cvec(x)?, n)))
+fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, filter::moving_average(&cvec(x)?, count(n, "n")?)))
 }
 
 /// Delay a periodic block by `delay` seconds (FFT phase ramp).
@@ -277,8 +277,8 @@ fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) ->
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
 #[pyfunction]
-fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: usize) -> CArr<'py> {
-    carr(py, cd::cd_fir_taps(fiber.inner.beta2_s2_km(), length_km, fs, n_taps))
+fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, cd::cd_fir_taps(fiber.inner.beta2_s2_km(), length_km, fs, count(n_taps, "n_taps")?)))
 }
 
 /// The dispersion factor `K = -β₂ L fs²/2` of the digital compensation `e^{jKω²}`
@@ -535,8 +535,8 @@ fn fourth_power_foe<'py>(
 ///     numpy.ndarray: one phase per symbol (rad).
 #[pyfunction]
 #[pyo3(signature = (x, *, n = 35, m = 4))]
-fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize, m: u32) -> PyResult<FArr<'py>> {
-    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, n, m)))
+fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64, m: u32) -> PyResult<FArr<'py>> {
+    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, count(n, "n")?, m)))
 }
 
 /// Blind phase search (Pfau, Hoffmann and Noé 2009; OptiCommPy `bps`).
@@ -561,10 +561,10 @@ fn bps<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
     constellation: &PyConstellation,
-    n: usize,
+    n: i64,
     b: usize,
 ) -> PyResult<FArr<'py>> {
-    let x = cvec(x)?;
+    let (x, n) = (cvec(x)?, count(n, "n")?);
     let pts = constellation.inner.normalized().points().to_vec();
     Ok(farr(py, py.detach(|| carrier::bps(&x, n, &pts, b)).py()?))
 }

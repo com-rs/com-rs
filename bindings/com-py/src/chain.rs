@@ -173,6 +173,14 @@ impl PyFrame {
         self.clone()
     }
 
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Frame({} samples, sps = {}, {} symbols)",
@@ -205,10 +213,16 @@ impl PyFrame {
 #[pyclass(name = "LinkBlock", module = "comrs")]
 pub struct PyLinkBlock {
     inner: Box<dyn Block>,
+    /// The type of the block (the `type` key of its mapping), for the `repr`.
+    kind: String,
 }
 
 #[pymethods]
 impl PyLinkBlock {
+    fn __repr__(&self) -> String {
+        format!("LinkBlock(type='{}')", self.kind)
+    }
+
     #[new]
     #[pyo3(signature = (spec, *, fiber=None, name=None, condition=None, base_dir=None))]
     fn new(
@@ -225,7 +239,8 @@ impl PyLinkBlock {
             _ => None,
         };
         let ctx = BuildContext { fiber: fiber.map(|f| json(py, f)).transpose()?, base_dir, name, condition };
-        Ok(PyLinkBlock { inner: blocks::build(&v, &ctx).py()? })
+        let kind = v.get("type").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+        Ok(PyLinkBlock { inner: blocks::build(&v, &ctx).py()?, kind })
     }
 
     /// Apply the block to a frame in place.

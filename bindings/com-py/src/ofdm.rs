@@ -1,7 +1,7 @@
 //! OFDM, PAPR reduction, power amplifiers, digital predistortion and spectral metrics.
 
 use crate::comm::PyConstellation;
-use crate::{CArr, FArr, IArr, IntoPy, carr, cvec, farr, fvec, iarr, map_real, uvec};
+use crate::{CArr, FArr, IArr, IntoPy, carr, count, cvec, farr, fvec, iarr, map_real, uvec};
 use comrs::dsp::compensation::dpd::MemoryPolynomialDpd;
 use comrs::hardware::amplifier::{MemoryPolynomial, Rapp, Saleh};
 use comrs::metrics::spectrum;
@@ -451,7 +451,8 @@ fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py
 ///     True
 #[pyfunction]
 #[pyo3(signature = (n, papr_db, *, oversampled=true, candidates=1))]
-fn theory_papr_ccdf(n: usize, papr_db: &Bound<'_, PyAny>, oversampled: bool, candidates: usize) -> PyResult<Py<PyAny>> {
+fn theory_papr_ccdf(n: i64, papr_db: &Bound<'_, PyAny>, oversampled: bool, candidates: usize) -> PyResult<Py<PyAny>> {
+    let n = count(n, "n")?;
     map_real(papr_db, |t| {
         Ok(if oversampled { papr::ccdf_slm(n, candidates, t) } else { papr::ccdf_slm_nyquist(n, candidates, t) })
     })
@@ -656,6 +657,10 @@ pub struct PyDpd {
 
 #[pymethods]
 impl PyDpd {
+    fn __repr__(&self) -> String {
+        format!("MemoryPolynomialDpd(orders={:?}, memory={})", self.inner.orders, self.inner.memory)
+    }
+
     #[new]
     #[pyo3(signature = (
         orders = MemoryPolynomialDpd::DEFAULT_ORDERS.to_vec(),

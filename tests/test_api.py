@@ -425,6 +425,57 @@ def test_invalid_parameters_raise_value_errors():
         comrs.gray_code(40)  # aborted the process on the allocation of 2^40 words
 
 
+def test_negative_counts_are_value_errors_and_wrong_types_type_errors():
+    rng = comrs.Rng(0)
+    for call in (
+        lambda: comrs.Scrambler(7).sequence(-1),
+        lambda: comrs.GammaGamma(2.0, 1.5).draw(rng, -1),
+        lambda: comrs.PointingError(0.1, 0.05, 0.02).draw(rng, -1),
+        lambda: comrs.Fso(1.0).gains(rng, -1),
+        lambda: comrs.Interleaver.random(-4),
+        lambda: comrs.wdm_grid(-3, 50e9),
+        lambda: comrs.chebyshev_window(-1, 40.0),
+        lambda: comrs.moving_average(np.ones(4), -2),
+    ):
+        with pytest.raises(ValueError, match="non-negative"):
+            call()
+    with pytest.raises(TypeError, match="puncturing pattern"):
+        comrs.ConvolutionalCode(100, puncture=3.5)
+    with pytest.raises(ValueError, match="puncturing pattern"):
+        comrs.ConvolutionalCode(100, puncture=[[1, -1]])
+    with pytest.raises(TypeError, match="qpp"):
+        comrs.TurboCode(40, qpp=1.5)
+    # a name is checked when it is assigned, not when it is used
+    pd = comrs.Photodiode()
+    with pytest.raises(ValueError, match="filter"):
+        pd.filter_kind = "gaus"
+    assert pd.filter_kind == "rect"
+
+
+def test_every_class_has_a_repr_and_the_values_pickle():
+    import copy
+    import pickle
+
+    classes = [getattr(_comrs, n) for n in dir(_comrs) if inspect.isclass(getattr(_comrs, n))]
+    assert [c.__name__ for c in classes if c.__repr__ is object.__repr__] == []
+    rng = comrs.Rng(3)
+    rng.uniform(2)
+    for clone in (pickle.loads(pickle.dumps(rng)), copy.deepcopy(rng), copy.copy(rng)):
+        assert np.array_equal(clone.uniform(4), copy.copy(rng).uniform(4))
+    values = (
+        comrs.FiberParams(n_spans=3, span_km=50.0),
+        comrs.Edfa(gain_db=15.0),
+        comrs.Photodiode(filter_kind="gauss", ideal=True),
+        comrs.PinFetReceiver.komine2004(),
+        comrs.GammaGamma(2.0, 1.5),
+        comrs.PointingError(0.1, 0.05, 0.02),
+    )
+    for v in values:
+        assert repr(pickle.loads(pickle.dumps(v))) == repr(v)
+    f = comrs.Frame()
+    assert repr(copy.copy(f)) == repr(f)
+
+
 def test_tuning_parameters_are_keyword_only():
     with pytest.raises(TypeError):
         comrs.pulse_shape("rrc", 4, 1025)

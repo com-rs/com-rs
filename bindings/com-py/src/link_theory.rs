@@ -3,7 +3,7 @@
 //! fading, and the distortion of a nonlinear amplifier driven by an OFDM signal
 //! (Banelli & Cacopardi 2000).
 
-use crate::{FArr, IntoPy, cvec, farr, fvec, map_real};
+use crate::{FArr, IntoPy, count, cvec, farr, fvec, map_real};
 use comrs::dsp::nonlinear;
 use comrs::mapping::constellation::Constellation;
 use comrs::mapping::imperfect_csi as csi;
@@ -101,7 +101,8 @@ fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///     (0.8647, 0.8647)
 #[pyfunction]
 #[pyo3(signature = (f, n_terms = 60))]
-fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: usize) -> PyResult<FArr<'py>> {
+fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: i64) -> PyResult<FArr<'py>> {
+    let n_terms = count(n_terms, "n_terms")?;
     let r = farr(py, nonlinear::series_grid());
     let values: Vec<C64> = cvec(&f.call1((r,))?)?;
     Ok(farr(py, nonlinear::output_series_sampled(&values, n_terms)))

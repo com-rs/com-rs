@@ -1,7 +1,7 @@
 //! Filtered multicarrier waveforms (FBMC/OQAM, UFMC) and Bussgang's decomposition of a
 //! memoryless amplifier driven by a Gaussian signal.
 
-use crate::{CArr, FArr, IntoPy, carr, cvec, farr, fvec};
+use crate::{CArr, FArr, IntoPy, carr, count, cvec, farr, fvec};
 use comrs::dsp::nonlinear;
 use comrs::hardware::amplifier::{Model, Rapp, Saleh};
 use comrs::waveform::fbmc::{self, Fbmc};
@@ -164,6 +164,10 @@ pub struct PyUfmc {
 
 #[pymethods]
 impl PyUfmc {
+    fn __repr__(&self) -> String {
+        format!("Ufmc(block_len={}, n_active={})", self.inner.block_len(), self.inner.n_active())
+    }
+
     #[new]
     #[pyo3(signature = (n_fft, n_subbands, subband_size, filter_len, *, sidelobe_db=40.0))]
     fn new(
@@ -282,8 +286,8 @@ fn amplifier_bussgang(
 /// Returns:
 ///     numpy.ndarray: the window, maximum 1 (float64).
 #[pyfunction]
-fn chebyshev_window(py: Python<'_>, n: usize, attenuation_db: f64) -> FArr<'_> {
-    farr(py, comrs::dsp::window::chebyshev(n, attenuation_db))
+fn chebyshev_window(py: Python<'_>, n: i64, attenuation_db: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, comrs::dsp::window::chebyshev(count(n, "n")?, attenuation_db)))
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
