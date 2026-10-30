@@ -422,8 +422,8 @@ impl Block for Viterbi {
 block_params! {
     struct Ddpll {
         kv: f64 [0.1], "VCO gain";
-        tau1: f64 [1.0 / (2.0 * PI * 10e6) => "1/(2π 10 MHz)"] "s" > 0, "loop-filter time constant";
-        tau2: f64 [1.0 / (2.0 * PI * 10e6) => "1/(2π 10 MHz)"] "s" > 0, "loop-filter time constant";
+        tau1_s: f64 [1.0 / (2.0 * PI * 10e6) => "1/(2π 10 MHz)"] "s" > 0, "loop-filter time constant";
+        tau2_s: f64 [1.0 / (2.0 * PI * 10e6) => "1/(2π 10 MHz)"] "s" > 0, "loop-filter time constant";
     }
 }
 
@@ -431,7 +431,7 @@ impl Block for Ddpll {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let pts = s.constellation("ddpll")?.points().to_vec();
         let z = signal::pnorm(&s.samples);
-        let theta = carrier::ddpll(&z, 1.0 / s.symbol_rate, self.kv, self.tau1, self.tau2, &pts, None)?;
+        let theta = carrier::ddpll(&z, 1.0 / s.symbol_rate, self.kv, self.tau1_s, self.tau2_s, &pts, None)?;
         s.samples = carrier::derotate(&z, &theta, 1.0)?;
         Ok(())
     }

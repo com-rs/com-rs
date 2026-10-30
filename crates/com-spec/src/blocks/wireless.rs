@@ -218,7 +218,7 @@ impl Block for MimoTx {
 block_params! {
     struct RayleighSpec {
         n_rx: usize [1] >= 1, "receive antennas";
-        coherence: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
+        coherence_samples: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
         k_factor: f64 [0.0] >= 0, "Rician factor K (linear), 0 for Rayleigh fading";
         rx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the receive antennas";
         tx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the transmit antennas";
@@ -258,7 +258,7 @@ impl Block for Rayleigh {
             } else {
                 None
             };
-            let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
+            let coh = if self.p.coherence_samples == 0 { n.max(1) } else { self.p.coherence_samples };
             let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
             let (y, hs) = model.apply(x, rng)?;
             Ok((y, Csi::Flat { h: hs, coherence: coh }))
@@ -325,7 +325,7 @@ block_params! {
             "the profile of TR 38.901 Tables 7.7.1-1 to 7.7.1-5 (A, B, C: NLOS; D, E: LOS)";
         delay_spread_s: f64 [100e-9] "s" >= 0, "desired RMS delay spread (TR 38.901 §7.7.3)";
         n_rx: usize [1] >= 1, "receive antennas, a vertical uniform linear array";
-        spacing: f64 [0.5] "wavelengths" > 0, "element spacing of both arrays";
+        spacing_wavelengths: f64 [0.5] "wavelengths" > 0, "element spacing of both arrays";
         velocity_mps: f64 [0.0] "m/s" >= 0, "speed of the receiver along the array axis; 0 for a channel constant over the trial";
         fc_hz: f64 [3.5e9] "Hz" > 0, "carrier frequency (the wavelength of the Doppler shifts)";
     }
@@ -346,7 +346,7 @@ impl CdlBlock {
             profile: p.profile.parse()?,
             delay_spread: p.delay_spread_s,
             n_rx: p.n_rx,
-            spacing: p.spacing,
+            spacing: p.spacing_wavelengths,
             velocity: p.velocity_mps,
             carrier: p.fc_hz,
         })
@@ -720,7 +720,7 @@ mod tests {
             &[
                 json!({"type": "source", "constellation": "16-QAM", "n_symbols": 400}),
                 json!({"type": "mimo_tx", "scheme": "alamouti"}),
-                json!({"type": "rayleigh", "n_rx": 1, "coherence": 2}),
+                json!({"type": "rayleigh", "n_rx": 1, "coherence_samples": 2}),
                 json!({"type": "mimo_rx"}),
             ],
             4,
@@ -734,7 +734,7 @@ mod tests {
             &[
                 json!({"type": "source", "constellation": "QPSK", "n_symbols": 400}),
                 json!({"type": "mimo_tx", "n_tx": 2}),
-                json!({"type": "rayleigh", "n_rx": 2, "coherence": 1}),
+                json!({"type": "rayleigh", "n_rx": 2, "coherence_samples": 1}),
                 json!({"type": "awgn", "snr_db": 40.0, "reference": "unit"}),
                 json!({"type": "mimo_rx", "detector": "ml", "llr": true}),
             ],
@@ -798,7 +798,7 @@ mod tests {
                 &[
                     json!({"type": "source", "constellation": "QPSK", "n_symbols": 640}),
                     json!({"type": "mimo_tx", "n_tx": 16}),
-                    json!({"type": "rayleigh", "n_rx": 32, "coherence": 1}),
+                    json!({"type": "rayleigh", "n_rx": 32, "coherence_samples": 1}),
                     json!({"type": "awgn", "snr_db": 60.0, "reference": "unit"}),
                     json!({"type": "mimo_rx", "detector": detector, "iterations": 20, "llr": true}),
                 ],

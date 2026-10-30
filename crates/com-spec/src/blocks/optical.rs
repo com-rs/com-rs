@@ -219,7 +219,7 @@ impl Block for WdmTx {
 block_params! {
     struct ManakovSpec {
         fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
-        max_nl_phase: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
+        max_nl_phase_rad: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
         tolerance: f64 [1e-5] > 0, "convergence tolerance of the iterations";
@@ -236,7 +236,7 @@ struct ManakovBlock {
 impl ManakovBlock {
     fn new(p: &ManakovSpec, ctx: &BuildContext, label: String) -> Result<ManakovBlock> {
         let fiber = ctx.fiber(fiber_json(p.fiber.as_ref()))?;
-        let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase), StepRule::Fixed);
+        let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase_rad), StepRule::Fixed);
         Ok(ManakovBlock {
             link: ManakovSsfm {
                 fiber,

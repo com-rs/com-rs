@@ -33,7 +33,7 @@ from comrs.plot import GREY
 # Variants: the window of blind phase search.
 link = comrs.Chain(
     tx=B.Source(constellation="16-QAM", n_symbols=8192),
-    pn=B.PhaseNoise(sigma=0.02),
+    pn=B.PhaseNoise(sigma_rad=0.02),
     ch=B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")),
     cpr=B.Bps(n=8, b=32),
     sync=B.FrameSync(length=256),
@@ -60,7 +60,7 @@ code = {"type": "ldpc", "n": 1024, "k": 512, "seed": 1}
 bicm = comrs.Chain(
     enc=B.FecEncode(code=code, blocks=4, interleave=True),
     map=B.Map(constellation="16-QAM"),
-    fading=B.Rayleigh(coherence=1),
+    fading=B.Rayleigh(coherence_samples=1),
     noise=B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")),
     rx=B.MimoRx(),
     demap=B.Demap(),
@@ -87,7 +87,7 @@ shaped = comrs.Chain(
     tx=B.Source(constellation="16-QAM", n_symbols=4096),
     shaping=B.PulseShape(sps=8, rolloff=0.2),
     channel=B.Awgn(snr_db=22.0),
-    pn=B.PhaseNoise(sigma=0.002),
+    pn=B.PhaseNoise(sigma_rad=0.002),
     mf=B.MatchedFilter(rolloff=0.2),
     decimate=B.Decimate(),
     cpr=B.Bps(n=16, b=32),

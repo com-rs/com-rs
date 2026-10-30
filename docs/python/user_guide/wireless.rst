@@ -26,7 +26,7 @@ K-best):
    alamouti = comrs.Chain(
        B.Source(constellation="QPSK", n_symbols=8192),
        B.MimoTx(scheme="alamouti"),
-       B.Rayleigh(n_rx=2, coherence=2),
+       B.Rayleigh(n_rx=2, coherence_samples=2),
        B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")),
        B.MimoRx(),
    )
@@ -73,7 +73,7 @@ rate of the coded bits:
    bicm = comrs.Chain(
        B.FecEncode(code=code, blocks=4, interleave=True),
        B.Map(constellation="16-QAM"),
-       B.Rayleigh(coherence=1),
+       B.Rayleigh(coherence_samples=1),
        B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")),
        B.MimoRx(),
        B.Demap(),

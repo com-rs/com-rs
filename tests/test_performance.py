@@ -633,7 +633,7 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
     alamouti = comrs.Chain(
         B.Source(constellation="QPSK", n_symbols=10_000),
         B.MimoTx(scheme="alamouti"),
-        B.Rayleigh(n_rx=1, coherence=2),
+        B.Rayleigh(n_rx=1, coherence_samples=2),
         B.Awgn(snr_db=snr),
         B.MimoRx(),
     )
@@ -647,7 +647,7 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
     zf = comrs.Chain(
         B.Source(constellation="QPSK", n_symbols=10_000),
         B.MimoTx(n_tx=2),
-        B.Rayleigh(n_rx=3, coherence=1),
+        B.Rayleigh(n_rx=3, coherence_samples=1),
         B.Awgn(snr_db=snr),
         B.MimoRx(detector="zf"),
     )

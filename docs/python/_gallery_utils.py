@@ -105,7 +105,7 @@ def bicm_chain(fading: bool, code: dict[str, Any] = LDPC_1024) -> comrs.Chain:
     new coefficient per symbol, equalised by ``mimo_rx``) when ``fading``."""
     blocks = [B.FecEncode(code=code, blocks=4, interleave=True), B.Map(constellation="16-QAM")]
     if fading:
-        blocks.append(B.Rayleigh(coherence=1))
+        blocks.append(B.Rayleigh(coherence_samples=1))
     blocks.append(B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")))
     if fading:
         blocks.append(B.MimoRx())

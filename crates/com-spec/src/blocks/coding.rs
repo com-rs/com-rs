@@ -30,7 +30,7 @@
 //! link:
 //!   - {type: fec_encode, code: &code {type: ldpc, n: 1024, k: 512}, blocks: 4, interleave: true}
 //!   - {type: map, constellation: 16-QAM}
-//!   - {type: rayleigh, coherence: 1}
+//!   - {type: rayleigh, coherence_samples: 1}
 //!   - {type: awgn_ebn0, ebn0_db: $ebn0_db}
 //!   - mimo_rx
 //!   - demap

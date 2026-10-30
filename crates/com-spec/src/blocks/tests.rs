@@ -118,7 +118,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
         (_, "h") => json!([[1.0, 0.0]]),
         (_, "t") => json!([1.0, 0.0, 0.0, 1.0]),
         (_, "beta") => json!([0.1, 0.0]),
-        ("phase_noise", "sigma") | ("cfo", "omega") => return None, // exclusive with the others
+        ("phase_noise", "sigma_rad") | ("cfo", "omega_rad") => return None, // exclusive with the others
         (
             _,
             "centred" | "compensate_loss" | "noise" | "nyquist" | "refined" | "exclude" | "nonlinear" | "dc_null"
@@ -130,7 +130,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
             _,
             "n_symbols" | "sps" | "n_taps" | "sps_out" | "offset" | "passes" | "n" | "b" | "m" | "steps_per_span"
             | "start" | "length" | "max_delay" | "symmetry" | "window" | "n_data" | "oversampling" | "n_cp" | "n_tx"
-            | "n_rx" | "coherence" | "k" | "seed" | "blocks" | "skip_start" | "skip_end" | "n_channels"
+            | "n_rx" | "coherence_samples" | "k" | "seed" | "blocks" | "skip_start" | "skip_end" | "n_channels"
             | "max_iterations" | "iterations" | "pols" | "kikuchi" | "sections" | "bits",
         ) => json!(2),
         _ => json!(1.0),
@@ -171,7 +171,7 @@ fn every_default_is_a_valid_value() {
         // one of two exclusive parameters
         match info.name {
             "phase_noise" => m.insert("linewidth_hz".into(), json!(1e5)),
-            "cfo" => m.insert("hz".into(), json!(1e3)),
+            "cfo" => m.insert("offset_hz".into(), json!(1e3)),
             _ => None,
         };
         if let Err(e) = build(&Json::Object(m), &BuildContext::default()) {
@@ -422,7 +422,7 @@ fn the_impairments_follow_the_step_centred_unit_and_causal_conventions() {
     // phase noise of origin step: the first sample is rotated too
     for (origin, rotated) in [("zero", false), ("step", true)] {
         let mut p = Frame { samples: vec![C64::new(1.0, 0.0); 4], sps: 1.0, symbol_rate: 1.0, ..Frame::default() };
-        build(&json!({"type": "phase_noise", "sigma": 0.1, "origin": origin}), &BuildContext::default())
+        build(&json!({"type": "phase_noise", "sigma_rad": 0.1, "origin": origin}), &BuildContext::default())
             .unwrap()
             .apply(&mut p, &mut Rng::new(1))
             .unwrap();
@@ -441,7 +441,7 @@ fn the_impairments_follow_the_step_centred_unit_and_causal_conventions() {
         .apply(&mut s, &mut rng)
         .unwrap();
     assert_eq!(&s.samples[..2], &[C64::new(0.5, 0.0), C64::new(0.0, 0.25)]);
-    build(&json!({"type": "cfo", "omega": 0.1, "centred": true}), &BuildContext::default())
+    build(&json!({"type": "cfo", "omega_rad": 0.1, "centred": true}), &BuildContext::default())
         .unwrap()
         .apply(&mut s, &mut rng)
         .unwrap();

@@ -114,7 +114,7 @@ fig.tight_layout()
 # %%
 # BICM: an LDPC code of 1024 bits with 16-QAM over AWGN and fast Rayleigh fading:
 # ``FecEncode(code, blocks=4, interleave=True)``, ``Map("16-QAM")``, with fading
-# ``Rayleigh(coherence=1)``, ``AwgnEbn0``, with fading ``MimoRx``, ``Demap`` and
+# ``Rayleigh(coherence_samples=1)``, ``AwgnEbn0``, with fading ``MimoRx``, ``Demap`` and
 # ``FecDecode`` (``bicm_chain``).
 
 fig, ax = plt.subplots()

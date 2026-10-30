@@ -20,7 +20,7 @@ link:
   - {type: normalize}
   - {type: awgn, snr_db: $snr_db}
   - {type: phase_noise, label: lo_laser, linewidth_hz: 100e3}
-  - {type: cfo, hz: -500e6}
+  - {type: cfo, offset_hz: -500e6}
   - {type: cdc, length_km: $length_km}
   - {type: matched_filter, rolloff: 0.2}
   - {type: gardner, kp: 3e-3, ki: 1e-5}
