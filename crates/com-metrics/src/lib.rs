@@ -79,8 +79,8 @@ use com_math::C64;
 pub use com_mapping::theory::{ber as theory_ber, gmi as theory_gmi, mi as theory_mi, ser as theory_ser};
 pub use com_math::entropy;
 pub use errors::{
-    BerSerSnr, ber, ber_to_q_db, bit_errors, block_errors, effective_snr_db, evm, fast_ber_calc, ls_gain, snr_db,
-    symbol_errors,
+    BerSerSnr, ber, ber_to_q_db, bit_errors, block_errors, effective_snr_db, evm, evm_data_aided, fast_ber_calc,
+    ls_gain, mse, snr_db, symbol_errors,
 };
 pub use information::{
     InformationRates, PosteriorRates, information_rates, monte_carlo_gmi, monte_carlo_mi, posterior_rates,

@@ -2,8 +2,8 @@
 //!
 //! - [`bit_errors`], [`symbol_errors`], [`block_errors`] and [`ber`] compare two
 //!   sequences directly;
-//! - [`snr_db`], [`effective_snr_db`] and [`ls_gain`] relate a received sequence $z$ to
-//!   the transmitted one $x$;
+//! - [`snr_db`], [`mse`], [`evm_data_aided`], [`effective_snr_db`] and [`ls_gain`]
+//!   relate a received sequence $z$ to the transmitted one $x$;
 //! - [`fast_ber_calc`] and [`evm`] follow the pre-processing of OptiCommPy (see the
 //!   crate documentation);
 //! - [`ber_to_q_db`] is the Q factor of a bit error rate.
@@ -29,7 +29,7 @@
 use crate::preprocess;
 use com_core::{Result, ensure, same_len};
 use com_mapping::constellation::{Constellation, ConstellationKind};
-use com_math::{C64, power};
+use com_math::{C64, energy, power};
 
 /// Number of positions where two bit sequences of equal length differ (the least
 /// significant bit of every value).
@@ -106,6 +106,50 @@ pub fn snr_db(rx: &[C64], tx: &[C64]) -> Result<f64> {
     same_len(rx.len(), tx.len(), "snr_db")?;
     let e: Vec<C64> = rx.iter().zip(tx).map(|(r, t)| r - t).collect();
     Ok(com_math::lin2db(power(tx) / power(&e)))
+}
+
+/// Mean squared error of a received sequence against the transmitted one,
+/// $\frac{1}{N} \sum_{k} |z_{k} - x_{k}|^{2}$ (no normalisation; 0 for empty sequences).
+///
+/// # Errors
+/// [`com_core::Error::Shape`] if the sequences have different lengths.
+///
+/// # Examples
+/// ```
+/// use com_math::C64;
+/// let x = [C64::new(1.0, 0.0), C64::new(-1.0, 0.0)];
+/// let z = [C64::new(1.5, 0.0), C64::new(-1.0, 0.5)];
+/// assert_eq!(com_metrics::mse(&z, &x)?, 0.25);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn mse(rx: &[C64], tx: &[C64]) -> Result<f64> {
+    same_len(rx.len(), tx.len(), "mse")?;
+    let e: Vec<C64> = rx.iter().zip(tx).map(|(r, t)| r - t).collect();
+    Ok(power(&e))
+}
+
+/// Error vector magnitude of a received sequence against the known transmitted one, as
+/// a power ratio $\sum_{k} |z_{k} - x_{k}|^{2} / \sum_{k} |x_{k}|^{2}$ (no normalisation:
+/// the inverse of [`snr_db`] in linear units). [`evm`] is OptiCommPy's, which normalises
+/// and rotates the sequences first.
+///
+/// # Errors
+/// [`com_core::Error::Shape`] if the sequences have different lengths.
+///
+/// # Examples
+/// ```
+/// use com_math::C64;
+/// let x = [C64::new(1.0, 0.0), C64::new(-1.0, 0.0)];
+/// let z = [C64::new(1.5, 0.0), C64::new(-1.0, 0.5)];
+/// assert_eq!(com_metrics::evm_data_aided(&z, &x)?, 0.25);
+/// let snr = com_math::db2lin(com_metrics::snr_db(&z, &x)?);
+/// assert!((com_metrics::evm_data_aided(&z, &x)? * snr - 1.0).abs() < 1e-15);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn evm_data_aided(rx: &[C64], tx: &[C64]) -> Result<f64> {
+    same_len(rx.len(), tx.len(), "evm_data_aided")?;
+    let e: Vec<C64> = rx.iter().zip(tx).map(|(r, t)| r - t).collect();
+    Ok(energy(&e) / energy(tx))
 }
 
 /// The effective SNR (dB) of `z` against `x` after the least-squares gain of `x` onto

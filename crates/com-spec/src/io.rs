@@ -27,7 +27,7 @@
 //! assert_eq!((c.sample_rate, c.datatype), (Some(64e9), Datatype::CI16));
 //! ```
 
-use com_core::{Error, Result};
+use com_core::{Error, Result, ensure};
 use com_math::C64;
 use com_sim::loggers::create_parent_dir;
 use serde_json::{Value as Json, json};
@@ -299,6 +299,43 @@ pub struct Annotation {
 }
 
 impl Annotation {
+    /// The keys of [`Annotation::from_mapping`].
+    pub const KEYS: [&'static str; 6] =
+        ["sample_start", "sample_count", "label", "comment", "freq_lower_edge", "freq_upper_edge"];
+
+    /// An annotation from a mapping of the keys of [`Annotation::KEYS`] (the SigMF keys
+    /// without their `core:` prefix), as the Python bindings take it: `sample_start` is
+    /// required, the others are optional.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another key, or a missing or negative `sample_start`.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_spec::io::Annotation;
+    /// let a = Annotation::from_mapping(&serde_json::json!({"sample_start": 3, "label": "QPSK"}))?;
+    /// assert_eq!((a.sample_start, a.label.as_deref()), (3, Some("QPSK")));
+    /// assert!(Annotation::from_mapping(&serde_json::json!({"sample_start": 3, "start": 1})).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn from_mapping(a: &Json) -> Result<Annotation> {
+        let keys = Annotation::KEYS;
+        if let Some(k) = a.as_object().and_then(|o| o.keys().find(|k| !keys.contains(&k.as_str()))) {
+            return Err(Error::Config(format!("unknown annotation key {k:?} (one of {keys:?})")));
+        }
+        let start = a["sample_start"]
+            .as_u64()
+            .ok_or_else(|| Error::Config("every annotation needs a non-negative integer sample_start".into()))?;
+        Ok(Annotation {
+            sample_start: start as usize,
+            sample_count: a["sample_count"].as_u64().map(|v| v as usize),
+            label: a["label"].as_str().map(str::to_string),
+            comment: a["comment"].as_str().map(str::to_string),
+            freq_lower_edge: a["freq_lower_edge"].as_f64(),
+            freq_upper_edge: a["freq_upper_edge"].as_f64(),
+        })
+    }
+
     fn from_json(a: &Json) -> Annotation {
         let s = |k: &str| a[k].as_str().map(str::to_string);
         Annotation {
@@ -353,9 +390,18 @@ pub struct SigMF {
 }
 
 impl SigMF {
-    /// The samples of channel `k`.
+    /// The samples of channel `k` (none beyond the last channel).
     pub fn channel(&self, k: usize) -> Vec<C64> {
         self.samples.iter().skip(k).step_by(self.num_channels.max(1)).copied().collect()
+    }
+
+    /// The samples of channel `k`, which must exist.
+    ///
+    /// # Errors
+    /// [`Error::Config`] if the recording has no channel `k`.
+    pub fn try_channel(&self, k: usize) -> Result<Vec<C64>> {
+        ensure(k < self.num_channels, || format!("channel {k} of a recording of {}", self.num_channels))?;
+        Ok(self.channel(k))
     }
 
     /// The full scale of an integer type, $2^{b-1}$ for $b$ bits (`None` for floating

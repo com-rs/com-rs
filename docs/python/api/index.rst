@@ -76,6 +76,7 @@ On scalars or arrays.
    theory_ber
    theory_ser
    theory_ber_gray
+   theory_ber_rayleigh_mrc
    theory_ber_dpsk
    differential_phase_tail
    theory_phase_pdf

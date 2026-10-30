@@ -154,6 +154,40 @@ pub struct EqualizerOutput {
     pub error: Vec<Vec<f64>>,
 }
 
+impl EqualizerOutput {
+    /// The correlation of the two outputs above which a blind 2 × 2 equaliser is taken
+    /// to have converged to the singularity ([`EqualizerOutput::output_correlation`]).
+    pub const SINGULAR_CORRELATION: f64 = 0.5;
+
+    /// The magnitude of the correlation coefficient of the two outputs of a 2 × 2
+    /// equaliser over the second half of the block,
+    ///
+    /// $$
+    /// \rho = \frac{\left|\sum_{k} y_{0}\[k\]\, y_{1}^{*}\[k\]\right|}
+    /// {\sqrt{\sum_{k} |y_{0}\[k\]|^{2} \sum_{k} |y_{1}\[k\]|^{2}}},
+    /// $$
+    ///
+    /// near 1 when both outputs converged to the same polarisation (the singularity, see
+    /// the module), near 0 when they carry independent streams (the denominator is
+    /// floored at the smallest positive number); `None` with another number of outputs.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_dsp::equalizer::EqualizerOutput;
+    /// use com_math::C64;
+    /// let a = vec![C64::new(1.0, 0.0), C64::new(0.0, 1.0), C64::new(-1.0, 0.0), C64::new(0.0, -1.0)];
+    /// let out = EqualizerOutput { symbols: vec![a.clone(), a], taps: vec![], error: vec![] };
+    /// assert!((out.output_correlation().unwrap() - 1.0).abs() < 1e-15);
+    /// ```
+    pub fn output_correlation(&self) -> Option<f64> {
+        let [a, b] = self.symbols.as_slice() else { return None };
+        let h = a.len() / 2;
+        let c: C64 = a[h..].iter().zip(&b[h..]).map(|(u, v)| u * v.conj()).sum();
+        let e = |v: &[C64]| v.iter().map(C64::norm_sqr).sum::<f64>();
+        Some(c.norm() / (e(&a[h..]) * e(&b[h..])).sqrt().max(f64::MIN_POSITIVE))
+    }
+}
+
 impl AdaptiveEqualizer {
     /// Equalise the modes `x` (equal lengths). `reference` gives the transmitted symbols
     /// of every mode (needed by `Nlms`); `points` are the constellation points

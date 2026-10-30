@@ -130,5 +130,5 @@ pub use spec::{Format, Spec};
 #[doc(hidden)]
 pub mod __macro {
     pub use com_core::Result;
-    pub use serde_json::{Value as Json, json};
+    pub use serde_json::{Map, Value as Json, json};
 }

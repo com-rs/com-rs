@@ -558,6 +558,34 @@ pub fn verify(expect: &[Json], results: &[ConditionResult], confidence: f64) -> 
     Ok(out)
 }
 
+/// What [`verify_spec`] ran: the conditions of the grid, or the search.
+#[derive(Clone, Debug)]
+pub enum Verified {
+    /// The result of every condition.
+    Run(Vec<ConditionResult>),
+    /// The operating points of the search.
+    Search(Vec<crate::search::SearchResult>),
+}
+
+/// Run a specification (its search, when it has one) and check its expectations: what
+/// `comrs verify` and the Python `verify_spec` do.
+///
+/// # Errors
+/// [`Error::Config`] for a specification without expectations (before anything runs);
+/// the errors of the run or the search and those of [`verify`] or [`verify_search`].
+pub fn verify_spec(spec: &crate::Spec, opts: &crate::RunOptions) -> Result<(Verified, Vec<Check>)> {
+    ensure(!spec.expect.is_empty(), || format!("{}: no expectation to verify", spec.name))?;
+    Ok(if spec.search.is_some() {
+        let found = crate::search::search(spec, opts)?;
+        let checks = verify_search(&spec.expect, &found)?;
+        (Verified::Search(found), checks)
+    } else {
+        let results = crate::run(spec, opts)?;
+        let checks = verify(&spec.expect, &results, spec.confidence)?;
+        (Verified::Run(results), checks)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

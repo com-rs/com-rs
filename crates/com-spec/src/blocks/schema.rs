@@ -37,9 +37,9 @@
 //! `samples`, `symbols`, `constellation` and `noise` and gives `llr`. [`check_link`]
 //! checks a link before it runs, so that a missing block is named at once (`demap
 //! needs noise: add awgn, awgn_ebn0, noise_estimate… before it`), and a graphical editor
-//! can tell which blocks may follow which. In debug builds every block checks its
-//! declaration while it runs: a fact it gives must be declared, and a fact it needs must
-//! have been there.
+//! can tell which blocks may follow which. In debug builds every block also checks
+//! what it gives while it runs: a fact that it adds to the frame must be declared in its
+//! `gives` (what it needs is checked once, before the link runs, by [`check_link`]).
 
 use super::Frame;
 use com_core::{Error, Result};
@@ -450,7 +450,19 @@ pub trait Params: Sized {
     /// # Errors
     /// [`Error::Config`] for an unknown parameter, a missing one, a value of the wrong
     /// type, out of its bounds or not among its accepted values.
-    fn parse(kind: &str, v: Json) -> Result<Self>;
+    fn parse(kind: &str, v: Json) -> Result<Self> {
+        let params = Self::params();
+        let mut m = mapping(kind, v, &params)?;
+        Self::take_from(kind, &mut m, &params)
+    }
+    /// Take the parameters from the mapping `m` of a block whose parameters are `params`
+    /// (these among them): the parser of a group of parameters shared by several blocks
+    /// (a `[flatten]` field of `block_params!`), whose unknown names
+    /// [`mapping`] rejected against the parameters of the whole block.
+    ///
+    /// # Errors
+    /// As [`Params::parse`].
+    fn take_from(kind: &str, m: &mut Map<String, Json>, params: &[ParamInfo]) -> Result<Self>;
 }
 
 /// The mapping of the parameters of a block, without unknown names.
@@ -508,14 +520,39 @@ pub fn shown(tokens: &str) -> String {
 /// ```text
 /// block_params! {
 ///     [pub] struct NAME {
-///         FIELD: TYPE [DEFAULT] ["UNIT"] [one_of [VALUE, …]] [> B] [>= B] [<= B], "MEANING";
+///         FIELD: TYPE [DEFAULT] ["UNIT"] [one_of [VALUE, …] | one_of (CONST)] [> B] [>= B] [<= B], "MEANING";
+///         FIELD: GROUP [flatten], "MEANING";
 ///         …
 ///     }
 /// }
 /// ```
 ///
 /// `DEFAULT` is `required`, `absent`, `absent "TEXT"`, a value or `VALUE => "TEXT"`; the
-/// type of a field implements [`ParamType`] (its JSON Schema) and `Deserialize`.
+/// type of a field implements [`ParamType`] (its JSON Schema) and `Deserialize`. The
+/// accepted values are a list of literals or, in parentheses, a constant array of
+/// strings kept with the type they name (`one_of (DetectorKind::NAMES)`). A `[flatten]`
+/// field is a group of parameters declared once with `block_params!` and shared by
+/// several blocks: its parameters are those of the block, at the place of the field,
+/// and a name that neither the block nor the group declares is still rejected.
+///
+/// ```
+/// use com_spec::blocks::Params;
+/// com_spec::block_params! {
+///     struct Decoder {
+///         iterations: usize [50] >= 1, "decoding iterations at most";
+///     }
+/// }
+/// com_spec::block_params! {
+///     struct Code {
+///         n: usize [required], "length";
+///         decoder: Decoder [flatten], "the decoder";
+///     }
+/// }
+/// let c = Code::parse("code", serde_json::json!({"n": 8, "iterations": 5})).unwrap();
+/// assert_eq!((c.n, c.decoder.iterations), (8, 5));
+/// assert_eq!(Code::params().iter().map(|p| p.name).collect::<Vec<_>>(), ["n", "iterations"]);
+/// assert!(Code::parse("code", serde_json::json!({"n": 8, "rule": "min_sum"})).is_err());
+/// ```
 #[macro_export]
 macro_rules! block_params {
     (@default required) => { $crate::blocks::schema::ParamDefault::Required };
@@ -534,6 +571,35 @@ macro_rules! block_params {
     (@or $d:literal $v:literal) => { $v };
     (@bound) => { None };
     (@bound $b:literal) => { Some(f64::from($b)) };
+    (@choices) => { &[] };
+    (@choices [$($c:literal),+ $(,)?]) => { &[$($c),+] };
+    (@choices ($c:expr)) => { &$c };
+    (@info $v:ident, $field:ident, $ty:ty, [flatten], $($rest:tt)*) => {
+        $v.extend(<$ty as $crate::blocks::schema::Params>::params());
+    };
+    (
+        @info $v:ident, $field:ident, $ty:ty, [$($def:tt)+], [$($unit:literal)?], [$($choices:tt)?],
+        [$($gt:literal)?], [$($ge:literal)?], [$($le:literal)?], $doc:expr
+    ) => {
+        $v.push($crate::blocks::schema::ParamInfo {
+            name: stringify!($field),
+            default: $crate::block_params!(@default $($def)+),
+            unit: $crate::block_params!(@or "" $($unit)?),
+            choices: $crate::block_params!(@choices $($choices)?),
+            gt: $crate::block_params!(@bound $($gt)?),
+            ge: $crate::block_params!(@bound $($ge)?),
+            le: $crate::block_params!(@bound $($le)?),
+            doc: $doc,
+            schema: <$ty as $crate::blocks::schema::ParamType>::schema(),
+            variants: <$ty as $crate::blocks::schema::ParamType>::variants(),
+        });
+    };
+    (@take $kind:ident, $m:ident, $params:ident, $field:ident, $ty:ty, [flatten]) => {
+        <$ty as $crate::blocks::schema::Params>::take_from($kind, $m, $params)?
+    };
+    (@take $kind:ident, $m:ident, $params:ident, $field:ident, $ty:ty, [$($def:tt)+]) => {
+        $crate::blocks::schema::take($kind, $m, $params, stringify!($field))?
+    };
     (
         $(#[$sattr:meta])*
         $vis:vis struct $name:ident {
@@ -541,7 +607,7 @@ macro_rules! block_params {
                 $(#[$fattr:meta])*
                 $field:ident : $ty:ty [ $($def:tt)+ ]
                 $($unit:literal)?
-                $(one_of [$($choice:literal),+ $(,)?])?
+                $(one_of $choices:tt)?
                 $(> $gt:literal)?
                 $(>= $ge:literal)?
                 $(<= $le:literal)?
@@ -555,29 +621,26 @@ macro_rules! block_params {
         }
 
         impl $crate::blocks::schema::Params for $name {
+            #[allow(unused_mut, reason = "a block without parameters")]
             fn params() -> Vec<$crate::blocks::schema::ParamInfo> {
-                vec![$(
-                    $crate::blocks::schema::ParamInfo {
-                        name: stringify!($field),
-                        default: $crate::block_params!(@default $($def)+),
-                        unit: $crate::block_params!(@or "" $($unit)?),
-                        choices: &[$($($choice),+)?],
-                        gt: $crate::block_params!(@bound $($gt)?),
-                        ge: $crate::block_params!(@bound $($ge)?),
-                        le: $crate::block_params!(@bound $($le)?),
-                        doc: $doc,
-                        schema: <$ty as $crate::blocks::schema::ParamType>::schema(),
-                        variants: <$ty as $crate::blocks::schema::ParamType>::variants(),
-                    }
-                ),*]
+                let mut v = Vec::new();
+                $(
+                    $crate::block_params!(
+                        @info v, $field, $ty, [$($def)+], [$($unit)?], [$($choices)?],
+                        [$($gt)?], [$($ge)?], [$($le)?], $doc
+                    );
+                )*
+                v
             }
 
-            #[allow(unused_mut, unused_variables, reason = "a block without parameters")]
-            fn parse(kind: &str, v: $crate::__macro::Json) -> $crate::__macro::Result<Self> {
-                let params = Self::params();
-                let mut m = $crate::blocks::schema::mapping(kind, v, &params)?;
+            #[allow(unused_variables, reason = "a block without parameters")]
+            fn take_from(
+                kind: &str,
+                m: &mut $crate::__macro::Map<String, $crate::__macro::Json>,
+                params: &[$crate::blocks::schema::ParamInfo],
+            ) -> $crate::__macro::Result<Self> {
                 Ok($name {
-                    $( $field: $crate::blocks::schema::take(kind, &mut m, &params, stringify!($field))?, )*
+                    $( $field: $crate::block_params!(@take kind, m, params, $field, $ty, [$($def)+]), )*
                 })
             }
         }

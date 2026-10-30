@@ -25,10 +25,10 @@
 //! |---|---|---|
 //! | `ber` | rate | hard-decision bit errors (Gray labels) over the window |
 //! | `ser` | rate | symbol errors |
-//! | `snr_db` | mean | `10 log10(Σ|x|² / Σ|z - x|²)` per trial, after the scaling |
+//! | `snr_db` | mean | `10 log10(Σ|x|² / Σ|z - x|²)` per trial, after the scaling ([`metrics::snr_db`]; a trial without error gives `+∞`, which the record drops and counts) |
 //! | `snr_eff_db` | mean | `10 log10(ρ²/(1 - ρ²))`, `ρ² = |Σ z x*|² / (Σ|z|² Σ|x|²)` per trial: the effective SNR after the least-squares gain of `x` onto `z` (Häger & Pfister; independent of the scaling) |
-//! | `evm` | mean | `Σ|z - x|² / Σ|x|²` per trial (power ratio) |
-//! | `mse` | mean | `mean |z - x|²` per trial |
+//! | `evm` | mean | `Σ|z - x|² / Σ|x|²` per trial (power ratio, [`metrics::evm_data_aided`]) |
+//! | `mse` | mean | `mean |z - x|²` per trial ([`metrics::mse`]) |
 //! | `gmi` | mean | generalised mutual information (bits/symbol) per trial |
 //! | `ngmi` | mean | GMI per bit of information, `GMI / H(X)` |
 //! | `entropy` | mean | entropy `H(X)` of the source (bits/symbol): `log2 M`, or less with shaping |
@@ -159,6 +159,21 @@ impl Metrics {
         &self.report
     }
 
+    /// Record what a trial of a link records after its blocks ([`crate::Link::trial`]):
+    /// the metrics of the frame ([`Metrics::record`]), then the values and the probes
+    /// that its blocks recorded. The Python chains record their frames with it.
+    ///
+    /// # Errors
+    /// As [`Metrics::record`].
+    pub fn record_frame(&self, s: &Frame, rec: &mut Record) -> Result<()> {
+        self.record(s, rec)?;
+        for (k, v) in &s.values {
+            rec.value(k, *v);
+        }
+        rec.merge(&s.probes);
+        Ok(())
+    }
+
     /// Evaluate the metrics of one trial and record them.
     ///
     /// # Errors
@@ -216,8 +231,6 @@ impl Metrics {
         for v in &mut z {
             *v *= g;
         }
-        let err2: f64 = z.iter().zip(&x).map(|(a, b)| (a - b).norm_sqr()).sum();
-        let sig2: f64 = x.iter().map(C64::norm_sqr).sum();
         let mut info: Option<metrics::InformationRates> = None;
         let mut post: Option<metrics::PosteriorRates> = None;
         for m in &self.report {
@@ -233,10 +246,10 @@ impl Metrics {
                     let tx: Vec<usize> = idx.iter().map(|&i| s.indices[i]).collect();
                     rec.errors("ser", metrics::symbol_errors(&c.decide(&z), &tx)? as u64, tx.len() as u64);
                 }
-                "snr_db" => rec.value("snr_db", com_math::lin2db(sig2 / err2.max(f64::MIN_POSITIVE))),
+                "snr_db" => rec.value("snr_db", metrics::snr_db(&z, &x)?),
                 "snr_eff_db" => rec.value("snr_eff_db", snr_eff_db),
-                "evm" => rec.value("evm", err2 / sig2),
-                "mse" => rec.value("mse", err2 / z.len() as f64),
+                "evm" => rec.value("evm", metrics::evm_data_aided(&z, &x)?),
+                "mse" => rec.value("mse", metrics::mse(&z, &x)?),
                 "gmi" | "ngmi" | "mi" | "entropy" => {
                     let r = if let Some(v) = info {
                         v

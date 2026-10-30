@@ -287,6 +287,54 @@ fn unknown_blocks_and_parameters_are_errors() {
 }
 
 #[test]
+fn shared_parameter_groups_keep_unknown_names_rejected() {
+    let ctx = BuildContext::default();
+    // the detector of mimo_rx and ofdm_rx, the LDPC code of fec_encode and pas_encode:
+    // one declaration each, flattened into the blocks
+    for (block, extra) in [
+        (json!({"type": "ofdm_rx", "detector": "zf"}), "rule"),
+        (json!({"type": "mimo_rx", "detector": "zf"}), "estimation"),
+        (json!({"type": "pas_encode"}), "detector"),
+        (json!({"type": "fec_encode", "code": {"type": "ldpc", "n": 128, "k": 64}}), "list"),
+    ] {
+        let mut wrong = block.clone();
+        let target = if block["type"] == "fec_encode" { &mut wrong["code"] } else { &mut wrong };
+        target[extra] = json!(1);
+        let e = build(&wrong, &ctx).err().unwrap().to_string();
+        assert!(e.contains(&format!("unknown field `{extra}`")), "{e}");
+    }
+    let names = |b: &str| -> Vec<&str> {
+        registry().into_iter().find(|i| i.name == b).unwrap().params.iter().map(|p| p.name).collect()
+    };
+    assert_eq!(names("ofdm_rx"), ["estimation", "detector", "k", "iterations", "llr"]);
+    assert_eq!(names("mimo_rx"), ["detector", "k", "iterations", "llr"]);
+    let pas = names("pas_encode");
+    assert_eq!(&pas[..9], ["constellation", "mb_lambda", "n", "k", "var_degree", "seed", "rule", "alpha", "layered"]);
+}
+
+#[test]
+fn the_detectors_of_the_blocks_are_those_of_com_mimo() {
+    use com_mimo::receiver::DetectorKind;
+    for b in ["mimo_rx", "ofdm_rx"] {
+        let info = registry().into_iter().find(|i| i.name == b).unwrap();
+        let p = info.params.iter().find(|p| p.name == "detector").unwrap();
+        assert_eq!(p.choices, DetectorKind::NAMES, "{b}");
+    }
+    // zf_sic was missing from the hand-written list
+    let s = run(
+        &[
+            json!({"type": "source", "constellation": "QPSK", "n_symbols": 64}),
+            json!({"type": "mimo_tx", "n_tx": 2}),
+            json!({"type": "rayleigh", "n_rx": 2}),
+            json!({"type": "awgn", "snr_db": 30}),
+            json!({"type": "mimo_rx", "detector": "zf_sic"}),
+        ],
+        1,
+    );
+    assert_eq!(s.samples.len(), 64);
+}
+
+#[test]
 fn the_single_polarisation_blocks_are_declared_so() {
     let mut per_pol: Vec<&str> = registry().iter().filter(|b| b.per_polarization).map(|b| b.name).collect();
     per_pol.sort_unstable();

@@ -594,6 +594,36 @@ fn theory_ber_gray(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str, mq: Option<
     }
 }
 
+/// BER of BPSK (or Gray QPSK, per bit) with maximal-ratio combining of ``branches``
+/// independent Rayleigh-faded branches (J. G. Proakis and M. Salehi, *Digital
+/// Communications*, 5th ed., eq. (13.4-15)):
+/// `P_b = ((1 - μ)/2)^L Σ_{k<L} C(L-1+k, k) ((1 + μ)/2)^k`, `μ = √(γ/(1 + γ))`, with
+/// `γ` the mean `E_b/N_0` of one branch; one branch is the flat Rayleigh channel,
+/// `P_b = (1 - μ)/2`.
+///
+/// Args:
+///     ebn0_db (float | array_like): the mean `E_b/N_0` of one branch (dB).
+///     branches (int): the number of branches `L` (at least 1).
+///
+/// Returns:
+///     float | numpy.ndarray: the bit error probability at every `E_b/N_0`.
+///
+/// Raises:
+///     ValueError: for no branch.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> g = comrs.db2lin(10.0)
+///     >>> round(comrs.theory_ber_rayleigh_mrc(10.0) / (0.5 * (1 - math.sqrt(g / (1 + g)))), 12)
+///     1.0
+///     >>> bool(comrs.theory_ber_rayleigh_mrc(10.0, 4) < 1e-5)
+///     True
+#[pyfunction]
+#[pyo3(signature = (ebn0_db, branches = 1))]
+fn theory_ber_rayleigh_mrc(ebn0_db: &Bound<'_, PyAny>, branches: usize) -> PyResult<Py<PyAny>> {
+    map_real(ebn0_db, |e| theory::ber_rayleigh_mrc(comrs::math::db2lin(e), branches).py())
+}
+
 /// Density of the phase error of a carrier in circular Gaussian noise (S. O. Rice 1948;
 /// eq. (8) of Ahmed, Thompson and Zeidler, MILCOM 2007).
 ///
@@ -906,6 +936,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(theory_ber, m)?,
         wrap_pyfunction!(theory_ser, m)?,
         wrap_pyfunction!(theory_ber_gray, m)?,
+        wrap_pyfunction!(theory_ber_rayleigh_mrc, m)?,
         wrap_pyfunction!(theory_phase_pdf, m)?,
         wrap_pyfunction!(theory_mi, m)?,
         wrap_pyfunction!(theory_gmi, m)?,

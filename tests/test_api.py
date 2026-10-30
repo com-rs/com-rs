@@ -262,6 +262,7 @@ def test_array_likes_are_converted():
         (lambda x: comrs.theory_mi(4, x), 5.0),
         (lambda x: comrs.theory_gmi(4, x), 5.0),
         (lambda x: comrs.theory_ber_dpsk(4, x), 6.0),
+        (lambda x: comrs.theory_ber_rayleigh_mrc(x, 2), 10.0),
         (lambda x: comrs.theory_papr_ccdf(64, x), 8.0),
         (lambda x: comrs.theory_rs_wer(255, 8, x), 1e-2),
         (lambda x: comrs.theory_rs_ser(255, 8, x), 1e-2),
@@ -285,6 +286,46 @@ def test_closed_forms_take_scalars_and_arrays(f, arg):
     grid = f([arg, arg])
     assert isinstance(grid, np.ndarray) and grid.shape == (2,) and grid[0] == scalar
     assert f(np.full((2, 3), arg)).shape == (2, 3)
+
+
+@pytest.mark.parametrize("branches", [1, 2, 4])
+def test_the_mrc_closed_form_is_bound(branches):
+    # Proakis & Salehi, Digital Communications, 5th ed., eq. (13.4-15)
+    for ebn0_db in (0.0, 10.0, 20.0):
+        g = comrs.db2lin(ebn0_db)
+        mu = math.sqrt(g / (1 + g))
+        expected = ((1 - mu) / 2) ** branches * sum(
+            math.comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
+        )
+        got = comrs.theory_ber_rayleigh_mrc(ebn0_db, branches)
+        assert got == pytest.approx(expected, rel=1e-12)
+    with pytest.raises(ValueError, match="branch"):
+        comrs.theory_ber_rayleigh_mrc(10.0, 0)
+
+
+def test_one_estimate_has_one_shape():
+    # frame_metrics, run_spec and ConditionResult.to_dict give an estimate the same keys
+    spec = {
+        "name": "shape",
+        "link": [
+            {"type": "source", "constellation": "QPSK", "n_symbols": 64},
+            {"type": "awgn_ebn0", "ebn0_db": 4.0},
+        ],
+        "metrics": {"report": ["ber", "snr_db"]},
+        "stop": {"max_trials": 2},
+    }
+    keys = {"value", "lo", "hi", "kind", "count", "total"}
+    run = comrs.run_spec(spec)[0]["metrics"]
+    f = comrs.Frame()
+    rng = comrs.Rng(1)
+    for block in spec["link"]:
+        comrs.LinkBlock(block).apply(f, rng)
+    frame = comrs.frame_metrics(f, spec["metrics"])
+    assert set(run) == set(frame) == {"ber", "snr_db"}
+    for name in run:
+        assert set(run[name]) == set(frame[name]) == keys
+        assert run[name]["kind"] == frame[name]["kind"]
+    assert frame["ber"]["total"] == 128 and frame["snr_db"]["count"] == 1
 
 
 def test_lists_are_arrays():

@@ -12,7 +12,8 @@
 //!   [`ccdf_nyquist`], $1 - (1 - e^{-\gamma})^{N}$;
 //! - the continuous (oversampled) signal, for large $N$ (Ochiai & Imai 2001):
 //!   [`ccdf_oversampled`], $1 - \exp\left(-N \sqrt{\pi \gamma / 3}\\, e^{-\gamma}\right)$;
-//! - SLM with $U$ independent candidates: [`ccdf_slm`], the CCDF raised to the power $U$.
+//! - SLM with $U$ independent candidates: [`ccdf_slm`] ([`ccdf_slm_nyquist`] at the
+//!   Nyquist rate), the CCDF raised to the power $U$.
 //!
 //! # Clipping
 //!
@@ -117,6 +118,19 @@ pub fn ccdf_oversampled(n: usize, papr_db: f64) -> f64 {
 /// raised to the power $U$ (oversampled signal).
 pub fn ccdf_slm(n: usize, candidates: usize, papr_db: f64) -> f64 {
     ccdf_oversampled(n, papr_db).powi(candidates as i32)
+}
+
+/// The CCDF after SLM with `candidates` independent candidates at the Nyquist rate:
+/// [`ccdf_nyquist`] raised to the power $U$.
+///
+/// # Examples
+/// ```
+/// use com_waveform::papr::{ccdf_nyquist, ccdf_slm_nyquist};
+/// assert_eq!(ccdf_slm_nyquist(64, 1, 8.0), ccdf_nyquist(64, 8.0));
+/// assert_eq!(ccdf_slm_nyquist(64, 4, 8.0), ccdf_nyquist(64, 8.0).powi(4));
+/// ```
+pub fn ccdf_slm_nyquist(n: usize, candidates: usize, papr_db: f64) -> f64 {
+    ccdf_nyquist(n, papr_db).powi(candidates as i32)
 }
 
 // ------------------------------------------------------------------ clipping
@@ -228,6 +242,30 @@ pub enum Partition {
     Interleaved,
     /// A balanced random assignment (seeded): the best PAPR reduction.
     Pseudorandom(u64),
+}
+
+impl Partition {
+    /// The partition of a name: `adjacent`, `interleaved` or `pseudorandom` (drawn with
+    /// `seed`), case-insensitive.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::papr::Partition;
+    /// assert_eq!(Partition::from_name("pseudorandom", 3)?, Partition::Pseudorandom(3));
+    /// assert!(Partition::from_name("random", 3).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn from_name(name: &str, seed: u64) -> Result<Partition> {
+        match name.to_ascii_lowercase().as_str() {
+            "adjacent" => Ok(Partition::Adjacent),
+            "interleaved" => Ok(Partition::Interleaved),
+            "pseudorandom" => Ok(Partition::Pseudorandom(seed)),
+            other => Err(Error::Config(format!("unknown partition {other:?}: adjacent, interleaved or pseudorandom"))),
+        }
+    }
 }
 
 /// Partial transmit sequences (Müller & Huber 1997): the subcarriers are split into $V$

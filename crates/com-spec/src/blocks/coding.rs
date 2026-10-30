@@ -162,17 +162,38 @@ block_params! {
 }
 
 block_params! {
-    struct LdpcSpec {
-        n: usize [required] "bits", "length of the codeword";
-        k: usize [required] "bits", "information bits";
-        var_degree: usize [ldpc::DEFAULT_VAR_DEGREE => "3"], "variable-node degree of the PEG code";
+    /// The construction and the decoder of a PEG LDPC code: the parameters shared by
+    /// the `ldpc` code of `fec_encode` and `fec_decode` and by `pas_encode` and
+    /// `pas_decode`.
+    struct LdpcSettings {
+        var_degree: usize [ldpc::DEFAULT_VAR_DEGREE => "3"] >= 1, "variable-node degree of the PEG code";
         seed: u64 [ldpc::DEFAULT_PEG_SEED => "1"], "seed of the PEG construction";
         rule: String [ldpc::DEFAULT_RULE.name() => "sum_product"]
             one_of ["sum_product", "min_sum", "normalized_min_sum", "offset_min_sum"],
             "check-node rule";
         alpha: f64 [ldpc::DEFAULT_ALPHA => "0.8"], "scale or offset of min-sum";
         layered: bool [ldpc::DEFAULT_LAYERED => "true"], "layered schedule";
-        iterations: usize [ldpc::DEFAULT_MAX_ITERATIONS => "50"], "decoding iterations at most";
+        iterations: usize [ldpc::DEFAULT_MAX_ITERATIONS => "50"] >= 1, "decoding iterations at most";
+    }
+}
+
+impl LdpcSettings {
+    /// The regular LDPC code of length `n` with `k` information bits built by
+    /// progressive edge growth, with these decoder settings.
+    fn code(&self, n: usize, k: usize) -> Result<LdpcCode> {
+        let mut c = LdpcCode::peg(n, k, self.var_degree, self.seed)?;
+        c.rule = CheckRule::from_name(&self.rule, self.alpha)?;
+        c.layered = self.layered;
+        c.max_iterations = self.iterations;
+        Ok(c)
+    }
+}
+
+block_params! {
+    struct LdpcSpec {
+        n: usize [required] "bits", "length of the codeword";
+        k: usize [required] "bits", "information bits";
+        settings: LdpcSettings [flatten], "the construction and the decoder";
     }
 }
 
@@ -255,7 +276,7 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
         }
         "ldpc" => {
             let q = LdpcSpec::parse(&what, p)?;
-            Box::new(ldpc(q.n, q.k, q.var_degree, q.seed, &q.rule, q.alpha, q.layered, q.iterations)?)
+            Box::new(q.settings.code(q.n, q.k)?)
         }
         "polar" => {
             let PolarSpec { n, k, design_ebn0_db, crc, list } = PolarSpec::parse(&what, p)?;
@@ -272,25 +293,6 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
             )));
         }
     })
-}
-
-/// A regular LDPC code built by progressive edge growth, with its decoder settings.
-#[allow(clippy::too_many_arguments, reason = "the parameters of the specification")]
-fn ldpc(
-    n: usize,
-    k: usize,
-    var_degree: usize,
-    seed: u64,
-    rule: &str,
-    alpha: f64,
-    layered: bool,
-    iterations: usize,
-) -> Result<LdpcCode> {
-    let mut c = LdpcCode::peg(n, k, var_degree, seed)?;
-    c.rule = CheckRule::from_name(rule, alpha)?;
-    c.layered = layered;
-    c.max_iterations = iterations;
-    Ok(c)
 }
 
 block_params! {
@@ -441,14 +443,7 @@ block_params! {
         n: usize [1536] "bits", "length of the LDPC codeword, a multiple of 2m";
         k: Option<usize> [absent "n(m-1)/m"] "bits",
             "information bits of the code; above n(m-1)/m the signs also carry data (γ > 0)";
-        var_degree: usize [ldpc::DEFAULT_VAR_DEGREE => "3"] >= 1, "variable-node degree of the PEG code";
-        seed: u64 [ldpc::DEFAULT_PEG_SEED => "1"], "seed of the PEG construction";
-        rule: String [ldpc::DEFAULT_RULE.name() => "sum_product"]
-            one_of ["sum_product", "min_sum", "normalized_min_sum", "offset_min_sum"],
-            "check-node rule, as fec_encode";
-        alpha: f64 [ldpc::DEFAULT_ALPHA => "0.8"], "scale or offset of min-sum";
-        layered: bool [ldpc::DEFAULT_LAYERED => "true"], "layered schedule";
-        iterations: usize [ldpc::DEFAULT_MAX_ITERATIONS => "50"] >= 1, "decoding iterations at most";
+        ldpc: LdpcSettings [flatten], "the LDPC code, as the ldpc code of fec_encode";
         blocks: usize [1] >= 1, "codewords per trial (pas_encode)";
         symbol_rate: f64 [1.0] "Bd" > 0, "symbol rate (pas_encode)";
     }
@@ -482,7 +477,7 @@ impl PasLink {
             format!("pas: n must be a multiple of {} (two PAM symbols per QAM symbol)", 2 * m)
         })?;
         let k = p.k.unwrap_or(p.n / m * (m - 1));
-        let code = ldpc(p.n, k, p.var_degree, p.seed, &p.rule, p.alpha, p.layered, p.iterations)?;
+        let code = p.ldpc.code(p.n, k)?;
         let pas = Pas::new(code, m, &amplitudes, delta)?;
         Ok(PasLink { c, pas, blocks: p.blocks, symbol_rate: p.symbol_rate, delta, levels: side })
     }
@@ -593,7 +588,7 @@ mod tests {
                 assert_eq!(text, value.as_str().map_or_else(|| value.to_string(), str::to_string), "{name}");
             }
         }
-        let q = LdpcSpec::parse("ldpc code", json!({"n": 128, "k": 64})).unwrap();
+        let q = LdpcSpec::parse("ldpc code", json!({"n": 128, "k": 64})).unwrap().settings;
         assert_eq!(
             (q.var_degree, q.seed, q.rule.as_str()),
             (ldpc::DEFAULT_VAR_DEGREE, ldpc::DEFAULT_PEG_SEED, "sum_product")

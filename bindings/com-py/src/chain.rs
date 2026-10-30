@@ -5,7 +5,6 @@ use crate::comm::PyConstellation;
 use crate::rng::PyRng;
 use crate::{CArr, IntoPy, carr, cvec, iarr, json};
 use comrs::sim::scenario::Record;
-use comrs::sim::stats::Estimate;
 use comrs::spec::blocks::{self, Block, BuildContext, Frame};
 use comrs::spec::metrics::Metrics;
 use numpy::IntoPyArray;
@@ -239,46 +238,37 @@ impl PyLinkBlock {
     }
 }
 
-/// The metrics of one frame, as a declarative campaign records them.
+/// The metrics of one frame, as a declarative campaign records them (with the values
+/// that the blocks recorded), in the format of the metrics of :func:`comrs.run_spec`.
 ///
 /// Args:
 ///     frame (Frame): the frame after the link.
 ///     metrics (dict): the ``metrics`` mapping of a specification (``report``, …).
+///     confidence (float): the level of the intervals.
 ///
 /// Returns:
-///     dict: ``{name: {"kind": "rate", "errors", "total"}}`` or
-///     ``{name: {"kind": "mean", "value", "count"}}``.
+///     dict: ``{name: {value, lo, hi, kind, count, total}}``, ``kind`` being ``rate``
+///     (``count`` errors among ``total`` events) or ``mean`` (of ``count`` values).
 ///
 /// Examples:
 ///     >>> import comrs
 ///     >>> f = comrs.Frame()
 ///     >>> comrs.LinkBlock({"type": "source", "constellation": "QPSK", "n_symbols": 8}).apply(f, comrs.Rng(1))
-///     >>> comrs.frame_metrics(f, {"report": ["ser"]})["ser"]
-///     {'kind': 'rate', 'errors': 0, 'total': 8}
+///     >>> ser = comrs.frame_metrics(f, {"report": ["ser"]})["ser"]
+///     >>> ser["kind"], ser["value"], ser["count"], ser["total"]
+///     ('rate', 0.0, 0, 8)
 #[pyfunction]
-fn frame_metrics<'py>(py: Python<'py>, frame: &PyFrame, metrics: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+#[pyo3(signature = (frame, metrics, *, confidence = 0.95))]
+fn frame_metrics<'py>(
+    py: Python<'py>,
+    frame: &PyFrame,
+    metrics: &Bound<'py, PyAny>,
+    confidence: f64,
+) -> PyResult<Bound<'py, PyDict>> {
     let m = Metrics::from_json(&json(py, metrics)?).py()?;
     let mut rec = Record::new();
-    m.record(&frame.inner, &mut rec).py()?;
-    for (k, v) in &frame.inner.values {
-        rec.value(k, *v);
-    }
-    rec.merge(&frame.inner.probes);
-    let out = PyDict::new(py);
-    for (name, e) in rec.iter() {
-        let d = PyDict::new(py);
-        if let Estimate::Rate(r) = e {
-            d.set_item("kind", "rate")?;
-            d.set_item("errors", r.errors)?;
-            d.set_item("total", r.total)?;
-        } else {
-            d.set_item("kind", "mean")?;
-            d.set_item("value", e.value())?;
-            d.set_item("count", e.count())?;
-        }
-        out.set_item(name, d)?;
-    }
-    Ok(out)
+    m.record_frame(&frame.inner, &mut rec).py()?;
+    crate::spec::record_dict(py, &rec, confidence)
 }
 
 /// A YAML text as JSON (the YAML parser of the specifications, for `Chain.from_spec`).

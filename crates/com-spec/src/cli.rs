@@ -160,16 +160,9 @@ fn run_one(path: &PathBuf, a: &Args) -> com_core::Result<()> {
 /// Run a specification and check its expectations; returns the number of failures.
 fn verify_one(path: &PathBuf, a: &Args) -> com_core::Result<usize> {
     let spec = Spec::from_path(path)?;
-    if spec.expect.is_empty() {
-        return Err(com_core::Error::Config(format!("{}: no expectation to verify", path.display())));
-    }
     // the reports of the run, as with `run`
     let opts = report_options(&spec, a);
-    let checks = if spec.search.is_some() {
-        verify::verify_search(&spec.expect, &search::search(&spec, &opts)?)?
-    } else {
-        verify::verify(&spec.expect, &run(&spec, &opts)?, spec.confidence)?
-    };
+    let (_, checks) = verify::verify_spec(&spec, &opts)?;
     let failed = checks.iter().filter(|c| !c.passed).count();
     println!("{}: {} checks, {} failed", spec.name, checks.len(), failed);
     for c in &checks {

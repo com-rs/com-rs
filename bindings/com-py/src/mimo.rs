@@ -296,15 +296,6 @@ fn domain(real: bool) -> Domain {
     if real { Domain::Real } else { Domain::Complex }
 }
 
-fn oamp_linear(name: &str) -> PyResult<OampLinear> {
-    match name.to_ascii_lowercase().as_str() {
-        "lmmse" => Ok(OampLinear::Lmmse),
-        "pinv" => Ok(OampLinear::PseudoInverse),
-        "mf" => Ok(OampLinear::MatchedFilter),
-        other => Err(PyValueError::new_err(format!("unknown linear estimator {other:?}: lmmse, pinv or mf"))),
-    }
-}
-
 fn steps<'py>(py: Python<'py>, se: &[mp::StateEvolutionStep]) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("noise_var", farr(py, se.iter().map(|s| s.noise_var).collect()))?;
@@ -368,22 +359,16 @@ fn message_passing<'py>(
     let y = crate::cvec(y)?;
     let prior = prior(constellation, px)?;
     let f = domain(real);
-    let trace = match method.to_ascii_lowercase().as_str() {
-        "amp" | "lama" => {
-            let v = match variance {
-                "postulated" => AmpVariance::Postulated,
-                "residual" => AmpVariance::Residual,
-                other => {
-                    return Err(PyValueError::new_err(format!("unknown variance {other:?}: postulated or residual")));
-                }
-            };
+    let trace = match method.parse::<DetectorKind>().py()? {
+        DetectorKind::Amp(_) => {
+            let v: AmpVariance = variance.parse().py()?;
             py.detach(|| mp::lama(&h.view(), &y, noise_var, &prior, f, iterations, v)).py()?
         }
-        "oamp" => {
-            let l = oamp_linear(linear)?;
+        DetectorKind::Oamp(_) => {
+            let l: OampLinear = linear.parse().py()?;
             py.detach(|| mp::oamp(&h.view(), &y, noise_var, &prior, f, iterations, l)).py()?
         }
-        other => return Err(PyValueError::new_err(format!("unknown method {other:?}: amp or oamp"))),
+        _ => return Err(PyValueError::new_err(format!("unknown method {method:?}: amp or oamp"))),
     };
     let n = h.ncols();
     let flat: Vec<C64> = trace.estimates.iter().flatten().copied().collect();
@@ -511,7 +496,7 @@ fn oamp_state_evolution<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let p = prior(constellation, px)?;
     let sv = crate::fvec(singular_values)?;
-    let l = oamp_linear(linear)?;
+    let l: OampLinear = linear.parse().py()?;
     let se = py.detach(|| mp::oamp_state_evolution(&p, &sv, n_tx, noise_var, iterations, l, domain(real)));
     steps(py, &se)
 }
@@ -539,10 +524,10 @@ fn mimo_estimate(
     method: &str,
 ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
-    let lin = match method {
-        "zf" => Linear::zf(constellation.inner.clone()),
-        "mmse" => Linear::mmse(constellation.inner.clone()),
-        other => return Err(PyValueError::new_err(format!("method must be zf or mmse, got {other:?}"))),
+    let lin = match method.parse::<DetectorKind>().py()? {
+        DetectorKind::Zf => Linear::zf(constellation.inner.clone()),
+        DetectorKind::Mmse => Linear::mmse(constellation.inner.clone()),
+        _ => return Err(PyValueError::new_err(format!("method must be zf or mmse, got {method:?}"))),
     };
     let rows = py
         .detach(|| {
