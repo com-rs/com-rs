@@ -84,6 +84,7 @@ psd
 random
 rate
 record
+row    # com_sim::ConditionResult (the flattened record of a condition) / com_waveform::otfs::EffectiveChannel (one row of the sparse channel matrix)
 rows
 run
 run_dual
