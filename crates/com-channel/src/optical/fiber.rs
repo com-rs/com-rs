@@ -50,8 +50,10 @@
 //! let x: Vec<C64> = (0..64).map(|n| C64::new((n % 3) as f64, (n % 2) as f64)).collect();
 //! // without loss and nonlinearity the split step is the linear channel
 //! let a = linear_fiber_channel(&x, &fiber, 80.0, 64e9);
-//! let b = Ssfm { fiber: fiber.clone(), step_km: 10.0, amplification: Amplification::None, raman: None }
-//!     .propagate(&x, 64e9, None).unwrap();
+//! let mut b = x.clone();
+//! Ssfm { fiber: fiber.clone(), step_km: 10.0, amplification: Amplification::None, raman: None }
+//!     .propagate(&mut b, 64e9, None)
+//!     .unwrap();
 //! assert!(a.iter().zip(&b).all(|(u, v)| (u - v).norm() < 1e-9));
 //! ```
 //!
@@ -232,7 +234,7 @@ impl Amplification {
             Amplification::Edfa => {
                 let amp = fiber.span_edfa();
                 match rng {
-                    Some(r) => *e = amp.apply(e, fs, r)?,
+                    Some(r) => amp.apply(e, fs, r)?,
                     None => amp.apply_noiseless(e),
                 }
             }
@@ -360,12 +362,12 @@ impl Ssfm {
         Ok((n, step))
     }
 
-    /// Propagate a field (√W) sampled at `fs` over the link; the ASE of the EDFAs is
-    /// drawn from `rng` (noiseless amplifiers without one).
+    /// Propagate a field (√W) sampled at `fs` over the link, in place; the ASE of the
+    /// EDFAs is drawn from `rng` (noiseless amplifiers without one).
     ///
     /// # Errors
     /// [`Error::Config`] for a non-positive step or a step longer than the span.
-    pub fn propagate(&self, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Result<Vec<C64>> {
+    pub fn propagate(&self, x: &mut Vec<C64>, fs: f64, rng: Option<&mut Rng>) -> Result<()> {
         let (n_steps, h) = self.steps()?;
         let simulated_km = n_steps as f64 * h;
         // with Raman amplification the profile of every span is solved for the slices of
@@ -379,13 +381,12 @@ impl Ssfm {
             None => (self.fiber.clone(), self.fiber.medium()),
         };
         let steps = SplitStep::new(&medium, Steps::new(n_steps, h), x.len(), fs);
-        let mut e = x.to_vec();
         amplified_spans(
             &fiber,
             simulated_km,
             &self.amplification,
             self.raman.as_ref(),
-            &mut [&mut e],
+            &mut [x],
             fs,
             rng,
             |_, f, raman| {
@@ -396,14 +397,14 @@ impl Ssfm {
                 Ok(0)
             },
         )?;
-        Ok(e)
+        Ok(())
     }
 
     /// [`Ssfm::propagate`] or [`Ssfm::propagate_f32`], as `precision` says.
     ///
     /// # Errors
     /// The errors of the method called.
-    pub fn propagate_with(&self, x: &[C64], fs: f64, rng: Option<&mut Rng>, precision: Precision) -> Result<Vec<C64>> {
+    pub fn propagate_with(&self, x: &mut Vec<C64>, fs: f64, rng: Option<&mut Rng>, precision: Precision) -> Result<()> {
         match precision {
             Precision::F64 => self.propagate(x, fs, rng),
             Precision::F32 => self.propagate_f32(x, fs, rng),
@@ -452,12 +453,12 @@ impl Ssfm {
     /// # Errors
     /// As [`Ssfm::propagate`], and [`Error::Config`] with Raman amplification (double
     /// precision only).
-    pub fn propagate_f32(&self, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Result<Vec<C64>> {
+    pub fn propagate_f32(&self, x: &mut Vec<C64>, fs: f64, rng: Option<&mut Rng>) -> Result<()> {
         ensure(self.raman.is_none(), || "the Raman amplification is simulated in double precision only".into())?;
         let (n_steps, h) = self.steps()?;
         let n = x.len();
         if n == 0 {
-            return Ok(Vec::new());
+            return Ok(());
         }
         let f = &self.fiber;
         let steps = SplitStepF32::new(&f.medium(), Steps::new(n_steps, h), n, fs);
@@ -470,8 +471,8 @@ impl Ssfm {
         };
         let to_f32 = |e: &[C64]| -> Vec<C32> { e.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect() };
         let to_f64 = |e: &[C32]| -> Vec<C64> { e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect() };
-        let mut e = to_f64(&to_f32(x));
-        amplified_spans(f, simulated_km, &amplification, None, &mut [&mut e], fs, rng, |_, fields, _| {
+        *x = to_f64(&to_f32(x));
+        amplified_spans(f, simulated_km, &amplification, None, &mut [&mut *x], fs, rng, |_, fields, _| {
             let mut e32 = to_f32(fields[0]);
             steps.run(&mut e32);
             if let Some(g) = ideal_gain {
@@ -482,7 +483,8 @@ impl Ssfm {
             *fields[0] = to_f64(&e32);
             Ok(0)
         })?;
-        Ok(to_f64(&to_f32(&e)))
+        *x = to_f64(&to_f32(x));
+        Ok(())
     }
 }
 
@@ -490,7 +492,10 @@ impl Ssfm {
 impl Propagate for Ssfm {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         let fs = x.sample_rate().0;
-        x.try_map_streams(out, |_, xs| Ssfm::propagate(self, xs, fs, Some(&mut *rng)))
+        x.try_map_streams(out, |_, xs| {
+            let mut y = xs.to_vec();
+            Ssfm::propagate(self, &mut y, fs, Some(&mut *rng)).map(|()| y)
+        })
     }
 }
 
@@ -512,6 +517,20 @@ pub(crate) mod tests {
         y.iter().map(|v| v * s).collect()
     }
 
+    /// [`Ssfm::propagate`] on a copy of `x`.
+    pub(crate) fn propagated(s: &Ssfm, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Vec<C64> {
+        let mut y = x.to_vec();
+        s.propagate(&mut y, fs, rng).unwrap();
+        y
+    }
+
+    /// [`Ssfm::propagate_f32`] on a copy of `x`.
+    fn propagated_f32(s: &Ssfm, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Vec<C64> {
+        let mut y = x.to_vec();
+        s.propagate_f32(&mut y, fs, rng).unwrap();
+        y
+    }
+
     #[test]
     fn single_precision_split_step_matches_double_precision() {
         let fiber = FiberParams { n_spans: 3, ..FiberParams::default() };
@@ -519,16 +538,16 @@ pub(crate) mod tests {
         let x: Vec<C64> = rng.complex_noise(4096, 2e-3);
         for amplification in [Amplification::Edfa, Amplification::Ideal, Amplification::None] {
             let s = Ssfm { fiber: fiber.clone(), step_km: 0.5, amplification, raman: None };
-            let a = s.propagate(&x, 64e9, None).unwrap();
-            let b = s.propagate_f32(&x, 64e9, None).unwrap();
+            let a = propagated(&s, &x, 64e9, None);
+            let b = propagated_f32(&s, &x, 64e9, None);
             let err: f64 = a.iter().zip(&b).map(|(u, v)| (u - v).norm_sqr()).sum::<f64>().sqrt();
             let nrm: f64 = a.iter().map(C64::norm_sqr).sum::<f64>().sqrt();
             assert!(err / nrm < 1e-4, "{:?}: {}", s.amplification, err / nrm);
         }
         // with ASE, the same draws in both precisions
         let s = Ssfm::new(fiber, 1.0);
-        let a = s.propagate(&x, 64e9, Some(&mut Rng::new(1))).unwrap();
-        let b = s.propagate_f32(&x, 64e9, Some(&mut Rng::new(1))).unwrap();
+        let a = propagated(&s, &x, 64e9, Some(&mut Rng::new(1)));
+        let b = propagated_f32(&s, &x, 64e9, Some(&mut Rng::new(1)));
         let err: f64 = a.iter().zip(&b).map(|(u, v)| (u - v).norm_sqr()).sum::<f64>();
         assert!(err / a.iter().map(C64::norm_sqr).sum::<f64>() < 1e-8);
     }
@@ -538,7 +557,7 @@ pub(crate) mod tests {
         let fiber = FiberParams { n_spans: 2, ..FiberParams::default() };
         let x = signal(256, 1, 5e-3);
         let sim = Ssfm::new(fiber, 2.0);
-        let y = sim.propagate(&x, 64e9, None).unwrap();
+        let y = propagated(&sim, &x, 64e9, None);
         let z = sim.backpropagate(&y, 64e9, 40).unwrap();
         assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-9 * a.norm().max(1e-3)));
     }
@@ -552,9 +571,7 @@ pub(crate) mod tests {
         for amplification in [Amplification::Edfa, Amplification::Ideal] {
             let s = Ssfm { fiber: fiber.clone(), step_km: 3.0, amplification, raman: None };
             // the single precision rounds the power of 270 steps by about 1e-4 dB
-            for (y, tol) in
-                [(s.propagate(&x, 64e9, None).unwrap(), 1e-9), (s.propagate_f32(&x, 64e9, None).unwrap(), 1e-3)]
-            {
+            for (y, tol) in [(propagated(&s, &x, 64e9, None), 1e-9), (propagated_f32(&s, &x, 64e9, None), 1e-3)] {
                 let gain_db = 10.0 * (power(&y) / power(&x)).log10();
                 assert!(gain_db.abs() < tol, "{:?}: {gain_db} dB", s.amplification);
             }
@@ -563,7 +580,7 @@ pub(crate) mod tests {
         let lossless = FiberParams { alpha_db_km: 0.0, n_spans: 1, gamma_w_km: 0.0, ..FiberParams::default() };
         let s = Ssfm { fiber: lossless.clone(), step_km: 3.0, amplification: Amplification::None, raman: None };
         let a = linear_fiber_channel(&x, &lossless, 80.0, 64e9);
-        let b = s.propagate(&x, 64e9, None).unwrap();
+        let b = propagated(&s, &x, 64e9, None);
         assert!(a.iter().zip(&b).all(|(u, v)| (u - v).norm() < 1e-12), "the steps do not add up to 80 km");
         assert_eq!(s.steps().unwrap().0, 27);
         let exact = Ssfm { step_km: 0.4, ..s.clone() }.steps().unwrap();
@@ -578,7 +595,7 @@ pub(crate) mod tests {
         let x = signal(256, 1, 5e-3);
         for step in [3.0, 7.0, 2.6] {
             let sim = Ssfm::new(fiber.clone(), step);
-            let y = sim.propagate(&x, 64e9, None).unwrap();
+            let y = propagated(&sim, &x, 64e9, None);
             let z = sim.backpropagate(&y, 64e9, (80.0 / step).ceil() as usize).unwrap();
             assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-9 * a.norm().max(1e-3)), "step {step}");
         }
@@ -654,10 +671,10 @@ pub(crate) mod tests {
             let s = Ssfm { fiber: fiber.clone(), step_km: 3.0, amplification, raman: None };
             for seed in [None, Some(5)] {
                 let (mut a, mut b) = (seed.map(Rng::new), seed.map(Rng::new));
-                assert_eq!(s.propagate(&x, 64e9, a.as_mut()).unwrap(), former::propagate(&s, &x, 64e9, b.as_mut()));
+                assert_eq!(propagated(&s, &x, 64e9, a.as_mut()), former::propagate(&s, &x, 64e9, b.as_mut()));
                 let (mut a, mut b) = (seed.map(Rng::new), seed.map(Rng::new));
                 assert_eq!(
-                    s.propagate_f32(&x, 64e9, a.as_mut()).unwrap(),
+                    propagated_f32(&s, &x, 64e9, a.as_mut()),
                     former::propagate_f32(&s, &x, 64e9, b.as_mut()),
                     "{:?}",
                     s.amplification
@@ -669,7 +686,7 @@ pub(crate) mod tests {
         for amplification in [Amplification::Edfa, Amplification::None] {
             let s = Ssfm { fiber: fiber.clone(), step_km: 4.0, amplification, raman: Some(raman.clone()) };
             let (mut a, mut b) = (Rng::new(3), Rng::new(3));
-            assert_eq!(s.propagate(&x, 64e9, Some(&mut a)).unwrap(), former::propagate(&s, &x, 64e9, Some(&mut b)));
+            assert_eq!(propagated(&s, &x, 64e9, Some(&mut a)), former::propagate(&s, &x, 64e9, Some(&mut b)));
         }
     }
 

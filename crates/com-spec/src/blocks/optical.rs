@@ -303,8 +303,9 @@ impl Block for Pmd {
         let n = if mean_dgd_ps == 0.0 { 1 } else { sections };
         let link = PmdLink::with_mean_dgd(mean_dgd_ps * 1e-12, n, rng);
         let fs = s.fs();
-        let (x, rest) = (&mut s.samples, &mut s.antennas);
-        link.apply(x, &mut rest[0], fs);
+        let mut u = DualPol::new(std::mem::take(&mut s.samples), std::mem::take(&mut s.antennas[0]))?;
+        link.apply(&mut u, fs)?;
+        (s.samples, s.antennas[0]) = (u.x, u.y);
         s.record(&self.label, "rms_dgd_ps", link.rms_dgd_s() * 1e12);
         Ok(())
     }

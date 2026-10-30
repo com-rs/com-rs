@@ -249,7 +249,9 @@ wrapper_methods! {
         fs: f64,
         mut rng: PyRefMut<'py, PyRng>,
     ) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.inner.apply(&cvec(x)?, fs, &mut rng.inner).py()?))
+        let mut y = cvec(x)?;
+        self.inner.apply(&mut y, fs, &mut rng.inner).py()?;
+        Ok(carr(py, y))
     }
 
     fn __repr__(&self) -> String {
@@ -406,12 +408,12 @@ impl PySsfm {
         precision: &str,
     ) -> PyResult<CArr<'py>> {
         let precision: Precision = precision.parse().py()?;
-        let x = cvec(x)?;
+        let mut y = cvec(x)?;
         let mut rng = rng;
         let r = rng_of(&mut rng);
         let s = &self.inner;
-        let y = py.detach(|| s.propagate_with(&x, fs, r, precision));
-        Ok(carr(py, y.py()?))
+        py.detach(|| s.propagate_with(&mut y, fs, r, precision)).py()?;
+        Ok(carr(py, y))
     }
 
     /// Digital back-propagation with `steps_per_span` symmetric steps per span (the

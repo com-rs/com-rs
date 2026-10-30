@@ -151,9 +151,14 @@ impl PmdLink {
         }
     }
 
-    /// Apply the lumped response `J(ω)` to the two polarisations sampled at `fs`
-    /// (periodic blocks, in the frequency domain).
-    pub fn apply(&self, x: &mut Vec<C64>, y: &mut Vec<C64>, fs: f64) {
+    /// Apply the lumped response `J(ω)` to the two polarisations of `u` sampled at `fs`,
+    /// in place (periodic blocks, in the frequency domain).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a sampling rate that is not positive and finite.
+    pub fn apply(&self, u: &mut DualPol, fs: f64) -> Result<()> {
+        ensure(fs > 0.0 && fs.is_finite(), || format!("the sampling rate must be positive, got {fs}"))?;
+        let DualPol { x, y } = u;
         let omega = fft::angular_frequencies(x.len(), fs);
         let j = self.lumped_response(&omega);
         let (mut fx, mut fy) = (fft::fft(x), fft::fft(y));
@@ -162,6 +167,7 @@ impl PmdLink {
         }
         *x = fft::ifft(&fx);
         *y = fft::ifft(&fy);
+        Ok(())
     }
 
     /// RMS DGD of the concatenation `√Σ τ_k²` (s).
@@ -414,9 +420,10 @@ mod tests {
         let mut rng = Rng::new(4);
         let x0: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
         let y0: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
-        let (mut x, mut y) = (x0.clone(), y0.clone());
+        let mut u = DualPol::new(x0.clone(), y0.clone()).unwrap();
         let link = PmdLink::with_mean_dgd(20e-12, 30, &mut rng);
-        link.apply(&mut x, &mut y, 64e9);
+        link.apply(&mut u, 64e9).unwrap();
+        let DualPol { x, y } = u;
         let e = |a: &[C64], b: &[C64]| a.iter().chain(b).map(C64::norm_sqr).sum::<f64>();
         assert!((e(&x, &y) / e(&x0, &y0) - 1.0).abs() < 1e-12);
         let (r, back) = (Jones::rotation(0.7), Jones::rotation(-0.7));

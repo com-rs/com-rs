@@ -17,8 +17,8 @@
 //! use com_core::rng::Rng;
 //! use com_math::C64;
 //! let amp = Edfa { gain_db: 20.0, ..Edfa::default() };
-//! let x = vec![C64::new(1e-3, 0.0); 100_000];
-//! let y = amp.apply(&x, 32e9, &mut Rng::new(1)).unwrap();
+//! let mut y = vec![C64::new(1e-3, 0.0); 100_000];
+//! amp.apply(&mut y, 32e9, &mut Rng::new(1)).unwrap();
 //! let noise: f64 = y.iter().map(|v| (v - C64::new(1e-2, 0.0)).norm_sqr()).sum::<f64>() / y.len() as f64;
 //! assert!((noise / amp.noise_variance(32e9) - 1.0).abs() < 0.02);
 //! ```
@@ -92,16 +92,18 @@ impl Edfa {
         ensure(self.nf_db >= 3.0, || format!("EDFA noise figure must be at least 3 dB, got {}", self.nf_db))
     }
 
-    /// Amplify one polarisation sampled at `fs`.
+    /// Amplify one polarisation sampled at `fs`, in place.
     ///
     /// # Errors
     /// [`com_core::Error::Config`] for a non-positive gain or a noise figure below 3 dB.
-    pub fn apply(&self, x: &[C64], fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
+    pub fn apply(&self, x: &mut [C64], fs: f64, rng: &mut Rng) -> Result<()> {
         self.check()?;
         let g = db2lin(self.gain_db).sqrt();
-        let mut y: Vec<C64> = x.iter().map(|&v| v * g).collect();
-        add_noise(&mut y, self.noise_variance(fs), rng);
-        Ok(y)
+        for v in x.iter_mut() {
+            *v *= g;
+        }
+        add_noise(x, self.noise_variance(fs), rng);
+        Ok(())
     }
 
     /// Amplify in place without noise (an ideal, noiseless gain).
@@ -146,7 +148,8 @@ mod tests {
     fn the_noise_is_that_of_the_former_inline_draws() {
         let amp = Edfa { gain_db: 17.3, nf_db: 5.1, ..Edfa::default() };
         let x: Vec<C64> = (0..257).map(|k| C64::new((k as f64).sin() * 1e-3, (k as f64 * 0.3).cos() * 1e-3)).collect();
-        let y = amp.apply(&x, 64e9, &mut Rng::new(12)).unwrap();
+        let mut y = x.clone();
+        amp.apply(&mut y, 64e9, &mut Rng::new(12)).unwrap();
         let (g, s) = (db2lin(amp.gain_db).sqrt(), amp.noise_variance(64e9).sqrt());
         let mut rng = Rng::new(12);
         let former: Vec<C64> = x.iter().map(|&v| v * g + rng.complex_gaussian() * s).collect();

@@ -53,8 +53,19 @@ fn channel(c: &mut Criterion) {
     let mut g = c.benchmark_group("channel");
     g.sample_size(10);
     g.throughput(Throughput::Elements(x.len() as u64));
-    g.bench_function("ssfm_80km_1km_steps", |b| b.iter(|| ssfm.propagate(black_box(&x), 64e9, None)));
-    g.bench_function("ssfm_80km_1km_steps_f32", |b| b.iter(|| ssfm.propagate_f32(black_box(&x), 64e9, None)));
+    g.bench_function("ssfm_80km_1km_steps", |b| {
+        b.iter(|| {
+            // the copy the former propagate made inside
+            let mut y = x.clone();
+            ssfm.propagate(black_box(&mut y), 64e9, None).map(|()| y)
+        })
+    });
+    g.bench_function("ssfm_80km_1km_steps_f32", |b| {
+        b.iter(|| {
+            let mut y = x.clone();
+            ssfm.propagate_f32(black_box(&mut y), 64e9, None).map(|()| y)
+        })
+    });
     g.finish();
 }
 

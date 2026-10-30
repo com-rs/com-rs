@@ -566,7 +566,7 @@ mod tests {
         };
         let ssfm =
             Ssfm { fiber: fiber.clone(), step_km: 0.5, amplification: Amplification::None, raman: Some(raman.clone()) };
-        let y = ssfm.propagate(&x, fs, None).unwrap();
+        let y = crate::optical::fiber::tests::propagated(&ssfm, &x, fs, None);
         let p = raman.solve(&fiber, &raman.spectral_slices(&[&x], fs, fiber.fc_hz)).unwrap();
         for f in [-0.6e12, 0.6e12] {
             let k = p.freqs_hz[..p.n_signals].iter().position(|v| (v - fiber.fc_hz - f).abs() < 1.0).unwrap();
@@ -588,7 +588,10 @@ mod tests {
         let none = Some(Raman { isrs: false, ..Raman::default() });
         let a = Ssfm { amplification: Amplification::Ideal, ..Ssfm::new(fiber.clone(), 0.5) };
         let b = Ssfm { raman: none.clone(), ..a.clone() };
-        let (ya, yb) = (a.propagate(&x, fs, None).unwrap(), b.propagate(&x, fs, None).unwrap());
+        let (ya, yb) = (
+            crate::optical::fiber::tests::propagated(&a, &x, fs, None),
+            crate::optical::fiber::tests::propagated(&b, &x, fs, None),
+        );
         let err = ya.iter().zip(&yb).map(|(u, v)| (u - v).norm()).fold(0.0, f64::max);
         assert!(err < 1e-9 * 0.03, "{err}");
         let a = ManakovSsfm { amplification: Amplification::Ideal, ..ManakovSsfm::new(fiber.clone()) };
@@ -602,7 +605,7 @@ mod tests {
         // and the noise of the EDFAs: the variance of the noise added to a silent field
         let silent = vec![C64::new(0.0, 0.0); 1 << 16];
         let e = Ssfm { raman: none, ..Ssfm::new(FiberParams { n_spans: 1, ..fiber.clone() }, 1.0) };
-        let y = e.propagate(&silent, fs, Some(&mut Rng::new(9))).unwrap();
+        let y = crate::optical::fiber::tests::propagated(&e, &silent, fs, Some(&mut Rng::new(9)));
         let var = y.iter().map(C64::norm_sqr).sum::<f64>() / y.len() as f64;
         let expected = Edfa { gain_db: 10.0, nf_db: fiber.nf_db, fc_hz: fiber.fc_hz }.noise_variance(fs);
         assert!((var / expected - 1.0).abs() < 0.02, "{var} vs {expected}");
