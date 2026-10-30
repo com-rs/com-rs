@@ -176,7 +176,7 @@ fn read_reference(path: &std::path::Path, c: &Constellation) -> Result<Vec<usize
 impl Capture {
     fn new(p: &CaptureSpec, ctx: &BuildContext) -> Result<Capture> {
         let dt = p.datatype.as_deref().map(crate::io::Datatype::parse).transpose()?;
-        let (samples, fs_file) = crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
+        let crate::io::Samples { samples, sample_rate: fs_file } = crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
         let fs =
             p.fs.or(fs_file)
                 .ok_or_else(|| Error::Config(format!("capture {}: the file has no sampling rate, give fs", p.file)))?;

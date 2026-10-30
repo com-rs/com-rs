@@ -210,6 +210,10 @@ pub fn main(args: impl IntoIterator<Item = String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if ["run", "check", "verify", "conditions"].contains(&a.command.as_str()) && a.files.is_empty() {
+        eprintln!("no specification given\n\n{USAGE}");
+        return ExitCode::from(2);
+    }
     let result: com_core::Result<()> = match a.command.as_str() {
         "blocks" => {
             let all = blocks::registry();
@@ -252,10 +256,6 @@ pub fn main(args: impl IntoIterator<Item = String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    if ["run", "check", "verify", "conditions"].contains(&a.command.as_str()) && a.files.is_empty() {
-        eprintln!("no specification given\n\n{USAGE}");
-        return ExitCode::from(2);
-    }
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

@@ -157,15 +157,13 @@ block_params! {
 }
 
 impl Block for Normalize {
+    /// Every sample divided by the RMS value over all the streams (as
+    /// `com_dsp::signal::pnorm` for one stream), then multiplied by the amplitude of
+    /// the power.
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let a = self.power_dbm.map_or(1.0, |p| dbm2w(p).sqrt());
-        if s.antennas.is_empty() {
-            s.samples = signal::pnorm(&s.samples).into_iter().map(|v| v * a).collect();
-        } else {
-            let p = s.mean_power();
-            let g = if p > 0.0 { a / p.sqrt() } else { a };
-            s.streams_mut().flatten().for_each(|v| *v *= g);
-        }
+        let rms = s.mean_power().sqrt();
+        s.streams_mut().flatten().for_each(|v| *v = if rms == 0.0 { *v * a } else { *v / rms * a });
         Ok(())
     }
 }

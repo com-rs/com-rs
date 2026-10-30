@@ -761,18 +761,23 @@ pub fn write_npy_i64(path: impl AsRef<Path>, x: &[i64]) -> Result<()> {
     write_npy_bytes(path.as_ref(), "<i8", x.len(), &p)
 }
 
+/// The samples of one channel of a recording ([`read_samples`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Samples {
+    /// The complex samples.
+    pub samples: Vec<C64>,
+    /// The sampling rate (Hz), when the file records it.
+    pub sample_rate: Option<f64>,
+}
+
 /// Read samples from a SigMF recording (`.sigmf-meta`, `.sigmf-data`, `.sigmf`), an NPY
-/// array (`.npy`) or a raw file of the given data type; returns the samples of `channel`
-/// and the sampling rate when the file records it.
+/// array (`.npy`) or a raw file of the given data type: the samples of `channel` and the
+/// sampling rate when the file records it.
 ///
 /// # Errors
 /// [`Error::Config`] for a raw file without a data type, or a channel that the recording
 /// does not have; the errors of the readers.
-pub fn read_samples(
-    path: impl AsRef<Path>,
-    datatype: Option<Datatype>,
-    channel: usize,
-) -> Result<(Vec<C64>, Option<f64>)> {
+pub fn read_samples(path: impl AsRef<Path>, datatype: Option<Datatype>, channel: usize) -> Result<Samples> {
     let path = path.as_ref();
     let name = path.to_string_lossy();
     let channels = |n: usize| {
@@ -785,16 +790,16 @@ pub fn read_samples(
     if name.ends_with(".sigmf-meta") || name.ends_with(".sigmf-data") || name.ends_with(".sigmf") {
         let s = read_sigmf(path)?;
         channels(s.num_channels)?;
-        return Ok((s.channel(channel), s.sample_rate));
+        return Ok(Samples { samples: s.channel(channel), sample_rate: s.sample_rate });
     }
     channels(1)?;
     if name.ends_with(".npy") {
-        return Ok((read_npy(path)?.to_complex(), None));
+        return Ok(Samples { samples: read_npy(path)?.to_complex(), sample_rate: None });
     }
     let dt = datatype.ok_or_else(|| {
         Error::Config(format!("{}: a raw file needs a datatype (cf32_le, ci16_le, …)", path.display()))
     })?;
-    Ok((read_raw(path, dt)?, None))
+    Ok(Samples { samples: read_raw(path, dt)?, sample_rate: None })
 }
 
 #[cfg(test)]
@@ -962,7 +967,8 @@ mod tests {
         let r = read_sigmf(format!("{}.sigmf-data", base.display())).unwrap();
         assert_eq!(r.samples, x);
         assert_eq!(r.meta["global"]["comrs:symbol_rate"], json!(32e9));
-        let (s, fs) = read_samples(format!("{}.sigmf-meta", base.display()), None, 0).unwrap();
+        let Samples { samples: s, sample_rate: fs } =
+            read_samples(format!("{}.sigmf-meta", base.display()), None, 0).unwrap();
         assert_eq!((s.len(), fs), (16, Some(80e9)));
         assert!(read_samples(&base, None, 0).is_err());
         assert!(read_samples(format!("{}.sigmf-meta", base.display()), None, 1).is_err());

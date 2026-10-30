@@ -251,10 +251,10 @@ impl Frame {
         self.channel.faded_power.unwrap_or_else(|| self.mean_power())
     }
 
-    /// Mean power of the samples over every antenna.
+    /// Mean power of the samples over every antenna: their energy
+    /// ([`com_math::energy`]) over their number.
     pub fn mean_power(&self) -> f64 {
-        let (e, n) =
-            self.streams().fold((0.0, 0usize), |(e, n), x| (e + x.iter().map(C64::norm_sqr).sum::<f64>(), n + x.len()));
+        let (e, n) = self.streams().fold((0.0, 0usize), |(e, n), x| (e + com_math::energy(x), n + x.len()));
         if n == 0 { 0.0 } else { e / n as f64 }
     }
 

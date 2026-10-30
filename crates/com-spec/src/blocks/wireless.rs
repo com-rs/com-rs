@@ -228,26 +228,40 @@ struct Rayleigh {
     p: RayleighSpec,
 }
 
+/// A fading channel on every stream of the frame: the transmitted power, summed over
+/// the antennas, becomes the reference of the noise blocks, and `channel(x, fs, rng)`
+/// gives the received streams and the channel that a genie-aided receiver knows.
+fn fade(
+    s: &mut Frame,
+    rng: &mut Rng,
+    channel: impl FnOnce(&[Vec<C64>], f64, &mut Rng) -> Result<(Vec<Vec<C64>>, Csi)>,
+) -> Result<()> {
+    s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
+    let fs = s.fs();
+    let x = s.take_streams();
+    let (y, csi) = channel(&x, fs, rng)?;
+    s.set_streams(y);
+    s.channel.csi = Some(csi);
+    Ok(())
+}
+
 impl Block for Rayleigh {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        // the transmitted power, summed over the antennas: the reference of the noise
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, nr, n) = (x.len(), self.p.n_rx, x[0].len());
-        let correlation = if self.p.rx_correlation != 0.0 || self.p.tx_correlation != 0.0 {
-            Some(Kronecker::new(
-                exponential_correlation(nr, C64::new(self.p.rx_correlation, 0.0)),
-                exponential_correlation(nt, C64::new(self.p.tx_correlation, 0.0)),
-            )?)
-        } else {
-            None
-        };
-        let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
-        let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
-        let (y, hs) = model.apply(&x, rng)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Flat { h: hs, coherence: coh });
-        Ok(())
+        fade(s, rng, |x, _, rng| {
+            let (nt, nr, n) = (x.len(), self.p.n_rx, x[0].len());
+            let correlation = if self.p.rx_correlation != 0.0 || self.p.tx_correlation != 0.0 {
+                Some(Kronecker::new(
+                    exponential_correlation(nr, C64::new(self.p.rx_correlation, 0.0)),
+                    exponential_correlation(nt, C64::new(self.p.tx_correlation, 0.0)),
+                )?)
+            } else {
+                None
+            };
+            let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
+            let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
+            let (y, hs) = model.apply(x, rng)?;
+            Ok((y, Csi::Flat { h: hs, coherence: coh }))
+        })
     }
 }
 
@@ -288,16 +302,11 @@ impl TdlBlock {
 
 impl Block for TdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        // the transmitted power, summed over the antennas: the reference of the noise
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, n) = (x.len(), x[0].len());
-        let tdl = Tdl::new(&self.taps, self.doppler, s.fs(), self.n_rx, nt)?;
-        let taps = tdl.draw(n, rng);
-        let y = taps.apply(&x)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Taps(taps));
-        Ok(())
+        fade(s, rng, |x, fs, rng| {
+            let tdl = Tdl::new(&self.taps, self.doppler, fs, self.n_rx, x.len())?;
+            let taps = tdl.draw(x[0].len(), rng);
+            Ok((taps.apply(x)?, Csi::Taps(taps)))
+        })
     }
 }
 
@@ -339,23 +348,14 @@ impl CdlBlock {
 
 impl Block for CdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, n) = (x.len(), x[0].len());
-        let mut cdl = Cdl::new(
-            self.profile,
-            self.delay_spread,
-            s.fs(),
-            Array::linear(nt, self.spacing),
-            Array::linear(self.n_rx, self.spacing),
-        )?;
-        cdl.velocity = [0.0, self.velocity, 0.0];
-        cdl.carrier_frequency = self.carrier;
-        let taps = cdl.draw(n, rng)?;
-        let y = taps.apply(&x)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Taps(taps));
-        Ok(())
+        fade(s, rng, |x, fs, rng| {
+            let tx = Array::linear(x.len(), self.spacing);
+            let mut cdl = Cdl::new(self.profile, self.delay_spread, fs, tx, Array::linear(self.n_rx, self.spacing))?;
+            cdl.velocity = [0.0, self.velocity, 0.0];
+            cdl.carrier_frequency = self.carrier;
+            let taps = cdl.draw(x[0].len(), rng)?;
+            Ok((taps.apply(x)?, Csi::Taps(taps)))
+        })
     }
 }
 
