@@ -1,5 +1,5 @@
-//! One-dimensional searches: bisection and golden-section maximisation, and the
-//! greatest common divisor.
+//! One-dimensional searches: bisection, regula falsi and golden-section maximisation,
+//! and the greatest common divisor.
 //!
 //! # Model
 //!
@@ -14,12 +14,23 @@
 //! and it returns the middle of the last bracket, within $2^{-(n+1)}(b - a)$ of
 //! $x^{\star}$ after $n$ steps.
 //!
+//! [`regula_falsi`] finds a root of a continuous function $f$ whose values at the ends of
+//! the bracket have opposite signs, by the Illinois variant of the false position
+//! (Dowell & Jarratt 1971): the next point is the root of the chord,
+//!
+//! $$
+//! c = \frac{a f(b) - b f(a)}{f(b) - f(a)},
+//! $$
+//!
+//! which replaces the end of the same sign; when the same end is replaced twice in a row,
+//! the value kept at the other end is halved, which restores a superlinear convergence.
+//!
 //! [`golden_max`] shrinks a bracket of a unimodal function by the golden ratio
 //! $\varphi^{-1} = (\sqrt{5} - 1)/2$ at every step, with the two interior points
 //! $c = b - \varphi^{-1}(b - a)$ and $d = a + \varphi^{-1}(b - a)$; one evaluation per
 //! step, the bracket length multiplied by $\varphi^{-n}$ after $n$ steps (Kiefer 1953).
 //!
-//! Both keep the order of their operations (`0.5 * (lo + hi)`, no `f64::midpoint`;
+//! They keep the order of their operations (`0.5 * (lo + hi)`, no `f64::midpoint`;
 //! `docs/adr/0005-lint-exceptions.md`), so that the published values computed with them
 //! do not change.
 //!
@@ -42,6 +53,8 @@
 //! 2. W. H. Press, S. A. Teukolsky, W. T. Vetterling and B. P. Flannery, *Numerical
 //!    Recipes*, 3rd ed., Cambridge University Press, 2007, Sec. 9.1 (bisection) and
 //!    Sec. 10.2 (golden section search).
+//! 3. M. Dowell and P. Jarratt, "A modified regula falsi method for computing the root of
+//!    an equation," *BIT* 11(2), 168–174, 1971.
 
 /// The threshold of a predicate by `iters` bisection steps of the bracket `[lo, hi]`:
 /// `below(x)` must hold below the threshold and fail above it (see the module).
@@ -64,6 +77,45 @@ pub fn bisect(mut below: impl FnMut(f64) -> bool, lo: f64, hi: f64, iters: usize
         }
     }
     0.5 * (lo + hi)
+}
+
+/// A root of `f` between `a` and `b`, where `f` takes values of opposite signs, by at most
+/// `iters` steps of the Illinois regula falsi (see the module): the first point $c$ of
+/// $|f(c)| <$ `f_tol`, or the point computed when the bracket is shorter than `x_tol`;
+/// the middle of the bracket after `iters` steps.
+///
+/// # Examples
+/// ```
+/// use com_math::search::regula_falsi;
+/// let r = regula_falsi(|x| x * x * x - 2.0, 0.0, 2.0, 1e-12, 1e-14, 100);
+/// assert!((r - 2f64.cbrt()).abs() < 1e-12);
+/// ```
+pub fn regula_falsi(mut f: impl FnMut(f64) -> f64, a: f64, b: f64, x_tol: f64, f_tol: f64, iters: usize) -> f64 {
+    let (mut a, mut b) = (a, b);
+    let (mut fa, mut fb) = (f(a), f(b));
+    // the end replaced at the previous step: -1 for a, 1 for b
+    let mut side = 0;
+    for _ in 0..iters {
+        let c = (a * fb - b * fa) / (fb - fa);
+        let fc = f(c);
+        if fc.abs() < f_tol || (b - a).abs() < x_tol {
+            return c;
+        }
+        if (fc < 0.0) == (fa < 0.0) {
+            (a, fa) = (c, fc);
+            if side == -1 {
+                fb /= 2.0;
+            }
+            side = -1;
+        } else {
+            (b, fb) = (c, fc);
+            if side == 1 {
+                fa /= 2.0;
+            }
+            side = 1;
+        }
+    }
+    0.5 * (a + b)
 }
 
 /// The maximiser of a unimodal function `f` on `[a, b]` by `iters` steps of the golden
@@ -127,5 +179,15 @@ mod tests {
         let x = golden_max(|x| -(x - 2.5).abs(), -10.0, 10.0, 100);
         assert!((x - 2.5).abs() < 1e-9);
         assert_eq!((gcd(1, 1), gcd(36, 24), gcd(17, 0)), (1, 12, 17));
+    }
+
+    #[test]
+    fn regula_falsi_finds_the_roots_of_increasing_and_decreasing_functions() {
+        let up = regula_falsi(|x| x.exp() - 3.0, 0.0, 5.0, 1e-13, 1e-15, 200);
+        assert!((up - 3f64.ln()).abs() < 1e-12);
+        let down = regula_falsi(|x| 1.0 - x * x, 0.0, 4.0, 1e-13, 1e-15, 200);
+        assert!((down - 1.0).abs() < 1e-12);
+        // no step: the middle of the bracket
+        assert_eq!(regula_falsi(|x| x, -1.0, 3.0, 0.0, 0.0, 0), 1.0);
     }
 }
