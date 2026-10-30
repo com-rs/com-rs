@@ -138,11 +138,17 @@ impl PyImpulseResponse {
     }
 
     /// The total received power (W), the DC gain for an emitter of 1 W.
+    ///
+    /// Returns:
+    ///     float: the power (W).
     fn total_w(&self) -> f64 {
         self.inner.total_w()
     }
 
     /// The start of the first bin that holds power (s); `None` for no power.
+    ///
+    /// Returns:
+    ///     float | None: the time (s).
     fn first_arrival_s(&self) -> Option<f64> {
         self.inner.first_arrival_s()
     }
@@ -395,6 +401,9 @@ impl PyGammaGamma {
     /// Args:
     ///     rytov (float): `σ₁²`.
     ///     wave (str): `"plane"` or `"spherical"`.
+    ///
+    /// Returns:
+    ///     GammaGamma: the distribution.
     #[staticmethod]
     #[pyo3(signature = (rytov, wave="plane"))]
     fn from_rytov(rytov: f64, wave: &str) -> PyResult<Self> {
@@ -419,6 +428,9 @@ impl PyGammaGamma {
     }
 
     /// The scintillation index `1/α + 1/β + 1/(αβ)`.
+    ///
+    /// Returns:
+    ///     float: the scintillation index.
     fn scintillation_index(&self) -> f64 {
         self.inner.scintillation_index()
     }
@@ -474,11 +486,17 @@ impl PyPointingError {
     }
 
     /// The fraction `A₀ = erf²(v)` collected without displacement.
+    ///
+    /// Returns:
+    ///     float: `A₀`.
     fn a0(&self) -> f64 {
         self.inner.a0()
     }
 
     /// The equivalent beam radius (m).
+    ///
+    /// Returns:
+    ///     float: the radius (m).
     fn equivalent_radius_m(&self) -> f64 {
         self.inner.equivalent_radius_m()
     }
@@ -573,6 +591,9 @@ impl PyFso {
     }
 
     /// The scintillation index of the turbulence.
+    ///
+    /// Returns:
+    ///     float: the scintillation index.
     fn scintillation_index(&self) -> f64 {
         self.inner.turbulence.scintillation_index()
     }
@@ -677,6 +698,9 @@ impl PyPinFet {
     }
 
     /// The receiver of Komine & Nakagawa (2004), Tables II–III.
+    ///
+    /// Returns:
+    ///     PinFetReceiver: the receiver.
     #[staticmethod]
     fn komine2004() -> Self {
         let r = PinFetReceiver::komine2004();
@@ -699,6 +723,9 @@ impl PyPinFet {
     ///     signal_w (float): the power received inside the bit (W).
     ///     isi_w (float): the power spilled from the previous bits (W).
     ///     bandwidth_hz (float): the noise bandwidth (Hz).
+    ///
+    /// Returns:
+    ///     float: the variance (A²).
     fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
         self.to_rust().shot_variance(signal_w, isi_w, bandwidth_hz)
     }
@@ -708,6 +735,9 @@ impl PyPinFet {
     /// Args:
     ///     area_m2 (float): the area of the photodiode (m²).
     ///     bandwidth_hz (float): the noise bandwidth (Hz).
+    ///
+    /// Returns:
+    ///     float: the variance (A²).
     fn thermal_variance(&self, area_m2: f64, bandwidth_hz: f64) -> f64 {
         self.to_rust().thermal_variance(area_m2, bandwidth_hz)
     }
@@ -719,6 +749,9 @@ impl PyPinFet {
     ///     isi_w (float): the power spilled from the previous bits (W).
     ///     area_m2 (float): the area of the photodiode (m²).
     ///     bandwidth_hz (float): the noise bandwidth (Hz).
+    ///
+    /// Returns:
+    ///     float: the SNR (dB).
     fn ook_snr_db(&self, signal_w: f64, isi_w: f64, area_m2: f64, bandwidth_hz: f64) -> f64 {
         self.to_rust().ook_snr_db(signal_w, isi_w, area_m2, bandwidth_hz)
     }

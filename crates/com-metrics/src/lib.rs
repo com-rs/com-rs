@@ -9,6 +9,7 @@
 //! | [`errors`] | error counts and rates ([`bit_errors`], [`symbol_errors`], [`block_errors`], [`ber`]), SNR ([`snr_db`], [`effective_snr_db`]), [`ls_gain`], [`fast_ber_calc`], [`evm`], [`ber_to_q_db`] |
 //! | [`information`] | [`entropy`], [`monte_carlo_gmi`], [`monte_carlo_mi`], [`information_rates`], [`posterior_rates`] |
 //! | [`spectrum`] | PAPR and its CCDF, the adjacent channel leakage ratio, Welch's power spectral density (re-exported from `com_dsp::spectrum`) |
+//! | [`stability`] | the frequency stability of an oscillator from its phase: Allan, modified Allan and Hadamard variances (IEEE Std 1139) |
 //!
 //! The items of [`errors`] and [`information`] are re-exported at the root.
 //!
@@ -67,6 +68,7 @@ pub mod blind;
 pub mod errors;
 pub mod information;
 pub mod spectrum;
+pub mod stability;
 
 use com_core::{Error, Result, ensure, same_len};
 use com_dsp::signal::pnorm;

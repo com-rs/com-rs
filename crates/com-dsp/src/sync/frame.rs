@@ -13,6 +13,23 @@
 //!
 //! [`frame_sync`] estimates `(d̂, rotation)`, [`align`] applies them.
 //!
+//! # A sync word in binary data
+//!
+//! When a sync word $s_{0}, \dots, s_{L-1} \in \{\pm 1\}$ is embedded in equiprobable
+//! binary data, frames of $N$ symbols, the correlation $\sum_{i} s_{i} \rho_{i+\mu}$ is not
+//! the best rule: on the AWGN channel the most likely position maximises it minus a
+//! correction for the data around (Massey 1972, eqs. (5)–(6)),
+//!
+//! $$
+//! S(\mu) = \sum_{i=0}^{L-1} s_{i} \rho_{i+\mu} - \sum_{i=0}^{L-1} f(\rho_{i+\mu}), \qquad
+//! f(x) = \frac{1}{2\gamma} \ln\cosh(2 \gamma x),
+//! $$
+//!
+//! for the samples $\rho$ normalised to a unit signal amplitude and $\gamma = E/N_{0}$;
+//! with the sign ambiguity of a binary PSK detector, $\ln\cosh(2\gamma \sum_{i} s_{i}
+//! \rho_{i+\mu}) - \sum_{i} \ln\cosh(2\gamma \rho_{i+\mu})$ (their eq. (9)), against the
+//! absolute correlation. [`locate_sync_word`] applies a [`SyncRule`].
+//!
 //! # Periodic references
 //!
 //! A measured capture usually carries a periodic sequence (a PRBS, or a block of
@@ -42,6 +59,7 @@
 use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::fft;
+use com_math::ln_1p_exp;
 use std::f64::consts::TAU;
 use std::ops::Range;
 
@@ -189,4 +207,68 @@ pub fn periodic_offset(
         _ => phi,
     };
     Ok(PeriodicOffset { offset: k, rotation: C64::from_polar(1.0, -phi), quality })
+}
+
+/// The decision rule of [`locate_sync_word`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SyncRule {
+    /// The correlation $\sum_{i} s_{i} \rho_{i+\mu}$ (its absolute value with a sign ambiguity).
+    Correlation,
+    /// The optimum rule of Massey (1972) at the SNR $E/N_{0}$ `snr` (linear).
+    Optimum {
+        /// $E/N_{0}$ of a symbol (linear).
+        snr: f64,
+    },
+}
+
+/// $\ln\cosh y$ without overflow.
+fn ln_cosh(y: f64) -> f64 {
+    y.abs() - std::f64::consts::LN_2 + ln_1p_exp(-2.0 * y.abs())
+}
+
+/// The position $\hat\mu \in [0, N)$ of the sync word `sync` ($\pm 1$) in a frame `r` of $N$
+/// real detector outputs of unit signal amplitude, the frame read cyclically (the sync
+/// word is periodic), by the rule `rule`; `ambiguous` when the sign of the detector
+/// output is unknown (binary PSK, Massey 1972, Sec. III).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty sync word, one longer than the frame or a
+/// non-positive SNR.
+///
+/// # Examples
+/// ```
+/// use com_dsp::sync::frame::{locate_sync_word, SyncRule};
+/// let barker7 = [1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0];
+/// let mut r = vec![1.0; 28];
+/// r[10..17].copy_from_slice(&barker7);
+/// assert_eq!(locate_sync_word(&r, &barker7, SyncRule::Optimum { snr: 1.0 }, false)?, 10);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn locate_sync_word(r: &[f64], sync: &[f64], rule: SyncRule, ambiguous: bool) -> Result<usize> {
+    let (n, l) = (r.len(), sync.len());
+    ensure(l >= 1 && l <= n, || format!("a sync word of {l} symbols in a frame of {n}"))?;
+    if let SyncRule::Optimum { snr } = rule {
+        ensure(snr > 0.0, || format!("the SNR must be positive, got {snr}"))?;
+    }
+    let statistic = |mu: usize| {
+        let corr: f64 = (0..l).map(|i| sync[i] * r[(mu + i) % n]).sum();
+        match (rule, ambiguous) {
+            (SyncRule::Correlation, false) => corr,
+            (SyncRule::Correlation, true) => corr.abs(),
+            (SyncRule::Optimum { snr }, false) => {
+                corr - (0..l).map(|i| ln_cosh(2.0 * snr * r[(mu + i) % n])).sum::<f64>() / (2.0 * snr)
+            }
+            (SyncRule::Optimum { snr }, true) => {
+                ln_cosh(2.0 * snr * corr) - (0..l).map(|i| ln_cosh(2.0 * snr * r[(mu + i) % n])).sum::<f64>()
+            }
+        }
+    };
+    let mut best = (0, f64::NEG_INFINITY);
+    for mu in 0..n {
+        let v = statistic(mu);
+        if v > best.1 {
+            best = (mu, v);
+        }
+    }
+    Ok(best.0)
 }

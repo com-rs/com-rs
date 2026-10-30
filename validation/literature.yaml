@@ -61,15 +61,84 @@
     - specs/mimo_diversity.yaml
   badge: orange
   not_covered: "the textbook is not in references/: the formulas are quoted"
+- id: aulin1981
+  area: Waveforms
+  ref: "T. Aulin, C.-E. W. Sundberg, Continuous phase modulation - Part I: Full response signaling, TCOM 29(3), 1981"
+  module: com_waveform::cpm
+  tested: "Table I: the maximum of the distance bound of binary and quaternary CPFSK, 2.434 at h = 0.715 and 4.232 at h = 0.914; MSK at 2 and the 0.85 dB gain of h = 0.715"
+  tests:
+    - crates/com-waveform/src/cpm/mod.rs::aulin_sundberg_1981_table_i_optimum_cpfsk
+    - crates/com-waveform/src/cpm/mod.rs::anderson_aulin_sundberg_minimum_distance
+  badge: green
+  not_covered: "M = 8 to 32 (the CPM of the library is binary or quaternary); the minimum distances for finite observation lengths (Figs. 4-10) and the spectra (Figs. 11-14)"
+  remarks:
+    - "Table I prints 8.088 and 10.050 for M = 16 and 32, where the bound of eq. (33) peaks at 8.086 and 10.052"
+- id: loyka2001
+  area: Wireless channels
+  ref: "S. L. Loyka, Channel capacity of MIMO architecture using the exponential correlation matrix, IEEE Commun. Lett. 5(9), 2001"
+  module: com_channel::spatial, com_mimo::capacity
+  tested: "eq. (3) with the correlation (10): eq. (16) without correlation, independence of the phase of r, the approximation (13) within 3.5 % up to r = 0.8, Fig. 1 (30 dB, n = 10 and 50) within 5 %; the bound (5) on the mean capacity of the Rayleigh channel"
+  tests:
+    - validation/tests/loyka2001.rs::loyka_2001_eqs_3_to_16_and_fig_1
+    - validation/tests/loyka2001.rs::loyka_2001_eq_5_mean_capacity_of_the_rayleigh_channel
+  badge: green
+  not_covered: "the uniform correlation model of Fig. 1"
+  remarks:
+    - "the text finds the mean capacity of the Rayleigh channel about 20-40 % below the deterministic one; with rows of unit mean power it is 17.5 % below for n = 10 (Telatar's closed form at r = 0) and 20.5 % for n = 50: the simulation is not described"
+- id: massey1972
+  area: Receiver DSP
+  ref: "J. L. Massey, Optimum frame synchronization, TCOM 20(2), 1972"
+  module: com_dsp::sync::frame::locate_sync_word
+  tested: "Tables I-II: the error rates of the optimum and correlation rules, standard and PSK, for the Barker sequences of 13 and 7 and the Neuman-Hofman sequence of 13 at E/N0 = 1/2, 1, 2 (4000 trials against 100), and the 3 dB advantage of the optimum rule"
+  tests:
+    - validation/tests/massey1972.rs::massey_1972_table_i
+    - validation/tests/massey1972.rs::massey_1972_table_ii_psk
+  badge: green
+  not_covered: "Gaussian data (Sec. V)"
+  remarks:
+    - "the advantage of the Neuman-Hofman sequence over the Barker sequence with the correlation rule is smaller than the tables suggest (0.396 against 0.402 at E/N0 = 1/2; 0.32 against 0.42 in Table I, 100 trials)"
+- id: vakilian2013
+  area: Waveforms
+  ref: "V. Vakilian, T. Wild, F. Schaich, S. ten Brink, J.-F. Frigon, Universal-filtered multi-carrier technique for wireless systems beyond LTE, Globecom Workshops 2013"
+  module: com_waveform::ufmc
+  tested: "Fig. 3(b): the OFDM sidelobes (-26 dB 20 subcarriers away, -30 dB beyond) within 2 dB, UFMC below -60 dB from 17 to 20 subcarriers away (19 here)"
+  tests:
+    - validation/tests/vakilian2013.rs::vakilian_2013_fig_3b
+  badge: orange
+  not_covered: "the skirt of UFMC is 5-7 dB above the figure between 2 and 14 subcarriers (one realisation, filter not fully specified); the CoMP SER figures"
+- id: alvarado2018
+  area: Metrics and analysis
+  ref: "A. Alvarado, T. Fehenberger, B. Chen, F. M. J. Willems, Achievable information rates for fiber optics: applications and computations, JLT 36(2), 2018"
+  module: com_math::gauss_hermite, com_metrics::information::posterior_rates
+  tested: "Table III (Gauss-Hermite nodes and weights, J = 10); Remarks 4-5 and eq. (35): a mismatched metric loses rate, and its optimal scaling recovers the MI (symbol-wise) and the GMI (bit-wise)"
+  tests:
+    - validation/tests/alvarado2018.rs::alvarado_2018_table_iii_gauss_hermite_nodes
+    - validation/tests/alvarado2018.rs::alvarado_2018_remark_5_mismatched_metric_needs_its_scaling
+  badge: green
+  not_covered: "the MI and GMI curves of Figs. 2, 3, 8-10 (Cartesian products of PAM, not the QAM of the library); the fibre simulations of Fig. 4"
+  remarks:
+    - "the weights of Table III are truncated, not rounded, to nine decimals (0.0013436457 printed 0.001343645)"
+- id: ieee1139
+  area: Hardware impairments
+  ref: "IEEE Std 1139-2022, Standard definitions of physical quantities for fundamental frequency and time metrology - random instabilities"
+  module: com_metrics::stability, com_hardware::oscillator
+  tested: "Table B.2 for white frequency noise: the Allan and modified Allan variances of the Wiener phase (h0 = linewidth / pi) within 5 % from 10 to 1000 samples; Table B.1: the slope -1/2 of the Allan deviation; the Hadamard variance of eq. (A.31)"
+  tests:
+    - validation/tests/ieee1139.rs::ieee_1139_2022_table_b2_white_frequency_noise
+  badge: green
+  not_covered: "flicker and random-walk noises (the library generates white FM only); the phase noise given by L(f) at offsets; the total and parabolic deviations"
+  remarks:
+    - "Table B.2 gives the Hadamard variance of white FM as h0/(3 tau); its eq. (A.31) with eq. (B.2) gives h0/(2 tau), the Allan variance (16/6 x 3 pi / 16 / pi = 1/2), which the simulation follows"
 - id: pawula1982
   area: Foundations
   ref: "R. F. Pawula, S. O. Rice, J. H. Roberts, Distribution of the phase angle between two vectors perturbed by Gaussian noise, TCOM 30(8), 1982"
   module: com_mapping::differential
-  tested: "the BER of DQPSK and D8PSK (Sec. IV)"
+  tested: "Sec. IV-A: the symbol error rate of MDPSK, eq. (44), its asymptote (46) within 0.03 % at rho = 1000, the ratio Q of Fleck and Trabka's approximation (table after eq. (50)) within 3e-4, the BER of DQPSK of footnote 11; the BER of DQPSK and D8PSK against simulation"
   tests:
     - crates/com-mapping/src/differential.rs::pawula_rice_roberts_1982_mdpsk_ber
-  badge: orange
-  not_covered: "the paper is not in references/"
+    - crates/com-mapping/src/differential.rs::pawula_rice_roberts_1982_section_iv_a
+  badge: green
+  not_covered: "unequal SNRs and the phase error of the reference (Secs. II-C and IV-D); digital FM (Sec. IV-B, C)"
 - id: ts38212
   area: Coding and shaping
   ref: "3GPP TS 38.212 V18.5.0, NR multiplexing and channel coding"
@@ -140,19 +209,32 @@
   area: Coding and shaping
   ref: "Y. Polyanskiy, H. V. Poor, S. Verdú, Channel coding rate in the finite blocklength regime, IT 56(5), 2010"
   module: com_fec::bounds
-  tested: "the normal approximation is used as a bound of the NR codes, not compared with the paper"
-  tests: []
-  badge: red
-  not_covered: "the figures of the paper"
+  tested: "the normal approximation of the BSC, BEC and AWGN channels: the column \"Normal Approx.\" of Table I (blocklengths for R = 0.9 C) within 1 %"
+  tests:
+    - crates/com-fec/src/bounds.rs::polyanskiy_poor_verdu_2010_table_i
+  badge: green
+  not_covered: "the converse, RCU, DT and kappa-beta bounds of Table I and Figs. 1-13 (not implemented); the binary-input AWGN channel of the library is not in the paper"
+  remarks:
+    - "BSC(0.11): the normal approximation gives n = 3164 where Table I prints 3150"
+- id: tal2015
+  area: Coding and shaping
+  ref: "I. Tal, A. Vardy, List decoding of polar codes, IT 61(5), 2015"
+  module: com_fec::polar
+  tested: "Fig. 1: the word error rate of a (2048, 1024) polar code designed at 2 dB, SC at 1.5, 2 and 2.5 dB and a list of 8 at 1.5 and 2 dB, within a factor 1.6 (another construction), and the gain of the list over SC"
+  tests:
+    - validation/tests/tal2015.rs::tal_vardy_2015_fig_1
+  badge: orange
+  not_covered: "the decoders are O(L n^2 log n) per frame, not the O(L n log n) of Sec. IV (the list of 32 is too slow to check at 2 dB); the construction of Tal & Vardy 2013; Figs. 2, 6 and 7 (CRC-aided lists)"
 - id: yasuda1984
   area: Coding and shaping
   ref: "Y. Yasuda, K. Kashiki, Y. Hirata, High-rate punctured convolutional codes, TCOM 32(3), 1984"
   module: com_fec::puncture
-  tested: "Table I: the free distances of the K = 7 punctured codes"
+  tested: "Tables I-II: the free distances of the 84 punctured codes (rates 2/3 to 13/14, nu = 2 to 8) and of the 7 mother codes"
   tests:
     - crates/com-fec/src/puncture.rs::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes
-  badge: orange
-  not_covered: "the paper is not in references/"
+    - crates/com-fec/src/puncture.rs::yasuda_1984_tables_i_ii_every_punctured_code
+  badge: green
+  not_covered: "the weight spectra C_d of Table II and the BER of Figs. 3-5"
 - id: cimini1985
   area: Waveforms
   ref: "L. J. Cimini, Jr., Analysis and simulation of a digital mobile channel using OFDM, TCOM 33(7), 1985"
@@ -427,11 +509,11 @@
   area: MIMO
   ref: "V. Tarokh, H. Jafarkhani, A. R. Calderbank, Space-time block codes from orthogonal designs, IT 45(5), 1999"
   module: com_mimo::stbc
-  tested: "the rate-3/4 designs of eqs. (39)-(40) are orthogonal"
+  tested: "the rate-3/4 designs of eqs. (39)-(40), transcribed term by term, are orthogonal and decoded exactly by the library's linear decoder"
   tests:
     - crates/com-mimo/src/stbc.rs::tarokh_1999_rate_3_4_designs_are_orthogonal
   badge: green
-  not_covered: "the error rates of the paper"
+  not_covered: "the real orthogonal designs and the rate-1/2 complex designs of Secs. IV-V (not in the library); the paper has no error-rate figure"
 - id: yang2015
   area: MIMO
   ref: "S. Yang, L. Hanzo, Fifty years of MIMO detection, IEEE Commun. Surveys Tuts. 17(4), 2015"
@@ -558,11 +640,22 @@
   area: Optical
   ref: "J. Bromage, Raman amplification for fiber communications systems, JLT 22(1), 2004"
   module: com_channel::optical::raman
-  tested: "the Raman power equations (eqs. (1), (4)), checked through the recorded outputs of GNPy"
+  tested: "eqs. (3)-(5) and their two examples (SLA: 10 dB with 1.24 W; DCF: 250 mW), co-, counter- and bidirectional pumping within 1e-3 dB of the closed form; Figs. 7-8: the noise figure of the span and of span and amplifier at 0, 10 and 20 dB of on-off gain within 0.3 dB, and the minimum of the signal; the power equations through the recorded outputs of GNPy"
   tests:
+    - validation/tests/bromage2004.rs::bromage_2004_eqs_3_5_examples
+    - validation/tests/bromage2004.rs::bromage_2004_figs_7_8_noise_figure
     - tests/test_gnpy_oracle.py::test_power_profiles_and_spontaneous_noise_of_multi_pump_spans
-  badge: orange
-  not_covered: "no figure of the paper is reproduced"
+  badge: green
+  not_covered: "the pump loss of Figs. 7-8 is not given (0.22 dB/km fits both points of Fig. 8); the broad-band design of Fig. 6 and the second-order pumping of Fig. 19 (NZDF spectrum given as a figure only); double Rayleigh backscattering (Sec. V)"
+- id: hu2004
+  area: Optical
+  ref: "J. Hu, B. S. Marks, C. R. Menyuk, Flat-gain fiber Raman amplifiers using equally spaced pumps, JLT 22(6), 2004"
+  module: com_channel::optical::raman
+  tested: "eq. (2): the gain of every wave equals -alpha L + sum g I_j with the integrated powers of the solution, four counter- and one co-pump, 40 signals, within 1e-3 dB (8.4e-5 dB at most)"
+  tests:
+    - validation/tests/bromage2004.rs::hu_2004_eq_2_gain_from_the_integrated_powers
+  badge: green
+  not_covered: "the ripples of Table I (gain spectrum of Fig. 1 given as a figure only; no pump-power optimiser in the library)"
 - id: semrau2018
   area: Optical
   ref: "D. Semrau, P. Bayvel, The GN model in the presence of inter-channel stimulated Raman scattering, JLT 36(14), 2018"
@@ -612,10 +705,11 @@
   area: Hardware impairments
   ref: "L. Ding et al., A robust digital baseband predistorter constructed using memory polynomials, TCOM 52(1), 2004"
   module: com_hardware::amplifier, com_dsp::compensation::dpd
-  tested: "-"
-  tests: []
-  badge: red
-  not_covered: "the memory polynomial and its indirect learning against the results of the paper"
+  tested: "the amplifier of eq. (12); Example 2, Fig. 4: the regrowth of the amplifier (calibrated on curve (a), about -43 dB), lowered by more than 25 dB by the odd-order predistorter (Q = 2, K = 5; -70 and -72 dB against about -72) and by 3 to 6 dB more with the even orders (the text: 3-5 dB), a memoryless predistorter far worse"
+  tests:
+    - validation/tests/ding2004.rs::ding_2004_example_2_fig_4
+  badge: orange
+  not_covered: "the drive level is not given and is calibrated on Fig. 4(a); the Wiener-Hammerstein, Volterra and parallel Wiener amplifiers of Examples 1, 3 and 4"
 - id: pauluzzi2000
   area: Receiver DSP
   ref: "D. R. Pauluzzi, N. C. Beaulieu, A comparison of SNR estimation techniques for the AWGN channel, TCOM 48(10), 2000"
@@ -680,19 +774,27 @@
   area: Receiver DSP
   ref: "T. M. Schmidl, D. C. Cox, Robust frequency and timing synchronization for OFDM, TCOM 45(12), 1997"
   module: com_waveform::ofdm::sync
-  tested: "-"
-  tests: []
-  badge: red
-  not_covered: "the variance of the estimators against the paper (only qualitative self-tests)"
+  tested: "the mean and variance of the timing metric at the correct timing, eqs. (19)-(20), and outside the preamble, eq. (28); the variance of the fractional frequency offset, eqs. (43)-(44) and Fig. 8 (L = 512, 4000 trials)"
+  tests:
+    - validation/tests/schmidl1997.rs::schmidl_cox_1997_eqs_19_20_and_28_timing_metric
+    - validation/tests/schmidl1997.rs::schmidl_cox_1997_eq_43_frequency_offset_variance
+  badge: green
+  not_covered: "the integer offset from the second training symbol (eqs. (39)-(46)); the frequency-selective channels and Table II"
+  remarks:
+    - "eq. (43) holds at high SNR: the product of the noises of the two halves multiplies the variance by 1 + 1/(2 SNR), 1.5 at 0 dB"
 - id: swami2000
   area: Receiver DSP
   ref: "A. Swami, B. M. Sadler, Hierarchical digital modulation classification using cumulants, TCOM 48(3), 2000"
   module: com_metrics::blind
-  tested: "the normalised fourth-order cumulants of the alphabets (values quoted from memory)"
+  tested: "Table I: C40 and C42 of 13 alphabets to four decimals, the variances of the noiseless sample estimates of C40 (column 4) and of C42"
   tests:
-    - validation/tests/blind.rs
-  badge: orange
-  not_covered: "the paper is not in references/; the classification rates"
+    - validation/tests/blind.rs::swami_sadler_2000_table_1_cumulants
+    - validation/tests/blind.rs::swami_sadler_2000_table_1_variances
+  badge: green
+  not_covered: "V29, V32, V29c and 8AMPM; Table II and the classification rates of Sec. V"
+  remarks:
+    - "eqs. (10)-(11) and the last column of Table I are wrong: linearising C42 = M42 - 2 M21^2 gives N var = M84 - M42^2 + 4 M21 (6 M42 M21 - 2 M63 - 4 M21^3), which the sample estimates follow; PSK keeps a zero variance (12 printed), 64-QAM 1.39 (8.82), 4-PAM 10.2 (34.72), so that estimating C21 does not multiply the variance by 4 to 8 as the text says"
+    - "PAM(32) and QAM(8, 8) are rounded twice: -1.202346 printed -1.2024, -0.619048 printed -0.6191"
 - id: dvbs2
   area: Systems and standards
   ref: "ETSI EN 302 307-1 V1.4.1, DVB-S2"

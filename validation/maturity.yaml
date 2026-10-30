@@ -36,10 +36,10 @@
 - theme: Foundations
   name: "Differential PSK"
   modules: "`com_mapping::differential`, `com_mapping::theory::ber_dpsk`"
-  level: B
-  summary: "closed forms of Proakis & Salehi and Pawula, Rice & Roberts"
-  evidence: "• `crates/com-mapping/src/differential.rs`, `literature::proakis_dbpsk_noncoherent_ber` (½ e^{−Eb/N0}, Proakis & Salehi, 5th ed., Sec. 4.5), `literature::pawula_rice_roberts_1982_mdpsk_ber` (DQPSK, D8PSK; Pawula, Rice & Roberts, *IEEE Trans. Commun.* 30(8), 1982, Sec. IV), `literature::proakis_coherent_detection_with_differential_decoding` (2p(1 − p))<br>• the same from Python: `tests/test_differential.py::test_proakis_dbpsk_noncoherent_ber_at_8_db`, `::test_pawula_rice_roberts_dqpsk_noncoherent_ber_at_8_db`, `::test_proakis_coherent_detection_with_differential_decoding`"
-  gaps: "• no published curve or table; Pawula, Rice & Roberts listed as needed<br>• AWGN only"
+  level: A
+  summary: "Pawula, Rice & Roberts 1982 Sec. IV-A; closed forms of Proakis & Salehi"
+  evidence: "• `crates/com-mapping/src/differential.rs`, `literature::proakis_dbpsk_noncoherent_ber` (½ e^{−Eb/N0}, Proakis & Salehi, 5th ed., Sec. 4.5), `literature::pawula_rice_roberts_1982_mdpsk_ber` (DQPSK, D8PSK; Pawula, Rice & Roberts, *IEEE Trans. Commun.* 30(8), 1982, Sec. IV), `literature::pawula_rice_roberts_1982_section_iv_a` (their eq. (44), the asymptote (46), the table of Q after eq. (50), footnote 11), `literature::proakis_coherent_detection_with_differential_decoding` (2p(1 − p))<br>• the same from Python: `tests/test_differential.py::test_proakis_dbpsk_noncoherent_ber_at_8_db`, `::test_pawula_rice_roberts_dqpsk_noncoherent_ber_at_8_db`, `::test_proakis_coherent_detection_with_differential_decoding`"
+  gaps: "• AWGN only; unequal SNRs and a phase error of the reference (Pawula et al., Secs. II-C and IV-D) are not covered"
 - theme: Foundations
   name: "Error rates with an imperfect channel estimate and over Jakes' fading"
   modules: "`com_mapping::imperfect_csi`"
@@ -59,8 +59,8 @@
   modules: "`com_fec::puncture`"
   level: A
   summary: "Yasuda et al. Table I; patterns of IEEE 802.11 and EN 300 421"
-  evidence: "• `crates/com-fec/src/puncture.rs`, `literature::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes` (free distances 6, 5, 4, 3 at rates 2/3 to 7/8, Yasuda, Kashiki & Hirata, *IEEE Trans. Commun.* 32(3), 1984, Table I; the patterns of IEEE 802.11-2020 Figs. 17-9 and 19-11 and ETSI EN 300 421 Table 1)<br>• `tests/test_fec_codes.py::test_free_distance_yasuda_1984_table_i`, `::test_punctured_rate_3_4_over_awgn_is_better_than_uncoded`"
-  gaps: "• no error-rate curve of a punctured code against a reference<br>• Yasuda et al. and EN 300 421 listed as needed"
+  evidence: "• `crates/com-fec/src/puncture.rs`, `literature::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes` (free distances 6, 5, 4, 3 at rates 2/3 to 7/8, Yasuda, Kashiki & Hirata, *IEEE Trans. Commun.* 32(3), 1984, Table I; `literature::yasuda_1984_tables_i_ii_every_punctured_code`: the 84 codes of their Tables I–II, rates 2/3 to 13/14, ν = 2 to 8; the patterns of IEEE 802.11-2020 Figs. 17-9 and 19-11 and ETSI EN 300 421 Table 1)<br>• `tests/test_fec_codes.py::test_free_distance_yasuda_1984_table_i`, `::test_punctured_rate_3_4_over_awgn_is_better_than_uncoded`"
+  gaps: "• no error-rate curve of a punctured code against a reference; the weight spectra C_d of Yasuda et al. are not computed<br>• EN 300 421 listed as needed"
 - theme: Coding and shaping
   name: "Turbo codes (LTE)"
   modules: "`com_fec::turbo`, `com_fec::interleaving`"
@@ -81,7 +81,7 @@
   level: A
   summary: "AFF3CT, SC and CA-SCL"
   evidence: "• AFF3CT, recorded, on the frozen sets of com-rs: `validation/tests/aff3ct.rs::polar_256_sc_matches_aff3ct`, `::polar_1024_sc_matches_aff3ct` (ignored), `::polar_256_ca_scl_matches_aff3ct` (L = 8, CRC11 of 5G NR, ignored)<br>• `crates/com-fec/src/polar.rs::the_list_and_the_crc_lower_the_block_error_rate`"
-  gaps: "• the Gaussian-approximation construction is not compared with a reference (AFF3CT reads the frozen sets of com-rs)<br>• Fig. 1 of Tal & Vardy (*IEEE Trans. Inf. Theory* 61(5), 2015) still to compare (status needed); the NR polar sequence and rate matching (TS 38.212 Secs. 5.3.1, 5.4.1) are not implemented (status next)"
+  gaps: "• the Gaussian-approximation construction is not compared with a reference (AFF3CT reads the frozen sets of com-rs)<br>• Fig. 1 of Tal & Vardy (*IEEE Trans. Inf. Theory* 61(5), 2015) reproduced within a factor 1.6 (`validation/tests/tal2015.rs`, ignored), but SC and list decoding cost O(L n² log n) per frame, not O(L n log n); the NR polar sequence and rate matching (TS 38.212 Secs. 5.3.1, 5.4.1) are not implemented (status next)"
 - theme: Coding and shaping
   name: "5G NR channel codes: LDPC and polar with rate matching"
   modules: "`com_fec::nr`"
@@ -120,10 +120,10 @@
 - theme: Coding and shaping
   name: "Finite-length bounds"
   modules: "`com_fec::bounds`"
-  level: B
-  summary: "the Shannon limits of BPSK"
-  evidence: "`tests/test_performance.py::test_shannon_limits_of_bpsk` (0.187 dB at rate 1/2, −0.495 dB at 1/3), `crates/com-fec/src/bounds.rs::capacity_limits_and_monotonicity`"
-  gaps: "the normal approximation is not compared with the figures of Polyanskiy, Poor & Verdú (*IEEE Trans. Inf. Theory* 56(5), 2010)"
+  level: A
+  summary: "Polyanskiy, Poor & Verdú 2010 Table I; the Shannon limits of BPSK"
+  evidence: "• `crates/com-fec/src/bounds.rs`, `literature::polyanskiy_poor_verdu_2010_table_i` (Polyanskiy, Poor & Verdú, *IEEE Trans. Inf. Theory* 56(5), 2010, Table I: the normal approximation of the BSC, BEC and AWGN channels within 1 %)<br>• `tests/test_performance.py::test_shannon_limits_of_bpsk` (0.187 dB at rate 1/2, −0.495 dB at 1/3), `crates/com-fec/src/bounds.rs::capacity_limits_and_monotonicity`"
+  gaps: "• the converse and achievability bounds (RCU, DT, κβ) are not implemented; the binary-input AWGN channel is not in the paper (its dispersion is checked by quadrature only)"
 - theme: Coding and shaping
   name: "Distribution matching and probabilistic amplitude shaping"
   modules: "`com_fec::ccdm`, `com_systems::pas`"
@@ -141,10 +141,10 @@
 - theme: Waveforms
   name: "OFDM synchronisation (Schmidl–Cox)"
   modules: "`com_waveform::ofdm::sync`"
-  level: C
-  summary: "the error falls with the SNR"
-  evidence: "• `tests/test_performance.py::test_schmidl_cox_synchronisation` (timing within the prefix, frequency error decreasing with the SNR)<br>• `crates/com-waveform/src/ofdm/sync.rs::the_preamble_has_two_identical_halves_and_noise_hurts_gracefully`"
-  gaps: "the variance of the estimators is not compared with Schmidl & Cox (*IEEE Trans. Commun.* 45(12), 1997); Awoseyila et al. (*IEEE Trans. Consum. Electron.* 55(2), 2009, Figs. 4–6) listed as needed"
+  level: A
+  summary: "Schmidl & Cox 1997 eqs. (19), (20), (28) and (43)"
+  evidence: "• `validation/tests/schmidl1997.rs` (Schmidl & Cox, *IEEE Trans. Commun.* 45(12), 1997: the mean and variance of the timing metric at the correct timing and outside the preamble, eqs. (19), (20) and (28); the variance of the frequency estimate, eqs. (43)–(44), with the factor 1 + 1/(2 SNR) of the noise product at low SNR)<br>• `tests/test_performance.py::test_schmidl_cox_synchronisation` (timing within the prefix, frequency error decreasing with the SNR)<br>• `crates/com-waveform/src/ofdm/sync.rs::the_preamble_has_two_identical_halves_and_noise_hurts_gracefully`"
+  gaps: "• the integer frequency offset from the second training symbol is not implemented<br>• frequency-selective channels; Awoseyila et al. (*IEEE Trans. Consum. Electron.* 55(2), 2009, Figs. 4–6) listed as needed"
 - theme: Waveforms
   name: "PAPR: distribution and reduction"
   modules: "`com_waveform::papr`"
@@ -173,7 +173,7 @@
   level: A
   summary: "Murota & Hirade 1981 Table I and Fig. 5; Sundberg 1986 Fig. 5; MSK of Proakis & Salehi"
   evidence: "• `crates/com-waveform/src/cpm/mod.rs`, `literature::murota_hirade_1981_gmsk_bandwidths`, `literature::murota_hirade_1981_fig_5_minimum_distance` (Murota & Hirade, *IEEE Trans. Commun.* 29(7), 1981: the whole of Table I, the four power fractions of GMSK within 3 % and MSK within 2 %; the distance of GMSK of Fig. 5 within 0.02)<br>• `literature::sundberg_1986_fig_5_distance_of_binary_lrc` (Sundberg, *IEEE Commun. Mag.* 24(4), 1986, Fig. 5: the distance of binary 1RC to 6RC within 0.05)<br>• `crates/com-waveform/src/cpm/mod.rs`, `literature::proakis_msk_as_oqpsk_coherent_ber`, `literature::proakis_msk_power_spectrum` (Proakis & Salehi, 5th ed., Secs. 3.3-2 and 3.4-3), `literature::anderson_aulin_sundberg_minimum_distance` (Aulin & Sundberg, *IEEE Trans. Commun.* 29(3), 1981), `literature::simon_wang_1984_differential_detection_degrades_with_bt`<br>• `specs/validation/msk_bpsk.yaml` (CI)"
-  gaps: "• no published BER curve of GMSK or of partial-response CPM with sequence detection; quaternary CPM: self-consistency only<br>• Aulin & Sundberg (1981) listed as needed; Table I of Murota & Hirade prints 6.00 for the 99.99 % bandwidth of MSK, whose spectrum gives 5.67"
+  gaps: "• no published BER curve of GMSK or of partial-response CPM with sequence detection; quaternary CPM: self-consistency only<br>• Aulin & Sundberg 1981, Table I: binary and quaternary only (`literature::aulin_sundberg_1981_table_i_optimum_cpfsk`); Table I of Murota & Hirade prints 6.00 for the 99.99 % bandwidth of MSK, whose spectrum gives 5.67"
 - theme: Waveforms
   name: "FBMC/OQAM"
   modules: "`com_waveform::fbmc`"
@@ -184,10 +184,10 @@
 - theme: Waveforms
   name: "UFMC"
   modules: "`com_waveform::ufmc`"
-  level: C
-  summary: "orthogonality of the sub-bands; sidelobes against OFDM"
-  evidence: "• `crates/com-waveform/src/ufmc.rs::the_sub_bands_are_orthogonal_and_the_filters_unit_energy`, `::the_sidelobes_fall_faster_than_those_of_ofdm`; the Dolph–Chebyshev filter against SciPy (`crates/com-dsp/src/window.rs::chebyshev_is_that_of_scipy`)"
-  gaps: "Schaich & Wild (2014) give no figure; the parameters and results of Vakilian et al. (2013) are not in `references/`"
+  level: A
+  summary: "Vakilian et al. 2013 Fig. 3(b)"
+  evidence: "• `validation/tests/vakilian2013.rs` (Vakilian et al., *Proc. IEEE Globecom Workshops*, 2013, Fig. 3(b): the spectrum of one resource block against OFDM)<br>• `crates/com-waveform/src/ufmc.rs::the_sub_bands_are_orthogonal_and_the_filters_unit_energy`, `::the_sidelobes_fall_faster_than_those_of_ofdm`; the Dolph–Chebyshev filter against SciPy (`crates/com-dsp/src/window.rs::chebyshev_is_that_of_scipy`)"
+  gaps: "• the skirt of UFMC lies 5–7 dB above Fig. 3(b) of Vakilian et al. between 2 and 14 subcarriers (one realisation on the figure, its filter not fully specified)<br>• no error rate against a published curve"
 - theme: Waveforms
   name: "OTFS and the delay–Doppler channel"
   modules: "`com_waveform::otfs`, `com_channel::multipath::DelayDoppler`"
@@ -235,9 +235,9 @@
 - theme: Wireless channels
   name: "Flat fading and antenna correlation"
   modules: "`com_channel::{fading, spatial}`"
-  level: B
-  summary: "BPSK over Rayleigh fading; MRC"
-  evidence: "• `validation/tests/closed_forms.rs::bpsk_over_flat_rayleigh_follows_the_closed_form` (ignored)<br>• `tests/test_performance.py::test_bpsk_over_flat_rayleigh_fading`, `specs/mimo_diversity.yaml`<br>• `crates/com-channel/src/fading.rs::gains_have_unit_power_and_the_requested_coherence`, `::mimo_entries_have_unit_power_and_the_kronecker_correlation`, `::rician_mean_and_block_coherence`"
+  level: A
+  summary: "Loyka 2001 (exponential correlation, Fig. 1); BPSK over Rayleigh fading; MRC"
+  evidence: "• `validation/tests/loyka2001.rs` (Loyka, *IEEE Commun. Lett.* 5(9), 2001: the capacity with the exponential correlation, eqs. (3)–(16) and Fig. 1, the bound (5) on the mean capacity)<br>• `validation/tests/closed_forms.rs::bpsk_over_flat_rayleigh_follows_the_closed_form` (ignored)<br>• `tests/test_performance.py::test_bpsk_over_flat_rayleigh_fading`, `specs/mimo_diversity.yaml`<br>• `crates/com-channel/src/fading.rs::gains_have_unit_power_and_the_requested_coherence`, `::mimo_entries_have_unit_power_and_the_kronecker_correlation`, `::rician_mean_and_block_coherence`"
   gaps: "Rician fading and the Kronecker model: moments only, no error rate against a closed form"
 - theme: Wireless channels
   name: "Tapped and clustered delay lines (TDL, CDL)"
@@ -264,9 +264,9 @@
   name: "Raman amplification and ISRS"
   modules: "`com_channel::optical::raman`"
   level: A
-  summary: "GNPy outputs; Semrau & Bayvel 2018 eq. (10)"
-  evidence: "• GNPy 3.0, recorded: `tests/test_gnpy_oracle.py::test_power_profiles_and_spontaneous_noise_of_multi_pump_spans` (the power profiles of the channels and of a co-pump and two counter-pumps, the spontaneous noise; GNPy's Euler steps converge to them, 0.004 dB at 5 m)<br>• `crates/com-channel/src/optical/raman/mod.rs`, `literature::semrau_2018_eq_10_isrs_power_transfer` (Semrau & Bayvel, *J. Lightw. Technol.* 36(14), 2018, eq. (10), within 5 %)<br>• `specs/raman_wdm.yaml` (the GN model with the Raman power profiles, Semrau et al. 2019, within 0.21 dB; `tests/test_performance.py::test_specification_reproduces_its_closed_forms[raman_wdm]`)"
-  gaps: "the multi-pump designs of Perlin & Winful (*J. Lightw. Technol.* 20(2), 2002) cannot be reproduced: their gain spectrum is a figure only"
+  summary: "Bromage 2004 eqs. (3)–(5), Figs. 7–8; Hu et al. 2004 eq. (2); GNPy outputs; Semrau & Bayvel 2018 eq. (10)"
+  evidence: "• `validation/tests/bromage2004.rs` (Bromage, *J. Lightw. Technol.* 22(1), 2004: the small-signal gain of eqs. (3)–(5) and its two examples within 10⁻³ dB, the noise figures of Fig. 8 within 0.3 dB with one fitted pump loss; Hu, Marks & Menyuk, *J. Lightw. Technol.* 22(6), 2004, eq. (2): the gain of every wave from the integrated powers with depleted, interacting pumps within 10⁻⁴ dB)<br>• GNPy 3.0, recorded: `tests/test_gnpy_oracle.py::test_power_profiles_and_spontaneous_noise_of_multi_pump_spans` (the power profiles of the channels and of a co-pump and two counter-pumps, the spontaneous noise; GNPy's Euler steps converge to them, 0.004 dB at 5 m)<br>• `crates/com-channel/src/optical/raman/mod.rs`, `literature::semrau_2018_eq_10_isrs_power_transfer` (Semrau & Bayvel, *J. Lightw. Technol.* 36(14), 2018, eq. (10), within 5 %)<br>• `specs/raman_wdm.yaml` (the GN model with the Raman power profiles, Semrau et al. 2019, within 0.21 dB; `tests/test_performance.py::test_specification_reproduces_its_closed_forms[raman_wdm]`)"
+  gaps: "• the multi-pump designs of Perlin & Winful (2002) and Hu et al. (2004, Table I) cannot be reproduced: their gain spectra are figures only, and the library has no pump-power optimiser<br>• the pump loss of Bromage's Figs. 7–8 is not given (fitted: 0.22 dB/km); double Rayleigh backscattering is neglected"
 - theme: Optical
   name: "EDFA and PMD"
   modules: "`com_channel::optical::{edfa, pmd}`"
@@ -308,17 +308,17 @@
 - theme: Hardware impairments
   name: "Power amplifiers, IQ imbalance and digital predistortion"
   modules: "`com_hardware::{amplifier, iq}`, `com_dsp::compensation::dpd`"
-  level: C
-  summary: "properties of the models"
-  evidence: "• `crates/com-hardware/src/amplifier.rs::rapp_is_linear_then_saturates_and_its_inverse_is_exact`, `::saleh_peaks_at_its_saturation_input`, `::the_memory_polynomial_is_linear_at_low_power`<br>• `crates/com-hardware/src/iq.rs::zero_imbalances_are_the_identity`<br>• `crates/com-dsp/src/compensation/dpd.rs::the_fit_recovers_a_memory_polynomial`, `tests/test_performance.py::test_digital_predistortion_linearises_the_amplifier`"
-  gaps: "• the memory polynomial and its indirect learning are not compared with the results of Ding et al. (*IEEE Trans. Commun.* 52(1), 2004)<br>• IQ imbalance: no error rate against a closed form"
+  level: A
+  summary: "Ding et al. 2004 Fig. 4 (memory-polynomial predistortion)"
+  evidence: "• `validation/tests/ding2004.rs::ding_2004_example_2_fig_4` (Ding et al., *IEEE Trans. Commun.* 52(1), 2004: the amplifier of eq. (12) and Fig. 4, the regrowth lowered by more than 25 dB by the odd-order predistorter and by 3–6 dB more with the even orders)<br>• `crates/com-hardware/src/amplifier.rs::rapp_is_linear_then_saturates_and_its_inverse_is_exact`, `::saleh_peaks_at_its_saturation_input`, `::the_memory_polynomial_is_linear_at_low_power`<br>• `crates/com-hardware/src/iq.rs::zero_imbalances_are_the_identity`<br>• `crates/com-dsp/src/compensation/dpd.rs::the_fit_recovers_a_memory_polynomial`, `tests/test_performance.py::test_digital_predistortion_linearises_the_amplifier`"
+  gaps: "• Ding et al.: the drive level of Fig. 4 is not given (calibrated on its curve (a)); their Wiener–Hammerstein, Volterra and parallel Wiener amplifiers are not simulated<br>• IQ imbalance: no error rate against a closed form"
 - theme: Hardware impairments
   name: "Phase noise and frequency offset"
   modules: "`com_hardware::oscillator`"
-  level: B
-  summary: "the variance of the Wiener increments"
-  evidence: "`crates/com-hardware/src/oscillator.rs::wiener_increments_have_the_linewidth_variance` (2π Δν T), `::the_origins_differ_by_the_first_increment`, `::zero_impairments_are_the_identity`"
-  gaps: "no comparison of the penalty of a receiver with a published curve (see the carrier recovery row)"
+  level: A
+  summary: "IEEE Std 1139-2022 Table B.2 (Allan variances of white FM)"
+  evidence: "• `validation/tests/ieee1139.rs` (IEEE Std 1139-2022, Table B.2: the Allan, modified Allan and Hadamard variances of the Wiener phase, `com_metrics::stability`)<br>• `crates/com-hardware/src/oscillator.rs::wiener_increments_have_the_linewidth_variance` (2π Δν T), `::the_origins_differ_by_the_first_increment`, `::zero_impairments_are_the_identity`"
+  gaps: "• white frequency noise only: no phase noise given by a mask L(f) (flicker, white PM floor), as oscillators are specified<br>• no comparison of the penalty of a receiver with a published curve (see the carrier recovery row)"
 - theme: Hardware impairments
   name: "DAC and ADC"
   modules: "`com_hardware::converter`"
@@ -350,10 +350,10 @@
 - theme: Receiver DSP
   name: "Frame synchronisation"
   modules: "`com_dsp::sync::frame`"
-  level: C
-  summary: "the blocks find their offset"
-  evidence: "`crates/com-spec/src/blocks/tests.rs` (the `frame_sync` and `reference_sync` blocks), `tests/test_chain.py`, the example `coherent_link`"
-  gaps: "no unit test in `com_dsp::sync::frame`; no reference"
+  level: A
+  summary: "Massey 1972 Tables I–II (optimum rule)"
+  evidence: "• `validation/tests/massey1972.rs` (Massey, *IEEE Trans. Commun.* 20(2), 1972: `locate_sync_word`, the optimum and correlation rules, standard and PSK, Tables I–II and the 3 dB of the optimum rule)<br>• `crates/com-spec/src/blocks/tests.rs` (the `frame_sync` and `reference_sync` blocks), `tests/test_chain.py`, the example `coherent_link`"
+  gaps: "• `frame_sync` and `periodic_offset` (complex symbols, rotation) are checked through the blocks only"
 - theme: Receiver DSP
   name: "Adaptive equalisers"
   modules: "`com_dsp::equalizer`"
@@ -394,10 +394,10 @@
   name: "Receiver posteriors"
   short: "Receiver posteriors (`air` metrics)"
   modules: "`air` metrics) (`com_metrics::information::posterior_rates`"
-  level: C
-  summary: "consistency of the rates"
-  evidence: "`crates/com-metrics/src/lib.rs::noiseless_estimates`, `crates/comrs/tests/links.rs::information_rates_are_ordered_and_bounded`"
-  gaps: "no comparison with a published mismatched-decoding rate"
+  level: A
+  summary: "Alvarado et al. 2018 Remarks 4–5, eq. (35)"
+  evidence: "• `validation/tests/alvarado2018.rs` (Alvarado et al., *J. Lightw. Technol.* 36(2), 2018: a mismatched metric, symbol-wise or bit-wise, recovers the MI or the GMI with its optimal scaling; Table III)<br>• `crates/com-metrics/src/lib.rs::noiseless_estimates`, `crates/comrs/tests/links.rs::information_rates_are_ordered_and_bounded`"
+  gaps: "• no published curve of a rate with mismatched posteriors (the curves of Alvarado et al. use Cartesian products of PAM)"
 - theme: Metrics and analysis
   name: "Spectral metrics (PSD, ACLR, PAPR, CCDF)"
   modules: "`com_metrics::spectrum`"

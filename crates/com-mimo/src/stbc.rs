@@ -385,10 +385,10 @@ mod literature {
 
     /// V. Tarokh, H. Jafarkhani and A. R. Calderbank, "Space-time block codes from
     /// orthogonal designs," IEEE Trans. Inf. Theory 45(5), 1999, eqs. (39) and (40)
-    /// (pp. 1464-1465): the rate-3/4 designs for three and four antennas built from
-    /// amicable designs. The library's rate-3/4 code is another (sporadic) design; the
-    /// paper's are accepted by the orthogonality check of `from_generator` and decoded
-    /// exactly without noise.
+    /// (pp. 1464-1465, checked term by term against the paper): the rate-3/4 designs for
+    /// three and four antennas, (39) being the first three columns of (40). The library's
+    /// rate-3/4 code is another (sporadic) design; the paper's are accepted by the
+    /// orthogonality check of `from_generator` and decoded exactly without noise.
     #[test]
     fn tarokh_1999_rate_3_4_designs_are_orthogonal() {
         let r2 = std::f64::consts::SQRT_2;

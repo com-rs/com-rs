@@ -1,10 +1,17 @@
 //! Blind estimation (`comrs::metrics::blind`, `comrs::dsp::cyclo`):
 //!
-//! - the normalised fourth-order cumulants of the common alphabets, against the values of
-//!   A. Swami and B. M. Sadler, "Hierarchical digital modulation classification using
-//!   cumulants," *IEEE Trans. Commun.* 48(3), 2000 (quoted from memory, to be checked
-//!   against the table of the paper: `references/README.md`, status needed), which are
-//!   also exact moments of the alphabets;
+//! - Table I of A. Swami and B. M. Sadler, "Hierarchical digital modulation
+//!   classification using cumulants," *IEEE Trans. Commun.* 48(3), 416–429, 2000: the
+//!   cumulants $C_{40}$ and $C_{42}$ of 13 alphabets and the variances of their noiseless
+//!   sample estimates (columns 4 and 5). Its last column, the variance of $\hat{C}_{42}$
+//!   with $C_{21}$ estimated (their eqs. (10)–(11)), is wrong: linearising
+//!   $\hat{C}_{42} = \hat{M}_{42} - 2 \hat{M}_{21}^{2}$ gives
+//!   $N \operatorname{var} \approx M_{84} - M_{42}^{2} + 4 M_{21} (6 M_{42} M_{21} - 2 M_{63} - 4 M_{21}^{3})$
+//!   (and $M_{84} - M_{42}^{2} + 36 M_{21}^{2}(M_{42} - M_{21}^{2}) - 12 M_{21}(M_{63} - M_{42} M_{21})$ for
+//!   real alphabets), which the sample cumulants follow, where the paper prints $3$ and
+//!   $+2$ for $6$ and $-4$: PSK keeps a zero variance (12 printed), 64-QAM 1.39 (8.82
+//!   printed, so that estimating $C_{21}$ lowers the variance instead of multiplying it
+//!   by 4 to 8 as the text says), 4-PAM 10.2 (34.72 printed);
 //! - the sample cumulants are consistent: their features converge to the theoretical
 //!   ones in Gaussian noise whatever the SNR, the noise variance known;
 //! - the likelihood classifier of Wei & Mendel (*IEEE Trans. Commun.* 48(2), 2000), the
@@ -28,21 +35,84 @@ fn noisy(c: &Constellation, n: usize, s2: f64, rng: &mut Rng) -> Vec<C64> {
     (0..n).map(|_| c.points()[rng.below(c.order())] + rng.complex_gaussian() * s2.sqrt()).collect()
 }
 
+/// Swami & Sadler (2000), Table I, columns 2–3: $C_{40}$ (signed) and $C_{42}$ of unit-energy
+/// alphabets, to the four decimals of the table. Two values are rounded twice: PAM(32),
+/// −1.202346, printed −1.2024, and QAM(8, 8), −13/21 = −0.619048, printed −0.6191.
 #[test]
-fn normalised_cumulants_of_swami_and_sadler() {
-    // |C40| / C21² and C42 / C21²
+fn swami_sadler_2000_table_1_cumulants() {
     let table = [
-        (Constellation::psk(2).unwrap(), 2.0, -2.0),
-        (Constellation::pam(4).unwrap(), 1.36, -1.36),
-        (Constellation::pam(8).unwrap(), 1.2381, -1.2381),
-        (Constellation::qam(4).unwrap(), 1.0, -1.0),
+        (Constellation::psk(2).unwrap(), -2.0, -2.0),
+        (Constellation::pam(4).unwrap(), -1.36, -1.36),
+        (Constellation::pam(8).unwrap(), -1.2381, -1.2381),
+        (Constellation::pam(16).unwrap(), -1.2094, -1.2094),
+        (Constellation::pam(32).unwrap(), -1.2024, -1.2024),
+        (Constellation::pam(64).unwrap(), -1.2006, -1.2006),
+        (Constellation::psk(4).unwrap(), 1.0, -1.0),
         (Constellation::psk(8).unwrap(), 0.0, -1.0),
-        (Constellation::qam(16).unwrap(), 0.68, -0.68),
-        (Constellation::qam(64).unwrap(), 0.6190, -0.6190),
+        (Constellation::psk(16).unwrap(), 0.0, -1.0),
+        (Constellation::qam(16).unwrap(), -0.68, -0.68),
+        (Constellation::qam(64).unwrap(), -0.6191, -0.6191),
+        (Constellation::qam(256).unwrap(), -0.6047, -0.6047),
+        (Constellation::qam(1024).unwrap(), -0.6012, -0.6012),
     ];
     for (c, c40, c42) in table {
-        let (a, b) = Cumulants::of_constellation(&c, None).unwrap().features(None);
-        assert!((a - c40).abs() < 5e-5 && (b - c42).abs() < 5e-5, "{:?} {}: {a} {b}", c.kind(), c.order());
+        let t = Cumulants::of_constellation(&c, None).unwrap();
+        let (a, b) = (t.c40_normalized(), t.c42_normalized());
+        // the last digit of PAM(32) and QAM(8, 8) is one unit off
+        let twice_rounded = c40 == -1.2024 || c40 == -0.6191;
+        let tol = if twice_rounded { 1e-4 } else { 5e-5 };
+        assert!((a.re - c40).abs() < tol && a.im.abs() < 1e-9, "{:?} {}: C40 {a}", c.kind(), c.order());
+        assert!((b - c42).abs() < tol, "{:?} {}: C42 {b}", c.kind(), c.order());
+    }
+}
+
+/// $N \operatorname{var}$ of the sample estimates of noiseless unit-energy symbols ($N = 1000$,
+/// 4000 blocks): $\hat{C}_{40}$ against column 4 of Table I (within 10 %), $\hat{C}_{42}$, whose
+/// power $C_{21}$ is estimated, against the linearisation of the module (within 10 %) and
+/// not against the last column (see the module).
+#[test]
+fn swami_sadler_2000_table_1_variances() {
+    let (n, blocks) = (1000, 4000);
+    let mut rng = Rng::new(2000);
+    let moment =
+        |c: &Constellation, k: i32| c.points().iter().map(|a| a.norm_sqr().powi(k)).sum::<f64>() / c.order() as f64;
+    // alphabet, column 4 (C40 with C20 known), column 6 as printed
+    let cases = [
+        (Constellation::psk(4).unwrap(), 0.0, 12.0),
+        (Constellation::psk(8).unwrap(), 1.00, 12.0),
+        (Constellation::qam(16).unwrap(), 2.66, 9.54),
+        (Constellation::qam(64).unwrap(), 3.58, 8.82),
+        (Constellation::pam(4).unwrap(), f64::NAN, 34.72),
+    ];
+    for (c, col4, col6) in cases {
+        let c = c.normalized();
+        let real = c.points().iter().all(|a| a.im.abs() < 1e-12);
+        let (mut c40, mut c42) = (Vec::with_capacity(blocks), Vec::with_capacity(blocks));
+        for _ in 0..blocks {
+            let r: Vec<C64> = (0..n).map(|_| c.points()[rng.below(c.order())]).collect();
+            let t = Cumulants::estimate(&r).unwrap();
+            c40.push(t.c40);
+            c42.push(t.c42);
+        }
+        let var = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            n as f64 * v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64
+        };
+        let mean40 = c40.iter().sum::<C64>() / blocks as f64;
+        let v40 = n as f64 * c40.iter().map(|x| (x - mean40).norm_sqr()).sum::<f64>() / blocks as f64;
+        let v42 = var(&c42);
+        let (m21, m42, m63, m84) = (moment(&c, 1), moment(&c, 2), moment(&c, 3), moment(&c, 4));
+        let delta = if real {
+            m84 - m42 * m42 + 36.0 * m21 * m21 * (m42 - m21 * m21) - 12.0 * m21 * (m63 - m42 * m21)
+        } else {
+            m84 - m42 * m42 + 4.0 * m21 * (6.0 * m42 * m21 - 2.0 * m63 - 4.0 * m21.powi(3))
+        };
+        let name = format!("{:?} {}", c.kind(), c.order());
+        if !real {
+            assert!((v40 - col4).abs() < 0.1 * col4.max(0.5), "{name}: N var C40 {v40} vs {col4}");
+        }
+        assert!((v42 - delta).abs() < 0.1 * delta.max(0.1), "{name}: N var C42 {v42} vs {delta}");
+        assert!(v42 < col6 / 3.0, "{name}: N var C42 {v42}, printed {col6}");
     }
 }
 

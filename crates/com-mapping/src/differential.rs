@@ -290,9 +290,10 @@ mod tests {
 #[cfg(test)]
 mod literature {
     use super::*;
-    use crate::theory::{ber_dbpsk_coherent, ber_dpsk};
+    use crate::theory::{ber_dbpsk_coherent, ber_dpsk, differential_phase_tail};
     use com_core::rng::Rng;
-    use com_math::db2lin;
+    use com_math::{db2lin, erfc};
+    use std::f64::consts::PI;
 
     /// Unit-energy symbols plus noise at `ebn0_db` for `bits` bits per symbol:
     /// `N_0 = 1 / (bits · E_b/N_0)`.
@@ -365,6 +366,44 @@ mod literature {
             let want = ber_dpsk(m, ebn0_db).unwrap();
             let tol = 3.0 / (want * n as f64).sqrt();
             assert!((got / want - 1.0).abs() < tol, "M = {m} at {ebn0_db} dB: {got:e} vs {want:e}");
+        }
+    }
+
+    /// Pawula, Rice & Roberts (1982), Section IV-A: the symbol error rate of M-DPSK is
+    /// their eq. (44), which [`differential_phase_tail`] computes at $\psi = \pi/M$; it
+    /// tends to the asymptote (46), $\sqrt{(1 + \cos(\pi/M))/(2\cos(\pi/M))}
+    /// \operatorname{erfc}\sqrt{\rho(1 - \cos(\pi/M))}$ (ratio within 0.3 % at $\rho = 100$,
+    /// 0.03 % at 1000); the approximation (47) of Fleck & Trabka over it tends to the
+    /// ratio $Q$ tabulated after eq. (50), 0.9186, 0.9768, 0.9987 and 0.9999 for $M = 3$,
+    /// 4, 8 and 16 (within 3e-4 at $\rho = 1000$); and, footnote 11, the bit error rate of
+    /// DQPSK is $\frac{1}{2} P_{E}(4) + P\{3\pi/4 < \psi \le \pi\}$, the last term
+    /// $\sim e^{-\rho}/(2\pi\rho)$ (within 8 % at 10 dB, 4 % at 15 dB), so that
+    /// $P_{B}(4) \approx \frac{1}{2} P_{E}(4)$, not the $\frac{2}{3} P_{E}(4)$ of orthogonal
+    /// signals.
+    #[test]
+    fn pawula_rice_roberts_1982_section_iv_a() {
+        let pe = |m: f64, rho: f64| differential_phase_tail(PI / m, rho);
+        for (m, q) in [(3.0, 0.9186), (4.0, 0.9768), (8.0, 0.9987), (16.0, 0.9999)] {
+            let c = (PI / m).cos();
+            let asymptote = |rho: f64| ((1.0 + c) / (2.0 * c)).sqrt() * erfc((rho * (1.0 - c)).sqrt());
+            let fleck_trabka = |rho: f64| {
+                let x = (rho * (1.0 - c)).sqrt();
+                erfc(x) + x * (-x * x).exp() / (4.0 * PI.sqrt() * (rho + 0.125))
+            };
+            for (rho, tol) in [(100.0, 3e-3), (1000.0, 3e-4)] {
+                let r = pe(m, rho) / asymptote(rho);
+                assert!((r - 1.0).abs() < tol, "M = {m}, rho = {rho}: (44)/(46) = {r}");
+            }
+            let ratio = fleck_trabka(1000.0) / pe(m, 1000.0);
+            assert!((ratio - q).abs() < 3e-4, "M = {m}: Q = {ratio} vs {q}");
+        }
+        for (rho_db, tol) in [(10.0, 0.08), (15.0, 0.04)] {
+            let rho = db2lin(rho_db);
+            let tail = 0.5 * differential_phase_tail(3.0 * PI / 4.0, rho);
+            let pb = ber_dpsk(4, rho_db - com_math::lin2db(2.0)).unwrap();
+            assert!((pb / (0.5 * pe(4.0, rho) + tail) - 1.0).abs() < 1e-10, "{rho_db} dB: {pb:e}");
+            let approx = (-rho).exp() / (2.0 * PI * rho);
+            assert!((tail / approx - 1.0).abs() < tol, "{rho_db} dB: {tail:e} vs {approx:e}");
         }
     }
 }

@@ -649,6 +649,21 @@ mod literature {
         );
     }
 
+    /// T. Aulin and C.-E. W. Sundberg, "Continuous phase modulation—Part I: Full response
+    /// signaling," IEEE Trans. Commun. 29(3), 196–209, 1981, Table I: the upper bound
+    /// $d_{B}^{2}$ of M-ary CPFSK reaches its maximum 2.434 at `h = 0.715` for `M = 2` and
+    /// 4.232 at `h = 0.914` for `M = 4` (here at `h = 5/7` and `32/35`, within 1e-3); with
+    /// `h = 1/2` binary CPFSK is MSK, `d² = 2`, and the gain of `h = 0.715` is 0.85 dB.
+    #[test]
+    fn aulin_sundberg_1981_table_i_optimum_cpfsk() {
+        let bound = |order: usize, h_num: u32, h_den: u32| {
+            CpmConfig { order, h_num, h_den, ..CpmConfig::msk(8) }.build().unwrap().min_distance2(2)
+        };
+        let (b2, b4) = (bound(2, 5, 7), bound(4, 32, 35));
+        assert!((b2 - 2.434).abs() < 1e-3 && (b4 - 4.232).abs() < 1e-3, "{b2} and {b4}");
+        assert!((com_math::lin2db(b2 / bound(2, 1, 2)) - 0.85).abs() < 0.01);
+    }
+
     /// C.-E. Sundberg, "Continuous phase modulation," IEEE Commun. Mag. 24(4), 25–38,
     /// 1986, Fig. 5: the upper bound $d_{B}^{2}$ of binary LRC against $h$, read on the
     /// figure (within 0.05): at `h = 1/2`, 2 for 1RC (the MSK point, where 2RC lies just
