@@ -37,8 +37,7 @@
 //!    *IEEE Trans. Commun.*, 52(1), 159–165, 2004.
 
 use com_core::prelude::*;
-use com_dsp::compensation::dpd::polynomial_term;
-use com_dsp::filter::convolve_full;
+use com_dsp::compensation::dpd::memory_polynomial;
 use com_dsp::signal::map_envelope;
 use com_math::cis;
 
@@ -183,15 +182,10 @@ impl MemoryPolynomial {
 
     /// Amplify a block: every term is the causal filtering of its basis
     /// ($y\[n\] = \sum_{k} \sum_{m} a_{km}\, x\[n - m\] |x\[n - m\]|^{k - 1}$), the samples
-    /// before the block taken as zero.
+    /// before the block taken as zero ([`memory_polynomial`], the kernel of the
+    /// predistorter).
     pub fn amplify(&self, x: &[C64]) -> Vec<C64> {
-        let mut y = vec![C64::new(0.0, 0.0); x.len()];
-        for (k, taps) in &self.terms {
-            for (yn, v) in y.iter_mut().zip(convolve_full(taps, &polynomial_term(x, *k))) {
-                *yn += v;
-            }
-        }
-        y
+        memory_polynomial(x, self.terms.iter().map(|(k, taps)| (*k, taps.as_slice())))
     }
 
     /// The small-signal gain $a_{10}$ (the first tap of the linear term).
@@ -246,6 +240,27 @@ mod tests {
         let lin: C64 = pa.terms[0].1.iter().sum::<C64>() * 1e-4;
         assert!((y[9] - lin).norm() < 1e-9);
         assert_eq!(pa.linear_gain(), C64::new(1.0513, 0.0904));
+    }
+
+    /// The amplifier evaluated its terms itself before the kernel was shared with the
+    /// predistorter: the results are bit-identical.
+    #[test]
+    fn the_shared_kernel_is_the_former_evaluation() {
+        use com_dsp::compensation::dpd::polynomial_term;
+        use com_dsp::filter::convolve_full;
+        let mut r = Rng::new(3);
+        let x: Vec<C64> = (0..5000).map(|_| r.complex_gaussian() * 0.3).collect();
+        let long =
+            MemoryPolynomial { terms: vec![(1, vec![C64::new(0.9, 0.1); 40]), (3, vec![C64::new(-0.1, 0.0); 2])] };
+        for pa in [MemoryPolynomial::ding2004(), long] {
+            let mut old = vec![C64::new(0.0, 0.0); x.len()];
+            for (k, taps) in &pa.terms {
+                for (yn, v) in old.iter_mut().zip(convolve_full(taps, &polynomial_term(&x, *k))) {
+                    *yn += v;
+                }
+            }
+            assert_eq!(pa.amplify(&x), old);
+        }
     }
 }
 
