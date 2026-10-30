@@ -32,9 +32,10 @@
 //! flooding, or layered (row by row with immediate updates, Hocevar 2004), which
 //! converges in about half the iterations; decoding stops as soon as $H \hat c = 0$.
 //!
-//! The decoder settings of a new code are the defaults of the crate, which the
-//! specifications (`com_spec`) and the Python bindings also take: [`DEFAULT_RULE`]
-//! (sum-product), [`DEFAULT_LAYERED`] (layered) and [`DEFAULT_MAX_ITERATIONS`] (50);
+//! The decoder settings of a new code ([`LdpcDecoder`], the field `decoder`) are the
+//! defaults of the crate, which the specifications (`com_spec`) and the Python bindings
+//! also take: [`DEFAULT_RULE`] (sum-product), [`DEFAULT_LAYERED`] (layered) and
+//! [`DEFAULT_MAX_ITERATIONS`] (50);
 //! [`DEFAULT_ALPHA`] is the scale or the offset of a min-sum rule named without it,
 //! [`DEFAULT_VAR_DEGREE`] and [`DEFAULT_PEG_SEED`] those of a PEG construction.
 //!
@@ -66,7 +67,7 @@
 //! 5. T. Richardson and R. Urbanke, *Modern Coding Theory*, Cambridge University Press,
 //!    2008.
 
-use crate::block::{BlockCode, container_traits, expect_len};
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len};
 use com_core::{Error, Result, ensure};
 use com_math::gf2;
 use std::collections::VecDeque;
@@ -85,6 +86,11 @@ pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 pub const DEFAULT_VAR_DEGREE: usize = 3;
 /// The default seed of a PEG construction.
 pub const DEFAULT_PEG_SEED: u64 = 1;
+
+/// The bound of $|\prod \tanh|$ in the check node of the sum-product rule, so that its
+/// $\operatorname{atanh}$ stays finite (a message of at most $2 \operatorname{atanh}(1 -
+/// 10^{-12}) \approx 28.3$).
+const TANH_BOUND: f64 = 0.999_999_999_999;
 
 /// The check-node rule of the decoder.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,25 +160,53 @@ enum Encoder {
     Core { core: usize, solve: Vec<Vec<usize>> },
 }
 
+/// The settings of the belief-propagation decoder of an [`LdpcCode`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LdpcDecoder {
+    /// The check-node rule.
+    pub rule: CheckRule,
+    /// Layered (true) or flooding schedule.
+    pub layered: bool,
+    /// Maximum iterations (0: the channel LLRs are returned as they are).
+    pub max_iterations: usize,
+}
+
+impl Default for LdpcDecoder {
+    /// [`DEFAULT_RULE`], [`DEFAULT_LAYERED`], [`DEFAULT_MAX_ITERATIONS`].
+    fn default() -> LdpcDecoder {
+        LdpcDecoder { rule: DEFAULT_RULE, layered: DEFAULT_LAYERED, max_iterations: DEFAULT_MAX_ITERATIONS }
+    }
+}
+
 /// An LDPC code with its systematic encoder and its decoder settings.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LdpcCode {
     n: usize,
     /// The variable nodes of every check node (the rows of $H$).
     rows: Vec<Vec<usize>>,
+    /// The messages of check `c` sit at `start[c]..start[c + 1]` of the edges (row
+    /// after row), computed once with the rows.
+    start: Vec<usize>,
     /// Positions of the information bits in the codeword.
     info: Vec<usize>,
     /// How the parity bits follow from the information bits.
     encoder: Encoder,
-    /// The check-node rule.
-    pub rule: CheckRule,
-    /// Layered (true) or flooding schedule.
-    pub layered: bool,
-    /// Maximum iterations.
-    pub max_iterations: usize,
+    /// The decoder settings.
+    pub decoder: LdpcDecoder,
 }
 
 impl LdpcCode {
+    /// The code of checked rows, its information positions and its encoder, with the
+    /// edge offsets of the decoder and the default settings.
+    fn assemble(n: usize, rows: Vec<Vec<usize>>, info: Vec<usize>, encoder: Encoder) -> LdpcCode {
+        let mut start = Vec::with_capacity(rows.len() + 1);
+        start.push(0);
+        for row in &rows {
+            start.push(start[start.len() - 1] + row.len());
+        }
+        LdpcCode { n, rows, start, info, encoder, decoder: LdpcDecoder::default() }
+    }
+
     /// The code of the parity-check matrix whose rows list the variable nodes of every
     /// check; $k = n - \operatorname{rank} H$.
     ///
@@ -193,15 +227,7 @@ impl LdpcCode {
             .enumerate()
             .map(|(row, &c)| (c, info.iter().copied().filter(|&v| m.get(row, v)).collect()))
             .collect();
-        Ok(LdpcCode {
-            n,
-            rows,
-            info,
-            encoder: Encoder::Sums(parity),
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, info, Encoder::Sums(parity)))
     }
 
     /// An irregular repeat-accumulate code: check $r$ of `rows` holds information bits
@@ -226,15 +252,7 @@ impl LdpcCode {
             })?;
             ensure(row.iter().all(|&v| v < n), || "a check refers to a missing variable".into())?;
         }
-        Ok(LdpcCode {
-            n,
-            rows,
-            info: (0..k).collect(),
-            encoder: Encoder::Accumulate,
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, (0..k).collect(), Encoder::Accumulate))
     }
 
     /// A code whose $m$ checks have a core and an extension, the structure of the LDPC
@@ -265,15 +283,7 @@ impl LdpcCode {
         }
         // parity bit j = (B^-1 s)_j: the checks of row j of the inverse of the core block
         let solve = core_inverse(&rows, k, core)?;
-        Ok(LdpcCode {
-            n,
-            rows,
-            info: (0..k).collect(),
-            encoder: Encoder::Core { core, solve },
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, (0..k).collect(), Encoder::Core { core, solve }))
     }
 
     /// A code of length `n` with `n - k` checks built by progressive edge growth, every
@@ -482,7 +492,7 @@ impl LdpcCode {
     }
 
     fn check_message(&self, incoming: &[f64], out: &mut [f64], scratch: &mut Vec<f64>) {
-        match self.rule {
+        match self.decoder.rule {
             CheckRule::SumProduct => {
                 // the product of the other tanh(L/2) by prefix and suffix products, O(d)
                 let d = incoming.len();
@@ -497,7 +507,7 @@ impl LdpcCode {
                 for i in (0..d).rev() {
                     let p = out[i] * suffix;
                     suffix *= scratch[i];
-                    out[i] = 2.0 * p.clamp(-0.999_999_999_999, 0.999_999_999_999).atanh();
+                    out[i] = 2.0 * p.clamp(-TANH_BOUND, TANH_BOUND).atanh();
                 }
             }
             CheckRule::NormalizedMinSum(_) | CheckRule::OffsetMinSum(_) => {
@@ -516,7 +526,7 @@ impl LdpcCode {
                 for (i, o) in out.iter_mut().enumerate() {
                     let mag = if i == i1 { m2 } else { m1 };
                     let s = sign * if incoming[i] < 0.0 { -1.0 } else { 1.0 };
-                    let mag = match self.rule {
+                    let mag = match self.decoder.rule {
                         CheckRule::NormalizedMinSum(a) => a * mag,
                         CheckRule::OffsetMinSum(b) => (mag - b).max(0.0),
                         CheckRule::SumProduct => mag,
@@ -535,22 +545,26 @@ impl LdpcCode {
     pub fn decode_llr(&self, llr: &[f64]) -> Result<(Vec<f64>, usize)> {
         expect_len(llr.len(), self.n, "LLRs")?;
         let mut post = llr.to_vec();
-        if self.hard_decisions_are_a_codeword(&post) {
-            return Ok((post, 0));
+        let it = self.propagate(llr, &mut post);
+        Ok((post, it))
+    }
+
+    /// Belief propagation from the channel LLRs `channel` ($n$ values), `post` holding
+    /// them on entry and the a posteriori LLRs on exit: the iterations used.
+    fn propagate(&self, channel: &[f64], post: &mut [f64]) -> usize {
+        if self.hard_decisions_are_a_codeword(post) {
+            return 0;
         }
         // the check-to-variable messages, row after row: those of check c at
         // start[c]..start[c + 1]; the flooding schedule writes the next ones apart
-        let mut start = Vec::with_capacity(self.rows.len() + 1);
-        start.push(0);
-        for row in &self.rows {
-            start.push(start[start.len() - 1] + row.len());
-        }
+        let LdpcDecoder { layered, max_iterations, .. } = self.decoder;
+        let start = &self.start;
         let edges = start[self.rows.len()];
         let mut c2v = vec![0.0; edges];
-        let mut new_c2v = if self.layered { Vec::new() } else { vec![0.0; edges] };
+        let mut new_c2v = if layered { Vec::new() } else { vec![0.0; edges] };
         let (mut incoming, mut scratch) = (Vec::new(), Vec::new());
-        for it in 1..=self.max_iterations {
-            if self.layered {
+        for it in 1..=max_iterations {
+            if layered {
                 for (c, row) in self.rows.iter().enumerate() {
                     let msgs = &mut c2v[start[c]..start[c + 1]];
                     incoming.clear();
@@ -566,7 +580,7 @@ impl LdpcCode {
                     incoming.extend(row.iter().zip(&c2v[start[c]..start[c + 1]]).map(|(&v, m)| post[v] - m));
                     self.check_message(&incoming, &mut new_c2v[start[c]..start[c + 1]], &mut scratch);
                 }
-                post.copy_from_slice(llr);
+                post.copy_from_slice(channel);
                 for (c, row) in self.rows.iter().enumerate() {
                     for (&v, m) in row.iter().zip(&new_c2v[start[c]..start[c + 1]]) {
                         post[v] += m;
@@ -574,11 +588,11 @@ impl LdpcCode {
                 }
                 std::mem::swap(&mut c2v, &mut new_c2v);
             }
-            if self.hard_decisions_are_a_codeword(&post) {
-                return Ok((post, it));
+            if self.hard_decisions_are_a_codeword(post) {
+                return it;
             }
         }
-        Ok((post, self.max_iterations))
+        max_iterations
     }
 
     /// Whether the hard decisions of the LLRs `post` ($1$ for a negative LLR) satisfy
@@ -747,15 +761,36 @@ impl BlockCode for LdpcCode {
                 }
             }
         }
-        if !self.is_codeword(&c) {
-            return Err(Error::Numerical("the encoder produced a non-codeword".into()));
-        }
+        // the encoders solve H c = 0 by construction (the tests check every family)
+        debug_assert!(self.is_codeword(&c), "the encoder produced a non-codeword");
         Ok(c)
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
         let (post, _) = self.decode_llr(llr)?;
         Ok(self.info.iter().map(|&p| u8::from(post[p] < 0.0)).collect())
+    }
+}
+
+impl SoftDecode for LdpcCode {
+    /// The a posteriori LLRs of the information bits of [`LdpcCode::decode_llr`]; the a
+    /// priori LLRs add to the channel LLRs of the information positions.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        expect_len(llr.len(), self.n, "LLRs")?;
+        expect_len(out.len(), self.k(), "a posteriori LLRs")?;
+        let mut channel = llr.to_vec();
+        if let Some(a) = apriori {
+            expect_len(a.len(), self.k(), "a priori LLRs")?;
+            for (&p, a) in self.info.iter().zip(a) {
+                channel[p] += a;
+            }
+        }
+        let mut post = channel.clone();
+        let it = self.propagate(&channel, &mut post);
+        for (o, &p) in out.iter_mut().zip(&self.info) {
+            *o = post[p];
+        }
+        Ok(it)
     }
 }
 
@@ -873,8 +908,8 @@ mod tests {
         let mut its = Vec::new();
         for layered in [false, true] {
             for rule in [CheckRule::SumProduct, CheckRule::NormalizedMinSum(0.8), CheckRule::OffsetMinSum(0.15)] {
-                code.layered = layered;
-                code.rule = rule;
+                code.decoder.layered = layered;
+                code.decoder.rule = rule;
                 let (post, it) = code.decode_llr(&y).unwrap();
                 assert!(code.is_codeword(&hard_decisions(&post)), "{rule:?} layered={layered}");
                 assert_eq!(code.decode_block(&y).unwrap(), info);

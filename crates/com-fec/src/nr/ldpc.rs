@@ -50,12 +50,12 @@
 //!    radio," *IEEE Commun. Mag.* 56(3), 28–34, 2018.
 
 use super::tables::{BG1, BG2, LIFTING_SETS};
-use crate::block::{BlockCode, container_traits, expect_len};
-use crate::ldpc::LdpcCode;
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len};
+use crate::interleaving::Interleaver;
+use crate::ldpc::{LdpcCode, LdpcDecoder};
+use crate::puncture::BitSelection;
+use com_core::signal::KNOWN_BIT_LLR;
 use com_core::{Result, ensure};
-
-/// The LLR of a filler bit (known to be 0).
-const KNOWN: f64 = 30.0;
 
 /// A base graph: its nonzero entries $(i, j, V_{i,j})$.
 type BaseGraph = [(u8, u8, [u16; 8])];
@@ -69,9 +69,9 @@ pub struct NrLdpc {
     e: usize,
     /// The bit of the full codeword (all $K + N$ columns) carried by every output bit,
     /// after the bit interleaver.
-    map: Vec<usize>,
+    map: BitSelection,
     /// The code of the lifted parity-check matrix and its decoder settings.
-    pub code: LdpcCode,
+    code: LdpcCode,
 }
 
 /// The base graph of 5G NR for $K'$ bits at the rate $K'/E$ (Sec. 7.2.2).
@@ -155,9 +155,9 @@ impl NrLdpc {
             }
             j += 1;
         }
-        // the bit interleaver: f[i + j Qm] = e[i E/Qm + j]
-        let rows_q = e / qm;
-        let map = (0..e).map(|t| sel[(t % qm) * rows_q + t / qm]).collect();
+        // the bit interleaver: f[i + j Qm] = e[i E/Qm + j], written row by row into Qm
+        // rows and read column by column
+        let map = BitSelection::new(Interleaver::block(qm, e / qm).interleave(&sel), code.n())?;
         Ok(NrLdpc { bg, z, k_info, e, map, code })
     }
 
@@ -173,7 +173,27 @@ impl NrLdpc {
 
     /// The bit of the full codeword carried by every output bit.
     pub fn bit_map(&self) -> &[usize] {
-        &self.map
+        self.map.positions()
+    }
+
+    /// The code of the lifted parity-check matrix.
+    pub fn code(&self) -> &LdpcCode {
+        &self.code
+    }
+
+    /// The settings of the decoder, which can change without changing the code.
+    pub fn decoder_mut(&mut self) -> &mut LdpcDecoder {
+        &mut self.code.decoder
+    }
+
+    /// The LLRs of the full codeword: the received LLRs summed over the copies of every
+    /// bit, zero on the unsent bits, [`KNOWN_BIT_LLR`] on the filler bits.
+    fn full_llr(&self, llr: &[f64]) -> Result<Vec<f64>> {
+        let mut full = self.map.accumulate(llr)?;
+        for v in full.iter_mut().take(self.code.k()).skip(self.k_info) {
+            *v = KNOWN_BIT_LLR;
+        }
+        Ok(full)
     }
 }
 
@@ -190,21 +210,32 @@ impl BlockCode for NrLdpc {
         expect_len(info.len(), self.k_info, "bits")?;
         let mut u = info.to_vec();
         u.resize(self.code.k(), 0);
-        let c = self.code.encode_block(&u)?;
-        Ok(self.map.iter().map(|&i| c[i]).collect())
+        self.map.select(&self.code.encode_block(&u)?)
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
         expect_len(llr.len(), self.e, "LLRs")?;
-        let mut full = vec![0.0; self.code.n()];
-        for (&i, &l) in self.map.iter().zip(llr) {
-            full[i] += l;
-        }
-        for v in full.iter_mut().take(self.code.k()).skip(self.k_info) {
-            *v = KNOWN;
-        }
-        let (post, _) = self.code.decode_llr(&full)?;
+        let (post, _) = self.code.decode_llr(&self.full_llr(llr)?)?;
         Ok(com_core::signal::hard_decisions(&post[..self.k_info]))
+    }
+}
+
+impl SoftDecode for NrLdpc {
+    /// The a posteriori LLRs of the $K'$ information bits after the belief propagation
+    /// of the full codeword (the a priori LLRs added to theirs).
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        expect_len(llr.len(), self.e, "LLRs")?;
+        expect_len(out.len(), self.k_info, "a posteriori LLRs")?;
+        let mut full = self.full_llr(llr)?;
+        if let Some(a) = apriori {
+            expect_len(a.len(), self.k_info, "a priori LLRs")?;
+            for (v, a) in full.iter_mut().zip(a) {
+                *v += a;
+            }
+        }
+        let (post, it) = self.code.decode_llr(&full)?;
+        out.copy_from_slice(&post[..self.k_info]);
+        Ok(it)
     }
 }
 
@@ -240,11 +271,61 @@ mod tests {
                     let code = NrLdpc::with_options(k_info, 3 * k_info, Some(bg), 0, 1).unwrap();
                     assert_eq!(code.lifting_size(), z.max(code.lifting_size()));
                     let info: Vec<u8> = (0..k_info).map(|i| ((i * 7 + z) % 5 < 2) as u8).collect();
-                    // encode_block checks H c = 0
+                    let mut u = info.clone();
+                    u.resize(code.code().k(), 0);
+                    assert!(code.code().is_codeword(&code.code().encode_block(&u).unwrap()));
                     assert_eq!(code.encode_block(&info).unwrap().len(), 3 * k_info);
                 }
             }
         }
         assert!(NrLdpc::new(9000, 10000).is_err());
+    }
+
+    /// The rate matching as it was written before the bit selection: the bit
+    /// interleaver by its index formula, the LLRs summed position by position.
+    #[test]
+    fn the_selection_gives_the_former_rate_matching() {
+        let mut rng = com_core::rng::Rng::new(21);
+        for (k_info, e, rv, qm) in [(100, 300, 0, 1), (500, 1200, 2, 4), (1000, 1500, 3, 6), (60, 1000, 1, 2)] {
+            let code = NrLdpc::with_options(k_info, e, None, rv, qm).unwrap();
+            let k = code.code.k();
+            let z = code.z;
+            let ncb = code.code.n() - 2 * z;
+            let (num, den) = match (code.bg, rv) {
+                (_, 0) => (0, 1),
+                (1, 1) => (17, 66),
+                (1, 2) => (33, 66),
+                (1, _) => (56, 66),
+                (_, 1) => (13, 50),
+                (_, 2) => (25, 50),
+                _ => (43, 50),
+            };
+            let k0 = num * ncb / (den * z) * z;
+            let mut sel = Vec::new();
+            let mut j = 0;
+            while sel.len() < e {
+                let col = 2 * z + (k0 + j) % ncb;
+                if !(col >= k_info && col < k) {
+                    sel.push(col);
+                }
+                j += 1;
+            }
+            let map: Vec<usize> = (0..e).map(|t| sel[(t % qm) * (e / qm) + t / qm]).collect();
+            assert_eq!(code.bit_map(), map);
+            let llr: Vec<f64> = (0..e).map(|_| rng.gaussian()).collect();
+            let mut full = vec![0.0; code.code.n()];
+            for (&i, &l) in map.iter().zip(&llr) {
+                full[i] += l;
+            }
+            for v in full.iter_mut().take(k).skip(k_info) {
+                *v = 30.0;
+            }
+            let new = code.full_llr(&llr).unwrap();
+            assert!(new.iter().zip(&full).all(|(a, b)| a.to_bits() == b.to_bits()));
+            let (post, _) = code.code.decode_llr(&full).unwrap();
+            let app = code.app(&llr, None).unwrap();
+            assert!(app.iter().zip(&post[..k_info]).all(|(a, b)| a.to_bits() == b.to_bits()));
+            assert_eq!(code.decode_block(&llr).unwrap(), com_core::signal::hard_decisions(&post[..k_info]));
+        }
     }
 }

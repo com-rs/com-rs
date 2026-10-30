@@ -87,6 +87,66 @@ pub trait BlockCode {
     }
 }
 
+/// A block code whose decoder gives the a posteriori LLRs of the information bits: the
+/// soft output of an iterative receiver (turbo equalisation, iterative demapping) or of
+/// a concatenation.
+///
+/// Implemented by the [`LdpcCode`](crate::ldpc::LdpcCode) (belief propagation), the
+/// [`ConvolutionalCode`](crate::conv::ConvolutionalCode) (BCJR, log-MAP), the
+/// [`TurboCode`](crate::turbo::TurboCode), the [`NrLdpc`](crate::nr::NrLdpc) code, and
+/// the punctured codes [`Punctured`](crate::puncture::Punctured) and
+/// [`PuncturedTurbo`](crate::puncture::PuncturedTurbo), which put back a zero LLR at the
+/// punctured positions. The list decoder of the polar codes gives hard candidates only
+/// ([`PolarCode::decode_list`](crate::polar::PolarCode::decode_list)).
+///
+/// # Model
+///
+/// With the channel LLRs $L_{c}$ of the $n$ coded bits and the a priori LLRs $L_{a}$ of
+/// the $k$ information bits $u_{i}$ (zero if `None`),
+///
+/// $$
+/// L_{\mathrm{app}}(u_{i}) = \ln \frac{P(u_{i} = 0 \mid L_{c}, L_{a})}{P(u_{i} = 1 \mid L_{c}, L_{a})},
+/// $$
+///
+/// exact for the BCJR algorithm, approximated by the iterative decoders; the extrinsic
+/// information of the code is $L_{\mathrm{app}} - L_{a}$ minus the channel LLR of a
+/// systematic bit. The hard decisions of $L_{\mathrm{app}}$ are those of
+/// [`BlockCode::decode_block`] for the iterative codes; a convolutional code decodes its
+/// blocks by Viterbi (maximum-likelihood sequence) and its soft output by BCJR
+/// (maximum a posteriori bit), which may differ on a few bits.
+pub trait SoftDecode: BlockCode {
+    /// The a posteriori LLRs of the $k$ information bits into `out`, from the $n$
+    /// channel LLRs `llr` and the $k$ a priori LLRs `apriori`; returns the iterations
+    /// of the decoder (1 for a non-iterative one, 0 when the input was already a
+    /// codeword for the LDPC codes).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `llr` does not have $n$ values, or `apriori` or `out` $k$.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize>;
+
+    /// [`SoftDecode::app_into`] into a new vector.
+    ///
+    /// # Errors
+    /// As [`SoftDecode::app_into`].
+    ///
+    /// # Examples
+    /// ```
+    /// use com_fec::block::{BlockCode, SoftDecode};
+    /// use com_fec::turbo::TurboCode;
+    /// let code = TurboCode::lte(40)?;
+    /// let info: Vec<u8> = (0..40).map(|i| (i % 3 == 1) as u8).collect();
+    /// let llr: Vec<f64> = code.encode_block(&info)?.iter().map(|&b| if b == 0 { 2.0 } else { -2.0 }).collect();
+    /// let app = code.app(&llr, None)?;
+    /// assert_eq!(com_core::signal::hard_decisions(&app), info);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    fn app(&self, llr: &[f64], apriori: Option<&[f64]>) -> Result<Vec<f64>> {
+        let mut out = vec![0.0; self.k()];
+        self.app_into(llr, apriori, &mut out)?;
+        Ok(out)
+    }
+}
+
 pub(crate) use com_core::expect_len;
 
 /// `Encode` and `Decode` on the multi-stream containers for a [`BlockCode`], every
