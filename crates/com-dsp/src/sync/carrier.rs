@@ -95,10 +95,10 @@ pub fn unwrap(phi: &[f64], period: f64) -> Vec<f64> {
 /// with `freq_shift(x, -fo, fs)` ([`crate::signal::freq_shift`]).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal, $M = 0$ or a sampling rate that is
-/// not positive and finite.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for
+/// $M = 0$ or a sampling rate that is not positive and finite.
 pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<f64> {
-    ensure(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
+    ensure_shape(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
     ensure(m >= 1, || "fourth_power_foe: the symmetry M must be at least 1".into())?;
     ensure(fs > 0.0 && fs.is_finite(), || format!("fourth_power_foe: the sampling rate must be positive, got {fs}"))?;
     let n = x.len();
@@ -341,7 +341,7 @@ mod tests {
     fn fourth_power_foe_rejects_an_empty_signal_instead_of_panicking() {
         for refined in [false, true] {
             let foe = if refined { fourth_power_foe_refined } else { fourth_power_foe };
-            assert!(matches!(foe(&[], 1.0, 4), Err(com_core::Error::Config(_))));
+            assert!(matches!(foe(&[], 1.0, 4), Err(com_core::Error::Shape(_))));
             assert!(foe(&[C64::new(1.0, 0.0); 8], 1.0, 0).is_err());
             assert!(foe(&[C64::new(1.0, 0.0); 8], 0.0, 4).is_err());
             assert!(foe(&[C64::new(1.0, 0.0); 8], f64::NAN, 4).is_err());

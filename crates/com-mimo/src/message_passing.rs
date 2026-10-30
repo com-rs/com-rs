@@ -87,7 +87,7 @@
 //!    (arXiv:1602.06509).
 
 use crate::detection::{Estimates, FLOOR, MimoDetector, check_shape};
-use com_core::{Error, Result, ensure};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
 use com_math::Jacobian;
 use com_math::linalg::svd;
@@ -476,8 +476,10 @@ impl Trace {
 }
 
 fn check(h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64, iterations: usize) -> Result<()> {
-    ensure(h.nrows() == y.len(), || format!("the channel has {} rows for {} received samples", h.nrows(), y.len()))?;
-    ensure(h.ncols() >= 1 && h.nrows() >= 1, || "the channel must not be empty".into())?;
+    ensure_shape(h.nrows() == y.len(), || {
+        format!("the channel has {} rows for {} received samples", h.nrows(), y.len())
+    })?;
+    ensure_shape(h.ncols() >= 1 && h.nrows() >= 1, || "the channel must not be empty".into())?;
     ensure(noise_var >= 0.0 && noise_var.is_finite(), || {
         format!("the noise variance must be finite and non-negative, got {noise_var}")
     })?;
@@ -497,8 +499,9 @@ fn adjoint(h: &ArrayView2<'_, C64>, r: &[C64]) -> Vec<C64> {
 /// noise variance), which leaves the problem unchanged.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for a channel whose shape does not match $y$, a negative noise
-/// variance, zero iterations or a zero channel.
+/// [`com_core::Error::Shape`] for an empty channel or one whose rows do not match $y$;
+/// [`com_core::Error::Config`] for a negative noise variance, zero iterations or a zero
+/// channel.
 pub fn lama(
     h: &ArrayView2<'_, C64>,
     y: &[C64],

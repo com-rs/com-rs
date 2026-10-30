@@ -83,7 +83,7 @@
 //!    1(2), 137–156, 2007.
 
 use crate::posterior::SymbolMetric;
-use com_core::{Error, Result, ensure};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
 use com_math::stats::Moments;
@@ -107,9 +107,9 @@ impl Cumulants {
     /// The sample cumulants of `r` (the moments replaced by sample means).
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] for an empty signal.
+    /// [`com_core::Error::Shape`] for an empty signal.
     pub fn estimate(r: &[C64]) -> Result<Cumulants> {
-        ensure(!r.is_empty(), || "the cumulants need at least one sample".into())?;
+        ensure_shape(!r.is_empty(), || "the cumulants need at least one sample".into())?;
         Ok(Cumulants::from_moments(Moments::sample(r)))
     }
 
@@ -226,7 +226,8 @@ fn decide(scores: Vec<f64>) -> Classification {
 /// `noise_var` subtracted from the power when it is known.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal or no candidate.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for no
+/// candidate.
 pub fn classify_cumulants(r: &[C64], candidates: &[Constellation], noise_var: Option<f64>) -> Result<Classification> {
     ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
     let (a, b) = Cumulants::estimate(r)?.features(noise_var);
@@ -245,10 +246,10 @@ pub fn classify_cumulants(r: &[C64], candidates: &[Constellation], noise_var: Op
 /// with equally likely points (Wei & Mendel 2000).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal, no candidate or a non-positive
-/// noise variance.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for no
+/// candidate or a non-positive noise variance.
 pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> Result<Classification> {
-    ensure(!r.is_empty(), || "the classifier needs at least one sample".into())?;
+    ensure_shape(!r.is_empty(), || "the classifier needs at least one sample".into())?;
     ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
     ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
     let scores = candidates
@@ -274,7 +275,7 @@ pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> R
 /// # Errors
 /// As [`snr_m2m4`].
 pub fn m2m4(r: &[C64], c: &Constellation) -> Result<(f64, f64)> {
-    ensure(!r.is_empty(), || "the estimator needs at least one sample".into())?;
+    ensure_shape(!r.is_empty(), || "the estimator needs at least one sample".into())?;
     let alphabet = Moments::of_distribution(c.points(), &c.priors(None)?);
     let ka = alphabet.m42 / (alphabet.m21 * alphabet.m21);
     ensure(ka < 2.0, || format!("M2M4 needs an alphabet of kurtosis below 2, got {ka}"))?;
@@ -292,9 +293,10 @@ pub fn m2m4(r: &[C64], c: &Constellation) -> Result<(f64, f64)> {
 /// that the scores of the candidates compare.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal or no candidate.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for no
+/// candidate.
 pub fn classify_ml_blind(r: &[C64], candidates: &[Constellation]) -> Result<Classification> {
-    ensure(!r.is_empty(), || "the classifier needs at least one sample".into())?;
+    ensure_shape(!r.is_empty(), || "the classifier needs at least one sample".into())?;
     ensure(!candidates.is_empty(), || "the classifier needs at least one candidate".into())?;
     let scores = candidates
         .iter()
@@ -323,7 +325,8 @@ pub fn classify_ml_blind(r: &[C64], candidates: &[Constellation]) -> Result<Clas
 /// infinite when they give no noise.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal or an alphabet of kurtosis 2 or more.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for an
+/// alphabet of kurtosis 2 or more.
 pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
     let (s, noise) = m2m4(r, c)?;
     Ok(if noise <= 0.0 { f64::INFINITY } else { s / noise })

@@ -27,7 +27,7 @@
 
 use crate::posterior::SymbolMetric;
 use crate::{preprocess, variance};
-use com_core::{Result, ensure, same_len};
+use com_core::{Result, ensure, ensure_shape, same_len};
 use com_mapping::constellation::{Constellation, log_priors};
 use com_mapping::demapper::LabelHalves;
 use com_math::Jacobian;
@@ -134,8 +134,8 @@ pub struct InformationRates {
 /// 5 dB; `specs/validation/information_rates.yaml`).
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for sequences of different lengths, [`com_core::Error::Config`] for an index
-/// outside the constellation or an empty sequence.
+/// [`com_core::Error::Shape`] for sequences of different lengths or empty ones,
+/// [`com_core::Error::Config`] for an index outside the constellation.
 ///
 /// # Examples
 /// ```
@@ -160,7 +160,7 @@ pub fn information_rates(
     px: Option<&[f64]>,
 ) -> Result<InformationRates> {
     same_len(rx.len(), indices.len(), "received symbols and transmitted indices")?;
-    ensure(!rx.is_empty(), || "empty symbol sequences".into())?;
+    ensure_shape(!rx.is_empty(), || "empty symbol sequences".into())?;
     let (cn, p) = shaped(c, px)?;
     let lp = log_priors(&p);
     let m = cn.order();
@@ -246,8 +246,9 @@ fn maximise_scale(f: impl Fn(f64) -> f64) -> (f64, f64) {
 /// receiver loses by its own estimates.
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for sequences of different lengths, [`com_core::Error::Config`] for an index
-/// outside the constellation, an empty sequence or a variance that is not positive.
+/// [`com_core::Error::Shape`] for sequences of different lengths or empty ones,
+/// [`com_core::Error::Config`] for an index outside the constellation or a variance that
+/// is not positive.
 ///
 /// # Examples
 /// ```
@@ -281,7 +282,7 @@ pub fn posterior_rates(
     px: Option<&[f64]>,
 ) -> Result<PosteriorRates> {
     same_len(z.len(), indices.len(), "received symbols and transmitted indices")?;
-    ensure(!z.is_empty(), || "empty symbol sequences".into())?;
+    ensure_shape(!z.is_empty(), || "empty symbol sequences".into())?;
     ensure(noise_var > 0.0 && noise_var.is_finite(), || {
         format!("the receiver's noise variance must be positive, got {noise_var}")
     })?;

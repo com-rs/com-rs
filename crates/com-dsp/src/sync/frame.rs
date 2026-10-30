@@ -109,9 +109,9 @@ pub struct FrameSync {
 /// constellation (4 for square QAM), or `None` to remove the exact phase.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if the positions do not lie in `reference`,
-/// [`com_core::Error::Shape`] if no delay in `[-max_delay, max_delay]` keeps them inside
-/// `z` (a received block too short, as for the window of [`periodic_offset`]).
+/// [`com_core::Error::Shape`] if the positions do not lie in `reference`, or if no delay
+/// in `[-max_delay, max_delay]` keeps them inside `z` (a received block too short, as for
+/// the window of [`periodic_offset`]).
 pub fn frame_sync(
     z: &[C64],
     reference: &[C64],
@@ -119,7 +119,7 @@ pub fn frame_sync(
     max_delay: usize,
     symmetry: Option<u32>,
 ) -> Result<FrameSync> {
-    ensure(positions.end <= reference.len() && !positions.is_empty(), || {
+    ensure_shape(positions.end <= reference.len() && !positions.is_empty(), || {
         format!("the known symbols {positions:?} must lie in the {} reference symbols", reference.len())
     })?;
     let known = &reference[positions.clone()];
@@ -188,8 +188,7 @@ pub struct PeriodicOffset {
 /// `symmetry` rounds the rotation to a multiple of `2π/M` as in [`frame_sync`].
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty reference, [`com_core::Error::Shape`] for a
-/// window outside `z`.
+/// [`com_core::Error::Shape`] for an empty reference or a window outside `z`.
 ///
 /// # Examples
 /// ```
@@ -210,7 +209,7 @@ pub fn periodic_offset(
     symmetry: Option<u32>,
 ) -> Result<PeriodicOffset> {
     let p = reference.len();
-    ensure(p > 0, || "the reference is empty".into())?;
+    ensure_shape(p > 0, || "the reference is empty".into())?;
     let l = window.min(p);
     ensure_shape(l > 0 && start + l <= z.len(), || {
         format!("the window {start}..{} is outside the {} received symbols", start + l, z.len())
@@ -314,8 +313,8 @@ fn ln_cosh(y: f64) -> f64 {
 /// output is unknown (binary PSK, Massey 1972, Sec. III).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty sync word, one longer than the frame or a
-/// non-positive SNR.
+/// [`com_core::Error::Shape`] for an empty sync word or one longer than the frame,
+/// [`com_core::Error::Config`] for a non-positive SNR.
 ///
 /// # Examples
 /// ```
@@ -328,7 +327,7 @@ fn ln_cosh(y: f64) -> f64 {
 /// ```
 pub fn locate_sync_word(r: &[f64], sync: &[f64], rule: SyncRule, ambiguous: bool) -> Result<usize> {
     let (n, l) = (r.len(), sync.len());
-    ensure(l >= 1 && l <= n, || format!("a sync word of {l} symbols in a frame of {n}"))?;
+    ensure_shape(l >= 1 && l <= n, || format!("a sync word of {l} symbols in a frame of {n}"))?;
     if let SyncRule::Optimum { snr_lin } = rule {
         ensure(snr_lin > 0.0, || format!("the SNR must be positive, got {snr_lin}"))?;
     }
@@ -364,7 +363,7 @@ mod tests {
         let x: Vec<C64> = (0..20).map(|k| C64::from_polar(1.0, 0.7 * f64::from(k))).collect();
         assert!(matches!(frame_sync(&x[..5], &x, 0..10, 2, None), Err(com_core::Error::Shape(_))));
         assert!(matches!(periodic_offset(&x[..5], &x, 0, 10, None), Err(com_core::Error::Shape(_))));
-        assert!(matches!(frame_sync(&x, &x, 15..25, 2, None), Err(com_core::Error::Config(_))));
+        assert!(matches!(frame_sync(&x, &x, 15..25, 2, None), Err(com_core::Error::Shape(_))));
     }
 
     #[test]

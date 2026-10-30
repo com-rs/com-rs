@@ -25,7 +25,7 @@
 //!
 //! 1. J. G. Proakis and M. Salehi, *Digital Communications*, 5th ed., McGraw-Hill, 2008.
 
-use com_core::ensure;
+use com_core::{ensure, ensure_shape};
 use com_core::prelude::*;
 use com_math::{db2lin, power};
 
@@ -37,7 +37,7 @@ use com_math::{db2lin, power};
 ///
 /// # Errors
 ///
-/// [`Propagate::propagate_into`] returns [`Error::Config`] if `x` has no samples.
+/// [`Propagate::propagate_into`] returns [`Error::Shape`] if `x` has no samples.
 ///
 /// # Examples
 ///
@@ -72,7 +72,7 @@ impl Awgn {
 
 impl Propagate for Awgn {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        ensure(x.n_samples() > 0, || "empty signal".into())?;
+        ensure_shape(x.n_samples() > 0, || "empty signal".into())?;
         let power = x.power();
         x.map_streams(out, |s, xs| noisy(xs, self.noise_variance(power[s]), rng));
         Ok(())
