@@ -13,8 +13,12 @@
 //! assert_eq!(h.reduce().len(), 2);
 //! ```
 
-/// Product of binary polynomials, lowest degree first (bits 0 or 1).
+/// Product of binary polynomials, lowest degree first (bits 0 or 1); the empty
+/// polynomial (no coefficient) is zero, and so is its product with any other.
 pub fn poly_mul(a: &[u8], b: &[u8]) -> Vec<u8> {
+    if a.is_empty() || b.is_empty() {
+        return Vec::new();
+    }
     let mut out = vec![0u8; a.len() + b.len() - 1];
     for (i, &x) in a.iter().enumerate() {
         if x == 1 {
@@ -101,6 +105,13 @@ impl Matrix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_product_with_the_empty_polynomial_is_empty_instead_of_an_underflow() {
+        let none: Vec<u8> = Vec::new();
+        assert_eq!(poly_mul(&[], &[]), none);
+        assert_eq!((poly_mul(&[1, 1], &[]), poly_mul(&[], &[1])), (none.clone(), none));
+    }
 
     #[test]
     fn polynomial_products_and_rank() {
