@@ -186,74 +186,12 @@ pub(crate) fn first_points(spec: &Spec) -> Option<Spec> {
 /// values of the metric at the ends of the range; the errors of the runs.
 pub fn search(spec: &Spec, opts: &RunOptions) -> Result<Vec<SearchResult>> {
     let s = spec.search.as_ref().ok_or_else(|| Error::Config(format!("{}: no search section", spec.name)))?;
-    let g = |v: f64| if s.log { v.max(1e-300).log10() } else { v };
     let combos = combinations(&spec.grid, &s.along);
     let info = spec.bare_runner(opts).run_info(&spec.name, combos.len());
     let t0 = std::time::Instant::now();
     let mut results = Vec::new();
     for base in combos {
-        let eval = |x: f64| -> Result<Evaluation> {
-            let cond = base.clone().with(&s.along, x);
-            // a single condition: index 0, so every value of the variable sees the same
-            // random streams (common random numbers)
-            let grid = Grid::from_conditions(vec![cond.clone()]);
-            let r = spec.bare_runner(opts).run(&SpecScenario::new(spec), &grid)?.remove(0);
-            let est = r
-                .metric(&s.metric)
-                .ok_or_else(|| Error::Config(format!("search: no metric {:?} in ({})", s.metric, cond.label())))?;
-            let (lo, hi) = est.interval(spec.confidence);
-            if opts.progress.unwrap_or(spec.progress) {
-                eprintln!(
-                    "[{}] ({}): {} = {:.4e} [{lo:.3e}, {hi:.3e}]",
-                    spec.name,
-                    cond.label(),
-                    s.metric,
-                    est.value()
-                );
-            }
-            Ok(Evaluation { x, value: est.value(), lo, hi, trials: r.trials })
-        };
-        let (mut a, mut b) = (eval(s.range[0])?, eval(s.range[1])?);
-        let mut evaluations = vec![a.clone(), b.clone()];
-        let side = |e: &Evaluation| (e.value - s.target).signum();
-        if side(&a) * side(&b) >= 0.0 {
-            return Err(Error::Config(format!(
-                "search ({}): the target {} of {} is not between {:.4e} at {} = {} and {:.4e} at {} = {}",
-                base.label(),
-                s.target,
-                s.metric,
-                a.value,
-                s.along,
-                a.x,
-                b.value,
-                s.along,
-                b.x
-            )));
-        }
-        while b.x - a.x > s.tolerance && evaluations.len() < s.max_evaluations {
-            let m = eval(0.5 * (a.x + b.x))?;
-            evaluations.push(m.clone());
-            if side(&m) == side(&a) {
-                a = m;
-            } else {
-                b = m;
-            }
-        }
-        let gt = g(s.target);
-        let value = crossing(a.x, g(a.value), b.x, g(b.value), gt);
-        let x1 = crossing(a.x, g(a.lo), b.x, g(b.lo), gt);
-        let x2 = crossing(a.x, g(a.hi), b.x, g(b.hi), gt);
-        results.push(SearchResult {
-            condition: base,
-            along: s.along.clone(),
-            metric: s.metric.clone(),
-            target: s.target,
-            value,
-            lo: x1.min(x2).min(value),
-            hi: x1.max(x2).max(value),
-            converged: b.x - a.x <= s.tolerance,
-            evaluations,
-        });
+        results.push(bisect(spec, opts, s, base)?);
     }
     if let Some(p) = opts.csv.as_ref().or(spec.csv.as_ref()) {
         write_csv(p, &results)?;
@@ -262,6 +200,89 @@ pub fn search(spec: &Spec, opts: &RunOptions) -> Result<Vec<SearchResult>> {
         write_json(p, &info, t0.elapsed().as_secs_f64(), &results)?;
     }
     Ok(results)
+}
+
+/// The metric of the search at `x` for the combination `base` of the other axes.
+fn evaluate(spec: &Spec, opts: &RunOptions, s: &SearchSpec, base: &Condition, x: f64) -> Result<Evaluation> {
+    let cond = base.clone().with(&s.along, x);
+    // a single condition: index 0, so every value of the variable sees the same
+    // random streams (common random numbers)
+    let grid = Grid::from_conditions(vec![cond.clone()]);
+    let r = spec.bare_runner(opts).run(&SpecScenario::new(spec), &grid)?.remove(0);
+    let est = r
+        .metric(&s.metric)
+        .ok_or_else(|| Error::Config(format!("search: no metric {:?} in ({})", s.metric, cond.label())))?;
+    let (lo, hi) = est.interval(spec.confidence);
+    if opts.progress.unwrap_or(spec.progress) {
+        eprintln!("[{}] ({}): {} = {:.4e} [{lo:.3e}, {hi:.3e}]", spec.name, cond.label(), s.metric, est.value());
+    }
+    Ok(Evaluation { x, value: est.value(), lo, hi, trials: r.trials })
+}
+
+/// The bisection of one combination `base` of the other axes: the ends of the range,
+/// then the midpoint of the bracket until it is narrower than the tolerance or the
+/// evaluations run out.
+///
+/// # Errors
+/// [`Error::Config`] when the target is not between the values at the ends of the
+/// range; the errors of the runs.
+fn bisect(spec: &Spec, opts: &RunOptions, s: &SearchSpec, base: Condition) -> Result<SearchResult> {
+    let eval = |x: f64| evaluate(spec, opts, s, &base, x);
+    let (mut a, mut b) = (eval(s.range[0])?, eval(s.range[1])?);
+    let mut evaluations = vec![a.clone(), b.clone()];
+    let side = |e: &Evaluation| (e.value - s.target).signum();
+    if side(&a) * side(&b) >= 0.0 {
+        return Err(Error::Config(format!(
+            "search ({}): the target {} of {} is not between {:.4e} at {} = {} and {:.4e} at {} = {}",
+            base.label(),
+            s.target,
+            s.metric,
+            a.value,
+            s.along,
+            a.x,
+            b.value,
+            s.along,
+            b.x
+        )));
+    }
+    while b.x - a.x > s.tolerance && evaluations.len() < s.max_evaluations {
+        let m = eval(0.5 * (a.x + b.x))?;
+        evaluations.push(m.clone());
+        if side(&m) == side(&a) {
+            a = m;
+        } else {
+            b = m;
+        }
+    }
+    Ok(operating_point(s, base, &a, &b, evaluations))
+}
+
+/// The operating point of the final bracket `[a, b]`: the crossing of the target by the
+/// estimate and by the bounds of its interval, interpolated linearly (in $\log_{10}$ of
+/// the metric for a log search).
+fn operating_point(
+    s: &SearchSpec,
+    base: Condition,
+    a: &Evaluation,
+    b: &Evaluation,
+    evaluations: Vec<Evaluation>,
+) -> SearchResult {
+    let g = |v: f64| if s.log { v.max(1e-300).log10() } else { v };
+    let gt = g(s.target);
+    let value = crossing(a.x, g(a.value), b.x, g(b.value), gt);
+    let x1 = crossing(a.x, g(a.lo), b.x, g(b.lo), gt);
+    let x2 = crossing(a.x, g(a.hi), b.x, g(b.hi), gt);
+    SearchResult {
+        condition: base,
+        along: s.along.clone(),
+        metric: s.metric.clone(),
+        target: s.target,
+        value,
+        lo: x1.min(x2).min(value),
+        hi: x1.max(x2).max(value),
+        converged: b.x - a.x <= s.tolerance,
+        evaluations,
+    }
 }
 
 /// One row per combination: its keys, then the variable at the target, its interval,
