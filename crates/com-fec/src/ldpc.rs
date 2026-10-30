@@ -263,33 +263,8 @@ impl LdpcCode {
                 })?;
             }
         }
-        // the core block B (core × core) and its inverse, by Gauss–Jordan on [B | I]
-        let words = core.div_ceil(64);
-        let mut a: Vec<Vec<u64>> = vec![vec![0; 2 * words]; core];
-        for (r, row) in rows.iter().take(core).enumerate() {
-            for &v in row.iter().filter(|&&v| v >= k) {
-                a[r][(v - k) / 64] ^= 1 << ((v - k) % 64);
-            }
-            a[r][words + r / 64] |= 1 << (r % 64);
-        }
-        for col in 0..core {
-            let (w, b) = (col / 64, 1u64 << (col % 64));
-            let pivot = (col..core)
-                .find(|&r| a[r][w] & b != 0)
-                .ok_or_else(|| Error::Config(format!("the core block is singular (column {col})")))?;
-            a.swap(col, pivot);
-            let prow = a[col].clone();
-            for (r, row) in a.iter_mut().enumerate() {
-                if r != col && row[w] & b != 0 {
-                    for (x, y) in row.iter_mut().zip(&prow) {
-                        *x ^= y;
-                    }
-                }
-            }
-        }
-        // parity bit j = (B^-1 s)_j: the checks of row j of the inverse
-        let solve: Vec<Vec<usize>> =
-            a.iter().map(|row| (0..core).filter(|&c| row[words + c / 64] & (1 << (c % 64)) != 0).collect()).collect();
+        // parity bit j = (B^-1 s)_j: the checks of row j of the inverse of the core block
+        let solve = core_inverse(&rows, k, core)?;
         Ok(LdpcCode {
             n,
             rows,
@@ -613,6 +588,32 @@ impl LdpcCode {
     }
 }
 
+/// The inverse of the core block $B$ (core × core: the core checks on the core parity bits
+/// $k, \dots, k + \mathrm{core} - 1$) of [`LdpcCode::from_core_rows`], row by row: row $j$
+/// lists the checks whose syndromes sum to the parity bit $k + j$.
+///
+/// It reduces $[I \mid B]$ over GF(2) ([`gf2::Matrix::reduce`], pivots searched from the
+/// last column): when $B$ is invertible every pivot falls in its columns, the reduced
+/// matrix is $[P B^{-1} \mid P]$ for a permutation $P$, and the row whose pivot is
+/// column $j$ of $B$ holds row $j$ of $B^{-1}$.
+fn core_inverse(rows: &[Vec<usize>], k: usize, core: usize) -> Result<Vec<Vec<usize>>> {
+    let augmented: Vec<Vec<usize>> = rows
+        .iter()
+        .take(core)
+        .enumerate()
+        .map(|(r, row)| std::iter::once(r).chain(row.iter().filter(|&&v| v >= k).map(|&v| core + v - k)).collect())
+        .collect();
+    let mut a = gf2::Matrix::from_rows(2 * core, &augmented);
+    let pivots = a.reduce();
+    let rank = pivots.iter().filter(|&&c| c >= core).count();
+    ensure(rank == core, || format!("the core block is singular (rank {rank} of {core})"))?;
+    let mut solve = vec![Vec::new(); core];
+    for (t, &c) in pivots.iter().enumerate() {
+        solve[c - core] = (0..core).filter(|&j| a.get(t, j)).collect();
+    }
+    Ok(solve)
+}
+
 /// The number of columns and the rows (0-based column indices, in the order of the
 /// file) of an `alist` text; the message of the error names what is wrong.
 fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), String> {
@@ -764,6 +765,60 @@ container_traits!(LdpcCode);
 mod tests {
     use super::*;
     use crate::block::testing::awgn_llr;
+
+    /// The Gauss–Jordan elimination of `[B | I]` that `from_core_rows` wrote itself
+    /// before it used `gf2::Matrix::reduce`.
+    fn former_core_inverse(rows: &[Vec<usize>], k: usize, core: usize) -> Option<Vec<Vec<usize>>> {
+        let words = core.div_ceil(64);
+        let mut a: Vec<Vec<u64>> = vec![vec![0; 2 * words]; core];
+        for (r, row) in rows.iter().take(core).enumerate() {
+            for &v in row.iter().filter(|&&v| v >= k) {
+                a[r][(v - k) / 64] ^= 1 << ((v - k) % 64);
+            }
+            a[r][words + r / 64] |= 1 << (r % 64);
+        }
+        for col in 0..core {
+            let (w, b) = (col / 64, 1u64 << (col % 64));
+            let pivot = (col..core).find(|&r| a[r][w] & b != 0)?;
+            a.swap(col, pivot);
+            let prow = a[col].clone();
+            for (r, row) in a.iter_mut().enumerate() {
+                if r != col && row[w] & b != 0 {
+                    for (x, y) in row.iter_mut().zip(&prow) {
+                        *x ^= y;
+                    }
+                }
+            }
+        }
+        Some(a.iter().map(|row| (0..core).filter(|&c| row[words + c / 64] & (1 << (c % 64)) != 0).collect()).collect())
+    }
+
+    /// The inverse of the core block of both base graphs of 5G NR, at lifting sizes of
+    /// every set, is the one of the former elimination; a singular block is an error.
+    #[test]
+    fn the_core_inverse_is_the_former_elimination() {
+        use crate::nr::tables::{BG1, BG2, LIFTING_SETS};
+        for (table, cols_k) in [(&BG1[..], 22), (&BG2[..], 10)] {
+            for (ils, z) in [(0, 2), (1, 384), (2, 10), (3, 7), (4, 36), (5, 352), (6, 208), (7, 15)] {
+                assert!(LIFTING_SETS[ils].contains(&z));
+                let rows_n = table.iter().map(|e| e.0 as usize).max().unwrap() + 1;
+                let mut rows: Vec<Vec<usize>> = vec![Vec::new(); rows_n * z];
+                for &(i, j, v) in table {
+                    let shift = v[ils] as usize % z;
+                    for r in 0..z {
+                        rows[i as usize * z + r].push(j as usize * z + (r + shift) % z);
+                    }
+                }
+                let (k, core) = (cols_k * z, 4 * z);
+                let new = core_inverse(&rows, k, core).unwrap();
+                assert_eq!(Some(new), former_core_inverse(&rows, k, core), "z = {z}");
+            }
+        }
+        // two equal core checks: singular for both
+        let rows = vec![vec![0, 2], vec![0, 2], vec![1, 2, 3, 4]];
+        assert!(core_inverse(&rows, 2, 2).is_err() && former_core_inverse(&rows, 2, 2).is_none());
+        assert!(LdpcCode::from_core_rows(5, rows, 2, 2).is_err());
+    }
 
     #[test]
     fn the_container_traits_fill_the_output_in_place() {
