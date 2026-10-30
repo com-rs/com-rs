@@ -75,10 +75,10 @@
 //! (Appendix B), smaller, are not included: their GN parts are. Validation:
 //!
 //! - Fig. 1(a) of Carena et al., the SCI of PM-QPSK over 1 to 50 spans of SMF: the GN
-//!   and EGN curves within 0.15 dB at 1, 10, 20 and 50 spans; between 2 and 5 spans the
-//!   published EGN curve is up to 0.9 dB below its own formulas, which a Monte Carlo
-//!   evaluation of the first-order perturbation reproduces within 0.1 dB
-//!   (`validation/tests/egn.rs`);
+//!   curve within 0.2 dB and the EGN curve within 0.25 dB at 1, 10, 20 and 50 spans;
+//!   between 2 and 5 spans the published EGN curve is up to 0.9 dB below its own
+//!   formulas, which a Monte Carlo evaluation of the first-order perturbation reproduces
+//!   within 0.1 dB (`validation/tests/egn.rs`);
 //! - Manakov simulations of 16-QAM over five channels and five spans
 //!   (`specs/wdm_gn.yaml`): within 0.3 dB from the ASE-limited regime to 4 dB above the
 //!   optimum, where the GN model is 1.7 dB off.
@@ -93,10 +93,11 @@
 //! 3. A. Carena, G. Bosco, V. Curri, Y. Jiang, P. Poggiolini and F. Forghieri, "EGN
 //!    model of non-linear fiber propagation," *Opt. Express*, 22(13), 16335–16362, 2014.
 
+use super::edfa::ase_density;
 use super::fiber::FiberParams;
 use super::raman::{Raman, RamanProfile};
 use com_core::{Result, ensure, ensure_shape};
-use com_math::{C64, PLANCK, db2lin};
+use com_math::{C64, db2lin};
 use std::f64::consts::PI;
 
 /// A WDM signal: the centre frequencies and powers of its channels, all at the same
@@ -298,8 +299,8 @@ impl GnModel {
         let Some(p) = profile else { return self.ase_psd() };
         let fib = &self.fiber;
         let g = db2lin(-p.net_gain_db(ch));
-        let edfa =
-            if g > 1.0 { (g * db2lin(fib.nf_db) - 1.0) * PLANCK * (fib.fc_hz + spectrum.freqs[ch]) } else { 0.0 };
+        // the EDFA restores the channel where the Raman gain does not, both polarisations
+        let edfa = if g > 1.0 { 2.0 * ase_density(g, db2lin(fib.nf_db), fib.fc_hz + spectrum.freqs[ch]) } else { 0.0 };
         fib.n_spans as f64 * (p.ase_psd[ch] * g + edfa)
     }
 
