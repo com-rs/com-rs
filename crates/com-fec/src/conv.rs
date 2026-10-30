@@ -42,7 +42,7 @@
 //! 4. P. Robertson, E. Villebrun and P. Hoeher, "A comparison of optimal and sub-optimal
 //!    MAP decoding algorithms operating in the log domain," *Proc. IEEE ICC*, 1995.
 
-use crate::block::{BlockCode, SoftDecode, container_traits, expect_len, max_star};
+use crate::block::{BlockCode, Jacobian, SoftDecode, container_traits, expect_len, max_star};
 use com_core::{Result, ensure, ensure_shape};
 
 fn parity(x: u32) -> u8 {
@@ -258,14 +258,14 @@ pub fn viterbi(trellis: &Trellis, llr: &[f64], terminated: bool) -> Result<Vec<u
 
 /// The BCJR algorithm in the log domain: the a posteriori LLR of every input bit,
 /// given the channel LLRs of the coded bits (`n` per step) and the a priori LLRs of the
-/// inputs (`apriori`, zero if empty). `exact` selects log-MAP (else max-log-MAP);
-/// `terminated` forces the final state to zero.
+/// inputs (`apriori`, zero if empty). `jacobian` selects log-MAP ([`Jacobian::Exact`])
+/// or max-log-MAP ([`Jacobian::MaxLog`]); `terminated` forces the final state to zero.
 ///
 /// # Errors
 /// [`com_core::Error::Shape`] for inconsistent lengths.
-pub fn bcjr(trellis: &Trellis, llr: &[f64], apriori: &[f64], terminated: bool, exact: bool) -> Result<Vec<f64>> {
+pub fn bcjr(trellis: &Trellis, llr: &[f64], apriori: &[f64], terminated: bool, jacobian: Jacobian) -> Result<Vec<f64>> {
     let mut app = Vec::new();
-    bcjr_into(trellis, llr, apriori, terminated, exact, &mut BcjrWorkspace::default(), &mut app)?;
+    bcjr_into(trellis, llr, apriori, terminated, jacobian, &mut BcjrWorkspace::default(), &mut app)?;
     Ok(app)
 }
 
@@ -286,7 +286,7 @@ pub(crate) fn bcjr_into(
     llr: &[f64],
     apriori: &[f64],
     terminated: bool,
-    exact: bool,
+    jacobian: Jacobian,
     ws: &mut BcjrWorkspace,
     app: &mut Vec<f64>,
 ) -> Result<()> {
@@ -319,7 +319,7 @@ pub(crate) fn bcjr_into(
             }
             for u in 0..2 {
                 let s2 = trellis.next[s][u];
-                later[s2] = max_star(later[s2], now[s] + gamma[(t * ns + s) * 2 + u], exact);
+                later[s2] = max_star(later[s2], now[s] + gamma[(t * ns + s) * 2 + u], jacobian);
             }
         }
     }
@@ -336,7 +336,7 @@ pub(crate) fn bcjr_into(
         for s in 0..ns {
             let mut b = ninf;
             for u in 0..2 {
-                b = max_star(b, gamma[(t * ns + s) * 2 + u] + later[trellis.next[s][u]], exact);
+                b = max_star(b, gamma[(t * ns + s) * 2 + u] + later[trellis.next[s][u]], jacobian);
             }
             now[s] = b;
         }
@@ -350,7 +350,8 @@ pub(crate) fn bcjr_into(
                 continue;
             }
             for u in 0..2 {
-                l[u] = max_star(l[u], a + gamma[(t * ns + s) * 2 + u] + beta[(t + 1) * ns + trellis.next[s][u]], exact);
+                l[u] =
+                    max_star(l[u], a + gamma[(t * ns + s) * 2 + u] + beta[(t + 1) * ns + trellis.next[s][u]], jacobian);
             }
         }
         app.push(l[0] - l[1]);
@@ -446,7 +447,7 @@ impl SoftDecode for ConvolutionalCode {
                 a.iter().copied().chain(std::iter::repeat_n(0.0, self.trellis.constraint as usize - 1)).collect()
             }
         };
-        let app = bcjr(&self.trellis, llr, &la, true, true)?;
+        let app = bcjr(&self.trellis, llr, &la, true, Jacobian::Exact)?;
         out.copy_from_slice(&app[..self.k]);
         Ok(1)
     }
@@ -478,9 +479,9 @@ mod tests {
         let y = awgn_llr(&c, 0.6, &mut r);
         assert!(hard_decisions(&y).iter().zip(&c).filter(|(a, b)| a != b).count() > 5);
         assert_eq!(code.decode_block(&y).unwrap(), info);
-        let app = bcjr(&code.trellis, &y, &[], true, true).unwrap();
+        let app = bcjr(&code.trellis, &y, &[], true, Jacobian::Exact).unwrap();
         assert_eq!(hard_decisions(&app[..200]), info);
-        let maxlog = bcjr(&code.trellis, &y, &[], true, false).unwrap();
+        let maxlog = bcjr(&code.trellis, &y, &[], true, Jacobian::MaxLog).unwrap();
         assert_eq!(hard_decisions(&maxlog[..200]), info);
     }
 
@@ -512,9 +513,9 @@ mod tests {
                 assert_eq!(viterbi(t, &clean, true).unwrap(), bits);
                 let y: Vec<f64> = clean.iter().map(|v| v + 2.0 * r.gaussian()).collect();
                 let la: Vec<f64> = (0..y.len() / n).map(|_| r.gaussian()).collect();
-                for (terminated, exact) in [(true, true), (false, false)] {
-                    bcjr_into(t, &y, &la, terminated, exact, &mut ws, &mut app).unwrap();
-                    let fresh = bcjr(t, &y, &la, terminated, exact).unwrap();
+                for (terminated, jacobian) in [(true, Jacobian::Exact), (false, Jacobian::MaxLog)] {
+                    bcjr_into(t, &y, &la, terminated, jacobian, &mut ws, &mut app).unwrap();
+                    let fresh = bcjr(t, &y, &la, terminated, jacobian).unwrap();
                     assert!(
                         app.iter().zip(&fresh).all(|(a, b)| a.to_bits() == b.to_bits()) && app.len() == fresh.len()
                     );
@@ -530,11 +531,11 @@ mod tests {
         let info: Vec<u8> = (0..60).map(|_| r.bit()).collect();
         let y = awgn_llr(&code.encode_block(&info).unwrap(), 0.8, &mut r);
         let la: Vec<f64> = (0..60).map(|_| r.gaussian()).collect();
-        let former = bcjr(&code.trellis, &y, &[], true, true).unwrap();
+        let former = bcjr(&code.trellis, &y, &[], true, Jacobian::Exact).unwrap();
         let app = code.app(&y, None).unwrap();
         assert!(app.iter().zip(&former[..60]).all(|(a, b)| a.to_bits() == b.to_bits()));
         let padded: Vec<f64> = la.iter().copied().chain([0.0; 6]).collect();
-        let former = bcjr(&code.trellis, &y, &padded, true, true).unwrap();
+        let former = bcjr(&code.trellis, &y, &padded, true, Jacobian::Exact).unwrap();
         let app = code.app(&y, Some(&la)).unwrap();
         assert!(app.iter().zip(&former[..60]).all(|(a, b)| a.to_bits() == b.to_bits()));
         assert!(code.app(&y[1..], None).is_err() && code.app(&y, Some(&la[1..])).is_err());

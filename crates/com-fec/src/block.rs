@@ -213,7 +213,7 @@ pub(crate) fn whole_blocks(len: usize, block: usize, what: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) use com_math::max_star;
+pub(crate) use com_math::{Jacobian, max_star};
 
 /// Helpers of the tests of the codes.
 #[cfg(test)]

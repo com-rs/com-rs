@@ -1,6 +1,7 @@
 //! Constellations, their mapping and demapping, and the Gray code.
 
 use super::*;
+use comrs::math::Jacobian;
 
 /// A constellation with Gray labels: point `i` carries the bits of `i`, MSB first.
 ///
@@ -293,7 +294,7 @@ impl PyConstellation {
         let z = cvec(z)?;
         let px = px.map(crate::fvec).transpose()?;
         let c = &self.inner;
-        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), max_log)).py()?;
+        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), Jacobian::from_max_log(max_log))).py()?;
         Ok(farr(py, v))
     }
 

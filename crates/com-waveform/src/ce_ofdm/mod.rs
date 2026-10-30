@@ -222,7 +222,8 @@ impl CeOfdm {
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn new(n_subcarriers: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
-        let ce = CeOfdm { n_subcarriers, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
+        let ce =
+            CeOfdm { n_subcarriers, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
         ce.check()?;
         Ok(ce)
     }

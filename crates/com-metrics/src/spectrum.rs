@@ -49,7 +49,8 @@ pub fn band_power(freqs: &[f64], density: &[f64], f_lo: f64, f_hi: f64) -> f64 {
 pub fn aclr_db(freqs: &[f64], density: &[f64], bandwidth_hz: f64, offset_hz: f64) -> Result<f64> {
     let top = freqs.last().copied().unwrap_or(0.0);
     ensure(
-        offset_hz + bandwidth_hz / 2.0 <= top + (top - freqs.first().copied().unwrap_or(0.0)) / freqs.len().max(1) as f64,
+        offset_hz + bandwidth_hz / 2.0
+            <= top + (top - freqs.first().copied().unwrap_or(0.0)) / freqs.len().max(1) as f64,
         || "the adjacent channel lies outside the observed band".into(),
     )?;
     let main = band_power(freqs, density, -bandwidth_hz / 2.0, bandwidth_hz / 2.0);

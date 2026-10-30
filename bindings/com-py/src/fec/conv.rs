@@ -244,7 +244,7 @@ impl PyTurbo {
         };
         let mut code = TurboCode::with_interleaver(il).py()?;
         code.decoder.iterations = iterations;
-        code.decoder.exact = exact;
+        code.decoder.jacobian = if exact { Jacobian::Exact } else { Jacobian::MaxLog };
         let inner = match puncture {
             Some(p) => Turbo::Punctured(PuncturedTurbo::new(code, puncturer(p)?).py()?),
             None => Turbo::Plain(code),

@@ -7,6 +7,7 @@ use comrs::channel::optical::fiber::{Amplification, Ssfm};
 use comrs::dsp::signal;
 use comrs::hardware::optical::{Iqm, Photodiode, coherent_receiver};
 use comrs::mapping::constellation::gray_code;
+use comrs::math::Jacobian;
 use comrs::math::{cis, power};
 use comrs::prelude::*;
 use comrs::sim::scenario::from_fn;
@@ -80,7 +81,7 @@ fn llr_signs_are_the_hard_decisions() {
         let y = awgn::awgn(&x, 15.0, 1.0, 1.0, &mut rng);
         let hard = c.demodulate(&y);
         for max_log in [true, false] {
-            let llr = c.llr(&y, 0.05, None, max_log).unwrap();
+            let llr = c.llr(&y, 0.05, None, Jacobian::from_max_log(max_log)).unwrap();
             // LLR = ln p(b = 0) - ln p(b = 1): positive for a 0
             let from_llr: Vec<u8> = comrs::core::signal::hard_decisions(&llr);
             if max_log {

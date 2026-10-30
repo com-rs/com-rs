@@ -56,6 +56,7 @@ use comrs::fec::ldpc::{CheckRule, LdpcCode};
 use comrs::fec::polar::PolarCode;
 use comrs::fec::rs::ReedSolomon;
 use comrs::fec::turbo::TurboCode;
+use comrs::math::Jacobian;
 use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::sim::scenario::from_fn;
@@ -239,7 +240,7 @@ fn case(name: &'static str) -> Case {
             // the QPP of K = 1024: f₁ = 31, f₂ = 64 (TS 36.212, Table 5.1.3-3)
             let mut code = TurboCode::with_interleaver(Interleaver::qpp(1024, 31, 64).unwrap()).unwrap();
             code.decoder.iterations = 6;
-            code.decoder.exact = false;
+            code.decoder.jacobian = Jacobian::MaxLog;
             (block(code), 30_000)
         }
         other => panic!("no com-rs configuration for the fixture {other}"),

@@ -49,7 +49,7 @@
 use crate::constellation::{Constellation, ConstellationKind, log_priors, qam_side};
 use crate::demapper::LabelHalves;
 use com_core::{Error, Result, ensure};
-use com_math::{C64, bessel_i0e, bisect, db2lin, entropy, log_sum_exp, qfunc};
+use com_math::{C64, Jacobian, bessel_i0e, bisect, db2lin, entropy, log_sum_exp, qfunc};
 
 /// The orders of the closed forms of [`ber`] and [`ser`]: a power of two of at least 2,
 /// a square for QAM.
@@ -411,7 +411,7 @@ pub(crate) fn bit_expectations(s: &TheorySetup, f: impl Fn(&[f64], f64) -> f64) 
             for (k, ek) in e.iter_mut().enumerate() {
                 let shift = b - 1 - k;
                 let bi = (i >> shift) & 1;
-                let same = LabelHalves::new(&all, shift, false).log_sum(bi);
+                let same = LabelHalves::new(&all, shift, Jacobian::Exact).log_sum(bi);
                 *ek += a * f(&all, same);
             }
         }

@@ -83,7 +83,8 @@ fn gn_model<'py>(
     };
     let model =
         GnModel { fiber: fiber.inner.clone(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
-    let spec = WdmSpectrum { freqs_hz: freqs, powers_w: powers.iter().map(|p| dbm2w(*p)).collect(), symbol_rate, rolloff };
+    let spec =
+        WdmSpectrum { freqs_hz: freqs, powers_w: powers.iter().map(|p| dbm2w(*p)).collect(), symbol_rate, rolloff };
     let s = py.detach(|| model.summary(&spec, channel)).py()?;
     let d = PyDict::new(py);
     d.set_item("nli_psd", s.nli_psd)?;

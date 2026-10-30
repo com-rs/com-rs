@@ -30,6 +30,7 @@ use crate::{preprocess, variance};
 use com_core::{Result, ensure, same_len};
 use com_mapping::constellation::{Constellation, log_priors};
 use com_mapping::demapper::LabelHalves;
+use com_math::Jacobian;
 use com_math::{C64, entropy, golden_max, ln_1p_exp};
 
 /// The priors of the points of `c` (uniform if `px` is `None`), checked and normalised
@@ -88,7 +89,7 @@ pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f
     let b = cn.bits_per_symbol();
     let h = entropy(&p);
     let btx = cn.demodulate(&t);
-    let llr = cn.llr(&r, sigma2, Some(&p), false)?;
+    let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact)?;
     let gmi = gmi_from_llr(&llr, &btx, b, h);
     Ok(Gmi { gmi, ngmi: gmi / h })
 }
@@ -179,7 +180,7 @@ pub fn information_rates(
     let mi = h - acc / rx.len() as f64 / std::f64::consts::LN_2;
     let b = cn.bits_per_symbol();
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
-    let llr = cn.llr(&y, sigma2, Some(&p), false)?;
+    let llr = cn.llr(&y, sigma2, Some(&p), Jacobian::Exact)?;
     let gmi = gmi_from_llr(&llr, &bits, b, h);
     let snr_db = com_math::lin2db(a.norm_sqr() * ex / err.max(f64::MIN_POSITIVE));
     Ok(InformationRates { mi, gmi, ngmi: gmi / h, snr_db, entropy: h })
@@ -316,7 +317,7 @@ pub fn posterior_rates(
                 let own = bits[k * b + bit] as usize;
                 // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own}), L the log-sums
                 // of the halves of the labels (the kernel of the demapper)
-                let halves = LabelHalves::new(&metric, b - 1 - bit, false);
+                let halves = LabelHalves::new(&metric, b - 1 - bit, Jacobian::Exact);
                 acc += ln_1p_exp(halves.log_sum(1 - own) - halves.log_sum(own));
             }
         }
@@ -439,7 +440,7 @@ mod tests {
             let e: Vec<C64> = r.iter().zip(&t).map(|(a, b)| a - b).collect();
             let sigma2 = variance(&e).max(f64::MIN_POSITIVE);
             let (cn, p) = shaped(&c, None).unwrap();
-            let llr = cn.llr(&r, sigma2, Some(&p), false).unwrap();
+            let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact).unwrap();
             let former = former_gmi_from_llr(&llr, &cn.demodulate(&t), 4, entropy(&p));
             assert!((g.gmi - former).abs() < 1e-12, "{snr} dB: {former} -> {}", g.gmi);
             let rates = information_rates(&y, &idx, &c, None).unwrap();

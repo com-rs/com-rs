@@ -77,7 +77,7 @@ pub mod stats;
 
 pub use bits::{bits_to_index, gray, gray_inverse, index_to_bits};
 pub use com_core::units::{amp2db, db2amp, db2lin, db2np, dbm2w, lin2db, np2db, w2dbm};
-pub use log_domain::{ln_1p_exp, log_sum_exp, log_sum_exp_iter, max_star};
+pub use log_domain::{Jacobian, ln_1p_exp, log_sum_exp, log_sum_exp_iter, max_star};
 pub use quadrature::{gauss_hermite, gauss_legendre, gaussian_nodes, simpson, simpson_weight, try_simpson};
 pub use search::{argmax, bisect, gcd, golden_max};
 pub use special::{

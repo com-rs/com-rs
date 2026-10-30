@@ -68,6 +68,7 @@ use com_core::traits::Detect;
 use com_core::{Error, Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_math::Jacobian;
 use com_math::linalg::{CMat, hermitian, identity, inverse_hpd, matvec, qr};
 use ndarray::{Array2, ArrayView2};
 
@@ -345,12 +346,12 @@ impl MimoDetector for Linear {
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
         let e = self.estimate(h, y, noise_var)?;
-        self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, false)
+        self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, Jacobian::Exact)
     }
 
     fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
         let e = self.estimate(h, y, noise_var)?;
-        let llr = self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, false)?;
+        let llr = self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, Jacobian::Exact)?;
         Ok((self.constellation.decide(&e.symbols), llr))
     }
 

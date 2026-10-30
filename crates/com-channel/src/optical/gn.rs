@@ -312,7 +312,8 @@ impl GnModel {
         let fib = &self.fiber;
         let g = db2lin(-p.net_gain_db(ch));
         // the EDFA restores the channel where the Raman gain does not, both polarisations
-        let edfa = if g > 1.0 { 2.0 * ase_density(g, db2lin(fib.nf_db), fib.fc_hz + spectrum.freqs_hz[ch]) } else { 0.0 };
+        let edfa =
+            if g > 1.0 { 2.0 * ase_density(g, db2lin(fib.nf_db), fib.fc_hz + spectrum.freqs_hz[ch]) } else { 0.0 };
         fib.n_spans as f64 * (p.ase_psd[ch] * g + edfa)
     }
 

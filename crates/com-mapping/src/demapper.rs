@@ -14,7 +14,8 @@
 //! with $\sigma^{2}$ the variance of the complex noise, one per symbol with
 //! [`Constellation::llr_with_variances`]. A positive LLR favours bit 0, the library-wide
 //! convention of `com_core::signal`. The sums are computed with log-sum-exp, so that
-//! they stay finite at any SNR; `max_log` keeps only the largest term of each sum.
+//! they stay finite at any SNR; [`Jacobian::MaxLog`] keeps only the largest term of each
+//! sum.
 //!
 //! [`Constellation`] implements the verb traits [`Map`] and [`Demap`] on the
 //! multi-stream containers, the latter with the exact (not max-log) LLRs and uniform
@@ -38,7 +39,7 @@ use crate::constellation::{Constellation, log_priors};
 use com_core::signal::{Bits, Llr, Symbols};
 use com_core::traits::{Demap, Map};
 use com_core::{Result, ensure, same_len};
-use com_math::C64;
+use com_math::{C64, Jacobian};
 
 /// The metrics of one symbol over the two halves of its labels for one bit: the label
 /// $i$ of a point is in half $b$ when bit `shift` of $i$ is $b$, and every half keeps its
@@ -57,22 +58,23 @@ use com_math::C64;
 /// # Examples
 /// ```
 /// use com_mapping::demapper::LabelHalves;
+/// use com_math::Jacobian;
 /// // four labels, bit 1 (the most significant): halves {0, 1} and {2, 3}
-/// let h = LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, false);
+/// let h = LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, Jacobian::Exact);
 /// assert!((h.log_sum(0) - (1.0 + (-1f64).exp()).ln()).abs() < 1e-15);
-/// assert_eq!(LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, true).llr(), 2.0);
+/// assert_eq!(LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, Jacobian::MaxLog).llr(), 2.0);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LabelHalves {
     max: [f64; 2],
     sum: [f64; 2],
-    exact: bool,
+    jacobian: Jacobian,
 }
 
 impl LabelHalves {
     /// The halves of the metric row `metric` (one value per label) for bit `shift` of
-    /// the labels; with `max_log`, the maxima only.
-    pub fn new(metric: &[f64], shift: usize, max_log: bool) -> LabelHalves {
+    /// the labels; with [`Jacobian::MaxLog`], the maxima only.
+    pub fn new(metric: &[f64], shift: usize, jacobian: Jacobian) -> LabelHalves {
         // the log-sum-exp of the two halves without allocation: maxima, then sums
         let (mut m0, mut m1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         for (i, &v) in metric.iter().enumerate() {
@@ -83,8 +85,7 @@ impl LabelHalves {
             }
         }
         let mut sum = [1.0, 1.0];
-        let exact = !max_log;
-        if exact && (m0.is_finite() || m1.is_finite()) {
+        if jacobian.is_exact() && (m0.is_finite() || m1.is_finite()) {
             let (mut s0, mut s1) = (0.0, 0.0);
             for (i, &v) in metric.iter().enumerate() {
                 if (i >> shift) & 1 == 0 {
@@ -95,21 +96,21 @@ impl LabelHalves {
             }
             sum = [s0, s1];
         }
-        LabelHalves { max: [m0, m1], sum, exact }
+        LabelHalves { max: [m0, m1], sum, jacobian }
     }
 
     /// $\ln \sum_{i \in b} e^{\ell_{i}}$ over the half `bit` (0 or 1): $\mu_{b} + \ln
     /// s_{b}$, or $\mu_{b}$ with max-log or when $\mu_{b}$ is not finite.
     pub fn log_sum(&self, bit: usize) -> f64 {
         let m = self.max[bit & 1];
-        if !self.exact || !m.is_finite() { m } else { m + self.sum[bit & 1].ln() }
+        if !self.jacobian.is_exact() || !m.is_finite() { m } else { m + self.sum[bit & 1].ln() }
     }
 
     /// The LLR of the bit, $\mu_{0} + \ln s_{0} - \mu_{1} - \ln s_{1}$ (positive for a 0),
     /// or $\mu_{0} - \mu_{1}$ with max-log or when a maximum is not finite.
     pub fn llr(&self) -> f64 {
         let [m0, m1] = self.max;
-        if !self.exact || !m0.is_finite() || !m1.is_finite() {
+        if !self.jacobian.is_exact() || !m0.is_finite() || !m1.is_finite() {
             m0 - m1
         } else {
             m0 + self.sum[0].ln() - m1 - self.sum[1].ln()
@@ -123,10 +124,10 @@ impl LabelHalves {
 ///
 /// # Panics
 /// If `out` has fewer than $b$ values.
-pub fn llr_from_metrics(metric: &[f64], max_log: bool, out: &mut [f64]) {
+pub fn llr_from_metrics(metric: &[f64], jacobian: Jacobian, out: &mut [f64]) {
     let b = metric.len().trailing_zeros() as usize;
     for (o, k) in out[..b].iter_mut().zip((0..b).rev()) {
-        *o = LabelHalves::new(metric, k, max_log).llr();
+        *o = LabelHalves::new(metric, k, jacobian).llr();
     }
 }
 
@@ -142,9 +143,9 @@ impl Constellation {
     /// [`com_core::Error::Config`] for a noise variance that is not positive,
     /// [`com_core::Error::Shape`] for priors of another length than the constellation,
     /// [`com_core::Error::Config`] for negative or all-zero priors.
-    pub fn llr(&self, z: &[C64], noise_var: f64, px: Option<&[f64]>, max_log: bool) -> Result<Vec<f64>> {
+    pub fn llr(&self, z: &[C64], noise_var: f64, px: Option<&[f64]>, jacobian: Jacobian) -> Result<Vec<f64>> {
         let mut out = vec![0.0; z.len() * self.bits_per_symbol()];
-        self.llr_into(z, noise_var, px, max_log, &mut out)?;
+        self.llr_into(z, noise_var, px, jacobian, &mut out)?;
         Ok(out)
     }
 
@@ -158,11 +159,12 @@ impl Constellation {
     /// # Examples
     /// ```
     /// use com_mapping::constellation::Constellation;
+    /// use com_math::Jacobian;
     /// let c = Constellation::qam(16)?.normalized();
     /// let z = [c.points()[5], c.points()[12]];
     /// let mut out = [0.0; 8];
-    /// c.llr_into(&z, 0.1, None, false, &mut out)?;
-    /// assert_eq!(out[..], c.llr(&z, 0.1, None, false)?[..]);
+    /// c.llr_into(&z, 0.1, None, Jacobian::Exact, &mut out)?;
+    /// assert_eq!(out[..], c.llr(&z, 0.1, None, Jacobian::Exact)?[..]);
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn llr_into(
@@ -170,12 +172,12 @@ impl Constellation {
         z: &[C64],
         noise_var: f64,
         px: Option<&[f64]>,
-        max_log: bool,
+        jacobian: Jacobian,
         out: &mut [f64],
     ) -> Result<()> {
         ensure_variance(noise_var)?;
         same_len(out.len(), z.len() * self.bits_per_symbol(), "LLRs and bits of the symbols")?;
-        self.llr_kernel(z, |_| noise_var, self.log_priors_of(px)?.as_deref(), max_log, out);
+        self.llr_kernel(z, |_| noise_var, self.log_priors_of(px)?.as_deref(), jacobian, out);
         Ok(())
     }
 
@@ -189,10 +191,11 @@ impl Constellation {
     /// # Examples
     /// ```
     /// use com_mapping::constellation::Constellation;
+    /// use com_math::Jacobian;
     /// let c = Constellation::qam(4)?.normalized();
     /// let z = [c.points()[0], c.points()[3]];
-    /// let both = c.llr_with_variances(&z, &[0.1, 0.4], None, false)?;
-    /// assert_eq!(both[2..], c.llr(&z[1..], 0.4, None, false)?[..]);
+    /// let both = c.llr_with_variances(&z, &[0.1, 0.4], None, Jacobian::Exact)?;
+    /// assert_eq!(both[2..], c.llr(&z[1..], 0.4, None, Jacobian::Exact)?[..]);
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn llr_with_variances(
@@ -200,10 +203,10 @@ impl Constellation {
         z: &[C64],
         noise_vars: &[f64],
         px: Option<&[f64]>,
-        max_log: bool,
+        jacobian: Jacobian,
     ) -> Result<Vec<f64>> {
         let mut out = vec![0.0; z.len() * self.bits_per_symbol()];
-        self.llr_with_variances_into(z, noise_vars, px, max_log, &mut out)?;
+        self.llr_with_variances_into(z, noise_vars, px, jacobian, &mut out)?;
         Ok(out)
     }
 
@@ -217,7 +220,7 @@ impl Constellation {
         z: &[C64],
         noise_vars: &[f64],
         px: Option<&[f64]>,
-        max_log: bool,
+        jacobian: Jacobian,
         out: &mut [f64],
     ) -> Result<()> {
         same_len(noise_vars.len(), z.len(), "noise variances and symbols")?;
@@ -225,7 +228,7 @@ impl Constellation {
             ensure_variance(v)?;
         }
         same_len(out.len(), z.len() * self.bits_per_symbol(), "LLRs and bits of the symbols")?;
-        self.llr_kernel(z, |i| noise_vars[i], self.log_priors_of(px)?.as_deref(), max_log, out);
+        self.llr_kernel(z, |i| noise_vars[i], self.log_priors_of(px)?.as_deref(), jacobian, out);
         Ok(())
     }
 
@@ -245,7 +248,7 @@ impl Constellation {
         z: &[C64],
         var: impl Fn(usize) -> f64,
         log_px: Option<&[f64]>,
-        max_log: bool,
+        jacobian: Jacobian,
         out: &mut [f64],
     ) {
         let m = self.order();
@@ -258,7 +261,7 @@ impl Constellation {
             for i in 0..m {
                 metric[i] = -(y - points[i]).norm_sqr() / sigma2 + log_px.map_or(uniform, |l| l[i]);
             }
-            llr_from_metrics(&metric, max_log, o);
+            llr_from_metrics(&metric, jacobian, o);
         }
     }
 }
@@ -304,7 +307,7 @@ impl Demap for Constellation {
     fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> {
         out.resize(y.n_streams(), y.len() * self.bits_per_symbol());
         for s in 0..y.n_streams() {
-            self.llr_into(y.stream_slice(s), noise_var, None, false, out.stream_slice_mut(s))?;
+            self.llr_into(y.stream_slice(s), noise_var, None, Jacobian::Exact, out.stream_slice_mut(s))?;
         }
         Ok(())
     }
@@ -318,12 +321,12 @@ mod tests {
     fn llr_signs_and_max_log() {
         let c = Constellation::qam(16).unwrap().normalized();
         let x = c.points()[0b1010];
-        let l = c.llr(&[x], 0.01, None, false).unwrap();
+        let l = c.llr(&[x], 0.01, None, Jacobian::Exact).unwrap();
         let expected = [1u8, 0, 1, 0];
         for (v, b) in l.iter().zip(expected) {
             assert!(if b == 0 { *v > 0.0 } else { *v < 0.0 }, "{l:?}");
         }
-        let lm = c.llr(&[x], 0.01, None, true).unwrap();
+        let lm = c.llr(&[x], 0.01, None, Jacobian::MaxLog).unwrap();
         for (a, b) in l.iter().zip(&lm) {
             assert!((a - b).abs() < 1e-3 * a.abs().max(1.0));
         }
@@ -383,14 +386,14 @@ mod tests {
             for (px, table) in [(None, &uniform), (Some(&shaped[..]), &lp)] {
                 for max_log in [false, true] {
                     for s2 in [1e-3, 0.1, 2.0] {
-                        let new = c.llr(&z, s2, px, max_log).unwrap();
+                        let new = c.llr(&z, s2, px, Jacobian::from_max_log(max_log)).unwrap();
                         let old = former_llr(&c, &z, s2, table, max_log);
                         assert!(new.iter().zip(&old).all(|(a, b)| a.to_bits() == b.to_bits()), "M {m}, {s2}");
                     }
                 }
             }
             let mut out = vec![0.0; c.bits_per_symbol() + 1];
-            assert!(c.llr_into(&z[..1], 0.1, None, false, &mut out).is_err());
+            assert!(c.llr_into(&z[..1], 0.1, None, Jacobian::Exact, &mut out).is_err());
         }
     }
 

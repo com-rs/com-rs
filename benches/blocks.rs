@@ -7,6 +7,7 @@
 
 use comrs::channel::optical::fiber::{FiberParams, Ssfm};
 use comrs::dsp::filter::{PulseShape, fir_filter, pulse_shape};
+use comrs::math::Jacobian;
 use comrs::prelude::*;
 use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 
@@ -19,8 +20,8 @@ fn mapping(c: &mut Criterion) {
     let mut g = c.benchmark_group("mapping");
     g.throughput(Throughput::Elements(x.len() as u64));
     g.bench_function("qam64_decide", |b| b.iter(|| qam.decide(black_box(&y))));
-    g.bench_function("qam64_llr_exact", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, false)));
-    g.bench_function("qam64_llr_maxlog", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, true)));
+    g.bench_function("qam64_llr_exact", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, Jacobian::Exact)));
+    g.bench_function("qam64_llr_maxlog", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, Jacobian::MaxLog)));
     g.finish();
 }
 

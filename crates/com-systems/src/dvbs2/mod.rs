@@ -59,8 +59,8 @@ use com_core::{Error, Result, ensure, ensure_shape};
 use com_fec::crc::Crc;
 use com_fec::interleaving::Interleaver;
 use com_mapping::constellation::Constellation;
-use com_math::C64;
 use com_math::sequences::lfsr;
+use com_math::{C64, Jacobian};
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 use std::str::FromStr;
 
@@ -615,12 +615,12 @@ impl Dvbs2 {
     }
 
     /// The deinterleaved LLRs of the FECFRAME of a received PLFRAME (frame aligned,
-    /// carrier recovered) with complex noise of variance `noise_var` per symbol: exact,
-    /// or max-log with `max_log`.
+    /// carrier recovered) with complex noise of variance `noise_var` per symbol, exact or
+    /// max-log (`jacobian`).
     ///
     /// # Errors
     /// [`Error::Shape`] if `rx` is not one PLFRAME.
-    pub fn llr(&self, rx: &[C64], noise_var: f64, max_log: bool) -> Result<Vec<f64>> {
+    pub fn llr(&self, rx: &[C64], noise_var: f64, jacobian: Jacobian) -> Result<Vec<f64>> {
         ensure_shape(rx.len() == self.plframe_len(), || {
             format!("a PLFRAME has {} symbols, got {}", self.plframe_len(), rx.len())
         })?;
@@ -631,7 +631,7 @@ impl Dvbs2 {
             .filter(|(_, d)| **d)
             .map(|((z, c), _)| z * c.conj())
             .collect();
-        let llr = self.constellation.llr(&data, noise_var.max(1e-300), None, max_log)?;
+        let llr = self.constellation.llr(&data, noise_var.max(1e-300), None, jacobian)?;
         Ok(self.interleaver.as_ref().map_or(llr.clone(), |p| p.deinterleave(&llr)))
     }
 
@@ -640,7 +640,7 @@ impl Dvbs2 {
     /// # Errors
     /// As [`Dvbs2::llr`].
     pub fn decode(&self, rx: &[C64], noise_var: f64) -> Result<Vec<u8>> {
-        self.fec.decode(&self.llr(rx, noise_var, false)?)
+        self.fec.decode(&self.llr(rx, noise_var, Jacobian::Exact)?)
     }
 }
 

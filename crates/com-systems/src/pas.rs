@@ -64,7 +64,7 @@ use com_fec::block::BlockCode;
 use com_fec::ccdm::Ccdm;
 use com_fec::ldpc::LdpcCode;
 use com_mapping::constellation::Constellation;
-use com_math::{C64, bits_to_index, gray, gray_inverse, index_to_bits};
+use com_math::{C64, Jacobian, bits_to_index, gray, gray_inverse, index_to_bits};
 
 /// A PAS transceiver of one real dimension (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -300,7 +300,7 @@ impl Pas {
         // the complex noise variance of the demapper, kept positive and finite as the
         // demapper requires (a zero variance is the limit of a small one)
         let var: Vec<f64> = noise_var.iter().map(|&v| (2.0 * v.max(1e-300)).min(f64::MAX)).collect();
-        let llr = self.labelled.llr_with_variances(&z, &var, Some(&self.label_priors), false)?;
+        let llr = self.labelled.llr_with_variances(&z, &var, Some(&self.label_priors), Jacobian::Exact)?;
         let mut out = vec![0.0; self.code.n()];
         for (i, l) in llr.chunks_exact(self.m).enumerate() {
             out[self.sign_positions[i]] = l[0];

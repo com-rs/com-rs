@@ -356,9 +356,7 @@ pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
 /// # Errors
 /// [`com_core::Error::Config`] for no symbol or no sample per symbol.
 pub fn snr_crb_nmse(snr_lin: f64, n_symbols: usize, sps: usize, real: bool) -> Result<f64> {
-    ensure(n_symbols > 0 && sps > 0, || {
-        format!("n_symbols and sps must be positive, got {n_symbols} and {sps}")
-    })?;
+    ensure(n_symbols > 0 && sps > 0, || format!("n_symbols and sps must be positive, got {n_symbols} and {sps}"))?;
     let n = n_symbols as f64;
     let complex = 2.0 / (snr_lin * n) + 1.0 / (sps as f64 * n);
     Ok(if real { 2.0 * complex } else { complex })

@@ -89,6 +89,7 @@
 use crate::detection::{Estimates, FLOOR, MimoDetector, check_shape};
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
+use com_math::Jacobian;
 use com_math::linalg::svd;
 use com_math::{C64, golden_max};
 use ndarray::ArrayView2;
@@ -788,12 +789,15 @@ macro_rules! decoupled_detector {
 
             fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
                 let t = self.trace(h, y, noise_var)?;
-                self.constellation.llr(&t.z, decoupled_var(&t), None, false)
+                self.constellation.llr(&t.z, decoupled_var(&t), None, Jacobian::Exact)
             }
 
             fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
                 let t = self.trace(h, y, noise_var)?;
-                Ok((self.constellation.decide(&t.z), self.constellation.llr(&t.z, decoupled_var(&t), None, false)?))
+                Ok((
+                    self.constellation.decide(&t.z),
+                    self.constellation.llr(&t.z, decoupled_var(&t), None, Jacobian::Exact)?,
+                ))
             }
         }
     };
@@ -866,7 +870,7 @@ mod tests {
             let e = d.soft_estimate(&h.view(), &y, 1e-6).unwrap().unwrap();
             let (labels, llr) = d.detect_llr(&h.view(), &y, 1e-6).unwrap();
             assert_eq!(c.decide(&e.symbols), labels);
-            let from = c.llr_with_variances(&e.symbols, &e.noise_var, None, false).unwrap();
+            let from = c.llr_with_variances(&e.symbols, &e.noise_var, None, Jacobian::Exact).unwrap();
             assert!(from.iter().zip(&llr).all(|(a, b)| a.to_bits() == b.to_bits()));
         }
     }
