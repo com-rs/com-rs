@@ -57,7 +57,7 @@
 //!
 //! # Receivers
 //!
-//! [`CeOfdm::demodulate_with`] takes a [`Receiver`]: the arctangent phase demodulator
+//! [`CeOfdm::demodulate_with_receiver`] takes a [`Receiver`]: the arctangent phase demodulator
 //! above, or the low-complexity receivers of Ahmed and Zeidler (2015), which replace
 //! $\arg r$ by $\operatorname{Im} r$ (basic linear receiver) or by
 //! $\operatorname{Im} r \\, (2 - \operatorname{Re} r)$ (enhanced receiver) and avoid the
@@ -177,7 +177,7 @@ pub struct CeOfdm {
     /// Cyclic prefix, in samples of the DFT of $N$ points (the oversampling is already in
     /// $N$, unlike [`crate::ofdm::Ofdm::n_cp`], which counts Nyquist-rate samples).
     pub n_cp: usize,
-    /// The receiver of [`Demodulate`] ([`CeOfdm::demodulate_with`]); the arctangent
+    /// The receiver of [`Demodulate`] ([`CeOfdm::demodulate_with_receiver`]); the arctangent
     /// demodulator of the principal phase by default.
     pub receiver: Receiver,
     /// The rate of the samples (one per point of the DFT of $N$): the rate of the
@@ -303,7 +303,8 @@ impl CeOfdm {
     /// demodulator with its unwrapping.
     ///
     /// # Errors
-    /// As [`CeOfdm::demodulate`].
+    /// [`com_core::Error::Config`] for invalid parameters, [`com_core::Error::Shape`] for
+    /// a number of samples that is not a multiple of `N + N_cp`.
     ///
     /// # Examples
     /// ```
@@ -380,7 +381,7 @@ impl Modulate for CeOfdm {
 impl Demodulate for CeOfdm {
     /// # Errors
     /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
-    /// and the errors of [`CeOfdm::demodulate_with`].
+    /// and the errors of [`CeOfdm::demodulate_with_receiver`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         check_input(y, self.sample_rate, "CE-OFDM")?;
         out.set_stream(&self.demodulate_with_receiver(y.stream(0), self.receiver)?);
