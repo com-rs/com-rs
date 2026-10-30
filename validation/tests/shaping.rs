@@ -397,7 +397,7 @@ fn pas_of(p: &Point) -> Pas {
         if rate(mid) > p.rate { lo = mid } else { hi = mid }
     }
     let nu = if (rate(lo) - p.rate).abs() <= (rate(hi) - p.rate).abs() { lo } else { hi };
-    Pas::with_bit_mapper(code, p.m, &amplitudes(p.m, nu), 1.0, p.levels).unwrap()
+    Pas::new(code, p.m, &amplitudes(p.m, nu), 1.0).unwrap().with_bit_mapper(p.levels).unwrap()
 }
 
 /// The frame errors of PAS over frames $0, 1, \dots$ at an SNR $E[X^{2}]/\sigma^{2}$ (dB,
@@ -433,11 +433,9 @@ fn frame_errors(pas: &Pas, snr_db: f64, seed: u64, min_errors: u64, max_frames: 
                         let bits: Vec<u8> = (0..pas.info_bits()).map(|_| rng.bit()).collect();
                         let x = pas.encode(&bits).unwrap();
                         let y: Vec<f64> = x.iter().map(|v| v + sigma * rng.gaussian()).collect();
-                        // the sent codeword: the signs of the LLRs of the noiseless symbols
-                        let sent = pas.llr(&x, &vec![1e-6; x.len()]).unwrap();
-                        let (post, _) =
-                            pas.code().decode_llr(&pas.llr(&y, &vec![noise_var; y.len()]).unwrap()).unwrap();
-                        let info_ok = pas.code().info_positions().iter().all(|&i| (post[i] < 0.0) == (sent[i] < 0.0));
+                        let sent = pas.encode_codeword(&bits).unwrap();
+                        let (post, _) = pas.code().decode_llr(&pas.llr(&y, noise_var).unwrap()).unwrap();
+                        let info_ok = pas.code().info_positions().iter().all(|&i| (post[i] < 0.0) == (sent[i] == 1));
                         if !info_ok && pas.decode(&y, noise_var).unwrap() != bits {
                             wrong.fetch_add(1, Ordering::Relaxed);
                         }
