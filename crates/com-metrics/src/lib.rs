@@ -60,8 +60,8 @@
 //! // Es/N0 = Eb/N0 + 10 log10(b); the estimate normalises the noisy signal to unit power,
 //! // which biases it up by about 10 log10(1 + N0/Es) (0.17 dB here), as in OptiCommPy
 //! assert!((r.snr_db - (8.0 + com_math::lin2db(4.0))).abs() < 0.25);
-//! let (gmi, ngmi) = metrics::monte_carlo_gmi(&rx, &tx, &c, None).unwrap();
-//! assert!(gmi > 3.8 && gmi < 4.0 && (ngmi - gmi / 4.0).abs() < 1e-12);
+//! let g = metrics::monte_carlo_gmi(&rx, &tx, &c, None).unwrap();
+//! assert!(g.gmi > 3.8 && g.gmi < 4.0 && (g.ngmi - g.gmi / 4.0).abs() < 1e-12);
 //! ```
 
 pub mod blind;
@@ -83,7 +83,7 @@ pub use errors::{
     ls_gain, mse, snr_db, symbol_errors,
 };
 pub use information::{
-    InformationRates, PosteriorRates, information_rates, monte_carlo_gmi, monte_carlo_mi, posterior_rates,
+    Gmi, InformationRates, PosteriorRates, information_rates, monte_carlo_gmi, monte_carlo_mi, posterior_rates,
 };
 
 /// Rotate (QAM, PSK) and normalise as OptiCommPy does before its estimates.
