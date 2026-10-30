@@ -1,7 +1,7 @@
 //! Receiver DSP: shaping and matched filtering, resampling and decimation, clock recovery, adaptive equalisation, carrier recovery, frame synchronisation.
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params, part, per_pol};
+use super::{Block, BlockInfo, BuildContext, Frame, NumberOrList, Params, part, per_pol};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -266,14 +266,23 @@ impl Block for Gardner {
 
 block_params! {
     struct EqualizerSpec {
-        algorithm: Json ["cma"], "cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]";
+        algorithm: Schedule ["cma"], "cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]";
         n_taps: usize [15] >= 1, "taps";
-        mu: Json [1e-3] > 0,
+        mu: NumberOrList [1e-3] > 0,
             "step size, or one per stage of the schedule (the last one holds for the following stages)";
         passes: usize [1] >= 1, "passes over the block";
         kikuchi: Option<usize> [absent],
             "2 × 2: Kikuchi's initialisation against the singularity, output 0 alone during this number of symbols, then output 1 as its unitary complement; records correlation and singular";
     }
+}
+
+json_param! {
+    /// The algorithm of `adaptive_equalizer`: a name, or a schedule of stages.
+    Schedule,
+    serde_json::json!({"anyOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"type": "array", "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 0}], "minItems": 2, "maxItems": 2}}
+    ]})
 }
 
 struct Equalizer {
@@ -287,7 +296,7 @@ struct Equalizer {
 
 impl Equalizer {
     fn new(p: &EqualizerSpec, label: String) -> Result<Equalizer> {
-        let schedule = match &p.algorithm {
+        let schedule = match &p.algorithm.0 {
             Json::String(a) => vec![(a.parse()?, usize::MAX)],
             Json::Array(steps) => steps
                 .iter()
@@ -302,7 +311,7 @@ impl Equalizer {
             other => return Err(Error::Config(format!("algorithm must be a name or a schedule, got {other}"))),
         };
         let singularity = p.kikuchi.map_or(Singularity::None, Singularity::Kikuchi);
-        let mu: Vec<f64> = match &p.mu {
+        let mu: Vec<f64> = match &p.mu.0 {
             Json::Array(v) => v
                 .iter()
                 .map(|x| x.as_f64().ok_or_else(|| Error::Config("adaptive_equalizer: mu must be numbers".into())))

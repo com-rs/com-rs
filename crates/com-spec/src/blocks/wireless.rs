@@ -45,8 +45,7 @@
 //!    Annex B.2 (EPA, EVA, ETU).
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
-use crate::params::parse;
+use super::{Block, BlockInfo, BuildContext, Frame, NameOr, Named, Params};
 use com_channel::cdl::{Array, Cdl, Profile as CdlProfile};
 use com_channel::fading::Mimo;
 use com_channel::multipath::{Profile, Taps, Tdl};
@@ -151,7 +150,7 @@ pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> 
     let p = p.clone();
     let b: Result<Box<dyn Block>> = match kind {
         "mimo_tx" => MimoTxSpec::parse(kind, p).and_then(|q| MimoTx::new(&q)).map(|b| Box::new(b) as Box<dyn Block>),
-        "rayleigh" => RayleighSpec::parse(kind, p).and_then(Rayleigh::new).map(|b| Box::new(b) as _),
+        "rayleigh" => RayleighSpec::parse(kind, p).map(|p| Box::new(Rayleigh { p }) as _),
         "tdl" => TdlSpec::parse(kind, p).and_then(|q| TdlBlock::new(&q)).map(|b| Box::new(b) as _),
         "cdl" => CdlSpec::parse(kind, p).and_then(|q| CdlBlock::new(&q)).map(|b| Box::new(b) as _),
         "ofdm_tx" => OfdmTxSpec::parse(kind, p).and_then(|q| OfdmTx::new(&q)).map(|b| Box::new(b) as _),
@@ -229,22 +228,13 @@ block_params! {
         n_rx: usize [1] >= 1, "receive antennas";
         coherence: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
         k_factor: f64 [0.0] >= 0, "Rician factor K (linear), 0 for Rayleigh fading";
-        rx_correlation: f64 [0.0], "exponential correlation ρ of the receive antennas, in (-1, 1)";
-        tx_correlation: f64 [0.0], "exponential correlation ρ of the transmit antennas, in (-1, 1)";
+        rx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the receive antennas";
+        tx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the transmit antennas";
     }
 }
 
 struct Rayleigh {
     p: RayleighSpec,
-}
-
-impl Rayleigh {
-    fn new(p: RayleighSpec) -> Result<Rayleigh> {
-        ensure(p.rx_correlation.abs() < 1.0 && p.tx_correlation.abs() < 1.0, || {
-            "rayleigh: the correlations must be in (-1, 1)".into()
-        })?;
-        Ok(Rayleigh { p })
-    }
 }
 
 impl Block for Rayleigh {
@@ -274,18 +264,19 @@ impl Block for Rayleigh {
 
 block_params! {
     struct TdlSpec {
-        profile: Json ["EPA"],
+        profile: NameOr<ExponentialSpec> ["EPA"],
             "EPA, EVA, ETU (3GPP TS 36.101), pedestrian_a, pedestrian_b, vehicular_a, vehicular_b (ITU-R M.1225, Tables 4 and 5), or {rms_delay_s, resolution_s} (exponential)";
         doppler_hz: f64 [0.0] "Hz" >= 0, "maximum Doppler shift; 0 for a channel constant over the trial";
         n_rx: usize [1] >= 1, "receive antennas";
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExponentialSpec {
-    rms_delay_s: f64,
-    resolution_s: f64,
+block_params! {
+    /// The exponential power-delay profile of `tdl`.
+    struct ExponentialSpec {
+        rms_delay_s: f64 [required] "s" > 0, "RMS delay spread";
+        resolution_s: f64 [required] "s" > 0, "spacing of the taps";
+    }
 }
 
 struct TdlBlock {
@@ -296,15 +287,9 @@ struct TdlBlock {
 
 impl TdlBlock {
     fn new(p: &TdlSpec) -> Result<TdlBlock> {
-        let profile = match &p.profile {
-            Json::String(name) => name.parse()?,
-            other => {
-                let e: ExponentialSpec = parse("tdl profile", other.clone())?;
-                ensure(e.rms_delay_s > 0.0 && e.resolution_s > 0.0, || {
-                    "tdl: rms_delay_s and resolution_s must be positive".into()
-                })?;
-                Profile::Exponential { rms_delay_s: e.rms_delay_s, resolution_s: e.resolution_s }
-            }
+        let profile = match p.profile.get("tdl profile")? {
+            Named::Name(name) => name.parse()?,
+            Named::Params(e) => Profile::Exponential { rms_delay_s: e.rms_delay_s, resolution_s: e.resolution_s },
         };
         Ok(TdlBlock { taps: profile.taps(), doppler: p.doppler_hz, n_rx: p.n_rx })
     }
@@ -393,7 +378,7 @@ block_params! {
         oversampling: usize [1] >= 1, "oversampling L";
         dc_null: bool [false], "leave the DC subcarrier empty";
         n_symbols: usize [14] >= 1, "OFDM symbols per grid";
-        pilots: Json [serde_json::json!({"pattern": "lattice", "freq": 3, "time": 4})
+        pilots: NameOr<PilotSpec> [serde_json::json!({"pattern": "lattice", "freq": 3, "time": 4})
             => "{pattern: lattice, freq: 3, time: 4}"],
             "pattern block {period}, comb {spacing}, lattice {freq, time} or none; with several antennas the pilots of a symbol are dealt to the antennas in turn";
         subcarrier_spacing_hz: f64 [15e3] "Hz" > 0, "subcarrier spacing Δf";
@@ -401,37 +386,24 @@ block_params! {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PilotSpec {
-    pattern: String,
-    #[serde(default = "d_four")]
-    period: usize,
-    #[serde(default = "d_four")]
-    spacing: usize,
-    #[serde(default = "d_three")]
-    freq: usize,
-    #[serde(default = "d_four")]
-    time: usize,
-}
-
-fn d_four() -> usize {
-    4
-}
-fn d_three() -> usize {
-    3
-}
-
-fn pilot_pattern(v: &Json) -> Result<PilotPattern> {
-    if let Json::String(s) = v {
-        ensure(s == "none", || format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))?;
-        return Ok(PilotPattern::None);
+block_params! {
+    /// The pilots of `ofdm_tx`.
+    struct PilotSpec {
+        pattern: String [required] one_of ["block", "comb", "lattice", "none"], "the pattern";
+        period: usize [4] "OFDM symbols" >= 1, "pilot symbols every period symbols (block)";
+        spacing: usize [4] "subcarriers" >= 1, "pilot subcarriers every spacing subcarriers (comb)";
+        freq: usize [3] "subcarriers" >= 1, "spacing in frequency (lattice)";
+        time: usize [4] "OFDM symbols" >= 1, "spacing in time (lattice)";
     }
-    let p: PilotSpec = parse("ofdm_tx pilots", v.clone())?;
-    ensure(p.period >= 1 && p.spacing >= 1 && p.freq >= 1 && p.time >= 1, || {
-        "ofdm_tx: the pilot spacings must be at least 1".into()
-    })?;
-    PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+}
+
+fn pilot_pattern(v: &NameOr<PilotSpec>) -> Result<PilotPattern> {
+    match v.get("ofdm_tx pilots")? {
+        Named::Name(s) if s.eq_ignore_ascii_case("none") => Ok(PilotPattern::None),
+        Named::Name(s) => Err(Error::Config(format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))),
+        Named::Params(p) => PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time)
+            .map_err(|e| e.context("ofdm_tx")),
+    }
 }
 
 struct OfdmTx {

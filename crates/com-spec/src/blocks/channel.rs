@@ -230,7 +230,7 @@ impl Block for Cfo {
 
 block_params! {
     struct FirSpec {
-        h: Vec<Json> [required], "taps, [[re, im], …] or real numbers";
+        h: Vec<ComplexNumber> [required], "taps, [[re, im], …] or real numbers";
         alignment: Alignment ["causal"] one_of ["causal", "centred", "centered"],
             "causal: y[n] = Σ h[k] x[n-k], the delay of the taps kept; centred: the taps centred on the samples (OptiCommPy firFilter)";
     }
@@ -253,6 +253,12 @@ impl ParamType for Alignment {
     }
 }
 
+json_param! {
+    /// A complex number: `[re, im]` or a real number.
+    ComplexNumber,
+    serde_json::json!({"anyOf": [{"type": "number"}, {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}]})
+}
+
 struct Fir {
     h: Vec<C64>,
     causal: bool,
@@ -273,7 +279,7 @@ pub(crate) fn complex(v: &Json) -> Result<C64> {
 impl Fir {
     fn new(p: &FirSpec) -> Result<Fir> {
         ensure(!p.h.is_empty(), || "fir: h needs at least one tap".into())?;
-        let h = p.h.iter().map(complex).collect::<Result<Vec<_>>>()?;
+        let h = p.h.iter().map(|v| complex(&v.0)).collect::<Result<Vec<_>>>()?;
         Ok(Fir { h, causal: p.alignment == Alignment::Causal })
     }
 }

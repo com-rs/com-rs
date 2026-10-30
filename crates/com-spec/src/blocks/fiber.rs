@@ -1,6 +1,6 @@
 //! Single-polarisation fibre propagation and its compensation: linear fibre, split-step Fourier, EDFA, dispersion compensation, digital back-propagation.
 
-use super::{Block, BlockInfo, BuildContext, FIBER_DOC, Frame, Params};
+use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, Params};
 use com_channel::optical::edfa::Edfa;
 use com_channel::optical::fiber::FiberParams;
 use com_channel::optical::fiber::linear_fiber_channel;
@@ -36,7 +36,7 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Opti
         Ok(Some(match k {
             "fiber" => {
                 let q = FiberBlock::parse(k, p)?;
-                let fiber = ctx.fiber(q.fiber.as_ref())?;
+                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
                 Box::new(LinearFiber {
                     length_km: q.length_km.unwrap_or(fiber.total_km()),
                     fiber,
@@ -45,12 +45,12 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Opti
             }
             "ssfm" => {
                 let q = SsfmBlock::parse(k, p)?;
-                let fiber = ctx.fiber(q.fiber.as_ref())?;
+                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
                 let ssfm = Ssfm {
                     fiber,
                     step_km: q.step_km,
                     amplification: q.amplification.parse()?,
-                    raman: ctx.raman(q.fiber.as_ref())?,
+                    raman: ctx.raman(fiber_json(q.fiber.as_ref()))?,
                 };
                 let precision: Precision = q.precision.parse().map_err(|e: Error| e.context("ssfm"))?;
                 ensure(!(precision == Precision::F32 && ssfm.raman.is_some()), || {
@@ -64,12 +64,12 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Opti
             }
             "cdc" => {
                 let q = CdcBlock::parse(k, p)?;
-                let fiber = ctx.fiber(q.fiber.as_ref())?;
+                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
                 Box::new(Cdc { length_km: q.length_km.unwrap_or(fiber.total_km()), fiber })
             }
             "dbp" => {
                 let q = DbpBlock::parse(k, p)?;
-                let mut fiber = ctx.fiber(q.fiber.as_ref())?;
+                let mut fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
                 if !q.nonlinear {
                     fiber.gamma_w_km = 0.0;
                 }
@@ -82,9 +82,14 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Opti
     block().transpose()
 }
 
+/// The fibre of a block as given, merged over that of the specification by the context.
+pub(super) fn fiber_json(f: Option<&Mapping<FiberSpec>>) -> Option<&Json> {
+    f.map(|m| &m.value)
+}
+
 block_params! {
     struct FiberBlock {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         length_km: Option<f64> [absent "total"] "km" >= 0, "length; the whole link by default";
         compensate_loss: bool [true], "restore the power with an ideal gain e^(αL/2)";
     }
@@ -112,7 +117,7 @@ impl Block for LinearFiber {
 
 block_params! {
     struct SsfmBlock {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         step_km: f64 [1.0] "km" > 0, "step";
         amplification: String ["edfa"] one_of ["edfa", "ideal", "none"],
             "edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency";
@@ -157,7 +162,7 @@ impl Block for EdfaStage {
 
 block_params! {
     struct CdcBlock {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         length_km: Option<f64> [absent "total"] "km", "compensated length";
     }
 }
@@ -176,7 +181,7 @@ impl Block for Cdc {
 
 block_params! {
     struct DbpBlock {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         steps_per_span: usize [1] >= 1, "symmetric steps per span";
         amplification: String ["edfa"] one_of ["edfa", "ideal", "none"], "the amplification of the forward link";
         nonlinear: bool [true], "false: linear back-propagation (dispersion compensation and loss)";

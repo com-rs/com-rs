@@ -69,7 +69,8 @@
 //!    WDM campaigns, see `com_channel::optical::gn`).
 
 use super::dsp::pulse;
-use super::{Block, BlockInfo, BuildContext, FIBER_DOC, Frame, Params};
+use super::fiber::fiber_json;
+use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList, Params};
 use com_channel::optical::manakov::ManakovSsfm;
 use com_channel::optical::pmd::{Jones, PmdLink};
 use com_core::rng::Rng;
@@ -153,7 +154,7 @@ block_params! {
         n_channels: usize [5] >= 1, "channels N; the grid is (k - ⌊N/2⌋) Δf, shifted by Δf/2 when N is even";
         spacing_hz: f64 [50e9] "Hz" > 0, "grid spacing Δf";
         sps: usize [8] >= 1, "samples per symbol of the multiplex (the sampling rate must cover the band)";
-        power_dbm: Json [0.0] "dBm", "launch power per channel, both polarisations; a list gives one per channel";
+        power_dbm: NumberOrList [0.0] "dBm", "launch power per channel, both polarisations; a list gives one per channel";
         kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "pulse";
         rolloff: f64 [0.1] >= 0 <= 1, "roll-off of the pulse";
         n_taps: usize [1025] >= 1, "taps of the pulse";
@@ -171,7 +172,7 @@ struct WdmTx {
 
 impl WdmTx {
     fn new(p: &WdmTxSpec) -> Result<WdmTx> {
-        let powers_dbm: Vec<f64> = match &p.power_dbm {
+        let powers_dbm: Vec<f64> = match &p.power_dbm.0 {
             Json::Array(v) => v
                 .iter()
                 .map(|x| x.as_f64().ok_or_else(|| Error::Config("wdm_tx: power_dbm must be numbers".into())))
@@ -228,7 +229,7 @@ impl Block for WdmTx {
 
 block_params! {
     struct ManakovSpec {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         max_nl_phase: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
@@ -247,7 +248,7 @@ struct ManakovBlock {
 
 impl ManakovBlock {
     fn new(p: &ManakovSpec, ctx: &BuildContext, label: String) -> Result<ManakovBlock> {
-        let fiber = ctx.fiber(p.fiber.as_ref())?;
+        let fiber = ctx.fiber(fiber_json(p.fiber.as_ref()))?;
         let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase), StepRule::Fixed);
         Ok(ManakovBlock {
             link: ManakovSsfm {
@@ -256,7 +257,7 @@ impl ManakovBlock {
                 max_iterations: p.max_iterations,
                 tolerance: p.tolerance,
                 amplification: p.amplification.parse()?,
-                raman: ctx.raman(p.fiber.as_ref())?,
+                raman: ctx.raman(fiber_json(p.fiber.as_ref()))?,
             },
             noise: p.noise,
             label,
@@ -326,7 +327,7 @@ impl Block for Pmd {
 
 block_params! {
     struct DbpSpec {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         steps_per_span: usize [1] >= 1, "symmetric steps per span";
         nonlinear_scale: f64 [1.0], "ξ: multiplies the nonlinear phase (0: dispersion compensation only)";
         amplification: String ["edfa"] one_of ["edfa", "ideal", "none"], "the amplification of the forward link";
@@ -338,7 +339,7 @@ struct ManakovDbpBlock(com_dsp::compensation::dbp::Dbp);
 impl ManakovDbpBlock {
     fn new(p: &DbpSpec, ctx: &BuildContext) -> Result<ManakovDbpBlock> {
         let link =
-            ManakovSsfm { amplification: p.amplification.parse()?, ..ManakovSsfm::new(ctx.fiber(p.fiber.as_ref())?) };
+            ManakovSsfm { amplification: p.amplification.parse()?, ..ManakovSsfm::new(ctx.fiber(fiber_json(p.fiber.as_ref()))?) };
         Ok(ManakovDbpBlock(link.dbp(p.steps_per_span, p.nonlinear_scale)))
     }
 }

@@ -88,13 +88,14 @@ pub(crate) mod tests;
 
 pub use crate::params::parse;
 pub use context::BuildContext;
-use context::FIBER_DOC;
+use context::{FIBER_DOC, FiberSpec};
 pub(crate) use context::merge_fiber;
 pub use frame::{CaptureState, ChannelState, Coding, Frame, InFlight, Layout, ReceiverState};
 pub use optical::WdmFrame;
 use per_pol::{part, per_pol};
 pub use registry::{BlockInfo, Extension, build, check_link, json_schema, register, registry};
-pub use schema::{Fact, ParamDefault, ParamInfo, Params};
+pub use schema::{Fact, Mapping, NameOr, Named, ParamDefault, ParamInfo, Params};
+use schema::NumberOrList;
 pub use wireless::{Csi, OfdmFrame};
 
 /// A block of a link.
@@ -117,21 +118,28 @@ pub trait Block: Send + Sync {
     }
 }
 
+block_params! {
+    /// A constellation given as a mapping.
+    pub struct ConstellationSpec {
+        kind: String ["qam"] one_of ["pam", "qam", "psk", "ook"], "the family";
+        m: usize [required] >= 1, "the order";
+    }
+}
+
+/// The value of a `constellation` parameter: a name or a [`ConstellationSpec`].
+pub type ConstellationParam = NameOr<ConstellationSpec>;
+
 /// Parse a constellation, normalised to unit energy: a name of
 /// [`Constellation::from_name`] (`16-QAM`, `qam16`, `QPSK`, `BPSK`, `8-PSK`, `4-PAM`,
-/// `OOK`) or a mapping `{kind, m}`.
+/// `OOK`) or a mapping `{kind, m}` ([`ConstellationSpec`]).
 ///
 /// # Errors
 /// [`Error::Config`] for an unknown family or a missing or invalid order.
 pub fn parse_constellation(v: &Json) -> Result<Constellation> {
     let c = match v {
-        Json::Object(o) => {
-            let kind: ConstellationKind = o.get("kind").and_then(Json::as_str).unwrap_or("qam").parse()?;
-            let m = o
-                .get("m")
-                .and_then(Json::as_u64)
-                .ok_or_else(|| Error::Config("constellation needs an order m".into()))?;
-            Constellation::new(kind, m as usize)?
+        Json::Object(_) => {
+            let q = ConstellationSpec::parse("constellation", v.clone())?;
+            Constellation::new(q.kind.parse::<ConstellationKind>()?, q.m)?
         }
         Json::String(s) => Constellation::from_name(s)?,
         other => return Err(Error::Config(format!("constellation must be a name or {{kind, m}}, got {other}"))),
