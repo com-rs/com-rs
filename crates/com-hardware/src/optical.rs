@@ -21,6 +21,9 @@
 //! - [`hybrid_2x4`]: the 90° optical hybrid of OptiCommPy (`opticalHybrid2x4`);
 //! - [`coherent_receiver`]: hybrid and two balanced photodiode pairs; with ideal
 //!   photodiodes its output is exactly `R E_s E_LO*`;
+//! - [`Photodiode::detect_signal`] and [`coherent_receiver_signal`]: the receivers on a
+//!   [`Signal`] (the polarisations of a `DualPol` as its streams), the sampling rate read
+//!   from the signal;
 //! - [`PinFetReceiver`]: the p-i-n photodiode and FET transimpedance amplifier of the
 //!   optical wireless receivers, the variances of its shot noise (signal and ambient
 //!   light) and thermal noise (feedback resistor and FET channel), and the SNR of on–off
@@ -46,7 +49,8 @@
 
 use crate::oscillator::{PhaseOrigin, increment_sd, wiener_phase};
 use com_core::rng::Rng;
-use com_core::{Result, ensure, same_len};
+use com_core::signal::Signal;
+use com_core::{Result, ensure, ensure_shape, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
 use com_dsp::signal::freq_shift;
 use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, ZERO_CELSIUS, cis, db2lin, dbm2w};
@@ -126,12 +130,24 @@ fn check_drive(e: &[C64], u: &[f64]) -> Result<()> {
     same_len(e.len(), u.len(), "optical field and driving signal")
 }
 
+/// `Ok` for a half-wave voltage that is positive and finite.
+fn check_vpi(vpi: f64) -> Result<()> {
+    ensure(vpi > 0.0 && vpi.is_finite(), || format!("the half-wave voltage must be positive, got {vpi} V"))
+}
+
+/// `Ok` for an extinction ratio that is non-negative (infinite for an ideal modulator).
+fn check_er(er_db: f64) -> Result<()> {
+    ensure(er_db >= 0.0, || format!("the extinction ratio must be non-negative, got {er_db} dB"))
+}
+
 /// Phase modulator `E e^{jπu/V_π}`.
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+/// [`com_core::Error::Shape`] if the field and the drive have different lengths;
+/// [`com_core::Error::Config`] for a half-wave voltage that is not positive.
 pub fn phase_modulator(e: &[C64], u: &[f64], vpi: f64) -> Result<Vec<C64>> {
     check_drive(e, u)?;
+    check_vpi(vpi)?;
     Ok(e.iter().zip(u).map(|(&x, &v)| x * cis(PI * v / vpi)).collect())
 }
 
@@ -155,6 +171,17 @@ impl Default for Mzm {
 }
 
 impl Mzm {
+    /// Validate the parameters.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a half-wave voltage that is not positive and finite,
+    /// a bias that is not finite, or a negative (or NaN) extinction ratio.
+    pub fn check(&self) -> Result<()> {
+        check_vpi(self.vpi)?;
+        ensure(self.vb.is_finite(), || format!("the bias must be finite, got {} V", self.vb))?;
+        check_er(self.er_db)
+    }
+
     /// The arm coefficients `(c_I, c_Q)` of the extinction ratio.
     pub fn coefficients(&self) -> (f64, f64) {
         if self.er_db.is_infinite() {
@@ -168,9 +195,11 @@ impl Mzm {
     /// Modulate the field `e` with the driving voltage `u`.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+    /// [`com_core::Error::Shape`] if the field and the drive have different lengths; the
+    /// errors of [`Mzm::check`].
     pub fn modulate(&self, e: &[C64], u: &[f64]) -> Result<Vec<C64>> {
         check_drive(e, u)?;
+        self.check()?;
         let (ci, cq) = self.coefficients();
         Ok(e.iter()
             .zip(u)
@@ -211,8 +240,11 @@ impl Iqm {
     /// Modulate `e` with the complex driving signal `u` (`Re u` on I, `Im u` on Q).
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+    /// [`com_core::Error::Shape`] if the field and the drive have different lengths;
+    /// [`com_core::Error::Config`] for the parameters [`Mzm::check`] refuses (and a
+    /// phase bias that is not finite).
     pub fn modulate(&self, e: &[C64], u: &[C64]) -> Result<Vec<C64>> {
+        ensure(self.vphi.is_finite(), || format!("the phase bias must be finite, got {} V", self.vphi))?;
         same_len(e.len(), u.len(), "optical field and driving signal")?;
         let half: Vec<C64> = e.iter().map(|v| v * std::f64::consts::FRAC_1_SQRT_2).collect();
         let ui: Vec<f64> = u.iter().map(|v| v.re).collect();
@@ -283,6 +315,28 @@ impl Photodiode {
     /// [`com_core::Error::Config`] if the detector is not ideal and `fs < 2B`.
     pub fn detect(&self, e: &[C64], fs: f64, rng: &mut Rng) -> Result<Vec<f64>> {
         self.detect_power(&e.iter().map(C64::norm_sqr).collect::<Vec<_>>(), fs, rng)
+    }
+
+    /// Photocurrent of the field `x` summed over its streams (the polarisations of a
+    /// [`com_core::signal::DualPol`], `to_signal`), at the sampling rate of the signal:
+    /// [`Photodiode::detect_power`] of $\sum_{s} |x_{s}\[k\]|^{2}$.
+    ///
+    /// # Errors
+    /// As [`Photodiode::detect_power`].
+    ///
+    /// # Examples
+    /// ```
+    /// use com_hardware::optical::Photodiode;
+    /// use com_core::prelude::*;
+    /// let x = Signal::from_streams(&[vec![C64::new(0.3, 0.4); 4], vec![C64::new(0.0, 0.5); 4]], Hertz(64e9))?;
+    /// let i = Photodiode::ideal().detect_signal(&x, &mut Rng::new(1))?;
+    /// assert!((i[0] - 0.5).abs() < 1e-15);                       // |x|² + |y|²
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn detect_signal(&self, x: &Signal, rng: &mut Rng) -> Result<Vec<f64>> {
+        let p: Vec<f64> =
+            (0..x.n_samples()).map(|k| (0..x.n_streams()).map(|s| x.stream(s)[k].norm_sqr()).sum()).collect();
+        self.detect_power(&p, x.sample_rate().0, rng)
     }
 
     /// Photocurrent of an optical power (W per sample), e.g. summed over two polarisations.
@@ -486,6 +540,40 @@ pub fn coherent_receiver(es: &[C64], elo: &[C64], pd: &Photodiode, fs: f64, rng:
     Ok(si.iter().zip(&sq).map(|(&a, &b)| C64::new(a, b)).collect())
 }
 
+/// [`coherent_receiver`] on every stream of the field `es` (the polarisations of a
+/// [`com_core::signal::DualPol`]), at its sampling rate, with the local oscillator `elo`:
+/// one stream shared by all, or one per stream.
+///
+/// # Errors
+/// [`com_core::Error::Shape`] for a local oscillator of another length or number of
+/// streams; [`com_core::Error::Config`] for another sampling rate; the errors of
+/// [`coherent_receiver`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::{coherent_receiver_signal, Photodiode};
+/// use com_core::prelude::*;
+/// let es = Signal::from_streams(&[vec![C64::new(0.3, -0.2); 4], vec![C64::new(0.1, 0.0); 4]], Hertz(64e9))?;
+/// let lo = Signal::from_stream(vec![C64::new(1.0, 0.0); 4], Hertz(64e9))?;
+/// let s = coherent_receiver_signal(&es, &lo, &Photodiode::ideal(), &mut Rng::new(0))?;
+/// assert!((s.stream(1)[0] - C64::new(0.1, 0.0)).norm() < 1e-12);   // R E_s E_LO*
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn coherent_receiver_signal(es: &Signal, elo: &Signal, pd: &Photodiode, rng: &mut Rng) -> Result<Signal> {
+    ensure(es.sample_rate() == elo.sample_rate(), || {
+        format!("a local oscillator at {} Hz for a field at {} Hz", elo.sample_rate().0, es.sample_rate().0)
+    })?;
+    ensure_shape(elo.n_streams() == 1 || elo.n_streams() == es.n_streams(), || {
+        format!("{} local oscillators for {} streams: one, or one per stream", elo.n_streams(), es.n_streams())
+    })?;
+    let mut out = Signal::zeros(0, 0, es.sample_rate());
+    es.try_map_streams(&mut out, |s, x| {
+        let lo = elo.stream(if elo.n_streams() == 1 { 0 } else { s });
+        coherent_receiver(x, lo, pd, es.sample_rate().0, rng)
+    })?;
+    Ok(out)
+}
+
 /// A WDM transmitter: channels of the same symbol rate on the frequencies `freqs`
 /// (relative to the carrier), each shaped by the pulse `taps` at `sps` samples per
 /// symbol, of power `powers_w` (W, both polarisations), on a laser of linewidth
@@ -579,6 +667,50 @@ pub fn wdm_demultiplex(x: &[C64], f: f64, fs: f64, n_out: usize) -> Vec<C64> {
 pub fn wdm_grid(n: usize, spacing: f64) -> Vec<f64> {
     let shift = if n % 2 == 0 { spacing / 2.0 } else { 0.0 };
     (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing + shift).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use com_core::units::Hertz;
+
+    #[test]
+    fn invalid_modulators_are_refused_instead_of_giving_nan() {
+        let e = [C64::new(1.0, 0.0); 3];
+        assert!(phase_modulator(&e, &[0.0; 3], 0.0).is_err());
+        for m in [
+            Mzm { vpi: 0.0, ..Mzm::default() },
+            Mzm { vb: f64::NAN, ..Mzm::default() },
+            Mzm { er_db: -3.0, ..Mzm::default() },
+        ] {
+            assert!(m.modulate(&e, &[0.0; 3]).is_err(), "{m:?}");
+        }
+        assert!(Mzm { er_db: f64::INFINITY, ..Mzm::default() }.check().is_ok());
+        assert!(Iqm { vpi: -2.0, ..Iqm::default() }.modulate(&e, &e).is_err());
+        assert!(Iqm { vphi: f64::INFINITY, ..Iqm::default() }.modulate(&e, &e).is_err());
+    }
+
+    #[test]
+    fn the_receivers_on_a_signal_are_those_of_the_slices() {
+        let mut r = Rng::new(4);
+        let pols: Vec<Vec<C64>> = (0..2).map(|_| (0..256).map(|_| r.complex_gaussian() * 1e-2).collect()).collect();
+        let fs = 128e9;
+        let x = Signal::from_streams(&pols, Hertz(fs)).unwrap();
+        let pd = Photodiode::default();
+        let power: Vec<f64> = (0..256).map(|k| pols[0][k].norm_sqr() + pols[1][k].norm_sqr()).collect();
+        assert_eq!(
+            pd.detect_signal(&x, &mut Rng::new(1)).unwrap(),
+            pd.detect_power(&power, fs, &mut Rng::new(1)).unwrap()
+        );
+        let lo = Signal::from_stream(vec![C64::new(0.1, 0.0); 256], Hertz(fs)).unwrap();
+        let (mut a, mut b) = (Rng::new(2), Rng::new(2));
+        let s = coherent_receiver_signal(&x, &lo, &pd, &mut a).unwrap();
+        for (k, p) in pols.iter().enumerate() {
+            assert_eq!(s.stream(k), &coherent_receiver(p, lo.stream(0), &pd, fs, &mut b).unwrap()[..]);
+        }
+        let slow = Signal::from_stream(vec![C64::new(0.1, 0.0); 256], Hertz(fs / 2.0)).unwrap();
+        assert!(coherent_receiver_signal(&x, &slow, &pd, &mut a).is_err());
+    }
 }
 
 #[cfg(test)]
