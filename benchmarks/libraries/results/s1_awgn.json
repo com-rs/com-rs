@@ -1,0 +1,2748 @@
+{
+ "scenario": "s1_awgn",
+ "title": "Uncoded QPSK and 16-QAM over AWGN",
+ "description": "Scenario 1: uncoded Gray QPSK and 16-QAM over AWGN, BER against the exact closed form.",
+ "script": "benchmarks/libraries/s1_awgn.py",
+ "parameters": {
+  "ebn0_db": [
+   0.0,
+   1.0,
+   2.0,
+   3.0,
+   4.0,
+   5.0,
+   6.0,
+   7.0,
+   8.0,
+   9.0,
+   10.0
+  ],
+  "bits_per_point": "10^7 (quick: 2\u00b710^5), in blocks of 10^6 (quick: 10^5)",
+  "timing": "one block of 10^6 bits (quick: 2\u00b710^5) at Eb/N0 = 6 dB",
+  "theory": "exact BER of Gray square QAM, Cho & Yoon, IEEE Trans. Commun. 50(7), 2002"
+ },
+ "quick": false,
+ "generated_utc": "2026-10-30T07:16:40+00:00",
+ "machine": {
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "machine": "arm64",
+  "python": "3.12.15",
+  "cpu": "Apple M6",
+  "logical_cores": 12,
+  "physical_cores": "12",
+  "core_levels": [
+   "2 Super",
+   "4 Performance",
+   "6 Efficiency"
+  ],
+  "ram_gb": 24.0,
+  "macos": "27.0",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+ },
+ "git": {
+  "commit": "6f306f4bcbc6b5f72dcc0641618525d405bcbd65",
+  "dirty": true
+ },
+ "versions": {
+  "comrs": "0.2.0",
+  "komm": "0.37.0",
+  "OptiCommPy": "0.11.0",
+  "sionna": "2.2.0",
+  "torch": "2.15.0",
+  "numba": "0.68.1",
+  "llvmlite": "0.50.0",
+  "numpy": "2.5.4",
+  "scipy": "1.18.1"
+ },
+ "libraries": {
+  "comrs": "com-rs from Python: the functions of the comrs package, called block by block",
+  "comrs-spec": "com-rs from Python: comrs.run_spec, the parallel Monte Carlo runner of Rust",
+  "comrs-rust": "com-rs from Rust: the comrs command-line binary on the same specification",
+  "komm": "komm (NumPy)",
+  "opticommpy": "OptiCommPy with numba (its @njit kernels compiled)",
+  "opticommpy-nojit": "OptiCommPy without numba (NUMBA_DISABLE_JIT=1: the same @njit kernels run as plain Python)",
+  "sionna": "Sionna PHY (PyTorch, CPU, eager mode)"
+ },
+ "support": {
+  "qpsk": {
+   "comrs": true,
+   "comrs-spec": true,
+   "comrs-rust": true,
+   "komm": true,
+   "opticommpy": true,
+   "opticommpy-nojit": true,
+   "sionna": true
+  },
+  "16qam": {
+   "comrs": true,
+   "comrs-spec": true,
+   "comrs-rust": true,
+   "komm": true,
+   "opticommpy": true,
+   "opticommpy-nojit": true,
+   "sionna": true
+  }
+ },
+ "thread_modes": [
+  "1",
+  "all"
+ ],
+ "commands": [
+  "python run_all.py",
+  "cargo build --release -p com-spec --bin comrs"
+ ],
+ "runs": [
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 1.3812372910324484,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "first_call_s": 0.008767375024035573,
+     "points": [
+      {
+       "errors": 786064,
+       "total": 10000000,
+       "value": 0.0786064,
+       "lo": 0.07843975739060877,
+       "hi": 0.07877336637439764,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": -0.5075262408197622
+      },
+      {
+       "errors": 563117,
+       "total": 10000000,
+       "value": 0.0563117,
+       "lo": 0.056168990953886014,
+       "hi": 0.056454749940577684,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": 0.40818064657344416
+      },
+      {
+       "errors": 375281,
+       "total": 10000000,
+       "value": 0.0375281,
+       "lo": 0.03741048213601828,
+       "hi": 0.03764607319025543,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": 0.36568941653572035
+      },
+      {
+       "errors": 228144,
+       "total": 10000000,
+       "value": 0.0228144,
+       "lo": 0.022722038968614806,
+       "hi": 0.022907127662484532,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": -1.3537674819801466
+      },
+      {
+       "errors": 125329,
+       "total": 10000000,
+       "value": 0.0125329,
+       "lo": 0.012464135610352858,
+       "hi": 0.012602038920225532,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": 0.9131104097219559
+      },
+      {
+       "errors": 59492,
+       "total": 10000000,
+       "value": 0.0059492,
+       "lo": 0.005901725517987855,
+       "hi": 0.0059970540709769786,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": -0.19184421710979854
+      },
+      {
+       "errors": 23938,
+       "total": 10000000,
+       "value": 0.0023938,
+       "lo": 0.002363701936926,
+       "hi": 0.002424280383722712,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": 0.3569157161983279
+      },
+      {
+       "errors": 7560,
+       "total": 10000000,
+       "value": 0.000756,
+       "lo": 0.0007391552971846378,
+       "hi": 0.0007732282818180866,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": -1.8977128777333174
+      },
+      {
+       "errors": 1839,
+       "total": 10000000,
+       "value": 0.0001839,
+       "lo": 0.000175685412319633,
+       "hi": 0.0001924986062387944,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": -1.6040198713669382
+      },
+      {
+       "errors": 321,
+       "total": 10000000,
+       "value": 3.21e-05,
+       "lo": 2.8775247243639e-05,
+       "hi": 3.5808887945719624e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": -0.8328480290328321
+      },
+      {
+       "errors": 40,
+       "total": 10000000,
+       "value": 4e-06,
+       "lo": 2.937675196468079e-06,
+       "hi": 5.446481582674251e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": 0.20552740783524917
+      }
+     ],
+     "sweep_s": 0.8172450000420213,
+     "timing": {
+      "warmup_s": 0.007299541961401701,
+      "median_s": 0.007474791957065463,
+      "min_s": 0.007326250022742897,
+      "max_s": 0.007524957996793091,
+      "times_s": [
+       0.007326250022742897,
+       0.007498249993659556,
+       0.007524957996793091,
+       0.007334458001423627,
+       0.007474791957065463
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002397
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "first_call_s": 0.004376874945592135,
+     "points": [
+      {
+       "errors": 1408795,
+       "total": 10000000,
+       "value": 0.1408795,
+       "lo": 0.14066400903422088,
+       "hi": 0.14109526688513563,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": -0.9280948901356776
+      },
+      {
+       "errors": 1191258,
+       "total": 10000000,
+       "value": 0.1191258,
+       "lo": 0.11892516839073118,
+       "hi": 0.11932672424242176,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": 1.25395637442635
+      },
+      {
+       "errors": 978010,
+       "total": 10000000,
+       "value": 0.097801,
+       "lo": 0.09761704383836399,
+       "hi": 0.09798526517905297,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": 0.6298274936733473
+      },
+      {
+       "errors": 775189,
+       "total": 10000000,
+       "value": 0.0775189,
+       "lo": 0.0773533179493081,
+       "hi": 0.07768480665124596,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": 0.7788868383248674
+      },
+      {
+       "errors": 586721,
+       "total": 10000000,
+       "value": 0.0586721,
+       "lo": 0.05852660878301228,
+       "hi": 0.05881793029790958,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": 0.651016979054759
+      },
+      {
+       "errors": 418157,
+       "total": 10000000,
+       "value": 0.0418157,
+       "lo": 0.04169181062861675,
+       "hi": 0.041939941403409384,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": -1.2163336409105767
+      },
+      {
+       "errors": 278804,
+       "total": 10000000,
+       "value": 0.0278804,
+       "lo": 0.027778542409317142,
+       "hi": 0.027982620329474576,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": 0.1742889077674222
+      },
+      {
+       "errors": 169719,
+       "total": 10000000,
+       "value": 0.0169719,
+       "lo": 0.016892027446376957,
+       "hi": 0.017052143673630265,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": 0.1264853312039881
+      },
+      {
+       "errors": 92371,
+       "total": 10000000,
+       "value": 0.0092371,
+       "lo": 0.009177994514375063,
+       "hi": 0.00929658254843141,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": -0.33413636896865523
+      },
+      {
+       "errors": 43453,
+       "total": 10000000,
+       "value": 0.0043453,
+       "lo": 0.004304721887264335,
+       "hi": 0.004386258934008473,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": -2.154106728936701
+      },
+      {
+       "errors": 17538,
+       "total": 10000000,
+       "value": 0.0017538,
+       "lo": 0.0017280569776970424,
+       "hi": 0.0017799258346762805,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": -0.02649609536929903
+      }
+     ],
+     "sweep_s": 0.4739792500040494,
+     "timing": {
+      "warmup_s": 0.0042783329845406115,
+      "median_s": 0.004290458047762513,
+      "min_s": 0.004270042001735419,
+      "max_s": 0.0043351249769330025,
+      "times_s": [
+       0.004272833000868559,
+       0.004290458047762513,
+       0.0043351249769330025,
+       0.004270042001735419,
+       0.004304833011701703
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027693
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib comrs --threads 1 --work results/_work --out results/_work/s1_awgn_comrs_1.json",
+   "process_wall_s": 1.4775244170450605
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 0.08985304197994992,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "first_call_s": 0.008791209023911506,
+     "timing": {
+      "warmup_s": 0.007451375015079975,
+      "median_s": 0.007339540985412896,
+      "min_s": 0.007295707997400314,
+      "max_s": 0.0074537909822538495,
+      "times_s": [
+       0.007332167006097734,
+       0.007295707997400314,
+       0.007339540985412896,
+       0.0074537909822538495,
+       0.007443041016813368
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002363
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "first_call_s": 0.0043116669985465705,
+     "timing": {
+      "warmup_s": 0.004338999977335334,
+      "median_s": 0.004325125017203391,
+      "min_s": 0.004252082959283143,
+      "max_s": 0.004376666038297117,
+      "times_s": [
+       0.004376666038297117,
+       0.004372166004031897,
+       0.004292999976314604,
+       0.004252082959283143,
+       0.004325125017203391
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027586
+    }
+   ],
+   "command": " python s1_awgn.py --lib comrs --threads all --work results/_work --out results/_work/s1_awgn_comrs_all.json --timing-only",
+   "process_wall_s": 0.1838481670129113
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs-spec",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 1.6620306670083664,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "threads_option": 1,
+     "sweep_s": 1.006527499994263,
+     "points": [
+      {
+       "errors": 786960,
+       "total": 10000000,
+       "value": 0.078696,
+       "lo": 0.07852927043198957,
+       "hi": 0.07886305326417536,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": 0.545034887638635
+      },
+      {
+       "errors": 562758,
+       "total": 10000000,
+       "value": 0.0562758,
+       "lo": 0.056133133802503364,
+       "hi": 0.05641880711954301,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": -0.08441292800158955
+      },
+      {
+       "errors": 374328,
+       "total": 10000000,
+       "value": 0.0374328,
+       "lo": 0.03731532600983467,
+       "hi": 0.037550629389659904,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": -1.2204552541533316
+      },
+      {
+       "errors": 229979,
+       "total": 10000000,
+       "value": 0.0229979,
+       "lo": 0.02290517619475894,
+       "hi": 0.023090990295353744,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": 2.527279205804486
+      },
+      {
+       "errors": 124941,
+       "total": 10000000,
+       "value": 0.0124941,
+       "lo": 0.012425441086695818,
+       "hi": 0.012563133473693375,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": -0.19120755313657833
+      },
+      {
+       "errors": 59646,
+       "total": 10000000,
+       "value": 0.0059646,
+       "lo": 0.005917064231152579,
+       "hi": 0.0060125153459801295,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": 0.44117643781738036
+      },
+      {
+       "errors": 24088,
+       "total": 10000000,
+       "value": 0.0024088,
+       "lo": 0.0023786074126073012,
+       "hi": 0.0024393748965166146,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": 1.3286933270862058
+      },
+      {
+       "errors": 7774,
+       "total": 10000000,
+       "value": 0.0007774,
+       "lo": 0.000760316061844297,
+       "hi": 0.0007948675007163857,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": 0.537759699431843
+      },
+      {
+       "errors": 1927,
+       "total": 10000000,
+       "value": 0.0001927,
+       "lo": 0.00018428676303698774,
+       "hi": 0.00020149724876022626,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": 0.41022526766867734
+      },
+      {
+       "errors": 341,
+       "total": 10000000,
+       "value": 3.41e-05,
+       "lo": 3.0667664264773615e-05,
+       "hi": 3.79164693879456e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": 0.25781793597249597
+      },
+      {
+       "errors": 32,
+       "total": 10000000,
+       "value": 3.2e-06,
+       "lo": 2.266822361767701e-06,
+       "hi": 4.517335032030395e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": -1.0801058088670408
+      }
+     ],
+     "timing": {
+      "warmup_s": 0.009290624991990626,
+      "median_s": 0.009427209035493433,
+      "min_s": 0.009401166986208409,
+      "max_s": 0.009447957971133292,
+      "times_s": [
+       0.009401166986208409,
+       0.009447957971133292,
+       0.009445165982469916,
+       0.009427209035493433,
+       0.009406124998349696
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials"
+     }
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "threads_option": 1,
+     "sweep_s": 0.559827667020727,
+     "points": [
+      {
+       "errors": 1409629,
+       "total": 10000000,
+       "value": 0.1409629,
+       "lo": 0.14074735565556454,
+       "hi": 0.14117872019971414,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": -0.17024436699111214
+      },
+      {
+       "errors": 1190779,
+       "total": 10000000,
+       "value": 0.1190779,
+       "lo": 0.118877303321394,
+       "hi": 0.11927878934856144,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": 0.7861370361174607
+      },
+      {
+       "errors": 976959,
+       "total": 10000000,
+       "value": 0.0976959,
+       "lo": 0.09751203211302432,
+       "hi": 0.09788007698514305,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": -0.48934499115521163
+      },
+      {
+       "errors": 774231,
+       "total": 10000000,
+       "value": 0.0774231,
+       "lo": 0.07725761183260912,
+       "hi": 0.07758891284154995,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": -0.35443167113234675
+      },
+      {
+       "errors": 585869,
+       "total": 10000000,
+       "value": 0.0585869,
+       "lo": 0.05844150802679795,
+       "hi": 0.05873263111958476,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": -0.4958715855233941
+      },
+      {
+       "errors": 418679,
+       "total": 10000000,
+       "value": 0.0418679,
+       "lo": 0.04174393657688713,
+       "hi": 0.041992215415032716,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": -0.3923967375429208
+      },
+      {
+       "errors": 278853,
+       "total": 10000000,
+       "value": 0.0278853,
+       "lo": 0.02778343369833814,
+       "hi": 0.02798752903668881,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": 0.2684248283073985
+      },
+      {
+       "errors": 170244,
+       "total": 10000000,
+       "value": 0.0170244,
+       "lo": 0.01694440583983882,
+       "hi": 0.017104765239831614,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": 1.4119971264014513
+      },
+      {
+       "errors": 92357,
+       "total": 10000000,
+       "value": 0.0092357,
+       "lo": 0.009176598966528096,
+       "hi": 0.009295178097354024,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": -0.3803893721465107
+      },
+      {
+       "errors": 44246,
+       "total": 10000000,
+       "value": 0.0044246,
+       "lo": 0.004383653180492836,
+       "hi": 0.004465927579852219,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": 1.6388662766702584
+      },
+      {
+       "errors": 17758,
+       "total": 10000000,
+       "value": 0.0017758,
+       "lo": 0.001749895109414243,
+       "hi": 0.001802087686056046,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": 1.6360377062765006
+      }
+     ],
+     "timing": {
+      "warmup_s": 0.005427375028375536,
+      "median_s": 0.005380292015615851,
+      "min_s": 0.005378540954552591,
+      "max_s": 0.005391000013332814,
+      "times_s": [
+       0.005387209006585181,
+       0.005378540954552591,
+       0.005380292015615851,
+       0.005378915986511856,
+       0.005391000013332814
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials"
+     }
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib comrs-spec --threads 1 --work results/_work --out results/_work/s1_awgn_comrs-spec_1.json",
+   "process_wall_s": 1.7622122910106555
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs-spec",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 0.02374700002837926,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "threads_option": 0,
+     "timing": {
+      "warmup_s": 0.002030584029853344,
+      "median_s": 0.0017265829956158996,
+      "min_s": 0.0016742920270189643,
+      "max_s": 0.0017416250193491578,
+      "times_s": [
+       0.0017416250193491578,
+       0.001729041978251189,
+       0.0017265829956158996,
+       0.001696250052191317,
+       0.0016742920270189643
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials"
+     }
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "threads_option": 0,
+     "timing": {
+      "warmup_s": 0.0011087500024586916,
+      "median_s": 0.0011105830199085176,
+      "min_s": 0.0010890419944189489,
+      "max_s": 0.0011223750188946724,
+      "times_s": [
+       0.0011223750188946724,
+       0.0011155419633723795,
+       0.0010890419944189489,
+       0.0011017920332960784,
+       0.0011105830199085176
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials"
+     }
+    }
+   ],
+   "command": " python s1_awgn.py --lib comrs-spec --threads all --work results/_work --out results/_work/s1_awgn_comrs-spec_all.json --timing-only",
+   "process_wall_s": 0.11773141601588577
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs-rust",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 1.992947708000429,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "threads_option": 1,
+     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "sweep_s": 1.286241166992113,
+     "points": [
+      {
+       "errors": 786960,
+       "total": 10000000,
+       "value": 0.078696,
+       "lo": 0.07852927043198957,
+       "hi": 0.07886305326417536,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": 0.545034887638635
+      },
+      {
+       "errors": 562758,
+       "total": 10000000,
+       "value": 0.0562758,
+       "lo": 0.056133133802503364,
+       "hi": 0.05641880711954301,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": -0.08441292800158955
+      },
+      {
+       "errors": 374328,
+       "total": 10000000,
+       "value": 0.0374328,
+       "lo": 0.03731532600983467,
+       "hi": 0.037550629389659904,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": -1.2204552541533316
+      },
+      {
+       "errors": 229979,
+       "total": 10000000,
+       "value": 0.0229979,
+       "lo": 0.02290517619475894,
+       "hi": 0.023090990295353744,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": 2.527279205804486
+      },
+      {
+       "errors": 124941,
+       "total": 10000000,
+       "value": 0.0124941,
+       "lo": 0.012425441086695818,
+       "hi": 0.012563133473693375,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": -0.19120755313657833
+      },
+      {
+       "errors": 59646,
+       "total": 10000000,
+       "value": 0.0059646,
+       "lo": 0.005917064231152579,
+       "hi": 0.0060125153459801295,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": 0.44117643781738036
+      },
+      {
+       "errors": 24088,
+       "total": 10000000,
+       "value": 0.0024088,
+       "lo": 0.0023786074126073012,
+       "hi": 0.0024393748965166146,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": 1.3286933270862058
+      },
+      {
+       "errors": 7774,
+       "total": 10000000,
+       "value": 0.0007774,
+       "lo": 0.000760316061844297,
+       "hi": 0.0007948675007163857,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": 0.537759699431843
+      },
+      {
+       "errors": 1927,
+       "total": 10000000,
+       "value": 0.0001927,
+       "lo": 0.00018428676303698774,
+       "hi": 0.00020149724876022626,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": 0.41022526766867734
+      },
+      {
+       "errors": 341,
+       "total": 10000000,
+       "value": 3.41e-05,
+       "lo": 3.0667664264773615e-05,
+       "hi": 3.79164693879456e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": 0.25781793597249597
+      },
+      {
+       "errors": 32,
+       "total": 10000000,
+       "value": 3.2e-06,
+       "lo": 2.266822361767701e-06,
+       "hi": 4.517335032030395e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": -1.0801058088670408
+      }
+     ],
+     "timing": {
+      "warmup_s": 0.013177208020351827,
+      "median_s": 0.012590500002261251,
+      "min_s": 0.012230499996803701,
+      "max_s": 0.012772666988894343,
+      "times_s": [
+       0.012751624977681786,
+       0.012772666988894343,
+       0.012590500002261251,
+       0.01248570898314938,
+       0.012230499996803701
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials (process wall time, start-up included)"
+     }
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "threads_option": 1,
+     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "sweep_s": 0.5793272079899907,
+     "points": [
+      {
+       "errors": 1409629,
+       "total": 10000000,
+       "value": 0.1409629,
+       "lo": 0.14074735565556454,
+       "hi": 0.14117872019971414,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": -0.17024436699111214
+      },
+      {
+       "errors": 1190779,
+       "total": 10000000,
+       "value": 0.1190779,
+       "lo": 0.118877303321394,
+       "hi": 0.11927878934856144,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": 0.7861370361174607
+      },
+      {
+       "errors": 976959,
+       "total": 10000000,
+       "value": 0.0976959,
+       "lo": 0.09751203211302432,
+       "hi": 0.09788007698514305,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": -0.48934499115521163
+      },
+      {
+       "errors": 774231,
+       "total": 10000000,
+       "value": 0.0774231,
+       "lo": 0.07725761183260912,
+       "hi": 0.07758891284154995,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": -0.35443167113234675
+      },
+      {
+       "errors": 585869,
+       "total": 10000000,
+       "value": 0.0585869,
+       "lo": 0.05844150802679795,
+       "hi": 0.05873263111958476,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": -0.4958715855233941
+      },
+      {
+       "errors": 418679,
+       "total": 10000000,
+       "value": 0.0418679,
+       "lo": 0.04174393657688713,
+       "hi": 0.041992215415032716,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": -0.3923967375429208
+      },
+      {
+       "errors": 278853,
+       "total": 10000000,
+       "value": 0.0278853,
+       "lo": 0.02778343369833814,
+       "hi": 0.02798752903668881,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": 0.2684248283073985
+      },
+      {
+       "errors": 170244,
+       "total": 10000000,
+       "value": 0.0170244,
+       "lo": 0.01694440583983882,
+       "hi": 0.017104765239831614,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": 1.4119971264014513
+      },
+      {
+       "errors": 92357,
+       "total": 10000000,
+       "value": 0.0092357,
+       "lo": 0.009176598966528096,
+       "hi": 0.009295178097354024,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": -0.3803893721465107
+      },
+      {
+       "errors": 44246,
+       "total": 10000000,
+       "value": 0.0044246,
+       "lo": 0.004383653180492836,
+       "hi": 0.004465927579852219,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": 1.6388662766702584
+      },
+      {
+       "errors": 17758,
+       "total": 10000000,
+       "value": 0.0017758,
+       "lo": 0.001749895109414243,
+       "hi": 0.001802087686056046,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": 1.6360377062765006
+      }
+     ],
+     "timing": {
+      "warmup_s": 0.0086154579767026,
+      "median_s": 0.008320958004333079,
+      "min_s": 0.008107375004328787,
+      "max_s": 0.008482916979119182,
+      "times_s": [
+       0.008482916979119182,
+       0.008107375004328787,
+       0.008320958004333079,
+       0.008399209007620811,
+       0.008146041946019977
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials (process wall time, start-up included)"
+     }
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib comrs-rust --threads 1 --work results/_work --out results/_work/s1_awgn_comrs-rust_1.json",
+   "process_wall_s": 2.088311708997935
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "comrs-rust",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 0.05494316702242941,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "threads_option": 0,
+     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "timing": {
+      "warmup_s": 0.007013666967395693,
+      "median_s": 0.004938957979902625,
+      "min_s": 0.004663582949433476,
+      "max_s": 0.00508270796854049,
+      "times_s": [
+       0.00508270796854049,
+       0.004938957979902625,
+       0.004663582949433476,
+       0.005010041990317404,
+       0.004715832998044789
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials (process wall time, start-up included)"
+     }
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "threads_option": 0,
+     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "timing": {
+      "warmup_s": 0.004192624997813255,
+      "median_s": 0.003853833011817187,
+      "min_s": 0.003676292020827532,
+      "max_s": 0.004095832991879433,
+      "times_s": [
+       0.004095832991879433,
+       0.003907291044015437,
+       0.0037066249642521143,
+       0.003676292020827532,
+       0.003853833011817187
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB, 40 trials (process wall time, start-up included)"
+     }
+    }
+   ],
+   "command": " python s1_awgn.py --lib comrs-rust --threads all --work results/_work --out results/_work/s1_awgn_comrs-rust_all.json --timing-only",
+   "process_wall_s": 0.14988658303627744
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "komm",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 44.25924854102777,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "first_call_s": 0.24952958401991054,
+     "points": [
+      {
+       "errors": 786249,
+       "total": 10000000,
+       "value": 0.0786249,
+       "lo": 0.07845823943075822,
+       "hi": 0.07879188432003423,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": -0.2902005613948555
+      },
+      {
+       "errors": 563935,
+       "total": 10000000,
+       "value": 0.0563935,
+       "lo": 0.056250693381971105,
+       "hi": 0.05653664744964405,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": 1.530580490591257
+      },
+      {
+       "errors": 375424,
+       "total": 10000000,
+       "value": 0.0375424,
+       "lo": 0.03742476056510434,
+       "hi": 0.03766039475018239,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": 0.603694335642178
+      },
+      {
+       "errors": 228561,
+       "total": 10000000,
+       "value": 0.0228561,
+       "lo": 0.022763656392032663,
+       "hi": 0.022948910207027752,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": -0.47180755347537945
+      },
+      {
+       "errors": 125057,
+       "total": 10000000,
+       "value": 0.0125057,
+       "lo": 0.012437009534729914,
+       "hi": 0.01257476501674677,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": 0.13894936359433535
+      },
+      {
+       "errors": 59802,
+       "total": 10000000,
+       "value": 0.0059802,
+       "lo": 0.005932602230449902,
+       "hi": 0.00602817733469702,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": 1.0824181402111688
+      },
+      {
+       "errors": 23567,
+       "total": 10000000,
+       "value": 0.0023567,
+       "lo": 0.002326837016217218,
+       "hi": 0.0023869453329361553,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": -2.0466142413977173
+      },
+      {
+       "errors": 7640,
+       "total": 10000000,
+       "value": 0.000764,
+       "lo": 0.0007470654711000702,
+       "hi": 0.0007813181017560965,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": -0.9872558395407357
+      },
+      {
+       "errors": 1927,
+       "total": 10000000,
+       "value": 0.0001927,
+       "lo": 0.00018428676303698774,
+       "hi": 0.00020149724876022626,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": 0.41022526766867734
+      },
+      {
+       "errors": 336,
+       "total": 10000000,
+       "value": 3.36e-05,
+       "lo": 3.0194258368745116e-05,
+       "hi": 3.738987566813394e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": -0.014848555278838807
+      },
+      {
+       "errors": 24,
+       "total": 10000000,
+       "value": 2.4e-06,
+       "lo": 1.6128569778637449e-06,
+       "hi": 3.5713010305901144e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": -2.3657390255693307
+      }
+     ],
+     "sweep_s": 26.828074250021018,
+     "timing": {
+      "warmup_s": 0.2434955000062473,
+      "median_s": 0.24407958303345367,
+      "min_s": 0.24381349998293445,
+      "max_s": 0.24477758398279548,
+      "times_s": [
+       0.24394979199860245,
+       0.24407958303345367,
+       0.24477237497922033,
+       0.24477758398279548,
+       0.24381349998293445
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002499
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "first_call_s": 0.13388483301969245,
+     "points": [
+      {
+       "errors": 1409744,
+       "total": 10000000,
+       "value": 0.1409744,
+       "lo": 0.14075884829720522,
+       "hi": 0.14119022754923774,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": -0.06574459461509864
+      },
+      {
+       "errors": 1188210,
+       "total": 10000000,
+       "value": 0.118821,
+       "lo": 0.11862059084220711,
+       "hi": 0.11902170202512966,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": -1.7228982042071095
+      },
+      {
+       "errors": 977025,
+       "total": 10000000,
+       "value": 0.0977025,
+       "lo": 0.09751862656768738,
+       "hi": 0.09788668252540907,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": -0.41906394072834513
+      },
+      {
+       "errors": 775506,
+       "total": 10000000,
+       "value": 0.0775506,
+       "lo": 0.0773849868999208,
+       "hi": 0.07771653767627751,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": 1.1538993304938245
+      },
+      {
+       "errors": 586202,
+       "total": 10000000,
+       "value": 0.0586202,
+       "lo": 0.058474769227526084,
+       "hi": 0.058765969893271576,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": -0.047615843734048494
+      },
+      {
+       "errors": 418901,
+       "total": 10000000,
+       "value": 0.0418901,
+       "lo": 0.041766105099555154,
+       "hi": 0.042014446875308004,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": -0.04198679013370298
+      },
+      {
+       "errors": 278874,
+       "total": 10000000,
+       "value": 0.0278874,
+       "lo": 0.027785529965316615,
+       "hi": 0.027989632768096864,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": 0.30876879425314074
+      },
+      {
+       "errors": 169563,
+       "total": 10000000,
+       "value": 0.0169563,
+       "lo": 0.01687646361904393,
+       "hi": 0.01703650751294908,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": -0.25549531651187657
+      },
+      {
+       "errors": 93101,
+       "total": 10000000,
+       "value": 0.0093101,
+       "lo": 0.0092507628451738,
+       "hi": 0.009369814161545335,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": 2.0776273681617656
+      },
+      {
+       "errors": 43938,
+       "total": 10000000,
+       "value": 0.0043938,
+       "lo": 0.004352995984838123,
+       "hi": 0.004434984799171178,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": 0.16568130097423472
+      },
+      {
+       "errors": 17307,
+       "total": 10000000,
+       "value": 0.0017307,
+       "lo": 0.0017051280415692049,
+       "hi": 0.0017566547885523032,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": -1.7721565870974034
+      }
+     ],
+     "sweep_s": 14.724244542012457,
+     "timing": {
+      "warmup_s": 0.135173249989748,
+      "median_s": 0.1342054590350017,
+      "min_s": 0.13404549995902926,
+      "max_s": 0.1345354579971172,
+      "times_s": [
+       0.1342054590350017,
+       0.13404549995902926,
+       0.13429558399366215,
+       0.1345354579971172,
+       0.13417233299696818
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027985
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib komm --threads 1 --work results/_work --out results/_work/s1_awgn_komm_1.json",
+   "process_wall_s": 44.35813516698545
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "komm",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 2.7238732920377515,
+   "threading": {
+    "cpu_count": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float64",
+     "first_call_s": 0.2502739999908954,
+     "timing": {
+      "warmup_s": 0.2463392499485053,
+      "median_s": 0.24489266704767942,
+      "min_s": 0.24285091704223305,
+      "max_s": 0.25485320802545175,
+      "times_s": [
+       0.24285091704223305,
+       0.24439941701712087,
+       0.24514241598080844,
+       0.24489266704767942,
+       0.25485320802545175
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002392
+    },
+    {
+     "case": "16qam",
+     "precision": "float64",
+     "first_call_s": 0.13572695897892118,
+     "timing": {
+      "warmup_s": 0.13436591700883582,
+      "median_s": 0.13460325001506135,
+      "min_s": 0.13354562502354383,
+      "max_s": 0.1348107079975307,
+      "times_s": [
+       0.13461750000715256,
+       0.13460325001506135,
+       0.1348107079975307,
+       0.13430262496694922,
+       0.13354562502354383
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027693
+    }
+   ],
+   "command": " python s1_awgn.py --lib komm --threads all --work results/_work --out results/_work/s1_awgn_komm_all.json --timing-only",
+   "process_wall_s": 2.8244330000015907
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "opticommpy",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_79320_1793344573582436000"
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 7.289786459004972,
+   "threading": {
+    "cpu_count": 12,
+    "numba_threads": 1,
+    "numba_jit_disabled": false
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.8493417500285432,
+     "points": [
+      {
+       "errors": 785889,
+       "total": 10000000,
+       "value": 0.0785889,
+       "lo": 0.07842227438216064,
+       "hi": 0.07875584939629134,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": -0.7131045862218464
+      },
+      {
+       "errors": 562741,
+       "total": 10000000,
+       "value": 0.0562741,
+       "lo": 0.056131435831951036,
+       "hi": 0.056417105091401486,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": -0.10773908612910342
+      },
+      {
+       "errors": 374579,
+       "total": 10000000,
+       "value": 0.0374579,
+       "lo": 0.03734038809659229,
+       "hi": 0.03757576728361746,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": -0.8026983681691177
+      },
+      {
+       "errors": 229355,
+       "total": 10000000,
+       "value": 0.0229355,
+       "lo": 0.022842899382900572,
+       "hi": 0.02302846715515526,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": 1.2075118307758237
+      },
+      {
+       "errors": 124968,
+       "total": 10000000,
+       "value": 0.0124968,
+       "lo": 0.01242813374134606,
+       "hi": 0.012565840816968673,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": -0.11436068458710748
+      },
+      {
+       "errors": 59329,
+       "total": 10000000,
+       "value": 0.0059329,
+       "lo": 0.005885490474552218,
+       "hi": 0.005980689126936225,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": -0.8618595856366486
+      },
+      {
+       "errors": 24298,
+       "total": 10000000,
+       "value": 0.0024298,
+       "lo": 0.0023994755751535505,
+       "hi": 0.0024605067178356524,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": 2.689181982329263
+      },
+      {
+       "errors": 8018,
+       "total": 10000000,
+       "value": 0.0008018,
+       "lo": 0.0007844472805718112,
+       "hi": 0.0008195362632418704,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": 3.3146536659192183
+      },
+      {
+       "errors": 1901,
+       "total": 10000000,
+       "value": 0.0001901,
+       "lo": 0.0001817449739724053,
+       "hi": 0.00019883903982243997,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": -0.18489261431911425
+      },
+      {
+       "errors": 342,
+       "total": 10000000,
+       "value": 3.42e-05,
+       "lo": 3.0762368828732056e-05,
+       "hi": 3.8021764747155176e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": 0.31235123422275995
+      },
+      {
+       "errors": 41,
+       "total": 10000000,
+       "value": 4.1e-06,
+       "lo": 3.022455166827604e-06,
+       "hi": 5.561701535482755e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": 0.36623155992303524
+      }
+     ],
+     "sweep_s": 2.6335678339819424,
+     "timing": {
+      "warmup_s": 0.023913290991913527,
+      "median_s": 0.02392950002104044,
+      "min_s": 0.023882291978225112,
+      "max_s": 0.024097374989651144,
+      "times_s": [
+       0.02392950002104044,
+       0.02402329200413078,
+       0.024097374989651144,
+       0.0238995419931598,
+       0.023882291978225112
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002433
+    },
+    {
+     "case": "16qam",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.02122120896819979,
+     "points": [
+      {
+       "errors": 1410240,
+       "total": 10000000,
+       "value": 0.141024,
+       "lo": 0.14080841656585255,
+       "hi": 0.1412398592424818,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": 0.3849674671112026
+      },
+      {
+       "errors": 1190407,
+       "total": 10000000,
+       "value": 0.1190407,
+       "lo": 0.11884013045639275,
+       "hi": 0.11924156224214419,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": 0.4228201387251864
+      },
+      {
+       "errors": 978007,
+       "total": 10000000,
+       "value": 0.0978007,
+       "lo": 0.09761674409024436,
+       "hi": 0.09798496492740312,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": 0.6266329004721798
+      },
+      {
+       "errors": 774546,
+       "total": 10000000,
+       "value": 0.0774546,
+       "lo": 0.07728908095462504,
+       "hi": 0.07762044369533196,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": 0.018214811622391105
+      },
+      {
+       "errors": 585190,
+       "total": 10000000,
+       "value": 0.058519,
+       "lo": 0.058373687181139576,
+       "hi": 0.05866465201741205,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": -1.4098825425052157
+      },
+      {
+       "errors": 419827,
+       "total": 10000000,
+       "value": 0.0419827,
+       "lo": 0.04185857390456329,
+       "hi": 0.04210717799915346,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": 1.419633080591205
+      },
+      {
+       "errors": 278472,
+       "total": 10000000,
+       "value": 0.0278472,
+       "lo": 0.02774540145261846,
+       "hi": 0.02794936131168147,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": -0.46352998242199134
+      },
+      {
+       "errors": 169625,
+       "total": 10000000,
+       "value": 0.0169625,
+       "lo": 0.016882649240630793,
+       "hi": 0.01704272188659863,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": -0.10368249498383858
+      },
+      {
+       "errors": 92196,
+       "total": 10000000,
+       "value": 0.0092196,
+       "lo": 0.00916055019124574,
+       "hi": 0.00927902688500633,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": -0.9122989086917053
+      },
+      {
+       "errors": 44015,
+       "total": 10000000,
+       "value": 0.0044015,
+       "lo": 0.004360660236330556,
+       "hi": 0.004442720541762684,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": 0.533977544898251
+      },
+      {
+       "errors": 17589,
+       "total": 10000000,
+       "value": 0.0017589,
+       "lo": 0.001733119363232463,
+       "hi": 0.0017850634452224298,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": 0.35890946773950727
+      }
+     ],
+     "sweep_s": 2.3033548750099726,
+     "timing": {
+      "warmup_s": 0.020887208986096084,
+      "median_s": 0.020938166009727865,
+      "min_s": 0.0207733329734765,
+      "max_s": 0.021067499998025596,
+      "times_s": [
+       0.021067499998025596,
+       0.020975332998204976,
+       0.020935417036525905,
+       0.0207733329734765,
+       0.020938166009727865
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027911
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib opticommpy --threads 1 --work results/_work --out results/_work/s1_awgn_opticommpy_1.json",
+   "process_wall_s": 7.469996957981493
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "opticommpy",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_79320_1793344581052918000"
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 2.227293208008632,
+   "threading": {
+    "cpu_count": 12,
+    "numba_threads": 12,
+    "numba_jit_disabled": false
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.8598018330521882,
+     "timing": {
+      "warmup_s": 0.016456542012747377,
+      "median_s": 0.015037166012916714,
+      "min_s": 0.014919084031134844,
+      "max_s": 0.015382332960143685,
+      "times_s": [
+       0.015015707991551608,
+       0.01526220899540931,
+       0.015382332960143685,
+       0.014919084031134844,
+       0.015037166012916714
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002425
+    },
+    {
+     "case": "16qam",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.009923290985170752,
+     "timing": {
+      "warmup_s": 0.009934375004377216,
+      "median_s": 0.010237457987386733,
+      "min_s": 0.010098625032696873,
+      "max_s": 0.010321834008209407,
+      "times_s": [
+       0.010237457987386733,
+       0.010098625032696873,
+       0.010210458014626056,
+       0.010321834008209407,
+       0.010311042016837746
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.027717
+    }
+   ],
+   "command": " python s1_awgn.py --lib opticommpy --threads all --work results/_work --out results/_work/s1_awgn_opticommpy_all.json --timing-only",
+   "process_wall_s": 2.406496750016231
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "opticommpy-nojit",
+   "threads": "1",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": "1",
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 1.6083617499680258,
+   "threading": {
+    "cpu_count": 12,
+    "numba_threads": 1,
+    "numba_jit_disabled": true
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.0385355000034906,
+     "timing": {
+      "warmup_s": 0.03774262504884973,
+      "median_s": 0.03754275001119822,
+      "min_s": 0.03714341699378565,
+      "max_s": 0.037786624976433814,
+      "times_s": [
+       0.03737170802196488,
+       0.03776720800669864,
+       0.037786624976433814,
+       0.03754275001119822,
+       0.03714341699378565
+      ],
+      "repeats": 5,
+      "units": 100000,
+      "unit": "bit",
+      "workload": "100000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.00252
+    },
+    {
+     "case": "16qam",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.019606207963079214,
+     "timing": {
+      "warmup_s": 0.019365541986189783,
+      "median_s": 0.019124166981782764,
+      "min_s": 0.01892245904309675,
+      "max_s": 0.019209499994758517,
+      "times_s": [
+       0.019209499994758517,
+       0.01910858298651874,
+       0.019165749952662736,
+       0.01892245904309675,
+       0.019124166981782764
+      ],
+      "repeats": 5,
+      "units": 100000,
+      "unit": "bit",
+      "workload": "100000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.02741
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 NUMBA_DISABLE_JIT=1 python s1_awgn.py --lib opticommpy-nojit --threads 1 --work results/_work --out results/_work/s1_awgn_opticommpy-nojit_1.json --timing-only",
+   "process_wall_s": 1.7513532910379581
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "opticommpy-nojit",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": "1",
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 1.591516624961514,
+   "threading": {
+    "cpu_count": 12,
+    "numba_threads": 12,
+    "numba_jit_disabled": true
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.0374082499765791,
+     "timing": {
+      "warmup_s": 0.03681541600963101,
+      "median_s": 0.03665062499931082,
+      "min_s": 0.03654679097235203,
+      "max_s": 0.03689904196653515,
+      "times_s": [
+       0.03663475002394989,
+       0.03665062499931082,
+       0.03689904196653515,
+       0.03673558303853497,
+       0.03654679097235203
+      ],
+      "repeats": 5,
+      "units": 100000,
+      "unit": "bit",
+      "workload": "100000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.00252
+    },
+    {
+     "case": "16qam",
+     "precision": "complex64 symbols (its Gray constellation), float64 noise",
+     "first_call_s": 0.019115582981612533,
+     "timing": {
+      "warmup_s": 0.018933916988316923,
+      "median_s": 0.018740583036560565,
+      "min_s": 0.01858645904576406,
+      "max_s": 0.019286499998997897,
+      "times_s": [
+       0.019286499998997897,
+       0.018619541020598263,
+       0.01911366597050801,
+       0.01858645904576406,
+       0.018740583036560565
+      ],
+      "repeats": 5,
+      "units": 100000,
+      "unit": "bit",
+      "workload": "100000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.02741
+    }
+   ],
+   "command": "NUMBA_DISABLE_JIT=1 python s1_awgn.py --lib opticommpy-nojit --threads all --work results/_work --out results/_work/s1_awgn_opticommpy-nojit_all.json --timing-only",
+   "process_wall_s": 1.7327175420359708
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "sionna",
+   "threads": "1",
+   "quick": false,
+   "timing_only": false,
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": "1",
+    "RAYON_NUM_THREADS": "1",
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 9.840337541012559,
+   "threading": {
+    "cpu_count": 12,
+    "torch_intra_op_threads": 1,
+    "torch_interop_threads": 1
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float32 (config.precision = 'single')",
+     "torch_intra_op_threads": 1,
+     "torch_interop_threads": 1,
+     "first_call_s": 0.028614584007300436,
+     "points": [
+      {
+       "errors": 785914,
+       "total": 10000000,
+       "value": 0.0785914,
+       "lo": 0.078424771954647,
+       "hi": 0.07875835182188418,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.07864960352514258,
+       "z": -0.6837362511643825
+      },
+      {
+       "errors": 561361,
+       "total": 10000000,
+       "value": 0.0561361,
+       "lo": 0.055993600697531155,
+       "hi": 0.056278940331849485,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.056281951976541456,
+       "z": -2.0012742753034
+      },
+      {
+       "errors": 375961,
+       "total": 10000000,
+       "value": 0.0375961,
+       "lo": 0.03747837960221222,
+       "hi": 0.03771417567181576,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.03750612835892598,
+       "z": 1.4974610598395381
+      },
+      {
+       "errors": 228859,
+       "total": 10000000,
+       "value": 0.0228859,
+       "lo": 0.022793397429941895,
+       "hi": 0.022978769146222593,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.02287840756108532,
+       "z": 0.15846596857355763
+      },
+      {
+       "errors": 125365,
+       "total": 10000000,
+       "value": 0.0125365,
+       "lo": 0.012467725832489484,
+       "hi": 0.012605648695322958,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.012500818040737556,
+       "z": 1.015572901121234
+      },
+      {
+       "errors": 59290,
+       "total": 10000000,
+       "value": 0.005929,
+       "lo": 0.0058816060297684864,
+       "hi": 0.005976773574716405,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.005953867147778662,
+       "z": -1.022170011235069
+      },
+      {
+       "errors": 23915,
+       "total": 10000000,
+       "value": 0.0023915,
+       "lo": 0.0023614164569998046,
+       "hi": 0.002421965865416042,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.002388290780932807,
+       "z": 0.2079098158621707
+      },
+      {
+       "errors": 7875,
+       "total": 10000000,
+       "value": 0.0007875,
+       "lo": 0.0007703042984795788,
+       "hi": 0.0008050792563210748,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.0007726748153784443,
+       "z": 1.6872117101499777
+      },
+      {
+       "errors": 1816,
+       "total": 10000000,
+       "value": 0.0001816,
+       "lo": 0.00017343811118903564,
+       "hi": 0.00019014590913652706,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.00019090777407599317,
+       "z": -2.130470305433066
+      },
+      {
+       "errors": 357,
+       "total": 10000000,
+       "value": 3.57e-05,
+       "lo": 3.2183844730559136e-05,
+       "hi": 3.9600287692848555e-05,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 3.3627228419617485e-05,
+       "z": 1.130350707976757
+      },
+      {
+       "errors": 37,
+       "total": 10000000,
+       "value": 3.7e-06,
+       "lo": 2.684485714668638e-06,
+       "hi": 5.099671294969604e-06,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 3.872108215522037e-06,
+       "z": -0.276585048428109
+      }
+     ],
+     "sweep_s": 2.751390708028339,
+     "timing": {
+      "warmup_s": 0.025184124999213964,
+      "median_s": 0.02504258300177753,
+      "min_s": 0.02478504105238244,
+      "max_s": 0.025446832994930446,
+      "times_s": [
+       0.02478504105238244,
+       0.025446832994930446,
+       0.02479887497611344,
+       0.02516412502154708,
+       0.02504258300177753
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002403
+    },
+    {
+     "case": "16qam",
+     "precision": "float32 (config.precision = 'single')",
+     "torch_intra_op_threads": 1,
+     "torch_interop_threads": 1,
+     "first_call_s": 0.03708295797696337,
+     "points": [
+      {
+       "errors": 1411084,
+       "total": 10000000,
+       "value": 0.1411084,
+       "lo": 0.1408927625921539,
+       "hi": 0.14132431315133426,
+       "ci": "binomial",
+       "ebn0_db": 0.0,
+       "theory": 0.1409816350668416,
+       "z": 1.151904926983876
+      },
+      {
+       "errors": 1190448,
+       "total": 10000000,
+       "value": 0.1190448,
+       "lo": 0.11884422746539784,
+       "hi": 0.11924566522998899,
+       "ci": "binomial",
+       "ebn0_db": 1.0,
+       "theory": 0.11899740746592445,
+       "z": 0.4628631301045084
+      },
+      {
+       "errors": 975159,
+       "total": 10000000,
+       "value": 0.0975159,
+       "lo": 0.09733218344899243,
+       "hi": 0.09769992578747248,
+       "ci": "binomial",
+       "ebn0_db": 2.0,
+       "theory": 0.09774185373748694,
+       "z": -2.4061009118892382
+      },
+      {
+       "errors": 774369,
+       "total": 10000000,
+       "value": 0.0774369,
+       "lo": 0.0772713983041203,
+       "hi": 0.07760272635943596,
+       "ci": "binomial",
+       "ebn0_db": 3.0,
+       "theory": 0.07745306029254895,
+       "z": -0.19117702154447863
+      },
+      {
+       "errors": 585068,
+       "total": 10000000,
+       "value": 0.0585068,
+       "lo": 0.05836150140912654,
+       "hi": 0.058652437798798564,
+       "ci": "binomial",
+       "ebn0_db": 4.0,
+       "theory": 0.058623737283404365,
+       "z": -1.5741083698274907
+      },
+      {
+       "errors": 419810,
+       "total": 10000000,
+       "value": 0.041981,
+       "lo": 0.0418568763116248,
+       "hi": 0.0421054755933981,
+       "ci": "binomial",
+       "ebn0_db": 5.0,
+       "theory": 0.04189276004646232,
+       "z": 1.392799886420224
+      },
+      {
+       "errors": 279482,
+       "total": 10000000,
+       "value": 0.0279482,
+       "lo": 0.02784622195176659,
+       "hi": 0.028050540734933054,
+       "ci": "binomial",
+       "ebn0_db": 6.0,
+       "theory": 0.027871327845150274,
+       "z": 1.4768226654433663
+      },
+      {
+       "errors": 169843,
+       "total": 10000000,
+       "value": 0.0169843,
+       "lo": 0.016904398706227775,
+       "hi": 0.01706457240425228,
+       "ci": "binomial",
+       "ebn0_db": 7.0,
+       "theory": 0.016966734368760353,
+       "z": 0.43011097426014905
+      },
+      {
+       "errors": 92442,
+       "total": 10000000,
+       "value": 0.0092442,
+       "lo": 0.009185071940937789,
+       "hi": 0.009303705116413614,
+       "ci": "binomial",
+       "ebn0_db": 8.0,
+       "theory": 0.009247213741474417,
+       "z": -0.09956756713818032
+      },
+      {
+       "errors": 43674,
+       "total": 10000000,
+       "value": 0.0043674,
+       "lo": 0.004326718792718808,
+       "hi": 0.004408462011574133,
+       "ci": "binomial",
+       "ebn0_db": 9.0,
+       "theory": 0.004390336087352102,
+       "z": -1.0970486781937916
+      },
+      {
+       "errors": 17565,
+       "total": 10000000,
+       "value": 0.0017565,
+       "lo": 0.001730737057319181,
+       "hi": 0.0017826457529796788,
+       "ci": "binomial",
+       "ebn0_db": 10.0,
+       "theory": 0.0017541506178927295,
+       "z": 0.1775421439235965
+      }
+     ],
+     "sweep_s": 3.5557529159705155,
+     "timing": {
+      "warmup_s": 0.03226691699819639,
+      "median_s": 0.032425208017230034,
+      "min_s": 0.03175833402201533,
+      "max_s": 0.03256941703148186,
+      "times_s": [
+       0.03175833402201533,
+       0.032315040996763855,
+       0.032425208017230034,
+       0.03256941703148186,
+       0.032460167014505714
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.02808
+    }
+   ],
+   "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s1_awgn.py --lib sionna --threads 1 --work results/_work --out results/_work/s1_awgn_sionna_1.json",
+   "process_wall_s": 10.163694375019986
+  },
+  {
+   "scenario": "s1_awgn",
+   "library": "sionna",
+   "threads": "all",
+   "quick": false,
+   "timing_only": true,
+   "env": {
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "MKL_NUM_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "RAYON_NUM_THREADS": null,
+    "NUMBA_DISABLE_JIT": null,
+    "NUMBA_CACHE_DIR": null
+   },
+   "versions": {
+    "comrs": "0.2.0",
+    "komm": "0.37.0",
+    "OptiCommPy": "0.11.0",
+    "sionna": "2.2.0",
+    "torch": "2.15.0",
+    "numba": "0.68.1",
+    "llvmlite": "0.50.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+   },
+   "wall_s": 3.3843724170001224,
+   "threading": {
+    "cpu_count": 12,
+    "torch_intra_op_threads": 2,
+    "torch_interop_threads": 12
+   },
+   "cases": [
+    {
+     "case": "qpsk",
+     "precision": "float32 (config.precision = 'single')",
+     "torch_intra_op_threads": 2,
+     "torch_interop_threads": 12,
+     "first_call_s": 0.019475333974696696,
+     "timing": {
+      "warmup_s": 0.016990500036627054,
+      "median_s": 0.016458666999824345,
+      "min_s": 0.01638633297989145,
+      "max_s": 0.016606582968961447,
+      "times_s": [
+       0.01645158400060609,
+       0.01638633297989145,
+       0.016598958987742662,
+       0.016458666999824345,
+       0.016606582968961447
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.002385
+    },
+    {
+     "case": "16qam",
+     "precision": "float32 (config.precision = 'single')",
+     "torch_intra_op_threads": 2,
+     "torch_interop_threads": 12,
+     "first_call_s": 0.021740792028140277,
+     "timing": {
+      "warmup_s": 0.01917304197559133,
+      "median_s": 0.019124959013424814,
+      "min_s": 0.01901729201199487,
+      "max_s": 0.0191598329693079,
+      "times_s": [
+       0.019151124986819923,
+       0.019124959013424814,
+       0.01902095798868686,
+       0.01901729201199487,
+       0.0191598329693079
+      ],
+      "repeats": 5,
+      "units": 1000000,
+      "unit": "bit",
+      "workload": "1000000 bits at Eb/N0 = 6.0 dB"
+     },
+     "timing_ber": 0.0281
+    }
+   ],
+   "command": " python s1_awgn.py --lib sionna --threads all --work results/_work --out results/_work/s1_awgn_sionna_all.json --timing-only",
+   "process_wall_s": 3.7048160000122152
+  }
+ ]
+}

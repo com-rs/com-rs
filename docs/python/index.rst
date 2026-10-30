@@ -69,6 +69,13 @@ reproducible random streams, and their results come with confidence intervals.
       OptiCommPy, GNPy, AFF3CT, Sionna, py3gpp, sigmf-python: what is compared, how
       closely, and the differences found.
 
+   .. grid-item-card:: Benchmarks against other libraries
+      :link: benchmarks
+      :link-type: doc
+
+      The same links in komm, OptiCommPy, Sionna and com-rs: agreement of the error
+      rates and of the fields, and the time of every library on one thread and on all.
+
    .. grid-item-card:: API reference
       :link: api/index
       :link-type: doc
@@ -85,5 +92,6 @@ reproducible random streams, and their results come with confidence intervals.
    auto_examples/index
    performance
    comparisons
+   benchmarks
    maturity
    api/index

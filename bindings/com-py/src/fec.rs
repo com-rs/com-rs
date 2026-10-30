@@ -836,6 +836,8 @@ impl PyPolar {
 ///     qm (int): bits per modulation symbol of the bit interleaver (1: none).
 ///     rule (str): the check-node rule (as `LdpcCode`).
 ///     iterations (int): the maximum number of iterations.
+///     layered (bool): the layered schedule (default), or flooding (``False``); both stop
+///         early on a codeword.
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -853,7 +855,8 @@ pub struct PyNrLdpc {
 #[pymethods]
 impl PyNrLdpc {
     #[new]
-    #[pyo3(signature = (k, n, *, base_graph=None, rv=0, qm=1, rule="sum_product", iterations=50))]
+    #[pyo3(signature = (k, n, *, base_graph=None, rv=0, qm=1, rule="sum_product", iterations=50, layered=true))]
+    #[allow(clippy::too_many_arguments, reason = "keyword-only options of the Python constructor")]
     fn new(
         k: usize,
         n: usize,
@@ -862,10 +865,12 @@ impl PyNrLdpc {
         qm: usize,
         rule: &str,
         iterations: usize,
+        layered: bool,
     ) -> PyResult<Self> {
         let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
         code.code.rule = CheckRule::from_name(rule, ldpc::DEFAULT_ALPHA).py()?;
         code.code.max_iterations = iterations;
+        code.code.layered = layered;
         Ok(PyNrLdpc { inner: code })
     }
 

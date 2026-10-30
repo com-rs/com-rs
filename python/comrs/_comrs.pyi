@@ -603,6 +603,7 @@ class NrLdpc:
         qm: int = ...,
         rule: str = ...,
         iterations: int = ...,
+        layered: bool = ...,
     ) -> None: ...
     @property
     def base_graph(self) -> int: ...

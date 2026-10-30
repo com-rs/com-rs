@@ -42,7 +42,7 @@ Run `just check`: the checks of CI, in its order.
 - `cargo doc --workspace --no-deps --exclude com-py` with the KaTeX header and
   `-D warnings`
 - every crate ships the same `katex-header.html` as `docs/katex-header.html`
-- `ruff check` and `ruff format --check` of `python tests docs/python tools`
+- `ruff check` and `ruff format --check` of `python tests docs/python tools benchmarks/libraries`
 - `python3 tools/api_index.py --check` (docs/API.md is up to date)
 - `python tools/literature_table.py --check` (docs/LITERATURE.md is up to date and every
   test named in `validation/literature.yaml` exists)
@@ -51,6 +51,8 @@ Run `just check`: the checks of CI, in its order.
   and every test it cites exists)
 - `python tools/cards.py --check` (every validation card of `validation/cards/` points at
   an existing runner, literature entry and theme folder; `just card <id>` reruns one)
+- `python3 tools/benchmarks_page.py --check` (docs/python/benchmarks.rst is generated from
+  the recorded results of `benchmarks/libraries/results/`)
 - `python tools/gen_stubs.py --check` (the type stubs `python/comrs/_comrs.pyi` match the
   extension) and `python tools/gen_blocks.py --check` (`python/comrs/blocks.py`, the classes of the
   declarative blocks, matches the registry)

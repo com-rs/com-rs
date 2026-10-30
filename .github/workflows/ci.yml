@@ -99,12 +99,13 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         run: |
           source .venv/bin/activate
-          ruff check python tests docs/python tools
-          ruff format --check python tests docs/python tools
+          ruff check python tests docs/python tools benchmarks/libraries
+          ruff format --check python tests docs/python tools benchmarks/libraries
           python tools/api_index.py --check
           python tools/literature_table.py --check
           python tools/maturity_table.py --check
           python tools/cards.py --check
+          python3 tools/benchmarks_page.py --check
           # the generated stub of the extension and classes of the blocks
           python tools/gen_stubs.py --check
           python tools/gen_blocks.py --check

@@ -6,6 +6,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 results/
+# except the recorded results of the benchmark against other libraries
+!benchmarks/libraries/results/
 docs/python/_build/
 docs/python/auto_examples/
 docs/python/auto_tutorials/
