@@ -1,6 +1,8 @@
 """What the scripts of `tools/` share: the root of the repository, the themes of the
 documentation, whether a cited test exists, the built extension, the formatting by
-`ruff format`, and writing or checking a generated file.
+`ruff format`, the pieces of the generated pages (reStructuredText tables, Markdown
+inline code as reStructuredText, a generated block spliced between two marker lines),
+and writing or checking a generated file.
 
 The scripts run as `python tools/<script>.py`, which puts `tools/` on the import path
 (`from _common import ROOT`); `docs/python/conf.py` reads the themes from here too.
@@ -104,6 +106,52 @@ def ruff_format(text: str, path: Path, script: str) -> str:
         check=True,
     )
     return out.stdout
+
+
+# ------------------------------------------------------------------- pages
+
+
+def rst_table(
+    header: list[str] | None, rows: list[list[str]], widths: list[int] | None = None
+) -> list[str]:
+    """The lines of a reStructuredText `list-table` (a blank line after it): the header
+    row (None: no header), the rows, the relative widths of the columns; an empty cell
+    is written `\\-`."""
+    out = [".. list-table::", f"   :header-rows: {0 if header is None else 1}"]
+    if widths:
+        out.append("   :widths: " + " ".join(map(str, widths)))
+    out.append("")
+    for row in ([] if header is None else [header]) + rows:
+        for i, cell in enumerate(row):
+            out.append(("   * - " if i == 0 else "     - ") + (cell if cell != "" else "\\-"))
+    out.append("")
+    return out
+
+
+def md_to_rst(text: str) -> str:
+    """Markdown inline code (`` `x` ``) as reStructuredText (``` ``x`` ```); text already
+    in double backticks is left as it is."""
+    return re.sub(r"(?<!`)`([^`]+)`(?!`)", r"``\1``", text)
+
+
+def splice(text: str, block: str, begin: str, end: str, path: Path) -> str:
+    """`text` with `block` in place of the lines between the line holding `begin` and
+    the next line holding `end`; both marker lines are kept, and every line of `block`
+    ends with a newline (the last one included).
+
+    Raises:
+        SystemExit: when `text` (the file `path`) has no such pair of lines.
+    """
+    lines = text.split("\n")
+    try:
+        i = next(k for k, line in enumerate(lines) if begin in line)
+        j = next(k for k, line in enumerate(lines) if end in line and k > i)
+    except StopIteration:
+        raise SystemExit(
+            f"{path.relative_to(ROOT)}: no generated block (lines with {begin!r} and {end!r})"
+        ) from None
+    inner = block.removesuffix("\n").split("\n") if block else []
+    return "\n".join([*lines[: i + 1], *inner, *lines[j:]])
 
 
 # ------------------------------------------------------------------- outputs

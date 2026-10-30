@@ -43,7 +43,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from _common import ROOT
+
 OUT = ROOT / "validation" / "aff3ct"
 SEED = 1
 FRAME_ERRORS = 200
@@ -462,16 +463,16 @@ def record(
     path = out / f"{cfg.name}.json"
     tag, build = version(binary)
     command = "aff3ct " + shlex.join(arguments(cfg, frame_errors))
-    old = json.loads(path.read_text()) if path.exists() else None
+    old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     if old and not force and old.get("command") == command and old.get("version") == tag:
         return "unchanged"
     doc = document(cfg, tag, build, run(binary, cfg, threads, frame_errors), frame_errors)
     same = old is not None and {k: v for k, v in old.items() if k != "recorded"} == doc
     doc["recorded"] = old["recorded"] if same else datetime.date.today().isoformat()
     text = dumps(doc)
-    if not path.exists() or path.read_text() != text:
+    if not path.exists() or path.read_text(encoding="utf-8") != text:
         out.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         return "written"
     return "same"
 

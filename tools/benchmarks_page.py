@@ -19,7 +19,7 @@ import json
 import math
 import sys
 
-from _common import ROOT, write_or_check
+from _common import ROOT, rst_table, write_or_check
 
 RESULTS = ROOT / "benchmarks" / "libraries" / "results"
 PAGE = ROOT / "docs" / "python" / "benchmarks.rst"
@@ -151,21 +151,7 @@ def load() -> dict[str, dict]:
     for s in SCENARIOS:
         path = RESULTS / f"{s}.json"
         if path.exists():
-            out[s] = json.loads(path.read_text())
-    return out
-
-
-def table(
-    header: list[str] | None, rows: list[list[str]], widths: list[int] | None = None
-) -> list[str]:
-    out = [".. list-table::", f"   :header-rows: {0 if header is None else 1}"]
-    if widths:
-        out.append("   :widths: " + " ".join(map(str, widths)))
-    out.append("")
-    for row in ([] if header is None else [header]) + rows:
-        for i, cell in enumerate(row):
-            out.append(("   * - " if i == 0 else "     - ") + (cell if cell != "" else "\\-"))
-    out.append("")
+            out[s] = json.loads(path.read_text(encoding="utf-8"))
     return out
 
 
@@ -248,7 +234,7 @@ def support_table(data: dict, libs: list[str]) -> list[str]:
             s = sup.get(lib)
             row.append("yes" if s is True else (f"not available: {s}" if s else "not run"))
         rows.append(row)
-    return table(["Case", *[NAMES[x] for x in libs]], rows)
+    return rst_table(["Case", *[NAMES[x] for x in libs]], rows)
 
 
 def present_libs(data: dict) -> list[str]:
@@ -300,7 +286,7 @@ def error_rate_section(data: dict, libs: list[str], metric: str = "ber") -> list
         cols = ["Library", "Precision", "Against", "max abs(z), BER"] + (
             ["max abs(z), FER"] if coded else []
         )
-        out += table([*cols, "Agrees", "BER interval"], rows)
+        out += rst_table([*cols, "Agrees", "BER interval"], rows)
         # the values
         xs = [p["ebn0_db"] for p in entries[0][1]["points"]]
         theo = [p.get("theory", p.get("union_bound")) for p in entries[0][1]["points"]]
@@ -323,7 +309,7 @@ def error_rate_section(data: dict, libs: list[str], metric: str = "ber") -> list
             f".. dropdown:: BER and its 95 % interval, every point ({n_bits:,} bits per point)",
             "",
         ]
-        out += indent(table(header, rows))
+        out += indent(rst_table(header, rows))
         if any("bler" in p for p in entries[0][1]["points"]):
             rows = []
             for i, x in enumerate(xs):
@@ -337,7 +323,7 @@ def error_rate_section(data: dict, libs: list[str], metric: str = "ber") -> list
                 f".. dropdown:: Frame error rate and its 95 % interval ({n_frames:,} frames per point)",
                 "",
             ]
-            out += indent(table(["Eb/N0 (dB)", *[NAMES[lib] for lib, _ in entries]], rows))
+            out += indent(rst_table(["Eb/N0 (dB)", *[NAMES[lib] for lib, _ in entries]], rows))
     return out
 
 
@@ -381,7 +367,7 @@ def timing_section(
             "*Relative*: the 1-thread time over that of comrs (functions) on 1 thread.",
             "",
         ]
-        out += table(["Library", "Precision", *modes, "Relative", "First call"], rows)
+        out += rst_table(["Library", "Precision", *modes, "Relative", "First call"], rows)
     return out
 
 
@@ -449,7 +435,7 @@ def same_llr_section(data: dict) -> list[str]:
         "comrs does.",
         "",
     ]
-    return out + table(
+    return out + rst_table(
         ["Library", "Points", "Frames", "Same bit errors", "Same frame outcome"], rows
     )
 
@@ -484,7 +470,7 @@ def ssfm_section(data: dict) -> list[str]:
         "error of the 1 km step itself.",
         "",
     ]
-    return out + table(["Field", "NMSE vs comrs (float64, 1 km)", "NMSE vs reference"], rows)
+    return out + rst_table(["Field", "NMSE vs comrs (float64, 1 km)", "NMSE vs reference"], rows)
 
 
 def machine_section(data: dict) -> list[str]:
@@ -509,7 +495,7 @@ def machine_section(data: dict) -> list[str]:
     ]
     for pkg in ["comrs", "komm", "OptiCommPy", "sionna", "torch", "numba", "numpy", "scipy"]:
         rows.append([pkg, v.get(pkg) or "not installed"])
-    return out + table(None, rows, [30, 70])
+    return out + rst_table(None, rows, [30, 70])
 
 
 def libraries_section(data: dict) -> list[str]:
@@ -520,7 +506,7 @@ def libraries_section(data: dict) -> list[str]:
             rows.append(
                 [NAMES[lib], data["libraries"][lib], data["versions"].get(VERSION_OF[lib]) or "—"]
             )
-    return out + table(["Name on this page", "What runs", "Version"], rows, [22, 63, 15])
+    return out + rst_table(["Name on this page", "What runs", "Version"], rows, [22, 63, 15])
 
 
 REPRODUCE = """\
