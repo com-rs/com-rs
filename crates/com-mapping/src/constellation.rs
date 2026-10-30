@@ -128,6 +128,19 @@ pub fn indices_to_bits(indices: &[usize], bits_per_symbol: usize) -> Vec<u8> {
     out
 }
 
+/// The real BPSK symbols $1 - 2b$ of bits ($0 \mapsto +1$, $1 \mapsto -1$), the
+/// modulation of the code tests over a real channel ([`crate::demapper::bpsk_llr`] is
+/// its demapper).
+///
+/// # Examples
+/// ```
+/// use com_mapping::constellation::bpsk;
+/// assert_eq!(bpsk(&[0, 1, 1]), [1.0, -1.0, -1.0]);
+/// ```
+pub fn bpsk(bits: &[u8]) -> Vec<f64> {
+    bits.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect()
+}
+
 /// A labelled constellation: `points()[i]` carries the bits of `i`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Constellation {

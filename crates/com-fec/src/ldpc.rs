@@ -41,15 +41,15 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::ldpc::LdpcCode;
 //! let code = LdpcCode::peg(256, 128, 3, 1)?;                 // (256, 128), degree 3
 //! assert_eq!(code.k(), 128);
 //! let info: Vec<u8> = (0..128).map(|i| (i % 5 == 2) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert!(code.is_codeword(&c));
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!

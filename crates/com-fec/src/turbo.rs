@@ -14,14 +14,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::turbo::TurboCode;
 //! let code = TurboCode::lte(40)?;                         // K = 40, QPP (3, 10)
 //! let info: Vec<u8> = (0..40).map(|i| (i % 3 == 1) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert_eq!(c.len(), 3 * 40 + 12);
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 1.0))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 2.0 } else { -2.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!

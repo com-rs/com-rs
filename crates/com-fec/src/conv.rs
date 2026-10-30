@@ -21,14 +21,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::conv::ConvolutionalCode;
 //! let code = ConvolutionalCode::k7(100)?;
 //! let info: Vec<u8> = (0..100).map(|i| ((i * 7) % 3 == 0) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert_eq!(c.len(), 2 * (100 + 6));                           // terminated
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!

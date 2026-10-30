@@ -211,31 +211,18 @@ pub(crate) fn whole_blocks(len: usize, block: usize, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// The LLRs of BPSK ($0 \mapsto +1$, $1 \mapsto -1$) received in real Gaussian noise of
-/// variance `noise_var` per dimension, $2 y / \sigma^{2}$.
-pub fn bpsk_llr(y: &[f64], noise_var: f64) -> Vec<f64> {
-    y.iter().map(|v| 2.0 * v / noise_var).collect()
-}
-
-/// The BPSK symbols $1 - 2b$ of bits.
-pub fn bpsk(bits: &[u8]) -> Vec<f64> {
-    bits.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect()
-}
-
 pub(crate) use com_math::max_star;
 
 /// Helpers of the tests of the codes.
 #[cfg(test)]
 pub(crate) mod testing {
-    use super::{bpsk, bpsk_llr};
     use com_core::rng::Rng;
 
-    /// The LLRs of the bits `c` sent in BPSK over a real AWGN channel of variance `s2`: the
-    /// symbols of [`bpsk`], one Gaussian draw per bit, the LLRs of [`bpsk_llr`] (the link
-    /// of `com_validation::bpsk_awgn_llr`).
+    /// The LLRs of the bits `c` sent in BPSK ($1 - 2b$) over a real AWGN channel of
+    /// variance `s2`: one Gaussian draw per bit, the LLRs $2 y / \sigma^{2}$ (the link of
+    /// `com_validation::bpsk_awgn_llr`; the code crate holds no modulation).
     pub(crate) fn awgn_llr(c: &[u8], s2: f64, rng: &mut Rng) -> Vec<f64> {
         let s = s2.sqrt();
-        let y: Vec<f64> = bpsk(c).iter().map(|x| x + s * rng.gaussian()).collect();
-        bpsk_llr(&y, s2)
+        c.iter().map(|&b| 2.0 * ((1.0 - 2.0 * f64::from(b)) + s * rng.gaussian()) / s2).collect()
     }
 }

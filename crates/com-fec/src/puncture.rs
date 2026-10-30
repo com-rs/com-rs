@@ -51,15 +51,15 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::conv::ConvolutionalCode;
 //! use com_fec::puncture::{Punctured, Puncturer, free_distance};
 //! let code = Punctured::new(ConvolutionalCode::k7(100)?, Puncturer::ieee80211_3_4())?;
 //! assert_eq!(code.n(), 35 * 4 + 2);                 // 4 bits kept of every 6, 2 of the last 2
 //! let info: Vec<u8> = (0..100).map(|i| ((i * 5) % 7 < 3) as u8).collect();
 //! let c = code.encode_block(&info)?;
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! assert_eq!(free_distance(code.code().trellis(), code.puncturer())?, 5);
 //! # Ok::<(), com_core::Error>(())
 //! ```

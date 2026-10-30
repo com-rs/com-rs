@@ -30,14 +30,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::crc::Crc;
 //! use com_fec::polar::PolarCode;
 //! let code = PolarCode::new(128, 64, 2.0)?.with_crc(Crc::crc6())?.with_list(8)?;
 //! let info: Vec<u8> = (0..64).map(|i| (i % 3 == 0) as u8).collect();
 //! let c = code.encode_block(&info)?;
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!

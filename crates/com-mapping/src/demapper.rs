@@ -136,6 +136,19 @@ impl Constellation {
     }
 }
 
+/// The LLRs $2 y / \sigma^{2}$ of real BPSK symbols ([`crate::constellation::bpsk`],
+/// $0 \mapsto +1$) received in real Gaussian noise of variance `noise_var` per
+/// dimension.
+///
+/// # Examples
+/// ```
+/// use com_mapping::demapper::bpsk_llr;
+/// assert_eq!(bpsk_llr(&[0.5, -1.0], 0.5), [2.0, -4.0]);
+/// ```
+pub fn bpsk_llr(y: &[f64], noise_var: f64) -> Vec<f64> {
+    y.iter().map(|v| 2.0 * v / noise_var).collect()
+}
+
 fn ensure_variance(noise_var: f64) -> Result<()> {
     ensure(noise_var > 0.0 && noise_var.is_finite(), || format!("the noise variance must be positive, got {noise_var}"))
 }
