@@ -40,25 +40,30 @@
 //! let y: Vec<C64> = s.iter().enumerate()
 //!     .map(|(n, v)| v * com_math::cis(2.0 * std::f64::consts::PI * 150e6 * n as f64 / fs + 0.3))
 //!     .collect();
-//! let (z, fo) = fourth_power_foe_refined(&y, fs, 4);
+//! let (z, fo) = fourth_power_foe_refined(&y, fs, 4)?;
 //! assert!((fo - 150e6).abs() < 1e6);
-//! let theta = unwrap(&bps(&z, 20, &c, 32).unwrap(), std::f64::consts::FRAC_PI_2);
-//! let out = derotate(&z, &theta, 1.0);
+//! let theta = unwrap(&bps(&z, 20, &c, 32)?, std::f64::consts::FRAC_PI_2);
+//! let out = derotate(&z, &theta, 1.0)?;
 //! // what is left is a multiple of π/2, resolved by pilots in a real receiver
 //! let err = (out[2000] / s[2000]).arg().rem_euclid(std::f64::consts::FRAC_PI_2);
 //! assert!(err < 0.05 || err > std::f64::consts::FRAC_PI_2 - 0.05);
+//! # Ok::<(), com_core::Error>(())
 //! ```
 
 use crate::filter::moving_average;
 use crate::signal::freq_shift;
-use com_core::{Result, ensure};
+use com_core::{Result, ensure, same_len};
 use com_math::fft;
 use com_math::{C64, cis, golden_max};
 use std::f64::consts::PI;
 
 /// Multiply every sample by `e^{j sign θ[n]}`.
-pub fn derotate(x: &[C64], theta: &[f64], sign: f64) -> Vec<C64> {
-    x.iter().zip(theta).map(|(v, t)| v * cis(sign * t)).collect()
+///
+/// # Errors
+/// [`com_core::Error::Shape`] unless there is one phase per sample.
+pub fn derotate(x: &[C64], theta: &[f64], sign: f64) -> Result<Vec<C64>> {
+    same_len(x.len(), theta.len(), "derotate: samples and phases")?;
+    Ok(x.iter().zip(theta).map(|(v, t)| v * cis(sign * t)).collect())
 }
 
 /// Unwrap a phase sequence with the given period (`numpy.unwrap(period=…)`): jumps
@@ -80,19 +85,29 @@ pub fn unwrap(phi: &[f64], period: f64) -> Vec<f64> {
 }
 
 /// Frequency offset by the `M`-th power spectrum (largest bin), and the corrected signal.
-pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> (Vec<C64>, f64) {
+///
+/// # Errors
+/// [`com_core::Error::Config`] for an empty signal, $M = 0$ or a sampling rate that is
+/// not positive and finite.
+pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>, f64)> {
+    ensure(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
+    ensure(m >= 1, || "fourth_power_foe: the symmetry M must be at least 1".into())?;
+    ensure(fs > 0.0 && fs.is_finite(), || format!("fourth_power_foe: the sampling rate must be positive, got {fs}"))?;
     let n = x.len();
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let spec = fft::fft(&xm);
     let k = spec.iter().enumerate().max_by(|a, b| a.1.norm().total_cmp(&b.1.norm())).map_or(0, |(k, _)| k);
     let fo = fft::fftfreq(n, 1.0 / fs)[k] / m as f64;
-    (freq_shift(x, -fo, fs), fo)
+    Ok((freq_shift(x, -fo, fs), fo))
 }
 
 /// [`fourth_power_foe`] refined by a golden-section search of the periodogram of `x^M`
 /// between the neighbouring bins (accuracy far below the bin spacing).
-pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> (Vec<C64>, f64) {
-    let (_, coarse) = fourth_power_foe(x, fs, m);
+///
+/// # Errors
+/// As [`fourth_power_foe`].
+pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>, f64)> {
+    let (_, coarse) = fourth_power_foe(x, fs, m)?;
     let n = x.len();
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let periodogram = |f: f64| -> f64 {
@@ -107,7 +122,7 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> (Vec<C64>, f64) {
     };
     let df = fs / (n as f64 * m as f64);
     let fo = golden_max(periodogram, coarse - df, coarse + df, 60);
-    (freq_shift(x, -fo, fs), fo)
+    Ok((freq_shift(x, -fo, fs), fo))
 }
 
 /// Viterbi–Viterbi phase estimates (radians, to be applied with `derotate(…, +1)`).
@@ -220,9 +235,29 @@ mod tests {
         // y⁴ = -e^{j0.8}: arg/4 = (0.8 - π)/4, so θ = -(0.8 - π)/4 - π/4 = -0.2
         let th = viterbi_viterbi(&y, 31, 4);
         assert!((th[1000] + 0.2).abs() < 1e-9, "{}", th[1000]);
-        assert!((derotate(&y, &th, 1.0)[1000] - s[1000]).norm() < 1e-9);
+        assert!((derotate(&y, &th, 1.0).unwrap()[1000] - s[1000]).norm() < 1e-9);
         let ph = ddpll(&y, 1.0, 0.3, 1.0 / 0.1, 1.0 / 0.05, &qpsk, None);
-        let z = derotate(&y, &ph, 1.0);
+        let z = derotate(&y, &ph, 1.0).unwrap();
         assert!((z[1500] / s[1500]).arg().abs() < 1e-3);
+    }
+
+    #[test]
+    fn derotate_rejects_a_phase_per_sample_mismatch() {
+        let x = [C64::new(1.0, 0.0); 3];
+        assert!(matches!(derotate(&x, &[0.0; 2], 1.0), Err(com_core::Error::Shape(_))));
+        assert!(matches!(derotate(&x, &[0.0; 4], 1.0), Err(com_core::Error::Shape(_))));
+    }
+
+    #[test]
+    fn fourth_power_foe_rejects_an_empty_signal_instead_of_panicking() {
+        for refined in [false, true] {
+            let foe = if refined { fourth_power_foe_refined } else { fourth_power_foe };
+            assert!(matches!(foe(&[], 1.0, 4), Err(com_core::Error::Config(_))));
+            assert!(foe(&[C64::new(1.0, 0.0); 8], 1.0, 0).is_err());
+            assert!(foe(&[C64::new(1.0, 0.0); 8], 0.0, 4).is_err());
+            assert!(foe(&[C64::new(1.0, 0.0); 8], f64::NAN, 4).is_err());
+            // a single sample is a valid, if uninformative, block
+            assert!(foe(&[C64::new(1.0, 0.0)], 1.0, 4).unwrap().1.is_finite());
+        }
     }
 }

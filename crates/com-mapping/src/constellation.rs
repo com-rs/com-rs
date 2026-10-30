@@ -356,12 +356,13 @@ impl Constellation {
     }
 
     /// The same constellation scaled to unit average energy under the probabilities
-    /// `px` (probabilistic shaping).
+    /// `px` (probabilistic shaping), normalised to a sum of 1 first as by
+    /// [`Constellation::priors`].
     ///
     /// # Errors
-    /// [`Error::Config`] if the energy under `px` is zero.
+    /// As [`Constellation::priors`]; [`Error::Config`] if the energy under `px` is zero.
     pub fn normalized_under(&self, px: &[f64]) -> Result<Constellation> {
-        let es = self.energy_with(px);
+        let es = self.energy_with(&self.priors(Some(px))?);
         ensure(es > 0.0, || "the constellation has no energy".into())?;
         Ok(self.scaled(1.0 / es.sqrt()))
     }
@@ -443,6 +444,23 @@ pub fn qam_side(m: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalized_under_treats_unnormalised_priors_as_their_normalisation() {
+        let c = Constellation::qam(16).unwrap();
+        let p: Vec<f64> = c.points().iter().map(|x| (-0.1 * x.norm_sqr()).exp()).collect();
+        let total: f64 = p.iter().sum();
+        let unit: Vec<f64> = p.iter().map(|v| v / total).collect();
+        let a = c.normalized_under(&p).unwrap();
+        let b = c.normalized_under(&unit).unwrap();
+        assert!(a.points().iter().zip(b.points()).all(|(x, y)| (x - y).norm() < 1e-14));
+        assert!((a.energy_with(&unit) - 1.0).abs() < 1e-14);
+        // three times the priors: the same constellation, not one of energy 1/3
+        let triple: Vec<f64> = unit.iter().map(|v| 3.0 * v).collect();
+        assert!((c.normalized_under(&triple).unwrap().energy_with(&unit) - 1.0).abs() < 1e-14);
+        assert!(matches!(c.normalized_under(&unit[..15]), Err(Error::Shape(_))));
+        assert!(matches!(c.normalized_under(&[-1.0; 16]), Err(Error::Config(_))));
+    }
 
     #[test]
     fn the_grid_slicer_agrees_with_the_exhaustive_search() {

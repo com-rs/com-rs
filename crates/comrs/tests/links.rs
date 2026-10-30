@@ -20,8 +20,8 @@ fn error_rates() -> impl Scenario {
         let (idx, x) = source::symbols(&c, 2000, None, rng)?;
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, c.bits_per_symbol() as f64, 1.0, rng);
         let bits = comrs::mapping::constellation::indices_to_bits(&idx, c.bits_per_symbol());
-        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits) as u64, bits.len() as u64);
-        rec.errors("ser", metrics::symbol_errors(&c.decide(&y), &idx) as u64, idx.len() as u64);
+        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits)? as u64, bits.len() as u64);
+        rec.errors("ser", metrics::symbol_errors(&c.decide(&y), &idx)? as u64, idx.len() as u64);
         Ok(())
     })
 }
@@ -177,7 +177,7 @@ fn frequency_shift_and_derotation_cancel() {
     let x = rng.complex_noise(100, 1.0);
     let y = signal::freq_shift(&x, 1e9, 32e9);
     let theta: Vec<f64> = (0..100).map(|n| -2.0 * std::f64::consts::PI * 1e9 * n as f64 / 32e9).collect();
-    let z = comrs::dsp::sync::carrier::derotate(&y, &theta, 1.0);
+    let z = comrs::dsp::sync::carrier::derotate(&y, &theta, 1.0).unwrap();
     assert!(z.iter().zip(&x).all(|(a, b)| (a - b).norm() < 1e-12));
     assert!((cis(0.5) * cis(-0.5) - C64::new(1.0, 0.0)).norm() < 1e-15);
 }

@@ -25,8 +25,9 @@
 //! ```
 //! use com_dsp::estimation::ls;
 //! use com_math::C64;
-//! let h = ls(&[C64::new(0.0, 2.0)], &[C64::new(1.0, 1.0)]);
+//! let h = ls(&[C64::new(0.0, 2.0)], &[C64::new(1.0, 1.0)])?;
 //! assert!((h[0] - C64::new(1.0, 1.0)).norm() < 1e-12);
+//! # Ok::<(), com_core::Error>(())
 //! ```
 //!
 //! # References
@@ -39,7 +40,7 @@
 //! 3. S. M. Kay, *Fundamentals of Statistical Signal Processing: Estimation Theory*,
 //!    Prentice Hall, 1993, ch. 12.
 
-use com_core::{Error, Result, ensure, ensure_shape};
+use com_core::{Error, Result, ensure, ensure_shape, same_len};
 use com_math::C64;
 use com_math::linalg::{CMat, hermitian, identity, solve_hpd};
 
@@ -64,8 +65,12 @@ pub fn frequency_correlation(delays: &[f64], powers: &[f64], delta: f64, n_fft: 
 }
 
 /// Least-squares estimates $y_{i}/x_{i}$.
-pub fn ls(y: &[C64], x: &[C64]) -> Vec<C64> {
-    y.iter().zip(x).map(|(a, b)| a / b).collect()
+///
+/// # Errors
+/// [`Error::Shape`] if `y` and `x` have different lengths.
+pub fn ls(y: &[C64], x: &[C64]) -> Result<Vec<C64>> {
+    same_len(y.len(), x.len(), "ls: received and known symbols")?;
+    Ok(y.iter().zip(x).map(|(a, b)| a / b).collect())
 }
 
 fn regularized(r_pp: &CMat, noise_to_pilot: f64) -> CMat {
@@ -91,8 +96,11 @@ pub fn lmmse(r_qp: &CMat, r_pp: &CMat, noise_to_pilot: f64, h_ls: &[C64]) -> Res
 /// given the variances `r_qq_diag` of the channel at the estimated positions.
 ///
 /// # Errors
-/// As [`lmmse`].
+/// As [`lmmse`]; [`Error::Shape`] unless `r_qq_diag` has one variance per row of `r_qp`.
 pub fn lmmse_mse(r_qp: &CMat, r_pp: &CMat, noise_to_pilot: f64, r_qq_diag: &[f64]) -> Result<Vec<f64>> {
+    ensure_shape(r_qq_diag.len() == r_qp.nrows(), || {
+        format!("{} variances for {} estimated positions", r_qq_diag.len(), r_qp.nrows())
+    })?;
     let rpq = hermitian(&r_qp.view());
     let z = solve_hpd(&regularized(r_pp, noise_to_pilot).view(), &rpq.view())?;
     let g = r_qp.dot(&z);
@@ -118,7 +126,7 @@ mod tests {
             let h = com_math::linalg::matvec(&l.view(), &g);
             let y: Vec<C64> = h.iter().map(|v| v + rng.complex_gaussian()).collect();
             let x = vec![C64::new(1.0, 0.0); n];
-            let hl = ls(&y, &x);
+            let hl = ls(&y, &x).unwrap();
             let hm = lmmse(&r, &r, 1.0, &hl).unwrap();
             e_ls += hl.iter().zip(&h).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>();
             e_mm += hm.iter().zip(&h).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>();
@@ -127,5 +135,15 @@ mod tests {
         let predicted = lmmse_mse(&r, &r, 1.0, &vec![1.0; n]).unwrap().iter().sum::<f64>() / n as f64;
         assert!((e_mm / 2000.0 / n as f64 / predicted - 1.0).abs() < 0.08);
         assert!(predicted < 0.4);
+    }
+
+    #[test]
+    fn ls_and_lmmse_mse_reject_inputs_of_different_lengths() {
+        let one = C64::new(1.0, 0.0);
+        assert!(matches!(ls(&[one; 3], &[one; 2]), Err(Error::Shape(_))));
+        let r = identity(3);
+        assert!(matches!(lmmse_mse(&r, &r, 0.1, &[1.0; 2]), Err(Error::Shape(_))));
+        assert!(matches!(lmmse_mse(&r, &r, 0.1, &[1.0; 4]), Err(Error::Shape(_))));
+        assert_eq!(lmmse_mse(&r, &r, 0.1, &[1.0; 3]).unwrap().len(), 3);
     }
 }

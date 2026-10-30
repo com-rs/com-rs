@@ -57,7 +57,7 @@
 //! use com_fec::rs::ReedSolomon;
 //! // the (255, 223) code over GF(256), t = 16
 //! let code = ReedSolomon::new(8, 16)?;
-//! assert_eq!((code.n(), code.k()), (255, 223));
+//! assert_eq!((code.n_symbols(), code.k_symbols()), (255, 223));
 //! let msg: Vec<u16> = (0..223).map(|i| (i * 7 % 256) as u16).collect();
 //! let mut c = code.encode_symbols(&msg)?;
 //! for i in [0, 5, 100, 254] {
@@ -174,13 +174,13 @@ impl ReedSolomon {
         Ok(ReedSolomon { field, t, n, first_root, root_step, generator })
     }
 
-    /// Codeword length $n$ in symbols.
-    pub fn n(&self) -> usize {
+    /// Codeword length $n$ in symbols ([`BlockCode::n`] counts the $nm$ bits).
+    pub fn n_symbols(&self) -> usize {
         self.n
     }
 
-    /// Message length $k = n - 2t$ in symbols.
-    pub fn k(&self) -> usize {
+    /// Message length $k = n - 2t$ in symbols ([`BlockCode::k`] counts the $km$ bits).
+    pub fn k_symbols(&self) -> usize {
         self.n - 2 * self.t
     }
 
@@ -230,7 +230,7 @@ impl ReedSolomon {
     /// [`com_core::Error::Shape`] for another number of symbols,
     /// [`com_core::Error::Config`] for a symbol that does not fit in $m$ bits.
     pub fn encode_symbols(&self, msg: &[u16]) -> Result<Vec<u16>> {
-        expect_len(msg.len(), self.k(), "symbols")?;
+        expect_len(msg.len(), self.k_symbols(), "symbols")?;
         self.check_symbols(msg)?;
         let f = &self.field;
         let r = 2 * self.t;
@@ -284,7 +284,7 @@ impl ReedSolomon {
         }
         let f = &self.field;
         let order = f.order();
-        let k = self.k();
+        let k = self.k_symbols();
         let (b, c) = (self.first_root, self.root_step);
         // the locator of position i is Z_i = β^{e_i}, e_i = n - 1 - i
         let locator_exp = |i: usize| c * (n - 1 - i) % order;
@@ -365,7 +365,7 @@ impl ReedSolomon {
     /// [`com_core::Error::Shape`] for another number of bits.
     pub fn encode(&self, bits: &[u8]) -> Result<Vec<u8>> {
         let m = self.m();
-        expect_len(bits.len(), self.k() * m as usize, "bits")?;
+        expect_len(bits.len(), self.k_symbols() * m as usize, "bits")?;
         Ok(unpack_symbols(&self.encode_symbols(&pack_symbols(bits, m)?)?, m))
     }
 
@@ -385,7 +385,7 @@ impl ReedSolomon {
 
 impl BlockCode for ReedSolomon {
     fn k(&self) -> usize {
-        ReedSolomon::k(self) * self.m() as usize
+        self.k_symbols() * self.m() as usize
     }
 
     fn n(&self) -> usize {
@@ -528,7 +528,7 @@ mod tests {
     #[test]
     fn errors_and_erasures_are_corrected_up_to_2e_plus_s_equal_2t() {
         let code = ReedSolomon::shortened(8, 4, 60).unwrap();
-        assert_eq!(code.k(), 52);
+        assert_eq!(code.k_symbols(), 52);
         let mut rng = Rng::new(11);
         for s in 0..=8 {
             for e in 0..=(8 - s) / 2 {
@@ -592,6 +592,17 @@ mod tests {
         assert!(out > 0.0 && out < 0.05);
         assert!((bit_error_probability(255, 16, 8, 0.05) / out - 128.0 / 255.0).abs() < 1e-12);
     }
+    #[test]
+    fn the_block_code_counts_bits_and_the_symbol_methods_count_symbols() {
+        // (255, 223) over GF(256): k and n of the BlockCode interface are bits, as for
+        // every other code, whichever method call syntax is used
+        let code = ReedSolomon::new(8, 16).unwrap();
+        assert_eq!((code.n_symbols(), code.k_symbols()), (255, 223));
+        assert_eq!((code.n(), code.k()), (255 * 8, 223 * 8));
+        assert_eq!((BlockCode::n(&code), BlockCode::k(&code)), (255 * 8, 223 * 8));
+        let bits = vec![1u8; code.k()];
+        assert_eq!(code.encode_block(&bits).unwrap().len(), code.n());
+    }
 }
 
 #[cfg(test)]
@@ -641,7 +652,7 @@ mod literature {
     #[test]
     fn etsi_en_300_744_sec_4_3_2_generator_of_rs_204_188() {
         let code = ReedSolomon::with_field(8, 0x11D, 0, 1, 8, 204).unwrap();
-        assert_eq!((code.n(), code.k()), (204, 188));
+        assert_eq!((code.n_symbols(), code.k_symbols()), (204, 188));
         let f = code.field();
         let exponents = [120, 104, 107, 109, 102, 161, 76, 3, 91, 191, 147, 169, 182, 194, 225, 120];
         let mut expected: Vec<u16> = exponents.iter().rev().map(|&e| f.pow(e) as u16).collect();
@@ -748,4 +759,5 @@ mod literature {
         let tol = 4.0 * (p_w * (1.0 - p_w) / trials as f64).sqrt();
         assert!((measured - p_w).abs() < tol, "measured {measured}, closed form {p_w}, tolerance {tol}");
     }
+
 }

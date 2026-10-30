@@ -152,7 +152,7 @@ mod tests {
         let fs = 128e9;
         let g = (m.alpha_np_km / 2.0 * 80.0).exp();
         for _ in 0..2 {
-            fwd.run(&mut x, &mut y, 80.0, fs);
+            fwd.run(&mut x, &mut y, 80.0, fs).unwrap();
             for v in x.iter_mut().chain(y.iter_mut()) {
                 *v *= g;
             }

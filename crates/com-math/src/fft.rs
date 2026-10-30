@@ -176,6 +176,10 @@ pub fn fftshift<T: Copy>(x: &[T]) -> Vec<T> {
 /// Filter a periodic block by its frequency response: `IFFT(FFT(x) · H)`, `H` one
 /// value per DFT bin in the order of [`fftfreq`] (a circular convolution).
 ///
+/// # Panics
+/// If `h` does not yield one value per sample of `x` (the callers build it on the
+/// frequencies of `x`).
+///
 /// # Examples
 /// ```
 /// use com_math::{C64, fft};
@@ -187,9 +191,14 @@ pub fn fftshift<T: Copy>(x: &[T]) -> Vec<T> {
 /// ```
 pub fn filter(x: &[C64], h: impl IntoIterator<Item = C64>) -> Vec<C64> {
     let mut y = fft(x);
-    for (v, hk) in y.iter_mut().zip(h) {
-        *v *= hk;
+    let mut h = h.into_iter();
+    for v in &mut y {
+        match h.next() {
+            Some(hk) => *v *= hk,
+            None => panic!("fft::filter: fewer response values than the {} samples", x.len()),
+        }
     }
+    assert!(h.next().is_none(), "fft::filter: more response values than the {} samples", x.len());
     ifft(&y)
 }
 
@@ -207,4 +216,21 @@ pub fn fftfreq(n: usize, d: f64) -> Vec<f64> {
 /// Angular frequencies `2π f` (rad/s) of the bins at the sampling rate `fs`.
 pub fn angular_frequencies(n: usize, fs: f64) -> Vec<f64> {
     fftfreq(n, 1.0 / fs).into_iter().map(|f| 2.0 * std::f64::consts::PI * f).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "fewer response values")]
+    fn filter_rejects_a_short_response_instead_of_leaving_bins_unfiltered() {
+        let _ = filter(&[C64::new(1.0, 0.0); 4], vec![C64::new(0.0, 0.0); 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "more response values")]
+    fn filter_rejects_a_long_response() {
+        let _ = filter(&[C64::new(1.0, 0.0); 4], vec![C64::new(0.0, 0.0); 5]);
+    }
 }

@@ -141,12 +141,13 @@ pub struct PolarCode {
     k: usize,
     /// The positions that carry information (and CRC) bits, in increasing order.
     info_positions: Vec<usize>,
-    /// The design $E_{b}/N_{0}$ of the construction (dB).
-    design_ebn0_db: f64,
+    /// The design $E_{b}/N_{0}$ of the construction (dB); `None` for the positions of a
+    /// table ([`PolarCode::with_positions`]).
+    design_ebn0_db: Option<f64>,
     /// The CRC appended to the information bits (CA-SCL).
-    pub crc: Option<Crc>,
+    crc: Option<Crc>,
     /// List size $L$ (1: successive cancellation).
-    pub list: usize,
+    list: usize,
     /// The parity-check positions of a PC-polar code (see [`PolarCode::with_positions`]).
     pc_positions: Vec<usize>,
 }
@@ -171,30 +172,32 @@ impl PolarCode {
     /// Gaussian approximation at the design $E_{b}/N_{0}$ `design_ebn0_db`.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] unless $N$ is a power of two and $0 < K \le N$.
+    /// [`com_core::Error::Config`] unless $N$ is a power of two, $0 < K \le N$ and the
+    /// design $E_{b}/N_{0}$ is finite.
     pub fn new(n: usize, k: usize, design_ebn0_db: f64) -> Result<PolarCode> {
         ensure(n.is_power_of_two() && n >= 2, || format!("the length must be a power of two, got {n}"))?;
         ensure(k >= 1 && k <= n, || format!("0 < K ≤ N, got K = {k}"))?;
+        ensure(design_ebn0_db.is_finite(), || format!("the design Eb/N0 must be finite, got {design_ebn0_db}"))?;
         let mut code = PolarCode {
             n,
             k,
             info_positions: Vec::new(),
-            design_ebn0_db,
+            design_ebn0_db: Some(design_ebn0_db),
             crc: None,
             list: 1,
             pc_positions: Vec::new(),
         };
-        code.construct()?;
+        code.construct(design_ebn0_db)?;
         Ok(code)
     }
 
-    fn construct(&mut self) -> Result<()> {
+    fn construct(&mut self, design_ebn0_db: f64) -> Result<()> {
         let extra = self.crc.as_ref().map_or(0, |c| c.width() as usize);
         let a = self.k + extra;
         ensure(a <= self.n, || format!("{} information and CRC bits exceed N = {}", a, self.n))?;
         // BPSK: mean channel LLR 2/σ² = 4 R Eb/N0 with the rate of the information bits
         let rate = self.k as f64 / self.n as f64;
-        let mu = 4.0 * rate * db2lin(self.design_ebn0_db);
+        let mu = 4.0 * rate * db2lin(design_ebn0_db);
         let mut order: Vec<(f64, usize)> = (0..self.n).map(|i| (reliability(i, self.n, mu), i)).collect();
         order.sort_by(|x, y| y.0.total_cmp(&x.0).then(y.1.cmp(&x.1)));
         let mut pos: Vec<usize> = order.iter().take(a).map(|o| o.1).collect();
@@ -204,13 +207,24 @@ impl PolarCode {
     }
 
     /// The same code with a CRC appended to the information bits (the information set
-    /// grows by its degree; CA-SCL keeps the path that passes it).
+    /// grows by its degree, $K$ is kept; CA-SCL keeps the path that passes it). A second
+    /// call replaces the CRC of the first.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] if the information bits and the CRC exceed the block.
+    /// [`com_core::Error::Config`] if the information bits and the CRC exceed the block,
+    /// or for a code built by [`PolarCode::with_positions`], whose information set is
+    /// fixed by its table (a standard with a CRC checks it outside the code, as
+    /// [`crate::nr::NrPolar`] with [`PolarCode::decode_list`]).
     pub fn with_crc(mut self, crc: Crc) -> Result<PolarCode> {
+        let Some(design_ebn0_db) = self.design_ebn0_db else {
+            return Err(com_core::Error::Config(
+                "with_crc: the information positions of a code built by with_positions are fixed; \
+                 check the CRC outside the code (decode_list)"
+                    .into(),
+            ));
+        };
         self.crc = Some(crc);
-        self.construct()?;
+        self.construct(design_ebn0_db)?;
         Ok(self)
     }
 
@@ -219,6 +233,16 @@ impl PolarCode {
     pub fn with_list(mut self, list: usize) -> PolarCode {
         self.list = list.max(1);
         self
+    }
+
+    /// The CRC appended to the information bits (CA-SCL), if any ([`PolarCode::with_crc`]).
+    pub fn crc(&self) -> Option<&Crc> {
+        self.crc.as_ref()
+    }
+
+    /// The list size $L$ of the decoder (1: successive cancellation).
+    pub fn list(&self) -> usize {
+        self.list
     }
 
     /// The code of length `n` (a power of two) whose information (and CRC) bits sit at
@@ -247,7 +271,7 @@ impl PolarCode {
             n,
             k: info.len(),
             info_positions: info,
-            design_ebn0_db: f64::NAN,
+            design_ebn0_db: None,
             crc: None,
             list: 1,
             pc_positions: pc,
@@ -417,5 +441,32 @@ mod tests {
             }
         }
         assert!(e_scl * 2 < e_sc, "SC {e_sc} vs CA-SCL {e_scl} block errors");
+    }
+
+    #[test]
+    fn with_crc_rejects_the_fixed_positions_of_a_table() {
+        let table = PolarCode::with_positions(16, &[7, 11, 13, 14, 15], &[12]).unwrap();
+        let err = table.clone().with_crc(Crc::crc6()).unwrap_err();
+        assert!(matches!(err, com_core::Error::Config(_)), "{err}");
+        // the table code is untouched: no CRC, positions disjoint from the parity checks
+        assert!(table.crc().is_none());
+        assert!(table.info_positions().iter().all(|p| !table.pc_positions().contains(p)));
+    }
+
+    #[test]
+    fn with_crc_twice_keeps_k_and_the_last_crc() {
+        let once = PolarCode::new(128, 64, 2.0).unwrap().with_crc(Crc::crc6()).unwrap();
+        let twice =
+            PolarCode::new(128, 64, 2.0).unwrap().with_crc(Crc::crc11()).unwrap().with_crc(Crc::crc6()).unwrap();
+        assert_eq!(once, twice);
+        assert_eq!(BlockCode::k(&twice), 64);
+        assert_eq!(twice.info_positions().len(), 64 + 6);
+        assert_eq!(twice.crc().map(Crc::width), Some(6));
+    }
+
+    #[test]
+    fn a_non_finite_design_ebn0_is_rejected() {
+        assert!(PolarCode::new(64, 32, f64::NAN).is_err());
+        assert!(PolarCode::new(64, 32, f64::INFINITY).is_err());
     }
 }

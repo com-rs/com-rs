@@ -65,8 +65,10 @@ pub fn matmul(a: &ArrayView2<'_, C64>, b: &ArrayView2<'_, C64>) -> CMat {
 /// The product $A x$ of a matrix and a vector.
 ///
 /// # Panics
-/// If the dimensions differ.
+/// If `x` does not have one value per column of $A$ (as [`matmul`]); the callers check
+/// the shapes of their inputs first.
 pub fn matvec(a: &ArrayView2<'_, C64>, x: &[C64]) -> Vec<C64> {
+    assert_eq!(x.len(), a.ncols(), "matvec: {} values for a matrix of {} columns", x.len(), a.ncols());
     a.rows().into_iter().map(|r| r.iter().zip(x).map(|(u, v)| u * v).sum()).collect()
 }
 
@@ -297,6 +299,13 @@ pub fn solve_tridiagonal(lower: &[f64], diag: &[f64], upper: &[f64], rhs: &[C64]
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    #[should_panic(expected = "matvec: 2 values for a matrix of 3 columns")]
+    fn matvec_rejects_a_short_vector_instead_of_truncating() {
+        let a = Array2::from_elem((2, 3), C64::new(1.0, 0.0));
+        let _ = matvec(&a.view(), &[C64::new(1.0, 0.0); 2]);
+    }
 
     fn random(m: usize, n: usize, seed: u64) -> CMat {
         let mut r = Rng::new(seed);

@@ -48,7 +48,7 @@
 //!         let bits = source::bits(4 * 1000, rng);
 //!         let tx = c.modulate(&bits)?;
 //!         let rx = awgn::awgn_ebn0(&tx, ebn0, c.bits_per_symbol() as f64, 1.0, rng);
-//!         let errors = metrics::bit_errors(&c.demodulate(&rx), &bits);
+//!         let errors = metrics::bit_errors(&c.demodulate(&rx), &bits)?;
 //!         rec.errors("ber", errors as u64, bits.len() as u64);
 //!         Ok(())
 //!     }

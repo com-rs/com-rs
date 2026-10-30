@@ -80,7 +80,7 @@ fn a_specification_reproduces_its_rust_counterpart() {
         let (idx, x) = source::symbols(&c, 1000, None, rng)?;
         let bits = comrs::mapping::constellation::indices_to_bits(&idx, 4);
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, 4.0, 1.0, rng);
-        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits) as u64, bits.len() as u64);
+        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits)? as u64, bits.len() as u64);
         Ok(())
     });
     let coded = Runner::new().seed(5).stop(Stop::max_trials(64)).run(&s, &Grid::new().axis("ebn0_db", [6i64])).unwrap();

@@ -472,10 +472,7 @@ fn adaptive_equalizer<'py>(
 #[pyo3(signature = (x, theta, *, sign = 1.0))]
 fn derotate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, theta: &Bound<'py, PyAny>, sign: f64) -> PyResult<CArr<'py>> {
     let (x, t) = (cvec(x)?, fvec(theta)?);
-    if x.len() != t.len() {
-        return Err(PyValueError::new_err(format!("{} samples but {} phases", x.len(), t.len())));
-    }
-    Ok(carr(py, carrier::derotate(&x, &t, sign)))
+    Ok(carr(py, carrier::derotate(&x, &t, sign).py()?))
 }
 
 /// Unwrap a phase sequence with a given period (`numpy.unwrap(period=…)`).
@@ -515,9 +512,11 @@ fn fourth_power_foe<'py>(
     refined: bool,
 ) -> PyResult<(CArr<'py>, f64)> {
     let x = cvec(x)?;
-    let (y, fo) = py.detach(|| {
-        if refined { carrier::fourth_power_foe_refined(&x, fs, m) } else { carrier::fourth_power_foe(&x, fs, m) }
-    });
+    let (y, fo) = py
+        .detach(|| {
+            if refined { carrier::fourth_power_foe_refined(&x, fs, m) } else { carrier::fourth_power_foe(&x, fs, m) }
+        })
+        .py()?;
     Ok((carr(py, y), fo))
 }
 
