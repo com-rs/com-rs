@@ -222,7 +222,9 @@ class Native(Block):
         if label is not None:
             spec.setdefault("label", label)
         cond = dict(condition) if name is not None and condition else None
-        block = LinkBlock(spec, fiber=fiber, name=name, condition=cond, base_dir=base_dir)
+        # a dict: the extension serialises it with `json.dumps`, which takes no other mapping
+        fib = None if fiber is None else dict(fiber)
+        block = LinkBlock(spec, fiber=fib, name=name, condition=cond, base_dir=base_dir)
         return block.apply
 
     def __call__(self, frame: Frame, rng: Rng) -> None:

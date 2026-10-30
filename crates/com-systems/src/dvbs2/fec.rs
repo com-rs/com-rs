@@ -356,11 +356,7 @@ impl BlockCode for Dvbs2Fec {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
-
-    /// The LLRs of the bits `c` sent in BPSK over a real AWGN channel of variance `s2`.
-    fn awgn_llr(c: &[u8], s2: f64, rng: &mut Rng) -> Vec<f64> {
-        c.iter().map(|b| 2.0 * (1.0 - 2.0 * f64::from(*b) + s2.sqrt() * rng.gaussian()) / s2).collect()
-    }
+    use com_fec::block::{bpsk, bpsk_llr};
 
     #[test]
     fn every_code_has_the_dimensions_of_tables_5a_and_5b() {
@@ -386,8 +382,9 @@ mod tests {
             let bits: Vec<u8> = (0..fec.k()).map(|_| rng.bit()).collect();
             let c = fec.encode(&bits).unwrap();
             assert!(fec.ldpc.is_codeword(&c));
-            // BPSK over AWGN at an SNR well above the threshold
-            let llr = awgn_llr(&c, 0.25, &mut rng);
+            // BPSK over real AWGN of variance 1/4, an SNR well above the threshold
+            let y: Vec<f64> = bpsk(&c).iter().map(|x| x + 0.5 * rng.gaussian()).collect();
+            let llr = bpsk_llr(&y, 0.25);
             assert_eq!(fec.decode(&llr).unwrap(), bits, "{}", rate.name());
         }
     }

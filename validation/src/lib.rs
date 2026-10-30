@@ -21,6 +21,9 @@
 #[cfg(feature = "spec")]
 pub mod card;
 
+use comrs::fec::block::{bpsk, bpsk_llr};
+use comrs::math::SPEED_OF_LIGHT;
+
 /// Errors to collect at every simulated point.
 pub const MIN_ERRORS: u64 = 100;
 
@@ -34,10 +37,35 @@ pub fn within_three_sigma(errors: u64, total: u64, theory: f64) -> bool {
 }
 
 /// The channel LLRs $2 y/\sigma^{2}$ of the bits `c` sent in BPSK ($0 \mapsto +1$) over a
-/// real AWGN channel of variance `noise_var`, the link of the code tests.
+/// real AWGN channel of variance `noise_var`, the link of the code tests: the symbols of
+/// [`bpsk`], one Gaussian draw per bit in order, the LLRs of [`bpsk_llr`].
 pub fn bpsk_awgn_llr(c: &[u8], noise_var: f64, rng: &mut comrs::core::rng::Rng) -> Vec<f64> {
     let s = noise_var.sqrt();
-    c.iter().map(|b| 2.0 * (1.0 - 2.0 * f64::from(*b) + s * rng.gaussian()) / noise_var).collect()
+    let y: Vec<f64> = bpsk(c).iter().map(|x| x + s * rng.gaussian()).collect();
+    bpsk_llr(&y, noise_var)
+}
+
+/// The maximum Doppler shift $f_{D} = v f_{c} / c$ (Hz) of a terminal moving at
+/// `speed_m_s` (m/s) on the carrier `carrier_hz` (Hz), $c$ the speed of light.
+///
+/// The papers give the speed in km/h ($v = $ `kmh / 3.6`) or in mph
+/// ($v = 0.447\,04 \times$ `mph`).
+pub fn max_doppler_hz(speed_m_s: f64, carrier_hz: f64) -> f64 {
+    speed_m_s * carrier_hz / SPEED_OF_LIGHT
+}
+
+/// The abscissa where the line through the points `a` and `b` in $(x, \ln y)$ reaches
+/// `target`: the log-linear interpolation of an error rate $y$ between two simulated
+/// points.
+pub fn log_interp(a: (f64, f64), b: (f64, f64), target: f64) -> f64 {
+    a.0 + (b.0 - a.0) * (a.1.ln() - target.ln()) / (a.1.ln() - b.1.ln())
+}
+
+/// The abscissa (an SNR in dB) where the error rates `points` (`(x, rate)`, in increasing
+/// `x`) first cross `target` downwards, by [`log_interp`] between the two points that
+/// bracket it; `None` when no two consecutive points bracket it.
+pub fn crossing(points: &[(f64, f64)], target: f64) -> Option<f64> {
+    points.windows(2).find(|w| w[0].1 >= target && w[1].1 < target).map(|w| log_interp(w[0], w[1], target))
 }
 
 #[cfg(test)]
@@ -50,5 +78,15 @@ mod tests {
         assert!(within_three_sigma(100, 10_000, 1e-2));
         assert!(within_three_sigma(129, 10_000, 1e-2));
         assert!(!within_three_sigma(131, 10_000, 1e-2));
+    }
+
+    #[test]
+    fn the_crossing_is_log_linear_between_the_bracketing_points() {
+        // 1e-2 at 0 dB, 1e-4 at 2 dB: 1e-3 halfway
+        let points = [(-2.0, 1e-1), (0.0, 1e-2), (2.0, 1e-4)];
+        assert!((crossing(&points, 1e-3).unwrap() - 1.0).abs() < 1e-12);
+        assert!(crossing(&points, 1e-6).is_none());
+        // 60 km/h at 2.5 GHz: about 139 Hz
+        assert!((max_doppler_hz(60.0 / 3.6, 2.5e9) - 138.98).abs() < 0.01);
     }
 }

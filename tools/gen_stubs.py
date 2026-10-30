@@ -54,6 +54,7 @@ DUNDERS = {
     "__eq__": "def __eq__(self, other: object) -> bool: ...",
     "__contains__": "def __contains__(self, name: str) -> bool: ...",
     "__getitem__": "def __getitem__(self, name: str) -> Any: ...",
+    "__add__": "def __add__(self, other: {cls}) -> {cls}: ...",
     "__or__": "def __or__(self, other: {cls}) -> {cls}: ...",
     "__and__": "def __and__(self, other: {cls}) -> {cls}: ...",
 }

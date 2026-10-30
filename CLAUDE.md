@@ -43,6 +43,9 @@ Run `just check`: the checks of CI, in its order.
   `-D warnings`
 - every crate ships the same `katex-header.html` as `docs/katex-header.html`
 - `ruff check` and `ruff format --check` of `python tests docs/python tools benchmarks/libraries`
+- `mypy` (`[tool.mypy]` of `pyproject.toml`: the types of the package and of the stub
+  `python/comrs/_comrs.pyi`, with the tests as callers of the stub: a method stubbed
+  `-> None` whose value is used fails)
 - `python3 tools/api_index.py --check` (docs/API.md is up to date)
 - `python tools/literature_table.py --check` (docs/LITERATURE.md is up to date and every
   test named in `validation/literature.yaml` exists)
