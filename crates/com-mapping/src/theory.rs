@@ -47,6 +47,7 @@
 //!    1828–1841, 1982.
 
 use crate::constellation::{Constellation, ConstellationKind, log_priors, qam_side};
+use crate::demapper::LabelHalves;
 use com_core::{Error, Result, ensure};
 use com_math::{C64, bessel_i0e, bisect, db2lin, entropy, log_sum_exp, qfunc};
 
@@ -198,8 +199,18 @@ pub fn ber_rayleigh_mrc(mean_ebn0_lin: f64, branches: usize) -> Result<f64> {
     Ok(((1.0 - mu) / 2.0).powi(l as i32) * sum)
 }
 
-/// Normalised points, probabilities, `N_0` and quadrature nodes of a theory function.
-pub(crate) type TheorySetup = (Vec<C64>, Vec<f64>, f64, Vec<(C64, f64)>);
+/// The normalised points, their probabilities, `N_0` and the quadrature nodes of a
+/// theory function.
+pub(crate) struct TheorySetup {
+    /// The points, at unit energy under `probs`; point `i` carries the bits of `i`.
+    pub(crate) points: Vec<C64>,
+    /// The probabilities of the points.
+    pub(crate) probs: Vec<f64>,
+    /// The noise of the metrics, $N_{0}$.
+    pub(crate) n0: f64,
+    /// The quadrature nodes `(w, weight)` of the noise.
+    pub(crate) nodes: Vec<(C64, f64)>,
+}
 
 /// The normalised points, the probabilities and the quadrature of a theory function of
 /// a constellation, its labels included (`points()[i]` carries the bits of `i`).
@@ -211,7 +222,7 @@ pub(crate) fn setup(c: &Constellation, px: Option<&[f64]>, snr_db: f64, points: 
     let real = c.kind().is_real();
     let sigma2 = db2lin(-snr_db);
     let n0 = if real { 2.0 * sigma2 } else { sigma2 };
-    Ok((pts, p, n0, com_math::gaussian_nodes(sigma2, !real, points)))
+    Ok(TheorySetup { points: pts, probs: p, n0, nodes: com_math::gaussian_nodes(sigma2, !real, points) })
 }
 
 /// The channel of [`constellation_mi`], [`constellation_gmi`] and of the cutoff rates of
@@ -318,7 +329,8 @@ pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, po
 }
 
 /// The kernel of [`mi`].
-pub(crate) fn mi_of((x, p, n0, nodes): &TheorySetup) -> f64 {
+pub(crate) fn mi_of(s: &TheorySetup) -> f64 {
+    let TheorySetup { points: x, probs: p, n0, nodes } = s;
     let (n0, lp) = (*n0, log_priors(p));
     let mut acc = 0.0;
     let mut terms = vec![0.0; x.len()];
@@ -362,7 +374,7 @@ pub fn gmi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, p
 pub(crate) fn gmi_of(s: &TheorySetup) -> f64 {
     // GMI = H(X) - Σ_k H(B_k | Y): with shaped (dependent) bits, the sum of the
     // bit-wise mutual informations Σ_k I(B_k; Y) can exceed H(X) and is not achievable
-    let mut gmi = entropy(&s.1);
+    let mut gmi = entropy(&s.probs);
     // -log2 P(b_k = b_k(i) | y)
     for h_cond in bit_expectations(s, |all, same| log_sum_exp(all) - same) {
         gmi -= h_cond / std::f64::consts::LN_2;
@@ -374,7 +386,8 @@ pub(crate) fn gmi_of(s: &TheorySetup) -> f64 {
 /// `ℓ[j] = ln p_j - (|x_i - x_j + w|² - |w|²)/N_0` (the log-metrics of $y = x_{i} + w$,
 /// up to a common term) and $\ell_{k}$ their log-sum over the points whose bit `k`
 /// equals that of `i`; the metrics of a noise sample are computed once for all bits.
-pub(crate) fn bit_expectations((x, p, n0, nodes): &TheorySetup, f: impl Fn(&[f64], f64) -> f64) -> Vec<f64> {
+pub(crate) fn bit_expectations(s: &TheorySetup, f: impl Fn(&[f64], f64) -> f64) -> Vec<f64> {
+    let TheorySetup { points: x, probs: p, n0, nodes } = s;
     let m = x.len();
     let b = m.trailing_zeros() as usize;
     let lp = log_priors(p);
@@ -393,7 +406,7 @@ pub(crate) fn bit_expectations((x, p, n0, nodes): &TheorySetup, f: impl Fn(&[f64
             for (k, ek) in e.iter_mut().enumerate() {
                 let shift = b - 1 - k;
                 let bi = (i >> shift) & 1;
-                let same = com_math::log_sum_exp_iter((0..m).filter(|&j| (j >> shift) & 1 == bi).map(|j| all[j]));
+                let same = LabelHalves::of(&all, shift, false).log_sum(bi);
                 *ek += a * f(&all, same);
             }
         }
@@ -722,6 +735,54 @@ pub fn ser_orthogonal_noncoherent(m: usize, esn0_db: f64) -> Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bitwise expectations as written before the shared halves: the log-sum of the
+    /// labels sharing the bit of `i`, by `log_sum_exp_iter`.
+    fn former_bit_expectations(s: &TheorySetup, f: impl Fn(&[f64], f64) -> f64) -> Vec<f64> {
+        let TheorySetup { points: x, probs: p, n0, nodes } = s;
+        let m = x.len();
+        let b = m.trailing_zeros() as usize;
+        let lp = log_priors(p);
+        let (mut all, mut out, mut e) = (vec![0.0; m], vec![0.0; b], vec![0.0; b]);
+        for (i, xi) in x.iter().enumerate() {
+            if p[i] == 0.0 {
+                continue;
+            }
+            e.fill(0.0);
+            for (w, a) in nodes {
+                for (j, xj) in x.iter().enumerate() {
+                    all[j] = lp[j] - ((xi - xj + w).norm_sqr() - w.norm_sqr()) / n0;
+                }
+                for (k, ek) in e.iter_mut().enumerate() {
+                    let shift = b - 1 - k;
+                    let bi = (i >> shift) & 1;
+                    let same = com_math::log_sum_exp_iter((0..m).filter(|&j| (j >> shift) & 1 == bi).map(|j| all[j]));
+                    *ek += a * f(&all, same);
+                }
+            }
+            for (o, ek) in out.iter_mut().zip(&e) {
+                *o += p[i] * ek;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_shared_halves_give_the_former_bitwise_expectations() {
+        let shaped = [0.4, 0.1, 0.3, 0.2, 0.05, 0.25, 0.15, 0.35];
+        for (c, px) in [
+            (Constellation::qam(16).unwrap(), None),
+            (Constellation::psk(8).unwrap(), Some(&shaped[..])),
+            (Constellation::pam(4).unwrap(), None),
+        ] {
+            for snr in [-5.0, 3.0, 15.0, 40.0] {
+                let s = setup(&c, px, snr, 12).unwrap();
+                let f = |all: &[f64], same: f64| log_sum_exp(all) - same;
+                let (new, old) = (bit_expectations(&s, f), former_bit_expectations(&s, f));
+                assert!(new.iter().zip(&old).all(|(a, b)| a.to_bits() == b.to_bits()), "{snr} dB");
+            }
+        }
+    }
 
     #[test]
     fn bpsk_theory_is_q_of_sqrt_2ebn0() {
