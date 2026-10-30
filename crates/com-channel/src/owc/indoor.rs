@@ -68,7 +68,7 @@
 //!    system using LED lights," *IEEE Trans. Consum. Electron.*, 50(1), 100–107, 2004.
 
 use com_core::{Error, Result, ensure};
-use com_math::geometry::{self, Vec3, dot, norm, sub};
+use com_math::geometry::{self, Vec3, difference, dot, norm};
 use com_math::{C64, SPEED_OF_LIGHT, cis};
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -451,7 +451,7 @@ impl Room {
                 .map(|e| {
                     let mut hist = Histogram::default();
                     for s in &emitters {
-                        let v = sub(e.centre, s.position);
+                        let v = difference(e.centre, s.position);
                         let d = norm(v);
                         let cos_phi = dot(s.direction, v) / d;
                         let cos_theta = -dot(e.normal, v) / d;
@@ -474,7 +474,7 @@ impl Room {
                             if h.values.is_empty() {
                                 continue;
                             }
-                            let v = sub(to.centre, from.centre);
+                            let v = difference(to.centre, from.centre);
                             let d = norm(v);
                             let (cos_phi, cos_theta) = (dot(from.normal, v) / d, -dot(to.normal, v) / d);
                             if cos_phi > 0.0 && cos_theta > 0.0 {
@@ -516,7 +516,7 @@ impl Illumination {
         let mut out = Vec::with_capacity(self.orders.len() + 1);
         let mut los = Histogram::default();
         for s in &self.emitters {
-            let v = sub(det.position, s.position);
+            let v = difference(det.position, s.position);
             let d = norm(v);
             let p = s.intensity(dot(s.direction, v) / d) * det.effective_area(-dot(det.direction, v) / d) / (d * d);
             if p > 0.0 {
@@ -530,7 +530,7 @@ impl Illumination {
                 if h.values.is_empty() {
                     continue;
                 }
-                let v = sub(det.position, e.centre);
+                let v = difference(det.position, e.centre);
                 let d = norm(v);
                 let cos_phi = dot(e.normal, v) / d;
                 if cos_phi > 0.0 {
@@ -561,7 +561,7 @@ pub fn illuminance_lx(emitters: &[Emitter], intensity_cd: f64, point: [f64; 3], 
     emitters
         .iter()
         .map(|s| {
-            let v = sub(point, s.position);
+            let v = difference(point, s.position);
             let d = norm(v);
             let (cos_phi, cos_psi) = (dot(s.direction, v) / d, -dot(normal, v) / d);
             if cos_phi > 0.0 && cos_psi > 0.0 { intensity_cd * cos_phi.powf(s.mode) * cos_psi / (d * d) } else { 0.0 }

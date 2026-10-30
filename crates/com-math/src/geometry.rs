@@ -6,11 +6,11 @@
 //!
 //! # Examples
 //! ```
-//! use com_math::geometry::{dot, norm, sub, unit};
+//! use com_math::geometry::{difference, dot, norm, unit};
 //! let (a, b) = ([1.0, 2.0, 2.0], [1.0, 0.0, 0.0]);
 //! assert_eq!(dot(a, b), 1.0);
 //! assert_eq!(norm(a), 3.0);
-//! assert_eq!(sub(a, b), [0.0, 2.0, 2.0]);
+//! assert_eq!(difference(a, b), [0.0, 2.0, 2.0]);
 //! assert_eq!(unit([0.0, 0.0, -2.0]), Some([0.0, 0.0, -1.0]));
 //! ```
 
@@ -25,7 +25,7 @@ pub fn dot(a: Vec3, b: Vec3) -> f64 {
 
 /// The difference $a - b$.
 #[inline]
-pub fn sub(a: Vec3, b: Vec3) -> Vec3 {
+pub fn difference(a: Vec3, b: Vec3) -> Vec3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
