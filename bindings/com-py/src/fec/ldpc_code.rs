@@ -79,9 +79,9 @@ impl PyLdpc {
         max_iterations=ldpc::DEFAULT_MAX_ITERATIONS,
     ))]
     fn set_decoder(&mut self, rule: &str, alpha: f64, layered: bool, max_iterations: usize) -> PyResult<()> {
-        self.inner.rule = CheckRule::from_name(rule, alpha).py()?;
-        self.inner.layered = layered;
-        self.inner.max_iterations = max_iterations;
+        self.inner.decoder.rule = CheckRule::from_name(rule, alpha).py()?;
+        self.inner.decoder.layered = layered;
+        self.inner.decoder.max_iterations = max_iterations;
         Ok(())
     }
 

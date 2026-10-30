@@ -383,7 +383,7 @@ fn unpack_symbols<'py>(py: Python<'py>, symbols: &Bound<'py, PyAny>, m: u32) -> 
 ///     (True, 1.4e-09)
 #[pyfunction]
 fn theory_rs_wer(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(p_s, |p| Ok(rs::word_error_probability(n, t, p)))
+    map_real(p_s, |p| rs::word_error_probability(n, t, p).py())
 }
 
 /// The symbol error rate after decoding, approximating that a word of ``i > t``
@@ -407,7 +407,7 @@ fn theory_rs_wer(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 ///     True
 #[pyfunction]
 fn theory_rs_ser(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(p_s, |p| Ok(rs::symbol_error_probability(n, t, p)))
+    map_real(p_s, |p| rs::symbol_error_probability(n, t, p).py())
 }
 
 /// The bit error rate after decoding of a code over GF(2^m): a wrong symbol carries on
@@ -426,7 +426,7 @@ fn theory_rs_ser(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 ///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(p_s, |p| Ok(rs::bit_error_probability(n, t, m, p)))
+    map_real(p_s, |p| rs::bit_error_probability(n, t, m, p).py())
 }
 
 /// A binary BCH code of GF(2^m), narrow sense, of designed distance ``2t + 1`` (Lin &
@@ -605,7 +605,7 @@ fn free_distance(generators: Vec<u32>, constraint: u32, puncture: Option<&Bound<
     let trellis = Trellis::feedforward(constraint, &generators).py()?;
     let p = match puncture {
         Some(p) => puncturer(p)?,
-        None => Puncturer::identity(trellis.n_out).py()?,
+        None => Puncturer::identity(trellis.n_out()).py()?,
     };
     puncture::free_distance(&trellis, &p).py()
 }

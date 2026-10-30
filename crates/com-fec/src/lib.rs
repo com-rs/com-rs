@@ -3,7 +3,9 @@
 //! Codes take information bits and return coded bits; decoders take log-likelihood
 //! ratios (positive for a 0, the convention of the whole library) and return the
 //! decided information bits. Every code implements [`block::BlockCode`] and the verb
-//! traits [`Encode`](com_core::traits::Encode) and [`Decode`](com_core::traits::Decode).
+//! traits [`Encode`](com_core::traits::Encode) and [`Decode`](com_core::traits::Decode);
+//! the LDPC, convolutional, turbo and NR LDPC codes (punctured or not) also give the a
+//! posteriori LLRs of their information bits ([`block::SoftDecode`]).
 //!
 //! | Module | Content |
 //! |---|---|
@@ -16,11 +18,11 @@
 //! | [`ccdm`] | constant-composition distribution matching (uniform bits to a shaped symbol sequence) |
 //! | [`bch`] | shortened binary BCH codes (the outer code of DVB-S2) with Berlekamp–Massey decoding, over the fields of [`com_math::gf2m`] |
 //! | [`rs`] | Reed–Solomon codes: systematic encoding, errors-and-erasures decoding, shortening, closed-form error rates |
-//! | [`puncture`] | puncturing of the convolutional and turbo codes (802.11, DVB-S patterns), free distance of punctured codes |
+//! | [`puncture`] | puncturing of the convolutional and turbo codes (802.11, DVB-S patterns), the bit selection of a rate matching, free distance of punctured codes |
 //! | [`polar`] | polar codes: Gaussian-approximation construction, SC and CRC-aided SC-list decoding |
 //! | [`nr`] | the codes of 5G NR (TS 38.212): the LDPC code of the data channels and the polar code of the control channels, with their rate matching |
 //! | [`bounds`] | the capacity of the binary-input AWGN channel and the normal approximation of the error probability at finite length |
-//! | [`block`] | the [`BlockCode`](block::BlockCode) interface, BPSK LLRs, hard decisions |
+//! | [`block`] | the [`BlockCode`](block::BlockCode) interface and the soft output [`SoftDecode`](block::SoftDecode) |
 
 mod algebraic;
 pub mod bch;

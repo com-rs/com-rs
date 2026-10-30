@@ -31,6 +31,12 @@
 //! $G_{1} = 171_{8}$ and Y from $G_{2} = 133_{8}$ (EN 300 421, Sec. 4.4), so the rows of
 //! its Table 1 are given Y first. The two standards then puncture the same codes.
 //!
+//! A rate matching that transmits some bits of a word, once or several times, is a
+//! [`BitSelection`]: output bit $t$ carries bit $\pi(t)$ of the word, and the receiver
+//! sums the LLRs of every bit over its copies (zero for a bit never sent). A puncturer
+//! is one ([`Puncturer::selection`]), as are the circular buffers of 5G NR
+//! ([`crate::nr`]).
+//!
 //! [`Punctured`] wraps a [`BlockCode`] whose coded bits are in step-major order (the
 //! [`ConvolutionalCode`](crate::conv::ConvolutionalCode), tail included), and
 //! [`PuncturedTurbo`] a [`TurboCode`] whose codeword is the
@@ -45,16 +51,16 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::conv::ConvolutionalCode;
 //! use com_fec::puncture::{Punctured, Puncturer, free_distance};
-//! let code = Punctured::new(ConvolutionalCode::k7(100), Puncturer::ieee80211_3_4())?;
+//! let code = Punctured::new(ConvolutionalCode::k7(100)?, Puncturer::ieee80211_3_4())?;
 //! assert_eq!(code.n(), 35 * 4 + 2);                 // 4 bits kept of every 6, 2 of the last 2
 //! let info: Vec<u8> = (0..100).map(|i| ((i * 5) % 7 < 3) as u8).collect();
 //! let c = code.encode_block(&info)?;
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
-//! assert_eq!(free_distance(&code.code.trellis, &code.puncturer)?, 5);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
+//! assert_eq!(free_distance(code.code().trellis(), code.puncturer())?, 5);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -74,10 +80,98 @@
 //! 5. C. Berrou, A. Glavieux and P. Thitimajshima, "Near Shannon limit error-correcting
 //!    coding and decoding: turbo-codes," *Proc. IEEE ICC*, 1064–1070, 1993, Sec. II.
 
-use crate::block::{BlockCode, container_traits};
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len};
 use crate::conv::Trellis;
-use crate::turbo::TurboCode;
+use crate::turbo::{TurboCode, TurboDecoder};
 use com_core::{Error, Result, ensure, ensure_shape};
+
+/// The bits of a word of `full_len` bits that a rate matching transmits: output bit $t$
+/// carries bit `positions()[t]` of the word (a bit may be sent several times, or never).
+///
+/// # Examples
+/// ```
+/// use com_fec::puncture::BitSelection;
+/// // a word of 4 bits, bit 3 dropped, bit 0 repeated
+/// let sel = BitSelection::new(vec![0, 1, 2, 0], 4)?;
+/// assert_eq!(sel.select(&[1u8, 0, 1, 1])?, [1, 0, 1, 1]);
+/// let mut full = [0.0; 4];
+/// sel.accumulate_into(&[2.0, -1.0, 0.5, 3.0], &mut full)?;
+/// assert_eq!(full, [5.0, -1.0, 0.5, 0.0]);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitSelection {
+    positions: Vec<usize>,
+    full_len: usize,
+}
+
+impl BitSelection {
+    /// The selection of the bits `positions` of a word of `full_len` bits.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a position beyond the word.
+    pub fn new(positions: Vec<usize>, full_len: usize) -> Result<BitSelection> {
+        ensure(positions.iter().all(|&p| p < full_len), || {
+            format!("a selected bit lies beyond the word of {full_len} bits")
+        })?;
+        Ok(BitSelection { positions, full_len })
+    }
+
+    /// The number of transmitted bits.
+    pub fn len(&self) -> usize {
+        self.positions.len()
+    }
+
+    /// Whether nothing is transmitted.
+    pub fn is_empty(&self) -> bool {
+        self.positions.is_empty()
+    }
+
+    /// The length of the word.
+    pub fn full_len(&self) -> usize {
+        self.full_len
+    }
+
+    /// The bit of the word carried by every transmitted bit.
+    pub fn positions(&self) -> &[usize] {
+        &self.positions
+    }
+
+    /// The transmitted bits of a word.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `word` does not have [`BitSelection::full_len`] values.
+    pub fn select<T: Copy>(&self, word: &[T]) -> Result<Vec<T>> {
+        expect_len(word.len(), self.full_len, "bits of the word")?;
+        Ok(self.positions.iter().map(|&p| word[p]).collect())
+    }
+
+    /// The LLRs of the bits of the word from the LLRs of the transmitted bits into
+    /// `out`: the sum over the copies of every bit, zero for a bit never sent.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `llr` does not have [`BitSelection::len`] values or
+    /// `out` [`BitSelection::full_len`].
+    pub fn accumulate_into(&self, llr: &[f64], out: &mut [f64]) -> Result<()> {
+        expect_len(llr.len(), self.positions.len(), "LLRs")?;
+        expect_len(out.len(), self.full_len, "LLRs of the word")?;
+        out.fill(0.0);
+        for (&p, &l) in self.positions.iter().zip(llr) {
+            out[p] += l;
+        }
+        Ok(())
+    }
+
+    /// [`BitSelection::accumulate_into`] into a new vector.
+    ///
+    /// # Errors
+    /// As [`BitSelection::accumulate_into`].
+    pub fn word_llr(&self, llr: &[f64]) -> Result<Vec<f64>> {
+        let mut out = vec![0.0; self.full_len];
+        self.accumulate_into(llr, &mut out)?;
+        Ok(out)
+    }
+}
 
 /// A periodic puncturing pattern over the $n$ outputs of a code (see the module).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -229,6 +323,17 @@ impl Puncturer {
         Ok((0..n_coded).filter(|&j| self.keep[j % (self.period * self.n_out)]).count())
     }
 
+    /// The transmitted bits of `n_coded` coded bits in step-major order, as a
+    /// [`BitSelection`].
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] if `n_coded` is not a multiple of $n$.
+    pub fn selection(&self, n_coded: usize) -> Result<BitSelection> {
+        self.check_coded(n_coded)?;
+        let cycle = self.period * self.n_out;
+        Ok(BitSelection { positions: (0..n_coded).filter(|&j| self.keep[j % cycle]).collect(), full_len: n_coded })
+    }
+
     fn check_coded(&self, n_coded: usize) -> Result<()> {
         if n_coded % self.n_out == 0 {
             Ok(())
@@ -243,9 +348,7 @@ impl Puncturer {
     /// # Errors
     /// [`com_core::Error::Shape`] if the number of bits is not a multiple of $n$.
     pub fn puncture(&self, bits: &[u8]) -> Result<Vec<u8>> {
-        self.check_coded(bits.len())?;
-        let cycle = self.period * self.n_out;
-        Ok(bits.iter().enumerate().filter(|(j, _)| self.keep[j % cycle]).map(|(_, &b)| b).collect())
+        self.selection(bits.len())?.select(bits)
     }
 
     /// The LLRs of the `n_coded` coded bits from the LLRs of the transmitted ones: a
@@ -255,10 +358,7 @@ impl Puncturer {
     /// [`com_core::Error::Shape`] if `n_coded` is not a multiple of $n$ or `llr` does
     /// not have [`Puncturer::punctured_len`] values.
     pub fn depuncture(&self, llr: &[f64], n_coded: usize) -> Result<Vec<f64>> {
-        com_core::expect_len(llr.len(), self.punctured_len(n_coded)?, "LLRs")?;
-        let cycle = self.period * self.n_out;
-        let mut src = llr.iter();
-        Ok((0..n_coded).map(|j| if self.keep[j % cycle] { src.next().copied().unwrap_or(0.0) } else { 0.0 }).collect())
+        self.selection(n_coded)?.word_llr(llr)
     }
 }
 
@@ -267,9 +367,11 @@ impl Puncturer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Punctured<C> {
     /// The mother code.
-    pub code: C,
+    code: C,
     /// The pattern.
-    pub puncturer: Puncturer,
+    puncturer: Puncturer,
+    /// The transmitted coded bits of a block.
+    selection: BitSelection,
 }
 
 impl<C: BlockCode> Punctured<C> {
@@ -279,8 +381,23 @@ impl<C: BlockCode> Punctured<C> {
     /// [`com_core::Error::Shape`] if the coded length of the mother code is not a
     /// multiple of the outputs of the pattern.
     pub fn new(code: C, puncturer: Puncturer) -> Result<Punctured<C>> {
-        puncturer.check_coded(code.n())?;
-        Ok(Punctured { code, puncturer })
+        let selection = puncturer.selection(code.n())?;
+        Ok(Punctured { code, puncturer, selection })
+    }
+
+    /// The mother code (its settings are those it had when punctured).
+    pub fn code(&self) -> &C {
+        &self.code
+    }
+
+    /// The pattern.
+    pub fn puncturer(&self) -> &Puncturer {
+        &self.puncturer
+    }
+
+    /// The transmitted coded bits of a block.
+    pub fn selection(&self) -> &BitSelection {
+        &self.selection
     }
 }
 
@@ -290,15 +407,22 @@ impl<C: BlockCode> BlockCode for Punctured<C> {
     }
 
     fn n(&self) -> usize {
-        self.puncturer.punctured_len(self.code.n()).unwrap_or(0)
+        self.selection.len()
     }
 
     fn encode_block(&self, info: &[u8]) -> Result<Vec<u8>> {
-        self.puncturer.puncture(&self.code.encode_block(info)?)
+        self.selection.select(&self.code.encode_block(info)?)
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
-        self.code.decode_block(&self.puncturer.depuncture(llr, self.code.n())?)
+        self.code.decode_block(&self.selection.word_llr(llr)?)
+    }
+}
+
+impl<C: SoftDecode> SoftDecode for Punctured<C> {
+    /// The soft output of the mother code, a zero LLR at every punctured position.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        self.code.app_into(&self.selection.word_llr(llr)?, apriori, out)
     }
 }
 
@@ -308,9 +432,12 @@ impl<C: BlockCode> BlockCode for Punctured<C> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PuncturedTurbo {
     /// The mother code.
-    pub code: TurboCode,
+    code: TurboCode,
     /// The pattern (three rows).
-    pub puncturer: Puncturer,
+    puncturer: Puncturer,
+    /// The transmitted bits of the codeword of the mother code (systematic, parity 1,
+    /// parity 2, tail).
+    selection: BitSelection,
 }
 
 impl PuncturedTurbo {
@@ -322,24 +449,35 @@ impl PuncturedTurbo {
         ensure(puncturer.n_out() == 3, || {
             format!("puncturing a turbo code needs a pattern of 3 rows, got {}", puncturer.n_out())
         })?;
-        Ok(PuncturedTurbo { code, puncturer })
+        let k = code.k();
+        // the pattern runs over the steps (systematic, parity 1, parity 2) of every
+        // index: step-major bit j is bit (j mod 3) k + j / 3 of the three streams
+        let mut positions: Vec<usize> =
+            puncturer.selection(3 * k)?.positions().iter().map(|&j| (j % 3) * k + j / 3).collect();
+        positions.extend(3 * k..code.n());
+        let selection = BitSelection { positions, full_len: code.n() };
+        Ok(PuncturedTurbo { code, puncturer, selection })
     }
 
-    /// The number of tail bits of the codeword.
-    fn tail(&self) -> usize {
-        self.code.n() - 3 * self.code.k()
+    /// The mother code.
+    pub fn code(&self) -> &TurboCode {
+        &self.code
     }
 
-    /// The streams in step-major order, (systematic, parity 1, parity 2) per index.
-    fn streams_to_steps<T: Copy>(&self, v: &[T]) -> Vec<T> {
-        let k = self.code.k();
-        (0..k).flat_map(|i| [v[i], v[k + i], v[2 * k + i]]).collect()
+    /// The pattern.
+    pub fn puncturer(&self) -> &Puncturer {
+        &self.puncturer
     }
 
-    /// Back from step-major order to the three streams.
-    fn steps_to_streams<T: Copy>(&self, v: &[T]) -> Vec<T> {
-        let k = self.code.k();
-        (0..3).flat_map(|s| (0..k).map(move |i| v[3 * i + s])).collect()
+    /// The settings of the decoder of the mother code, which can change without
+    /// changing the code.
+    pub fn decoder_mut(&mut self) -> &mut TurboDecoder {
+        &mut self.code.decoder
+    }
+
+    /// The transmitted bits of the codeword of the mother code.
+    pub fn selection(&self) -> &BitSelection {
+        &self.selection
     }
 }
 
@@ -349,24 +487,22 @@ impl BlockCode for PuncturedTurbo {
     }
 
     fn n(&self) -> usize {
-        self.puncturer.punctured_len(3 * self.code.k()).unwrap_or(0) + self.tail()
+        self.selection.len()
     }
 
     fn encode_block(&self, info: &[u8]) -> Result<Vec<u8>> {
-        let c = self.code.encode_block(info)?;
-        let k = self.code.k();
-        let mut out = self.puncturer.puncture(&self.streams_to_steps(&c[..3 * k]))?;
-        out.extend_from_slice(&c[3 * k..]);
-        Ok(out)
+        self.selection.select(&self.code.encode_block(info)?)
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
-        com_core::expect_len(llr.len(), self.n(), "LLRs")?;
-        let k = self.code.k();
-        let body = self.puncturer.depuncture(&llr[..llr.len() - self.tail()], 3 * k)?;
-        let mut full = self.steps_to_streams(&body);
-        full.extend_from_slice(&llr[llr.len() - self.tail()..]);
-        self.code.decode_block(&full)
+        self.code.decode_block(&self.selection.word_llr(llr)?)
+    }
+}
+
+impl SoftDecode for PuncturedTurbo {
+    /// The soft output of the turbo code, a zero LLR at every punctured position.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        self.code.app_into(&self.selection.word_llr(llr)?, apriori, out)
     }
 }
 
@@ -471,6 +607,68 @@ mod tests {
         assert_eq!(p.punctured_len(8).unwrap(), 6);
     }
 
+    /// The streams of a turbo codeword in step-major order, (systematic, parity 1,
+    /// parity 2) per index, as `PuncturedTurbo` wrote them before its selection.
+    fn former_streams_to_steps<T: Copy>(k: usize, v: &[T]) -> Vec<T> {
+        (0..k).flat_map(|i| [v[i], v[k + i], v[2 * k + i]]).collect()
+    }
+
+    /// The depuncturing written position by position before the selections.
+    fn former_depuncture(p: &Puncturer, llr: &[f64], n_coded: usize) -> Vec<f64> {
+        let cycle = p.period * p.n_out;
+        let mut src = llr.iter();
+        (0..n_coded).map(|j| if p.keep[j % cycle] { src.next().copied().unwrap_or(0.0) } else { 0.0 }).collect()
+    }
+
+    #[test]
+    fn the_selections_give_the_former_punctured_words_and_llrs() {
+        let mut rng = Rng::new(12);
+        for p in [Puncturer::ieee80211_3_4(), Puncturer::dvbs_7_8(), Puncturer::turbo_1_2()] {
+            for n_coded in [0, p.n_out(), 7 * p.n_out(), 120] {
+                if n_coded % p.n_out() != 0 {
+                    continue;
+                }
+                let bits: Vec<u8> = (0..n_coded).map(|_| rng.bit()).collect();
+                let cycle = p.period * p.n_out;
+                let former: Vec<u8> =
+                    bits.iter().enumerate().filter(|(j, _)| p.keep[j % cycle]).map(|(_, &b)| b).collect();
+                assert_eq!(p.puncture(&bits).unwrap(), former);
+                let llr: Vec<f64> = (0..former.len()).map(|_| rng.gaussian()).collect();
+                let (new, old) = (p.depuncture(&llr, n_coded).unwrap(), former_depuncture(&p, &llr, n_coded));
+                assert!(new.len() == old.len() && new.iter().zip(&old).all(|(a, b)| a.to_bits() == b.to_bits()));
+            }
+        }
+        // the punctured turbo code: the former decoder input, the streams of the
+        // depunctured body and the tail
+        let turbo = PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::turbo_1_2()).unwrap();
+        let llr: Vec<f64> = (0..turbo.n()).map(|_| rng.gaussian()).collect();
+        let body = former_depuncture(&Puncturer::turbo_1_2(), &llr[..80], 120);
+        let mut former: Vec<f64> =
+            (0..3).flat_map(|s| (0..40).map(move |i| (s, i))).map(|(s, i)| body[3 * i + s]).collect();
+        former.extend_from_slice(&llr[80..]);
+        let new = turbo.selection().word_llr(&llr).unwrap();
+        assert!(new.iter().zip(&former).all(|(a, b)| a.to_bits() == b.to_bits()));
+        assert!(BitSelection::new(vec![0, 4], 4).is_err());
+    }
+
+    #[test]
+    fn the_soft_output_passes_through_the_puncturing() {
+        let mut rng = Rng::new(13);
+        let code = Punctured::new(ConvolutionalCode::k7(50).unwrap(), Puncturer::ieee80211_2_3()).unwrap();
+        let llr: Vec<f64> = (0..code.n()).map(|_| rng.gaussian()).collect();
+        let app = code.app(&llr, None).unwrap();
+        let mother = code.code().app(&code.puncturer().depuncture(&llr, code.code().n()).unwrap(), None).unwrap();
+        assert!(app.iter().zip(&mother).all(|(a, b)| a.to_bits() == b.to_bits()));
+        let mut turbo = PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::turbo_1_2()).unwrap();
+        turbo.decoder_mut().iterations = 3;
+        let llr: Vec<f64> = (0..turbo.n()).map(|_| rng.gaussian()).collect();
+        assert_eq!(turbo.code().decoder.iterations, 3);
+        assert_eq!(
+            com_core::signal::hard_decisions(&turbo.app(&llr, None).unwrap()),
+            turbo.decode_block(&llr).unwrap()
+        );
+    }
+
     #[test]
     fn punctured_codes_decode_without_error_at_high_snr() {
         let mut rng = Rng::new(7);
@@ -483,16 +681,17 @@ mod tests {
             Puncturer::dvbs_5_6(),
             Puncturer::dvbs_7_8(),
         ] {
-            let code = Punctured::new(ConvolutionalCode::k7(300), puncturer).unwrap();
+            let code = Punctured::new(ConvolutionalCode::k7(300).unwrap(), puncturer).unwrap();
             let info: Vec<u8> = (0..300).map(|_| rng.bit()).collect();
             let c = code.encode_block(&info).unwrap();
             assert_eq!(c.len(), code.n());
             // Eb/N0 = 10 dB
             let y = awgn_llr(&c, bpsk_noise_variance(10.0, code.code_rate()), &mut rng);
-            assert_eq!(code.decode_block(&y).unwrap(), info, "{:?}", code.puncturer);
+            assert_eq!(code.decode_block(&y).unwrap(), info, "{:?}", code.puncturer());
             // the hard-decision decoder also treats the dummy bits as zero metrics
-            let mut hard_code = code.clone();
-            hard_code.code.hard_decision = true;
+            let mut hard = code.code().clone();
+            hard.hard_decision = true;
+            let hard_code = Punctured::new(hard, code.puncturer().clone()).unwrap();
             assert_eq!(hard_code.decode_block(&y).unwrap(), info);
         }
         let turbo = PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::turbo_1_2()).unwrap();
@@ -500,16 +699,17 @@ mod tests {
         assert!((turbo.code_rate() - 40.0 / 92.0).abs() < 1e-12);
         let info: Vec<u8> = (0..40).map(|_| rng.bit()).collect();
         let c = turbo.encode_block(&info).unwrap();
+        let mother = turbo.code().encode_block(&info).unwrap();
         assert_eq!(
             &c[..80],
-            &turbo
-                .streams_to_steps(&turbo.code.encode_block(&info).unwrap()[..120])
+            &former_streams_to_steps(40, &mother[..120])
                 .iter()
                 .enumerate()
                 .filter(|(j, _)| Puncturer::turbo_1_2().keep[j % 6])
                 .map(|(_, &b)| b)
                 .collect::<Vec<u8>>()[..]
         );
+        assert_eq!(c[80..], mother[120..]);
         let y = awgn_llr(&c, bpsk_noise_variance(6.0, turbo.code_rate()), &mut rng);
         assert_eq!(turbo.decode_block(&y).unwrap(), info);
         assert!(PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::ieee80211_2_3()).is_err());
@@ -522,8 +722,8 @@ mod tests {
         // about 5e-4
         let ebn0 = 4.0;
         let (k, blocks) = (2000, 25);
-        let half = ConvolutionalCode::k7(k);
-        let three_quarters = Punctured::new(ConvolutionalCode::k7(k), Puncturer::ieee80211_3_4()).unwrap();
+        let half = ConvolutionalCode::k7(k).unwrap();
+        let three_quarters = Punctured::new(ConvolutionalCode::k7(k).unwrap(), Puncturer::ieee80211_3_4()).unwrap();
         let mut rng = Rng::new(34);
         let (mut e_half, mut e_34, mut e_uncoded) = (0usize, 0usize, 0usize);
         for _ in 0..blocks {

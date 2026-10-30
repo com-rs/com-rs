@@ -29,7 +29,8 @@ use crate::posterior::SymbolMetric;
 use crate::{preprocess, variance};
 use com_core::{Result, ensure, same_len};
 use com_mapping::constellation::{Constellation, log_priors};
-use com_math::{C64, entropy, golden_max};
+use com_mapping::demapper::LabelHalves;
+use com_math::{C64, entropy, golden_max, ln_1p_exp};
 
 /// The priors of the points of `c` (uniform if `px` is `None`), checked and normalised
 /// to a sum of 1, and the constellation scaled to unit energy under them.
@@ -56,6 +57,16 @@ fn gmi_from_llr(llr: &[f64], bits: &[u8], b: usize, h: f64) -> f64 {
     gmi
 }
 
+/// The generalized mutual information of [`monte_carlo_gmi`] and its value per bit of
+/// information.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gmi {
+    /// Generalized mutual information (bits/symbol).
+    pub gmi: f64,
+    /// $\mathrm{GMI}/H(X)$.
+    pub ngmi: f64,
+}
+
 /// Generalized mutual information (bits/symbol) and its normalised value $\mathrm{GMI}/H$
 /// (OptiCommPy `monteCarloGMI`, Gray labels): with the prior probabilities `px` of the
 /// points (uniform if `None`, probabilistic shaping otherwise), the constellation is
@@ -65,7 +76,7 @@ fn gmi_from_llr(llr: &[f64], bits: &[u8], b: usize, h: f64) -> f64 {
 /// # Errors
 /// As [`fast_ber_calc`](crate::fast_ber_calc); [`com_core::Error::Shape`] or [`com_core::Error::Config`] for priors that are not
 /// one non-negative value per point.
-pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f64]>) -> Result<(f64, f64)> {
+pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f64]>) -> Result<Gmi> {
     let (r, t) = preprocess(rx, tx, c.kind())?;
     let e: Vec<C64> = r.iter().zip(&t).map(|(a, b)| a - b).collect();
     // floored so that a noiseless input gives log2 M instead of 0/0
@@ -79,7 +90,7 @@ pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f
     let btx = cn.demodulate(&t);
     let llr = cn.llr(&r, sigma2, Some(&p), false)?;
     let gmi = gmi_from_llr(&llr, &btx, b, h);
-    Ok((gmi, gmi / h))
+    Ok(Gmi { gmi, ngmi: gmi / h })
 }
 
 /// Achievable information rates of a received sequence, see [`information_rates`].
@@ -211,9 +222,10 @@ fn maximise_scale(f: impl Fn(f64) -> f64) -> (f64, f64) {
 ///
 /// The receiver delivers `z` and a noise variance $\hat\sigma^{2}$ it believes in (a
 /// learned receiver estimates it with its parameters); its posterior is
-/// $q(x \mid z) \propto p(x) e^{-|z - x|^{2}/\hat\sigma^{2}}$ on the unit-energy
-/// constellation, without any gain correction, with the priors `px` of the points
-/// (uniform if `None`). The rate of a decoder that uses $q$ is (mismatched decoding)
+/// $q(x \mid z) \propto p(x) e^{-|z - x|^{2}/\hat\sigma^{2}}$ on the constellation of
+/// unit energy under the priors `px` of the points (uniform if `None`), the scale of
+/// [`information_rates`] and [`monte_carlo_gmi`], without any gain correction. The rate
+/// of a decoder that uses $q$ is (mismatched decoding)
 ///
 /// $$
 /// \mathrm{AIR} = H(X) - E\left[-\log_{2} q(x \mid z)\right],
@@ -272,12 +284,11 @@ pub fn posterior_rates(
     ensure(noise_var > 0.0 && noise_var.is_finite(), || {
         format!("the receiver's noise variance must be positive, got {noise_var}")
     })?;
-    let cn = c.normalized();
+    let (cn, p) = shaped(c, px)?;
     let m = cn.order();
     ensure(indices.iter().all(|&i| i < m), || format!("an index is outside the {m} points"))?;
     let b = cn.bits_per_symbol();
     let n = z.len() as f64;
-    let (_, p) = shaped(c, px)?;
     let lp = log_priors(&p);
     let h = entropy(&p);
     // the distances |z_k - x_j|² / σ̂² of a symbol, recomputed at every scale rather
@@ -295,20 +306,18 @@ pub fn posterior_rates(
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
     let bmd_at = |s: f64| -> f64 {
         let mut acc = 0.0;
-        // log Σ_{j: bit of j = val} e^{-s d_j}
-        let lse = |row: &[f64], bit: usize, val: usize| -> f64 {
-            let has = |j: &usize| (j >> (b - 1 - bit)) & 1 == val;
-            com_math::log_sum_exp_iter((0..m).filter(has).map(|j| lp[j] - s * row[j]))
-        };
-        let mut row = vec![0.0; m];
+        let (mut row, mut metric) = (vec![0.0; m], vec![0.0; m]);
         for (k, &zk) in z.iter().enumerate() {
             distances(zk, &mut row);
+            for (l, (r, p)) in metric.iter_mut().zip(row.iter().zip(&lp)) {
+                *l = p - s * r;
+            }
             for bit in 0..b {
                 let own = bits[k * b + bit] as usize;
-                // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own})
-                let l_own = lse(&row, bit, own);
-                let l_other = lse(&row, bit, 1 - own);
-                acc += ln_1p_exp(l_other - l_own);
+                // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own}), L the log-sums
+                // of the halves of the labels (the kernel of the demapper)
+                let halves = LabelHalves::new(&metric, b - 1 - bit, false);
+                acc += ln_1p_exp(halves.log_sum(1 - own) - halves.log_sum(own));
             }
         }
         h - acc / n / std::f64::consts::LN_2
@@ -320,12 +329,6 @@ pub fn posterior_rates(
     let mse = z.iter().zip(indices).map(|(zk, &i)| (zk - cn.points()[i]).norm_sqr()).sum::<f64>() / n;
     let calibration = noise_var / mse.max(f64::MIN_POSITIVE);
     Ok(PosteriorRates { air, air_bmd, air_opt, air_bmd_opt, scale, scale_bmd, calibration })
-}
-
-/// $\ln(1 + e^{x})$ without overflow (kept apart from `com_math::ln_1p_exp`, whose
-/// rounding differs, so that the published rates do not change).
-fn ln_1p_exp(x: f64) -> f64 {
-    if x > 30.0 { x + (-x).exp().ln_1p() } else { x.exp().ln_1p() }
 }
 
 /// Symbol-wise mutual information (bits/symbol) of a Gaussian channel of the measured
@@ -356,4 +359,103 @@ pub fn monte_carlo_mi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f6
         h_xgy -= (log_pxy - log_py) / std::f64::consts::LN_2;
     }
     Ok(entropy(&p) - h_xgy / r.len() as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use com_core::rng::Rng;
+    use com_math::{db2lin, power};
+
+    /// The softplus that the rates used before `com_math::ln_1p_exp`.
+    fn former_ln_1p_exp(x: f64) -> f64 {
+        if x > 30.0 { x + (-x).exp().ln_1p() } else { x.exp().ln_1p() }
+    }
+
+    /// [`gmi_from_llr`] with the former softplus.
+    fn former_gmi_from_llr(llr: &[f64], bits: &[u8], b: usize, h: f64) -> f64 {
+        let mut gmi = 0.0;
+        for k in 0..b {
+            let (mut acc, mut n) = (0.0, 0usize);
+            for i in (k..llr.len()).step_by(b) {
+                let l = llr[i].clamp(-500.0, 500.0);
+                acc += former_ln_1p_exp((2.0 * f64::from(bits[i]) - 1.0) * l) / std::f64::consts::LN_2;
+                n += 1;
+            }
+            gmi += h / b as f64 - acc / n as f64;
+        }
+        gmi
+    }
+
+    /// The bit-metric rate of [`posterior_rates`] at the scale 1 as written before the
+    /// shared kernel: `log_sum_exp_iter` over the halves, the former softplus and the
+    /// scale of `c.normalized()`.
+    fn former_air_bmd(z: &[C64], idx: &[usize], c: &Constellation, nv: f64, px: Option<&[f64]>) -> f64 {
+        let cn = c.normalized();
+        let (m, b) = (cn.order(), cn.bits_per_symbol());
+        let (_, p) = shaped(c, px).unwrap();
+        let lp = log_priors(&p);
+        let bits = com_mapping::constellation::indices_to_bits(idx, b);
+        let mut acc = 0.0;
+        let mut row = vec![0.0; m];
+        for (k, &zk) in z.iter().enumerate() {
+            for (r, x) in row.iter_mut().zip(cn.points()) {
+                *r = (zk - x).norm_sqr() / nv;
+            }
+            for bit in 0..b {
+                let own = bits[k * b + bit] as usize;
+                let lse = |val: usize| {
+                    let has = |j: &usize| (j >> (b - 1 - bit)) & 1 == val;
+                    com_math::log_sum_exp_iter((0..m).filter(has).map(|j| lp[j] - row[j]))
+                };
+                acc += former_ln_1p_exp(lse(1 - own) - lse(own));
+            }
+        }
+        entropy(&p) - acc / z.len() as f64 / std::f64::consts::LN_2
+    }
+
+    fn link(
+        c: &Constellation,
+        n: usize,
+        snr_db: f64,
+        px: Option<&[f64]>,
+        seed: u64,
+    ) -> (Vec<usize>, Vec<C64>, Vec<C64>) {
+        let mut rng = Rng::new(seed);
+        let (idx, x) = com_mapping::source::symbols(c, n, px, &mut rng).unwrap();
+        let w = rng.complex_noise(x.len(), power(&x) / db2lin(snr_db));
+        let y = x.iter().zip(&w).map(|(a, b)| a + b).collect();
+        (idx, x, y)
+    }
+
+    #[test]
+    fn the_shared_softplus_moves_the_gmi_by_rounding_only() {
+        let c = Constellation::qam(16).unwrap().normalized();
+        for snr in [0.0, 10.0, 20.0] {
+            let (idx, x, y) = link(&c, 20_000, snr, None, 5);
+            let g = monte_carlo_gmi(&y, &x, &c, None).unwrap();
+            // the former estimate, from the same LLRs
+            let (r, t) = preprocess(&y, &x, c.kind()).unwrap();
+            let e: Vec<C64> = r.iter().zip(&t).map(|(a, b)| a - b).collect();
+            let sigma2 = variance(&e).max(f64::MIN_POSITIVE);
+            let (cn, p) = shaped(&c, None).unwrap();
+            let llr = cn.llr(&r, sigma2, Some(&p), false).unwrap();
+            let former = former_gmi_from_llr(&llr, &cn.demodulate(&t), 4, entropy(&p));
+            assert!((g.gmi - former).abs() < 1e-12, "{snr} dB: {former} -> {}", g.gmi);
+            let rates = information_rates(&y, &idx, &c, None).unwrap();
+            assert!(rates.gmi > 0.0 && rates.gmi <= 4.0 + 1e-12);
+        }
+    }
+
+    #[test]
+    fn the_bit_metric_rate_of_the_kernel_is_the_former_one() {
+        let c = Constellation::qam(16).unwrap().normalized();
+        for snr in [3.0, 12.0] {
+            let (idx, _, y) = link(&c, 5_000, snr, None, 6);
+            let nv = 10f64.powf(-snr / 10.0);
+            let r = posterior_rates(&y, &idx, &c, nv, None).unwrap();
+            let former = former_air_bmd(&y, &idx, &c, nv, None);
+            assert!((r.air_bmd - former).abs() < 1e-12, "{snr} dB: {former} -> {}", r.air_bmd);
+        }
+    }
 }

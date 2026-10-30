@@ -20,11 +20,13 @@ block_len
 bussgang
 check
 coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
+code
 conditions
 config
 constellation
 dbp
 decode
+decoder_mut
 delays
 demodulate
 demodulate_with
@@ -50,6 +52,7 @@ info_positions
 json_schema
 k
 linear
+list
 llr
 load
 m
@@ -61,6 +64,7 @@ mul
 n
 n_clusters
 n_fft
+n_out
 n_rx
 n_samples
 n_states
@@ -97,6 +101,7 @@ subcarrier
 symbols
 t
 taps
+trellis
 trial
 uniform
 value

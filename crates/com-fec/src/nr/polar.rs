@@ -39,7 +39,7 @@
 //! ```
 //! use com_fec::block::BlockCode;
 //! use com_fec::nr::NrPolar;
-//! let code = NrPolar::uplink(30, 100)?.with_list(8);      // A = 30 bits, E = 100
+//! let code = NrPolar::uplink(30, 100)?.with_list(8)?;     // A = 30 bits, E = 100
 //! assert_eq!(code.mother_length(), 128);
 //! let info: Vec<u8> = (0..30).map(|i| (i % 4 == 1) as u8).collect();
 //! let c = code.encode_block(&info)?;
@@ -59,10 +59,9 @@ use super::tables::{POLAR_INTERLEAVER, POLAR_SEQUENCE, SUBBLOCK_PATTERN};
 use crate::block::{BlockCode, container_traits, expect_len};
 use crate::crc::Crc;
 use crate::polar::PolarCode;
+use crate::puncture::BitSelection;
+use com_core::signal::KNOWN_BIT_LLR;
 use com_core::{Error, Result, ensure};
-
-/// The LLR of a shortened bit (known to be 0).
-const KNOWN: f64 = 30.0;
 
 /// The polar code of 5G NR for one code block (see the module).
 #[derive(Clone, Debug)]
@@ -74,16 +73,129 @@ pub struct NrPolar {
     /// without input interleaving).
     il: Vec<usize>,
     /// The bit of the mother codeword carried by every output bit.
-    map: Vec<usize>,
+    map: BitSelection,
     /// The mother codeword bits that shortening sets to zero.
     shortened: Vec<usize>,
     /// The mother code, its positions and its list size.
-    pub code: PolarCode,
+    code: PolarCode,
+}
+
+/// The options of a link direction (Sec. 6.3.1 and 7.3): the parity-check bits, the
+/// interleavers and the largest mother code.
+struct Direction {
+    /// Parity-check bits $n_{\mathrm{PC}}$, and $n_{\mathrm{PC}}^{\mathrm{wm}}$ of them
+    /// of minimum row weight (0 or 1).
+    n_pc: usize,
+    n_pc_wm: usize,
+    /// The input interleaver $I_{\mathrm{IL}}$ (downlink) and the triangular interleaver
+    /// $I_{\mathrm{BIL}}$ (uplink).
+    i_il: bool,
+    i_bil: bool,
+    /// $n_{\max}$.
+    n_max: u32,
 }
 
 /// $\lceil \log_{2} x \rceil$.
 fn ceil_log2(x: usize) -> u32 {
     x.next_power_of_two().trailing_zeros()
+}
+
+/// The mother code length $N = 2^{n}$ of Sec. 5.3.1 for $K$ bits sent on $E$.
+fn mother_length(k: usize, e: usize, n_max: u32) -> usize {
+    let ce = ceil_log2(e);
+    let n1 = if ce >= 1 && 8 * e <= 9 * (1 << (ce - 1)) && 16 * k < 9 * e { ce - 1 } else { ce };
+    let n2 = ceil_log2(8 * k);
+    1usize << n1.min(n2).min(n_max).max(5)
+}
+
+/// The rate matching of Sec. 5.4.1.1 on the sub-block interleaver `j`: whether the code
+/// punctures, the frozen positions it implies, and the positions it shortens.
+fn rate_matching_frozen(j: &[usize], k: usize, e: usize) -> (bool, Vec<bool>, Vec<usize>) {
+    let n = j.len();
+    let mut frozen = vec![false; n];
+    let puncturing = e < n && 16 * k <= 7 * e;
+    let mut shortened = Vec::new();
+    if e < n {
+        if puncturing {
+            for &p in &j[..n - e] {
+                frozen[p] = true;
+            }
+            let t = if 4 * e >= 3 * n {
+                // ceil(3N/4 - E/2)
+                (6 * n - 4 * e).div_ceil(8)
+            } else {
+                // ceil(9N/16 - E/4)
+                (9 * n - 4 * e).div_ceil(16)
+            };
+            for f in frozen.iter_mut().take(t) {
+                *f = true;
+            }
+        } else {
+            for &p in &j[e..] {
+                frozen[p] = true;
+                shortened.push(p);
+            }
+        }
+    }
+    (puncturing, frozen, shortened)
+}
+
+/// The information and parity-check positions (Sec. 5.3.1.2): the $K + n_{\mathrm{PC}}$
+/// most reliable positions not frozen, in the order of the polar sequence; the
+/// parity checks on the least reliable of them, and one of minimum row weight among the
+/// $K$ most reliable.
+fn info_and_pc(frozen: &[bool], k: usize, d: &Direction) -> Result<(Vec<usize>, Vec<usize>)> {
+    let n = frozen.len();
+    let reliable: Vec<usize> = POLAR_SEQUENCE.iter().map(|&q| q as usize).filter(|&q| q < n && !frozen[q]).collect();
+    let used: Vec<usize> = reliable[reliable.len() - (k + d.n_pc)..].to_vec();
+    let mut pc = Vec::new();
+    if d.n_pc > 0 {
+        // n_PC - n_PC^wm parity checks on the least reliable positions of Q_I
+        pc.extend_from_slice(&used[..d.n_pc - d.n_pc_wm]);
+        if d.n_pc_wm > 0 {
+            // and one of minimum row weight 2^popcount among the K most reliable,
+            // the most reliable on ties
+            let best = used[d.n_pc..]
+                .iter()
+                .enumerate()
+                .min_by_key(|&(r, &p)| (p.count_ones(), std::cmp::Reverse(r)))
+                .map(|(_, &p)| p)
+                .ok_or_else(|| com_core::Error::Config("no position for the parity check".into()))?;
+            pc.push(best);
+        }
+    }
+    let info: Vec<usize> = used.iter().copied().filter(|p| !pc.contains(p)).collect();
+    Ok((info, pc))
+}
+
+/// The triangular interleaver of Sec. 5.4.1.3: `bits` written row by row into rows of
+/// $T, T - 1, \dots$ cells, $T(T+1)/2 \ge E$, and read column by column.
+fn triangular<T: Copy>(bits: &[T]) -> Vec<T> {
+    let e = bits.len();
+    let mut t = 0;
+    while t * (t + 1) / 2 < e {
+        t += 1;
+    }
+    // row i holds T - i cells, written row by row
+    let mut cell = vec![vec![None; t]; t];
+    let mut idx = 0;
+    for (i, row) in cell.iter_mut().enumerate() {
+        for c in row.iter_mut().take(t - i) {
+            if idx < e {
+                *c = Some(bits[idx]);
+            }
+            idx += 1;
+        }
+    }
+    let mut out = Vec::with_capacity(e);
+    for col in 0..t {
+        for row in cell.iter().take(t - col) {
+            if let Some(v) = row[col] {
+                out.push(v);
+            }
+        }
+    }
+    out
 }
 
 impl NrPolar {
@@ -113,7 +225,7 @@ impl NrPolar {
         let (crc, n_pc) = if a <= 19 { (Crc::crc6(), 3) } else { (Crc::crc11(), 0) };
         let k = a + crc.width() as usize;
         let n_pc_wm = usize::from(n_pc > 0 && e + n_pc > k + 192);
-        NrPolar::build(a, e, crc, n_pc, n_pc_wm, false, true, 10)
+        NrPolar::build(a, e, crc, &Direction { n_pc, n_pc_wm, i_il: false, i_bil: true, n_max: 10 })
     }
 
     /// The code of the downlink control information and of the broadcast channel: `a`
@@ -124,81 +236,22 @@ impl NrPolar {
     /// of Table 5.3.1.1-1), or $E$ too small for the code.
     pub fn downlink(a: usize, e: usize) -> Result<NrPolar> {
         ensure(a >= 1 && a + 24 <= 164, || format!("the downlink polar code takes 1 ≤ A ≤ 140 bits, got {a}"))?;
-        NrPolar::build(a, e, Crc::crc24c(), 0, 0, true, false, 9)
+        NrPolar::build(a, e, Crc::crc24c(), &Direction { n_pc: 0, n_pc_wm: 0, i_il: true, i_bil: false, n_max: 9 })
     }
 
-    #[allow(clippy::too_many_arguments, reason = "the parameters of Sec. 5.3.1 and 5.4.1")]
-    fn build(
-        a: usize,
-        e: usize,
-        crc: Crc,
-        n_pc: usize,
-        n_pc_wm: usize,
-        i_il: bool,
-        i_bil: bool,
-        n_max: u32,
-    ) -> Result<NrPolar> {
+    fn build(a: usize, e: usize, crc: Crc, d: &Direction) -> Result<NrPolar> {
         let k = a + crc.width() as usize;
         ensure(e >= 1, || "E must be positive".to_string())?;
-        let ce = ceil_log2(e);
-        let n1 = if ce >= 1 && 8 * e <= 9 * (1 << (ce - 1)) && 16 * k < 9 * e { ce - 1 } else { ce };
-        let n2 = ceil_log2(8 * k);
-        let n_exp = n1.min(n2).min(n_max).max(5);
-        let n = 1usize << n_exp;
-        ensure(k + n_pc <= e && k + n_pc <= n, || format!("K + n_PC = {} exceeds E = {e} or N = {n}", k + n_pc))?;
+        let n = mother_length(k, e, d.n_max);
+        ensure(k + d.n_pc <= e && k + d.n_pc <= n, || format!("K + n_PC = {} exceeds E = {e} or N = {n}", k + d.n_pc))?;
         // the sub-block interleaver J(n)
         let b = n / 32;
         let j: Vec<usize> = (0..n).map(|m| SUBBLOCK_PATTERN[32 * m / n] as usize * b + m % b).collect();
-        // the frozen positions of rate matching, Sec. 5.4.1.1
-        let mut frozen = vec![false; n];
-        let puncturing = e < n && 16 * k <= 7 * e;
-        let mut shortened = Vec::new();
-        if e < n {
-            if puncturing {
-                for &p in &j[..n - e] {
-                    frozen[p] = true;
-                }
-                let t = if 4 * e >= 3 * n {
-                    // ceil(3N/4 - E/2)
-                    (6 * n - 4 * e).div_ceil(8)
-                } else {
-                    // ceil(9N/16 - E/4)
-                    (9 * n - 4 * e).div_ceil(16)
-                };
-                for f in frozen.iter_mut().take(t) {
-                    *f = true;
-                }
-            } else {
-                for &p in &j[e..] {
-                    frozen[p] = true;
-                    shortened.push(p);
-                }
-            }
-        }
-        // the K + n_PC most reliable of the others, in the order of the polar sequence
-        let reliable: Vec<usize> =
-            POLAR_SEQUENCE.iter().map(|&q| q as usize).filter(|&q| q < n && !frozen[q]).collect();
-        let used: Vec<usize> = reliable[reliable.len() - (k + n_pc)..].to_vec();
-        let mut pc = Vec::new();
-        if n_pc > 0 {
-            // n_PC - n_PC^wm parity checks on the least reliable positions of Q_I
-            pc.extend_from_slice(&used[..n_pc - n_pc_wm]);
-            if n_pc_wm > 0 {
-                // and one of minimum row weight 2^popcount among the K most reliable,
-                // the most reliable on ties
-                let best = used[n_pc..]
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|&(r, &p)| (p.count_ones(), std::cmp::Reverse(r)))
-                    .map(|(_, &p)| p)
-                    .ok_or_else(|| com_core::Error::Config("no position for the parity check".into()))?;
-                pc.push(best);
-            }
-        }
-        let info: Vec<usize> = used.iter().copied().filter(|p| !pc.contains(p)).collect();
+        let (puncturing, frozen, shortened) = rate_matching_frozen(&j, k, e);
+        let (info, pc) = info_and_pc(&frozen, k, d)?;
         let code = PolarCode::with_positions(n, &info, &pc)?;
         // the input interleaver of Sec. 5.3.1.1
-        let il: Vec<usize> = if i_il {
+        let il: Vec<usize> = if d.i_il {
             POLAR_INTERLEAVER.iter().map(|&m| m as usize).filter(|&m| m >= 164 - k).map(|m| m - (164 - k)).collect()
         } else {
             (0..k).collect()
@@ -216,42 +269,22 @@ impl NrPolar {
             })
             .map(|y| j[y])
             .collect();
-        let map = if i_bil {
-            let mut t = 0;
-            while t * (t + 1) / 2 < e {
-                t += 1;
-            }
-            // row i holds T - i cells, written row by row
-            let mut cell = vec![vec![None; t]; t];
-            let mut idx = 0;
-            for (i, row) in cell.iter_mut().enumerate() {
-                for c in row.iter_mut().take(t - i) {
-                    if idx < e {
-                        *c = Some(sel[idx]);
-                    }
-                    idx += 1;
-                }
-            }
-            let mut out = Vec::with_capacity(e);
-            for col in 0..t {
-                for row in cell.iter().take(t - col) {
-                    if let Some(v) = row[col] {
-                        out.push(v);
-                    }
-                }
-            }
-            out
-        } else {
-            sel
-        };
+        let map = BitSelection::new(if d.i_bil { triangular(&sel) } else { sel }, n)?;
         Ok(NrPolar { a, e, crc, il, map, shortened, code })
     }
 
     /// The same code decoded by SC list with `list` paths.
-    #[must_use]
-    pub fn with_list(mut self, list: usize) -> NrPolar {
-        self.code = self.code.with_list(list);
-        self
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for `list = 0`.
+    pub fn with_list(mut self, list: usize) -> Result<NrPolar> {
+        self.code = self.code.with_list(list)?;
+        Ok(self)
+    }
+
+    /// The list size $L$ of the decoder.
+    pub fn list(&self) -> usize {
+        self.code.list()
     }
 
     /// The mother code length $N$.
@@ -259,9 +292,14 @@ impl NrPolar {
         self.code.n()
     }
 
+    /// The mother code, its positions and its list size.
+    pub fn code(&self) -> &PolarCode {
+        &self.code
+    }
+
     /// The bit of the mother codeword carried by every output bit.
     pub fn bit_map(&self) -> &[usize] {
-        &self.map
+        self.map.positions()
     }
 }
 
@@ -278,18 +316,14 @@ impl BlockCode for NrPolar {
         expect_len(info.len(), self.a, "bits")?;
         let c = self.crc.attach(info);
         let interleaved: Vec<u8> = self.il.iter().map(|&p| c[p]).collect();
-        let d = self.code.encode_block(&interleaved)?;
-        Ok(self.map.iter().map(|&i| d[i]).collect())
+        self.map.select(&self.code.encode_block(&interleaved)?)
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
         expect_len(llr.len(), self.e, "LLRs")?;
-        let mut d = vec![0.0; self.code.n()];
-        for (&i, &l) in self.map.iter().zip(llr) {
-            d[i] += l;
-        }
+        let mut d = self.map.word_llr(llr)?;
         for &p in &self.shortened {
-            d[p] = KNOWN;
+            d[p] = KNOWN_BIT_LLR;
         }
         let k = self.il.len();
         let mut first = None;
@@ -342,7 +376,8 @@ mod tests {
         for (a, e, down) in
             [(30, 45, false), (30, 200, false), (40, 600, false), (14, 100, false), (14, 300, false), (39, 108, true)]
         {
-            let code = if down { NrPolar::downlink(a, e) } else { NrPolar::uplink(a, e) }.unwrap().with_list(8);
+            let code =
+                if down { NrPolar::downlink(a, e) } else { NrPolar::uplink(a, e) }.unwrap().with_list(8).unwrap();
             let info: Vec<u8> = (0..a).map(|i| ((i * 5 + a) % 3 == 0) as u8).collect();
             let c = code.encode_block(&info).unwrap();
             assert_eq!(c.len(), e);
@@ -350,5 +385,16 @@ mod tests {
             assert_eq!(code.decode_block(&llr).unwrap(), info, "A {a}, E {e}");
         }
         assert!(NrPolar::uplink(11, 100).is_err() && NrPolar::uplink(400, 2000).is_err());
+        assert!(NrPolar::uplink(30, 100).unwrap().with_list(0).is_err());
+    }
+
+    /// TS 38.212, Sec. 5.4.1.3: for E = 10 (T = 4), the rows 0 1 2 3 / 4 5 6 / 7 8 / 9
+    /// read column by column.
+    #[test]
+    fn the_triangular_interleaver_reads_the_columns() {
+        let e: Vec<usize> = (0..10).collect();
+        assert_eq!(triangular(&e), [0, 4, 7, 9, 1, 5, 8, 2, 6, 3]);
+        // E = 8 leaves the last two cells of T = 4 empty
+        assert_eq!(triangular(&e[..8]), [0, 4, 7, 1, 5, 2, 6, 3]);
     }
 }

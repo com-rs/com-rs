@@ -49,7 +49,7 @@ fn nr_ldpc_within_a_db_of_the_normal_approximation() {
 #[ignore = "statistical validation: run with --ignored"]
 fn nr_polar_within_two_db_of_the_normal_approximation() {
     let mut rng = Rng::new(12);
-    let code = NrPolar::uplink(40, 128).unwrap().with_list(8);
+    let code = NrPolar::uplink(40, 128).unwrap().with_list(8).unwrap();
     let x = na_point(128, 40);
     // measured: 1.1 dB at 1e-2 with a list of 8 and the 11 bits of the CRC
     assert!(bler(&code, x + 0.5, 1000, &mut rng) > 1e-2);

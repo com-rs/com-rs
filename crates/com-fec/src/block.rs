@@ -4,7 +4,9 @@
 //! (positive for a 0, the convention of `com_core::signal`) back to $k$ bits. Its
 //! provided methods encode and decode streams of whole blocks, and every code of the
 //! crate implements the verb traits [`Encode`](com_core::traits::Encode) and
-//! [`Decode`](com_core::traits::Decode) on the multi-stream containers.
+//! [`Decode`](com_core::traits::Decode) on the multi-stream containers. A code whose
+//! decoder gives the a posteriori LLRs of its information bits also implements
+//! [`SoftDecode`].
 
 use com_core::{Error, Result};
 
@@ -87,6 +89,66 @@ pub trait BlockCode {
     }
 }
 
+/// A block code whose decoder gives the a posteriori LLRs of the information bits: the
+/// soft output of an iterative receiver (turbo equalisation, iterative demapping) or of
+/// a concatenation.
+///
+/// Implemented by the [`LdpcCode`](crate::ldpc::LdpcCode) (belief propagation), the
+/// [`ConvolutionalCode`](crate::conv::ConvolutionalCode) (BCJR, log-MAP), the
+/// [`TurboCode`](crate::turbo::TurboCode), the [`NrLdpc`](crate::nr::NrLdpc) code, and
+/// the punctured codes [`Punctured`](crate::puncture::Punctured) and
+/// [`PuncturedTurbo`](crate::puncture::PuncturedTurbo), which put back a zero LLR at the
+/// punctured positions. The list decoder of the polar codes gives hard candidates only
+/// ([`PolarCode::decode_list`](crate::polar::PolarCode::decode_list)).
+///
+/// # Model
+///
+/// With the channel LLRs $L_{c}$ of the $n$ coded bits and the a priori LLRs $L_{a}$ of
+/// the $k$ information bits $u_{i}$ (zero if `None`),
+///
+/// $$
+/// L_{\mathrm{app}}(u_{i}) = \ln \frac{P(u_{i} = 0 \mid L_{c}, L_{a})}{P(u_{i} = 1 \mid L_{c}, L_{a})},
+/// $$
+///
+/// exact for the BCJR algorithm, approximated by the iterative decoders; the extrinsic
+/// information of the code is $L_{\mathrm{app}} - L_{a}$ minus the channel LLR of a
+/// systematic bit. The hard decisions of $L_{\mathrm{app}}$ are those of
+/// [`BlockCode::decode_block`] for the iterative codes; a convolutional code decodes its
+/// blocks by Viterbi (maximum-likelihood sequence) and its soft output by BCJR
+/// (maximum a posteriori bit), which may differ on a few bits.
+pub trait SoftDecode: BlockCode {
+    /// The a posteriori LLRs of the $k$ information bits into `out`, from the $n$
+    /// channel LLRs `llr` and the $k$ a priori LLRs `apriori`; returns the iterations
+    /// of the decoder (1 for a non-iterative one, 0 when the input was already a
+    /// codeword for the LDPC codes).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `llr` does not have $n$ values, or `apriori` or `out` $k$.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize>;
+
+    /// [`SoftDecode::app_into`] into a new vector.
+    ///
+    /// # Errors
+    /// As [`SoftDecode::app_into`].
+    ///
+    /// # Examples
+    /// ```
+    /// use com_fec::block::{BlockCode, SoftDecode};
+    /// use com_fec::turbo::TurboCode;
+    /// let code = TurboCode::lte(40)?;
+    /// let info: Vec<u8> = (0..40).map(|i| (i % 3 == 1) as u8).collect();
+    /// let llr: Vec<f64> = code.encode_block(&info)?.iter().map(|&b| if b == 0 { 2.0 } else { -2.0 }).collect();
+    /// let app = code.app(&llr, None)?;
+    /// assert_eq!(com_core::signal::hard_decisions(&app), info);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    fn app(&self, llr: &[f64], apriori: Option<&[f64]>) -> Result<Vec<f64>> {
+        let mut out = vec![0.0; self.k()];
+        self.app_into(llr, apriori, &mut out)?;
+        Ok(out)
+    }
+}
+
 pub(crate) use com_core::expect_len;
 
 /// `Encode` and `Decode` on the multi-stream containers for a [`BlockCode`], every
@@ -151,31 +213,18 @@ pub(crate) fn whole_blocks(len: usize, block: usize, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// The LLRs of BPSK ($0 \mapsto +1$, $1 \mapsto -1$) received in real Gaussian noise of
-/// variance `noise_var` per dimension, $2 y / \sigma^{2}$.
-pub fn bpsk_llr(y: &[f64], noise_var: f64) -> Vec<f64> {
-    y.iter().map(|v| 2.0 * v / noise_var).collect()
-}
-
-/// The BPSK symbols $1 - 2b$ of bits.
-pub fn bpsk(bits: &[u8]) -> Vec<f64> {
-    bits.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect()
-}
-
 pub(crate) use com_math::max_star;
 
 /// Helpers of the tests of the codes.
 #[cfg(test)]
 pub(crate) mod testing {
-    use super::{bpsk, bpsk_llr};
     use com_core::rng::Rng;
 
-    /// The LLRs of the bits `c` sent in BPSK over a real AWGN channel of variance `s2`: the
-    /// symbols of [`bpsk`], one Gaussian draw per bit, the LLRs of [`bpsk_llr`] (the link
-    /// of `com_validation::bpsk_awgn_llr`).
+    /// The LLRs of the bits `c` sent in BPSK ($1 - 2b$) over a real AWGN channel of
+    /// variance `s2`: one Gaussian draw per bit, the LLRs $2 y / \sigma^{2}$ (the link of
+    /// `com_validation::bpsk_awgn_llr`; the code crate holds no modulation).
     pub(crate) fn awgn_llr(c: &[u8], s2: f64, rng: &mut Rng) -> Vec<f64> {
         let s = s2.sqrt();
-        let y: Vec<f64> = bpsk(c).iter().map(|x| x + s * rng.gaussian()).collect();
-        bpsk_llr(&y, s2)
+        c.iter().map(|&b| 2.0 * ((1.0 - 2.0 * f64::from(b)) + s * rng.gaussian()) / s2).collect()
     }
 }

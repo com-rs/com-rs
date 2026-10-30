@@ -76,9 +76,9 @@ impl PyNrLdpc {
         layered: bool,
     ) -> PyResult<Self> {
         let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
-        code.code.rule = CheckRule::from_name(rule, alpha).py()?;
-        code.code.max_iterations = iterations;
-        code.code.layered = layered;
+        code.decoder_mut().rule = CheckRule::from_name(rule, alpha).py()?;
+        code.decoder_mut().max_iterations = iterations;
+        code.decoder_mut().layered = layered;
         Ok(PyNrLdpc { inner: code })
     }
 
@@ -183,7 +183,7 @@ impl PyNrPolar {
     #[pyo3(signature = (k, n, *, link="uplink", list_size=8))]
     fn new(k: usize, n: usize, link: &str, list_size: usize) -> PyResult<Self> {
         let code = comrs::fec::nr::NrPolar::from_name(link, k, n).py()?;
-        Ok(PyNrPolar { inner: code.with_list(list_size) })
+        Ok(PyNrPolar { inner: code.with_list(list_size).py()? })
     }
 
     /// int: Payload bits per block.

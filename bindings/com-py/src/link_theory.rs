@@ -68,8 +68,8 @@ fn theory_ber_imperfect_csi(
 fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> PyResult<Py<PyAny>> {
     let g = |e: f64| comrs::math::db2lin(e);
     match m {
-        2 => map_real(ebn0_db, |e| Ok(csi::ber_dbpsk_jakes(g(e), fd_ts))),
-        4 => map_real(ebn0_db, |e| Ok(csi::ber_dqpsk_jakes(g(e), fd_ts))),
+        2 => map_real(ebn0_db, |e| csi::ber_dbpsk_jakes(g(e), fd_ts).py()),
+        4 => map_real(ebn0_db, |e| csi::ber_dqpsk_jakes(g(e), fd_ts).py()),
         _ => Err(PyValueError::new_err(format!("m is 2 or 4, got {m}"))),
     }
 }

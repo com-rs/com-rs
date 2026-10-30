@@ -50,7 +50,7 @@
 //! 3. G. Liva, L. Gaudio, T. Ninacs and T. Jerkovits, "Code design for short blocks: a
 //!    survey," *Proc. EuCNC*, 2016.
 
-use com_math::{db2lin, gauss_hermite, ln_1p_exp, qfunc};
+use com_math::{db2lin, gaussian_nodes, ln_1p_exp, qfunc};
 
 /// The noise variance per dimension of BPSK at `ebn0_db` and the rate `rate`.
 pub fn bpsk_noise_variance(ebn0_db: f64, rate: f64) -> f64 {
@@ -62,17 +62,17 @@ fn info_density(l: f64) -> f64 {
     1.0 - ln_1p_exp(-l) / std::f64::consts::LN_2
 }
 
-/// The first two moments of the information density at the noise variance `noise_var`.
+/// The first two moments of the information density at the noise variance `noise_var`:
+/// the channel LLR of a 0 is $L \sim \mathcal{N}(\mu, 2\mu)$, $\mu = 2/\sigma^{2}$, and
+/// $E f(L)$ is the 64-point Gauss–Hermite rule of [`gaussian_nodes`].
 fn moments(noise_var: f64) -> (f64, f64) {
-    let (t, w) = gauss_hermite(64);
-    let (mu, s) = (2.0 / noise_var, 2.0 / noise_var.sqrt());
-    let sp = std::f64::consts::PI.sqrt();
+    let mu = 2.0 / noise_var;
     let mut m1 = 0.0;
     let mut m2 = 0.0;
-    for (ti, wi) in t.iter().zip(&w) {
-        let i = info_density(mu + std::f64::consts::SQRT_2 * s * ti);
-        m1 += wi * i / sp;
-        m2 += wi * i * i / sp;
+    for (w, a) in gaussian_nodes(2.0 * mu, false, 64) {
+        let i = info_density(mu + w.re);
+        m1 += a * i;
+        m2 += a * i * i;
     }
     (m1, m2)
 }
@@ -182,6 +182,29 @@ pub fn shannon_limit_ebn0_db(rate: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The quadrature as written before `gaussian_nodes`: the nodes scaled by hand.
+    fn former_moments(noise_var: f64) -> (f64, f64) {
+        let (t, w) = com_math::gauss_hermite(64);
+        let (mu, s) = (2.0 / noise_var, 2.0 / noise_var.sqrt());
+        let sp = std::f64::consts::PI.sqrt();
+        let (mut m1, mut m2) = (0.0, 0.0);
+        for (ti, wi) in t.iter().zip(&w) {
+            let i = info_density(mu + std::f64::consts::SQRT_2 * s * ti);
+            m1 += wi * i / sp;
+            m2 += wi * i * i / sp;
+        }
+        (m1, m2)
+    }
+
+    #[test]
+    fn the_shared_nodes_give_the_former_moments_to_the_rounding() {
+        for ebn0_db in [-2.0, 0.0, 2.0, 4.0, 8.0] {
+            let s2 = bpsk_noise_variance(ebn0_db, 0.5);
+            let ((a1, a2), (b1, b2)) = (moments(s2), former_moments(s2));
+            assert!((a1 - b1).abs() <= 1e-14 && (a2 - b2).abs() <= 1e-14, "{ebn0_db} dB: {a1} {b1}, {a2} {b2}");
+        }
+    }
 
     #[test]
     fn capacity_limits_and_monotonicity() {

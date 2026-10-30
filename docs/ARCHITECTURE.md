@@ -213,6 +213,10 @@ The following cases are settled. Treat them as precedent.
 | The raised-cosine spectrum | `com_dsp::filter::raised_cosine_spectrum` | Shared by `rrc_spectrum` and the WDM spectra of the GN model (`com_channel::optical::gn`) |
 | Modified Bessel function $K_{\nu}$ | `com_math::{bessel_k, ln_bessel_k}` | A special function without communication meaning |
 | BPSK-over-AWGN LLRs of the code tests | `com_validation::bpsk_awgn_llr` | A test link, not a channel model of the library |
+| BPSK symbols $1 - 2b$ and their LLRs $2y/\sigma^{2}$ | `com_mapping::{constellation::bpsk, demapper::bpsk_llr}` | A modulation: `com-fec` holds none |
+| The log-sums of the label halves of a bit (the bitwise demapper) | `com_mapping::demapper::LabelHalves` | One kernel for the demapper, the bitwise closed forms and the bit-metric rates of `com_metrics` (ADR 0007) |
+| Soft output of a code (a posteriori LLRs of the information bits) | `com_fec::block::SoftDecode` | Implemented by the LDPC, convolutional (BCJR), turbo and NR LDPC codes and passed through the punctured codes |
+| The bits a rate matching sends (puncturing, circular buffers) | `com_fec::puncture::BitSelection` | `select` on the encoder side, `accumulate_into` (LLRs summed over the copies) on the decoder side |
 
 ## Naming conventions
 
@@ -394,7 +398,11 @@ let ofdm = Ofdm { n_cp: 16, dft_spread: true, ..Ofdm::new(256, 200)? };
 ```
 
 A modem that samples a filter once at construction (`Fbmc`, its prototype) keeps its
-fields private behind getters, so that the cached taps cannot disagree with them.
+fields private behind getters, so that the cached taps cannot disagree with them; so do
+the codes whose tables derive from their parameters (`Trellis`, `Interleaver`,
+`TurboCode`, `Punctured`, `NrLdpc`, `NrPolar`), whose decoder settings are a struct of
+public fields (`LdpcDecoder`, `TurboDecoder`, reached by `decoder_mut()` on a wrapping
+code).
 `CpmConfig::build` is the one configuration validated by a separate `build` step,
 since it tabulates the phase response. The enums that will gain variants are
 `#[non_exhaustive]` (`com_core::Error`, `equalizer::Algorithm`, `filter::{PulseShape,

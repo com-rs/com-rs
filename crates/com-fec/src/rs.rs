@@ -94,8 +94,9 @@ use crate::algebraic::{berlekamp_massey, chien_search, eval_at_power};
 use crate::block::{BlockCode, container_traits, expect_len};
 use com_core::signal::hard_decisions;
 use com_core::{Error, Result, ensure};
+use com_math::bits::bits_to_indices;
 use com_math::gf2m::{Field, primitive_polynomial};
-use com_math::{bits_to_index, index_to_bits};
+use com_math::index_to_bits;
 
 /// A (shortened) Reed–Solomon code over $\mathrm{GF}(2^{m})$ (see the module).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,17 +161,8 @@ impl ReedSolomon {
             format!("RS: the length {n} must exceed the {} parity symbols and not exceed {order}", 2 * t)
         })?;
         // g(x) = Π (x + β^{b+i}), β = α^c
-        let mut generator = vec![1u32];
-        for i in 0..2 * t {
-            let r = field.pow(root_step * ((first_root + i) % order));
-            let mut next = vec![0u32; generator.len() + 1];
-            for (d, &a) in generator.iter().enumerate() {
-                next[d + 1] ^= a;
-                next[d] ^= field.mul(a, r);
-            }
-            generator = next;
-        }
-        let generator = generator.iter().map(|&a| a as u16).collect();
+        let roots = (0..2 * t).map(|i| (field.pow(root_step * ((first_root + i) % order)), 1));
+        let generator = linear_product(&field, roots).iter().map(|&a| a as u16).collect();
         Ok(ReedSolomon { field, t, n, first_root, root_step, generator })
     }
 
@@ -270,11 +262,37 @@ impl ReedSolomon {
     /// [`com_core::Error::Config`] for a symbol that does not fit in $m$ bits, an
     /// erasure position outside the word, a repeated one, or more than $2t$ erasures.
     pub fn decode_erasures(&self, r: &[u16], erasures: &[usize]) -> Result<(Vec<u16>, Option<usize>)> {
-        let n = self.n;
-        expect_len(r.len(), n, "symbols")?;
+        expect_len(r.len(), self.n, "symbols")?;
         self.check_symbols(r)?;
-        let two_t = 2 * self.t;
-        let s = erasures.len();
+        let erased = self.erasure_mask(erasures)?;
+        let k = self.k_symbols();
+        let mut word: Vec<u32> = r.iter().map(|&v| u32::from(v)).collect();
+        for &p in erasures {
+            word[p] = 0;
+        }
+        let syn = self.syndromes(&word);
+        if syn.iter().all(|&v| v == 0) && erasures.is_empty() {
+            return Ok((r[..k].to_vec(), Some(0)));
+        }
+        let corrected = self.locate(&syn, erasures).and_then(|(psi, roots)| {
+            self.correct(&mut word, &syn, &psi, &roots, &erased)
+                .map(|()| roots.iter().filter(|&&i| word[i] != u32::from(r[i])).count())
+        });
+        Ok(match corrected {
+            Some(c) => (word[..k].iter().map(|&v| v as u16).collect(), Some(c)),
+            None => (r[..k].to_vec(), None),
+        })
+    }
+
+    /// The exponent $e_{i} = c (n - 1 - i)$ of the locator $Z_{i} = \beta^{e_{i}}$ of
+    /// position $i$.
+    fn locator_exp(&self, i: usize) -> usize {
+        self.root_step * (self.n - 1 - i) % self.field.order()
+    }
+
+    /// The erased positions as a mask, checked: inside the word, distinct, at most $2t$.
+    fn erasure_mask(&self, erasures: &[usize]) -> Result<Vec<bool>> {
+        let (n, two_t, s) = (self.n, 2 * self.t, erasures.len());
         ensure(s <= two_t, || format!("RS: {s} erasures exceed the {two_t} the code can fill"))?;
         let mut erased = vec![false; n];
         for &p in erasures {
@@ -282,61 +300,57 @@ impl ReedSolomon {
             ensure(!erased[p], || format!("RS: the erasure position {p} is repeated"))?;
             erased[p] = true;
         }
+        Ok(erased)
+    }
+
+    /// The syndromes $S_{j} = r(\beta^{b+j})$, $j = 0, \dots, 2t - 1$.
+    fn syndromes(&self, word: &[u32]) -> Vec<u32> {
         let f = &self.field;
         let order = f.order();
-        let k = self.k_symbols();
-        let (b, c) = (self.first_root, self.root_step);
-        // the locator of position i is Z_i = β^{e_i}, e_i = n - 1 - i
-        let locator_exp = |i: usize| c * (n - 1 - i) % order;
-        let mut word: Vec<u32> = r.iter().map(|&v| u32::from(v)).collect();
-        for &p in erasures {
-            word[p] = 0;
-        }
-        // syndromes S_j = r(β^{b+j})
-        let mut syn = vec![0u32; two_t];
+        let b = self.first_root;
+        let mut syn = vec![0u32; 2 * self.t];
         for (i, &v) in word.iter().enumerate() {
             if v != 0 {
-                let e = locator_exp(i);
+                let e = self.locator_exp(i);
                 for (j, sj) in syn.iter_mut().enumerate() {
                     *sj ^= f.mul(v, f.pow(e * ((b + j) % order)));
                 }
             }
         }
-        let msg_as_received = || r[..k].to_vec();
-        if syn.iter().all(|&v| v == 0) && s == 0 {
-            return Ok((msg_as_received(), Some(0)));
-        }
-        // erasure locator Γ(x) = Π (1 + Z_l x), and T = S Γ mod x^{2t}
-        let mut gamma = vec![1u32];
-        for &p in erasures {
-            let z = f.pow(locator_exp(p));
-            let mut next = vec![0u32; gamma.len() + 1];
-            for (d, &a) in gamma.iter().enumerate() {
-                next[d] ^= a;
-                next[d + 1] ^= f.mul(a, z);
-            }
-            gamma = next;
-        }
-        let modified = poly_mul_mod(f, &syn, &gamma, two_t);
+        syn
+    }
+
+    /// The errata locator $\Psi = \Lambda \Gamma$ (the error locator of Berlekamp–Massey
+    /// on the modified syndromes $T = S \Gamma \bmod x^{2t}$, the erasure locator
+    /// $\Gamma(x) = \prod (1 + Z_{l} x)$) and its roots by a Chien search; `None` for a
+    /// detected failure.
+    fn locate(&self, syn: &[u32], erasures: &[usize]) -> Option<(Vec<u32>, Vec<usize>)> {
+        let f = &self.field;
+        let (two_t, s) = (2 * self.t, erasures.len());
+        let gamma = linear_product(f, erasures.iter().map(|&p| (1, f.pow(self.locator_exp(p)))));
+        let modified = poly_mul_mod(f, syn, &gamma, two_t);
         // Berlekamp–Massey on T_s … T_{2t-1}
         // a valid locator: its length L fits the syndromes (2L ≤ 2t - s) and is its degree
         let (lambda, l) = berlekamp_massey(f, &modified[s..]);
         if 2 * l > two_t - s || lambda.len() - 1 != l {
-            return Ok((msg_as_received(), None));
+            return None;
         }
         // Ψ = Λ Γ, its roots by a Chien search over the n positions
         let psi = poly_mul_mod(f, &lambda, &gamma, lambda.len() + gamma.len() - 1);
-        let degree = psi.len() - 1;
-        let roots = chien_search(f, &psi, n, locator_exp);
-        if roots.len() != degree {
-            return Ok((msg_as_received(), None));
-        }
-        // Forney: Y = Z^{1-b} Ω(Z⁻¹) / Ψ'(Z⁻¹), Ω = S Ψ mod x^{2t}
-        let omega = poly_mul_mod(f, &syn, &psi, two_t);
-        let exp_1mb = (order + 1 - b % order) % order;
-        let mut corrected = 0;
-        for &i in &roots {
-            let ze = locator_exp(i);
+        let roots = chien_search(f, &psi, self.n, |i| self.locator_exp(i));
+        (roots.len() == psi.len() - 1).then_some((psi, roots))
+    }
+
+    /// Forney's values $Y = Z^{1-b} \Omega(Z^{-1}) / \Psi'(Z^{-1})$, $\Omega = S \Psi \bmod
+    /// x^{2t}$, added to the positions `roots` of `word`; `None` for a detected failure
+    /// (a zero derivative, or a zero value outside the erasures).
+    fn correct(&self, word: &mut [u32], syn: &[u32], psi: &[u32], roots: &[usize], erased: &[bool]) -> Option<()> {
+        let f = &self.field;
+        let order = f.order();
+        let omega = poly_mul_mod(f, syn, psi, 2 * self.t);
+        let exp_1mb = (order + 1 - self.first_root % order) % order;
+        for &i in roots {
+            let ze = self.locator_exp(i);
             let inv = (order - ze) % order;
             let num = eval_at_power(f, &omega, inv);
             let den = psi
@@ -346,16 +360,15 @@ impl ReedSolomon {
                 .step_by(2)
                 .fold(0u32, |acc, (d, &a)| acc ^ f.mul(a, f.pow((d - 1) * inv)));
             if den == 0 {
-                return Ok((msg_as_received(), None));
+                return None;
             }
             let y = f.mul(f.pow(ze * exp_1mb), f.div(num, den));
             if y == 0 && !erased[i] {
-                return Ok((msg_as_received(), None));
+                return None;
             }
             word[i] ^= y;
-            corrected += usize::from(word[i] != u32::from(r[i]));
         }
-        Ok((word[..k].iter().map(|&v| v as u16).collect(), Some(corrected)))
+        Some(())
     }
 
     /// The codeword of $km$ message bits as $nm$ bits ($m$ per symbol, most significant
@@ -413,11 +426,7 @@ container_traits!(ReedSolomon);
 /// [`com_core::Error::Config`] for `m` outside 1 to 16.
 pub fn pack_symbols(bits: &[u8], m: u32) -> Result<Vec<u16>> {
     ensure((1..=16).contains(&m), || format!("the symbol size must be 1 to 16 bits, got {m}"))?;
-    let m = m as usize;
-    if bits.len() % m != 0 {
-        return Err(Error::Shape(format!("{} bits is not a multiple of the symbol size {m}", bits.len())));
-    }
-    Ok(bits.chunks(m).map(|c| bits_to_index(c) as u16).collect())
+    Ok(bits_to_indices(bits, m as usize)?.into_iter().map(|i| i as u16).collect())
 }
 
 /// Unpack symbols of `m` bits (1 to 16) into bits, the most significant first; the
@@ -425,6 +434,21 @@ pub fn pack_symbols(bits: &[u8], m: u32) -> Result<Vec<u16>> {
 pub fn unpack_symbols(symbols: &[u16], m: u32) -> Vec<u8> {
     let m = m.clamp(1, 16) as usize;
     symbols.iter().flat_map(|&s| index_to_bits(usize::from(s), m)).collect()
+}
+
+/// The product $\prod_{i} (c_{0,i} + c_{1,i} x)$ of linear factors over the field,
+/// lowest degree first (1 for no factor).
+fn linear_product(f: &Field, factors: impl Iterator<Item = (u32, u32)>) -> Vec<u32> {
+    let mut poly = vec![1u32];
+    for (c0, c1) in factors {
+        let mut next = vec![0u32; poly.len() + 1];
+        for (d, &a) in poly.iter().enumerate() {
+            next[d] ^= f.mul(a, c0);
+            next[d + 1] ^= f.mul(a, c1);
+        }
+        poly = next;
+    }
+    poly
 }
 
 /// The product of two polynomials over the field, truncated to `len` coefficients
@@ -457,24 +481,32 @@ fn log_binomial_terms(n: usize, p: f64) -> Vec<f64> {
     terms
 }
 
+/// [`com_core::Error::Config`] unless $0 \le p_{s} \le 1$.
+fn ensure_probability(p_s: f64) -> Result<()> {
+    ensure((0.0..=1.0).contains(&p_s), || format!("the symbol error probability must be in [0, 1], got {p_s}"))
+}
+
 /// The word error probability of a bounded-distance decoder of a $t$-error-correcting
 /// code of $n$ symbols over a memoryless channel of symbol error probability $p_{s}$
 /// (Proakis & Salehi, Sec. 7.5.2),
 ///
 /// $$
-/// P_{w} = \sum_{i=t+1}^{n} \binom{n}{i} p_{s}^{i} (1 - p_{s})^{n-i}.
+/// P_{w} = \sum_{i=t+1}^{n} \binom{n}{i} p_{s}^{i} (1 - p_{s})^{n-i}
 /// $$
-pub fn word_error_probability(n: usize, t: usize, p_s: f64) -> f64 {
-    if !(0.0..=1.0).contains(&p_s) || t >= n {
-        return 0.0;
-    }
-    if p_s == 0.0 {
-        return 0.0;
+///
+/// (0 for $t \ge n$).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for $p_{s}$ outside $[0, 1]$.
+pub fn word_error_probability(n: usize, t: usize, p_s: f64) -> Result<f64> {
+    ensure_probability(p_s)?;
+    if t >= n || p_s == 0.0 {
+        return Ok(0.0);
     }
     if p_s == 1.0 {
-        return 1.0;
+        return Ok(1.0);
     }
-    log_binomial_terms(n, p_s).iter().skip(t + 1).map(|l| l.exp()).sum()
+    Ok(log_binomial_terms(n, p_s).iter().skip(t + 1).map(|l| l.exp()).sum())
 }
 
 /// The symbol error probability after decoding, the usual approximation that a word of
@@ -482,16 +514,23 @@ pub fn word_error_probability(n: usize, t: usize, p_s: f64) -> f64 {
 /// Sec. 8.1.2),
 ///
 /// $$
-/// P_{s}^{\mathrm{out}} \approx \frac{1}{n} \sum_{i=t+1}^{n} i \binom{n}{i} p_{s}^{i} (1 - p_{s})^{n-i}.
+/// P_{s}^{\mathrm{out}} \approx \frac{1}{n} \sum_{i=t+1}^{n} i \binom{n}{i} p_{s}^{i} (1 - p_{s})^{n-i}
 /// $$
-pub fn symbol_error_probability(n: usize, t: usize, p_s: f64) -> f64 {
-    if !(0.0..=1.0).contains(&p_s) || t >= n || p_s == 0.0 {
-        return 0.0;
+///
+/// (0 for $t \ge n$).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for $p_{s}$ outside $[0, 1]$.
+pub fn symbol_error_probability(n: usize, t: usize, p_s: f64) -> Result<f64> {
+    ensure_probability(p_s)?;
+    if t >= n || p_s == 0.0 {
+        return Ok(0.0);
     }
     if p_s == 1.0 {
-        return 1.0;
+        return Ok(1.0);
     }
-    log_binomial_terms(n, p_s).iter().enumerate().skip(t + 1).map(|(i, l)| i as f64 * l.exp()).sum::<f64>() / n as f64
+    Ok(log_binomial_terms(n, p_s).iter().enumerate().skip(t + 1).map(|(i, l)| i as f64 * l.exp()).sum::<f64>()
+        / n as f64)
 }
 
 /// The bit error probability after decoding of a code over $\mathrm{GF}(2^{m})$: a wrong
@@ -501,9 +540,13 @@ pub fn symbol_error_probability(n: usize, t: usize, p_s: f64) -> f64 {
 /// $$
 /// P_{b} \approx \frac{2^{m-1}}{2^{m} - 1}\, P_{s}^{\mathrm{out}}.
 /// $$
-pub fn bit_error_probability(n: usize, t: usize, m: u32, p_s: f64) -> f64 {
+///
+/// # Errors
+/// [`com_core::Error::Config`] for $p_{s}$ outside $[0, 1]$ or $m = 0$.
+pub fn bit_error_probability(n: usize, t: usize, m: u32, p_s: f64) -> Result<f64> {
+    ensure(m >= 1, || "a symbol needs at least one bit".into())?;
     let q = 2f64.powi(m as i32);
-    q / 2.0 / (q - 1.0) * symbol_error_probability(n, t, p_s)
+    Ok(q / 2.0 / (q - 1.0) * symbol_error_probability(n, t, p_s)?)
 }
 
 #[cfg(test)]
@@ -582,15 +625,21 @@ mod tests {
 
     #[test]
     fn the_closed_forms_have_the_right_limits() {
-        assert_eq!(word_error_probability(255, 16, 0.0), 0.0);
-        assert_eq!(word_error_probability(255, 16, 1.0), 1.0);
+        assert_eq!(word_error_probability(255, 16, 0.0).unwrap(), 0.0);
+        assert_eq!(word_error_probability(255, 16, 1.0).unwrap(), 1.0);
         // t = 0: every word with an error is lost, 1 - (1 - p)^n
         let p = 0.01;
-        assert!((word_error_probability(7, 0, p) - (1.0 - (1.0 - p).powi(7))).abs() < 1e-15);
+        assert!((word_error_probability(7, 0, p).unwrap() - (1.0 - (1.0 - p).powi(7))).abs() < 1e-15);
         // the output symbol error rate is below the input one and above zero
-        let out = symbol_error_probability(255, 16, 0.05);
+        let out = symbol_error_probability(255, 16, 0.05).unwrap();
         assert!(out > 0.0 && out < 0.05);
-        assert!((bit_error_probability(255, 16, 8, 0.05) / out - 128.0 / 255.0).abs() < 1e-12);
+        assert!((bit_error_probability(255, 16, 8, 0.05).unwrap() / out - 128.0 / 255.0).abs() < 1e-12);
+        // a probability outside [0, 1] is an error, not a zero error rate
+        for p in [-0.1, 1.5, f64::NAN] {
+            assert!(word_error_probability(255, 16, p).is_err() && symbol_error_probability(255, 16, p).is_err());
+            assert!(bit_error_probability(255, 16, 8, p).is_err());
+        }
+        assert_eq!(word_error_probability(7, 7, 0.5).unwrap(), 0.0);
     }
     #[test]
     fn the_block_code_counts_bits_and_the_symbol_methods_count_symbols() {
@@ -751,7 +800,7 @@ mod literature {
                 lost += 1;
             }
         }
-        let p_w = word_error_probability(255, 4, p_s);
+        let p_w = word_error_probability(255, 4, p_s).unwrap();
         let measured = lost as f64 / trials as f64;
         // the count of lost words is binomial: standard error sqrt(p (1 - p) / N) ≈ 0.0023
         // at p ≈ 0.11, N = 20 000; the tolerance is four standard errors (P ≈ 6e-5 of a

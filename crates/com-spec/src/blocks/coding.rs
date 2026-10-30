@@ -58,7 +58,7 @@ use com_fec::ldpc::{self, CheckRule, LdpcCode};
 use com_fec::polar::PolarCode;
 use com_fec::puncture::{Punctured, Puncturer};
 use com_fec::rs::ReedSolomon;
-use com_fec::turbo::TurboCode;
+use com_fec::turbo::{TurboCode, TurboDecoder};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
 use com_systems::pas::Pas;
@@ -193,9 +193,9 @@ impl LdpcSettings {
     /// progressive edge growth, with these decoder settings.
     fn code(&self, n: usize, k: usize) -> Result<LdpcCode> {
         let mut c = peg(n, k, self.var_degree, self.seed)?;
-        c.rule = CheckRule::from_name(&self.rule, self.alpha)?;
-        c.layered = self.layered;
-        c.max_iterations = self.iterations;
+        c.decoder.rule = CheckRule::from_name(&self.rule, self.alpha)?;
+        c.decoder.layered = self.layered;
+        c.decoder.max_iterations = self.iterations;
         Ok(c)
     }
 }
@@ -266,7 +266,8 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
     Ok(match kind {
         "conv" => {
             let ConvSpec { k, hard, puncture } = ConvSpec::parse(&what, p)?;
-            let code = ConvolutionalCode { hard_decision: hard, ..ConvolutionalCode::k7(k) };
+            let mut code = ConvolutionalCode::k7(k)?;
+            code.hard_decision = hard;
             match puncture {
                 None => Box::new(code),
                 Some(name) => {
@@ -282,7 +283,9 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
         }
         "turbo" => {
             let TurboSpec { k, iterations, max_log } = TurboSpec::parse(&what, p)?;
-            Box::new(TurboCode { iterations, exact: !max_log, ..TurboCode::lte(k)? })
+            let mut code = TurboCode::lte(k)?;
+            code.decoder = TurboDecoder { iterations, exact: !max_log };
+            Box::new(code)
         }
         "ldpc" => {
             let q = LdpcSpec::parse(&what, p)?;
@@ -294,7 +297,7 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
             if let Some(name) = crc {
                 c = c.with_crc(Crc::from_name(&name)?)?;
             }
-            Box::new(c.with_list(list))
+            Box::new(c.with_list(list)?)
         }
         _ => unreachable!("a name of CODES"),
     })

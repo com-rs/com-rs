@@ -225,7 +225,7 @@ impl PyInterleaver {
     /// numpy.ndarray: The permutation (int64): output `i` is input `perm[i]`.
     #[getter]
     fn perm<'py>(&self, py: Python<'py>) -> IArr<'py> {
-        iarr(py, self.inner.perm.clone())
+        iarr(py, self.inner.perm().to_vec())
     }
 
     /// int: The block length.
@@ -246,7 +246,7 @@ impl PyInterleaver {
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn interleave<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let x = self.one_block(py, x)?;
-        x.get_item(iarr(py, self.inner.perm.clone()))
+        x.get_item(iarr(py, self.inner.perm().to_vec()))
     }
 
     /// The inverse permutation: `x[perm[i]] = y[i]`.
@@ -262,7 +262,7 @@ impl PyInterleaver {
     fn deinterleave<'py>(&self, py: Python<'py>, y: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let y = self.one_block(py, y)?;
         let out = py.import("numpy")?.call_method1("empty_like", (&y,))?;
-        out.set_item(iarr(py, self.inner.perm.clone()), &y)?;
+        out.set_item(iarr(py, self.inner.perm().to_vec()), &y)?;
         Ok(out)
     }
 

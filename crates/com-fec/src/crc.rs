@@ -32,6 +32,7 @@
 //!    49(1), 228–235, 1961.
 
 use com_core::{Error, Result, ensure};
+use com_math::gf2::poly_rem;
 
 /// A cyclic redundancy check of degree `width` and generator `poly` (without its
 /// leading term), valid by construction ([`Crc::new`] checks them).
@@ -121,20 +122,15 @@ impl Crc {
         })
     }
 
-    /// The $L$ parity bits of `bits`.
+    /// The $L$ parity bits of `bits`: the remainder of $b(D)\, D^{L}$ by the generator
+    /// ([`com_math::gf2::poly_rem`]).
     pub fn checksum(&self, bits: &[u8]) -> Vec<u8> {
-        // 1 ≤ L ≤ 64 by construction; the mask of 64 bits wraps
-        let top = 1u64 << (self.width - 1);
-        let mask = (top << 1).wrapping_sub(1);
-        let mut reg = 0u64;
-        for &b in bits {
-            let fb = ((reg & top) != 0) ^ (b & 1 == 1);
-            reg = (reg << 1) & mask;
-            if fb {
-                reg ^= self.poly;
-            }
-        }
-        (0..self.width).rev().map(|i| ((reg >> i) & 1) as u8).collect()
+        poly_rem(bits, &self.generator())
+    }
+
+    /// The generator $g(D)$, lowest degree first, $D^{L}$ included.
+    fn generator(&self) -> Vec<u8> {
+        (0..self.width).map(|i| ((self.poly >> i) & 1) as u8).chain([1]).collect()
     }
 
     /// `bits` followed by their parity bits.
@@ -154,6 +150,34 @@ impl Crc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The 64-bit register that computed the checksum before `poly_rem`.
+    fn former_checksum(crc: &Crc, bits: &[u8]) -> Vec<u8> {
+        let top = 1u64 << (crc.width - 1);
+        let mask = (top << 1).wrapping_sub(1);
+        let mut reg = 0u64;
+        for &b in bits {
+            let fb = ((reg & top) != 0) ^ (b & 1 == 1);
+            reg = (reg << 1) & mask;
+            if fb {
+                reg ^= crc.poly;
+            }
+        }
+        (0..crc.width).rev().map(|i| ((reg >> i) & 1) as u8).collect()
+    }
+
+    #[test]
+    fn the_checksums_are_those_of_the_former_register() {
+        let mut rng = com_core::rng::Rng::new(9);
+        let mut crcs = vec![Crc::crc24a(), Crc::crc24b(), Crc::crc24c(), Crc::crc16(), Crc::crc11(), Crc::crc6()];
+        crcs.extend([Crc::new("one", 1, 1).unwrap(), Crc::new("wide", 64, 0x1B).unwrap()]);
+        for crc in &crcs {
+            for len in [0, 1, 12, 300] {
+                let bits: Vec<u8> = (0..len).map(|_| rng.bit()).collect();
+                assert_eq!(crc.checksum(&bits), former_checksum(crc, &bits), "{} on {len} bits", crc.name);
+            }
+        }
+    }
 
     #[test]
     fn the_remainder_of_a_codeword_is_zero_and_every_single_error_is_detected() {

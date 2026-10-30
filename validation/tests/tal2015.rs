@@ -19,7 +19,7 @@ use comrs::prelude::*;
 use serde_json::json;
 
 fn wer(list: usize, ebn0_db: f64, max_frames: usize, rng: &mut Rng) -> f64 {
-    let code = PolarCode::new(2048, 1024, 2.0).unwrap().with_list(list);
+    let code = PolarCode::new(2048, 1024, 2.0).unwrap().with_list(list).unwrap();
     let noise_var = 1.0 / (2.0 * 0.5 * db2lin(ebn0_db));
     let (mut errors, mut frames) = (0u64, 0usize);
     while errors < MIN_ERRORS && frames < max_frames {

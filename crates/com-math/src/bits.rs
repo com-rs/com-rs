@@ -24,6 +24,8 @@
 //! assert_eq!(index_to_bits(11, 4).collect::<Vec<u8>>(), [1, 0, 1, 1]);
 //! ```
 
+use com_core::{Error, Result};
+
 /// The binary reflected Gray code $g(i) = i \oplus \lfloor i/2 \rfloor$.
 ///
 /// # Examples
@@ -79,6 +81,31 @@ pub fn bits_to_index(bits: &[u8]) -> usize {
 #[inline]
 pub fn index_to_bits(index: usize, n_bits: usize) -> impl Iterator<Item = u8> {
     (0..n_bits).rev().map(move |k| ((index >> k) & 1) as u8)
+}
+
+/// The indices of the blocks of `n_bits` bits of `bits`, each the [`bits_to_index`] of
+/// its block (the labels of the symbols of a bit stream, the symbols of a code over
+/// $\mathrm{GF}(2^{m})$).
+///
+/// # Errors
+/// [`Error::Config`] for `n_bits = 0`, [`Error::Shape`] if the number of bits is not a
+/// multiple of `n_bits`.
+///
+/// # Examples
+/// ```
+/// use com_math::bits::bits_to_indices;
+/// assert_eq!(bits_to_indices(&[1, 0, 1, 1, 1, 0], 3)?, [5, 6]);
+/// assert!(bits_to_indices(&[1, 0, 1], 2).is_err());
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn bits_to_indices(bits: &[u8], n_bits: usize) -> Result<Vec<usize>> {
+    if n_bits == 0 {
+        return Err(Error::Config("a symbol needs at least one bit".into()));
+    }
+    if bits.len() % n_bits != 0 {
+        return Err(Error::Shape(format!("{} bits is not a multiple of {n_bits} bits per symbol", bits.len())));
+    }
+    Ok(bits.chunks(n_bits).map(bits_to_index).collect())
 }
 
 #[cfg(test)]

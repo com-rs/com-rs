@@ -159,9 +159,9 @@ fn ldpc(code: LdpcCode) -> Link {
 }
 
 fn decoder(mut code: LdpcCode, rule: CheckRule, layered: bool, iterations: usize) -> LdpcCode {
-    code.rule = rule;
-    code.layered = layered;
-    code.max_iterations = iterations;
+    code.decoder.rule = rule;
+    code.decoder.layered = layered;
+    code.decoder.max_iterations = iterations;
     code
 }
 
@@ -216,7 +216,7 @@ fn case(name: &'static str) -> Case {
         // x⁷ + x + 1 (com-rs: x⁷ + x³ + 1 by default)
         "bch_n127_k92_t5" => (bch(Bch::new(7, 0x83, 5, 127).unwrap()), 300_000),
         "bch_n255_k223_t4" => (bch(Bch::new(8, 0x171, 4, 255).unwrap()), 200_000),
-        "conv_k7_k64_viterbi" => (block(ConvolutionalCode::k7(64)), 300_000),
+        "conv_k7_k64_viterbi" => (block(ConvolutionalCode::k7(64).unwrap()), 300_000),
         "ldpc_peg_n576_k288_flooding_spa_i50" => {
             (ldpc(decoder(matrix("peg_n576_k288.alist"), CheckRule::SumProduct, false, 50)), 200_000)
         }
@@ -235,13 +235,13 @@ fn case(name: &'static str) -> Case {
         }
         "polar_n256_k128_sc" => (block(polar_codes().swap_remove(0)), 200_000),
         "polar_n1024_k512_sc" => (block(polar_codes().swap_remove(1)), 50_000),
-        "polar_n256_k128_cascl_l8_crc11" => (block(polar_codes().swap_remove(2).with_list(8)), 50_000),
+        "polar_n256_k128_cascl_l8_crc11" => (block(polar_codes().swap_remove(2).with_list(8).unwrap()), 50_000),
         "turbo_lte_k40_logmap_i8" => (block(TurboCode::lte(40).unwrap()), 200_000),
         "turbo_lte_k1024_maxlogmap_i6" => {
             // the QPP of K = 1024: f₁ = 31, f₂ = 64 (TS 36.212, Table 5.1.3-3)
-            let mut code = TurboCode::with_interleaver(Interleaver::qpp(1024, 31, 64).unwrap());
-            code.iterations = 6;
-            code.exact = false;
+            let mut code = TurboCode::with_interleaver(Interleaver::qpp(1024, 31, 64).unwrap()).unwrap();
+            code.decoder.iterations = 6;
+            code.decoder.exact = false;
             (block(code), 30_000)
         }
         other => panic!("no com-rs configuration for the fixture {other}"),

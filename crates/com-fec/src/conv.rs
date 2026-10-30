@@ -21,14 +21,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::conv::ConvolutionalCode;
-//! let code = ConvolutionalCode::k7(100);
+//! let code = ConvolutionalCode::k7(100)?;
 //! let info: Vec<u8> = (0..100).map(|i| ((i * 7) % 3 == 0) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert_eq!(c.len(), 2 * (100 + 6));                           // terminated
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -42,32 +42,62 @@
 //! 4. P. Robertson, E. Villebrun and P. Hoeher, "A comparison of optimal and sub-optimal
 //!    MAP decoding algorithms operating in the log domain," *Proc. IEEE ICC*, 1995.
 
-use crate::block::{BlockCode, container_traits, expect_len, max_star};
-use com_core::{Result, ensure};
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len, max_star};
+use com_core::{Result, ensure, ensure_shape};
 
 fn parity(x: u32) -> u8 {
     (x.count_ones() & 1) as u8
 }
 
-/// The trellis of a rate-$1/n$ binary convolutional code.
+/// The trellis of a rate-$1/n$ binary convolutional code, built by
+/// [`Trellis::feedforward`] or [`Trellis::recursive`] (its fields are read through
+/// getters, so that the tables always agree with the constraint length and the number
+/// of outputs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trellis {
     /// Constraint length $K$ (memory $K - 1$).
-    pub constraint: u32,
+    pub(crate) constraint: u32,
     /// Coded bits per input bit $n$.
-    pub n_out: usize,
+    pub(crate) n_out: usize,
     /// `next[s][u]`: the state after input `u` in state `s`.
-    pub next: Vec<[usize; 2]>,
+    pub(crate) next: Vec<[usize; 2]>,
     /// `out[s][u]`: the coded bits, first output in the most significant position.
-    pub out: Vec<[u32; 2]>,
+    pub(crate) out: Vec<[u32; 2]>,
     /// `tail[s]`: the input that drives state `s` towards zero (0 for feed-forward codes).
-    pub tail: Vec<u8>,
+    pub(crate) tail: Vec<u8>,
 }
 
 impl Trellis {
     /// Number of states $2^{K-1}$.
     pub fn n_states(&self) -> usize {
         self.next.len()
+    }
+
+    /// Constraint length $K$ (memory $K - 1$).
+    pub fn constraint(&self) -> u32 {
+        self.constraint
+    }
+
+    /// Coded bits per input bit $n$ (at least 1).
+    pub fn n_out(&self) -> usize {
+        self.n_out
+    }
+
+    /// `next()[s][u]`: the state after input `u` in state `s`.
+    pub fn next(&self) -> &[[usize; 2]] {
+        &self.next
+    }
+
+    /// `out()[s][u]`: the coded bits of the branch, the first output in the most
+    /// significant position.
+    pub fn out(&self) -> &[[u32; 2]] {
+        &self.out
+    }
+
+    /// `tail()[s]`: the input that drives state `s` towards zero (0 for feed-forward
+    /// codes).
+    pub fn tail(&self) -> &[u8] {
+        &self.tail
     }
 
     /// The feed-forward code of constraint length `constraint` with the generators
@@ -185,8 +215,7 @@ impl Trellis {
 /// [`com_core::Error::Shape`] if the number of LLRs is not a multiple of $n$.
 pub fn viterbi(trellis: &Trellis, llr: &[f64], terminated: bool) -> Result<Vec<u8>> {
     let n = trellis.n_out;
-    ensure(llr.len() % n == 0, || format!("{} LLRs is not a multiple of {n}", llr.len()))
-        .map_err(|e| com_core::Error::Shape(e.to_string()))?;
+    ensure_shape(llr.len() % n == 0, || format!("{} LLRs is not a multiple of {n}", llr.len()))?;
     let steps = llr.len() / n;
     let ns = trellis.n_states();
     let mut metric = vec![f64::NEG_INFINITY; ns];
@@ -334,18 +363,36 @@ pub(crate) fn bcjr_into(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConvolutionalCode {
     /// The trellis.
-    pub trellis: Trellis,
+    trellis: Trellis,
     /// Information bits per block.
-    pub k: usize,
+    k: usize,
     /// Decode hard decisions (the signs of the LLRs) instead of the LLRs.
     pub hard_decision: bool,
 }
 
 impl ConvolutionalCode {
+    /// The code of `trellis` terminated on blocks of `k` bits, decoded by soft-decision
+    /// Viterbi.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for $k = 0$.
+    pub fn new(trellis: Trellis, k: usize) -> Result<ConvolutionalCode> {
+        ensure(k >= 1, || "a convolutional code needs at least one information bit per block".into())?;
+        Ok(ConvolutionalCode { trellis, k, hard_decision: false })
+    }
+
     /// The $(133, 171)_{8}$ code of constraint length 7, rate 1/2, on blocks of `k` bits.
-    pub fn k7(k: usize) -> ConvolutionalCode {
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for $k = 0$.
+    pub fn k7(k: usize) -> Result<ConvolutionalCode> {
         let trellis = Trellis::feedforward(7, &[0o133, 0o171]).unwrap_or_else(|_| unreachable!("a valid code"));
-        ConvolutionalCode { trellis, k, hard_decision: false }
+        ConvolutionalCode::new(trellis, k)
+    }
+
+    /// The trellis.
+    pub fn trellis(&self) -> &Trellis {
+        &self.trellis
     }
 }
 
@@ -386,6 +433,25 @@ impl BlockCode for ConvolutionalCode {
     }
 }
 
+impl SoftDecode for ConvolutionalCode {
+    /// The a posteriori LLRs of the information bits by [`bcjr`] (log-MAP, the tail
+    /// forced to state zero, its inputs without a priori); one iteration.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        expect_len(llr.len(), self.n(), "LLRs")?;
+        expect_len(out.len(), self.k, "a posteriori LLRs")?;
+        let la: Vec<f64> = match apriori {
+            None => Vec::new(),
+            Some(a) => {
+                expect_len(a.len(), self.k, "a priori LLRs")?;
+                a.iter().copied().chain(std::iter::repeat_n(0.0, self.trellis.constraint as usize - 1)).collect()
+            }
+        };
+        let app = bcjr(&self.trellis, llr, &la, true, true)?;
+        out.copy_from_slice(&app[..self.k]);
+        Ok(1)
+    }
+}
+
 container_traits!(ConvolutionalCode);
 
 #[cfg(test)]
@@ -405,7 +471,7 @@ mod tests {
 
     #[test]
     fn viterbi_corrects_errors_and_bcjr_agrees() {
-        let code = ConvolutionalCode::k7(200);
+        let code = ConvolutionalCode::k7(200).unwrap();
         let mut r = Rng::new(1);
         let info: Vec<u8> = (0..200).map(|_| r.bit()).collect();
         let c = code.encode_block(&info).unwrap();
@@ -455,6 +521,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_soft_output_is_the_bcjr_of_the_information_bits() {
+        let code = ConvolutionalCode::k7(60).unwrap();
+        let mut r = Rng::new(3);
+        let info: Vec<u8> = (0..60).map(|_| r.bit()).collect();
+        let y = awgn_llr(&code.encode_block(&info).unwrap(), 0.8, &mut r);
+        let la: Vec<f64> = (0..60).map(|_| r.gaussian()).collect();
+        let former = bcjr(&code.trellis, &y, &[], true, true).unwrap();
+        let app = code.app(&y, None).unwrap();
+        assert!(app.iter().zip(&former[..60]).all(|(a, b)| a.to_bits() == b.to_bits()));
+        let padded: Vec<f64> = la.iter().copied().chain([0.0; 6]).collect();
+        let former = bcjr(&code.trellis, &y, &padded, true, true).unwrap();
+        let app = code.app(&y, Some(&la)).unwrap();
+        assert!(app.iter().zip(&former[..60]).all(|(a, b)| a.to_bits() == b.to_bits()));
+        assert!(code.app(&y[1..], None).is_err() && code.app(&y, Some(&la[1..])).is_err());
+        assert!(ConvolutionalCode::k7(0).is_err());
     }
 
     #[test]

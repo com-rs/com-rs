@@ -47,7 +47,7 @@ use crate::algebraic::{berlekamp_massey, chien_search};
 use crate::block::{BlockCode, container_traits, expect_len};
 use com_core::signal::hard_decisions;
 use com_core::{Result, ensure};
-use com_math::gf2::poly_mul;
+use com_math::gf2::{poly_mul, poly_rem};
 use com_math::gf2m::Field;
 
 /// A shortened binary BCH code (see the module).
@@ -113,35 +113,9 @@ impl Bch {
     /// [`com_core::Error::Shape`] for another number of bits.
     pub fn encode(&self, msg: &[u8]) -> Result<Vec<u8>> {
         expect_len(msg.len(), self.k(), "bits")?;
-        let r = self.generator.len() - 1;
-        // a shift register of r bits in 64-bit words, bit r - 1 the highest degree
-        let words = r.div_ceil(64);
-        let mut g = vec![0u64; words];
-        for (d, &b) in self.generator[..r].iter().enumerate() {
-            if b == 1 {
-                g[d / 64] |= 1 << (d % 64);
-            }
-        }
-        let mut reg = vec![0u64; words];
-        let top = r - 1;
-        for &b in msg {
-            let fb = ((reg[top / 64] >> (top % 64)) & 1) as u8 ^ (b & 1);
-            // shift left by one
-            for w in (0..words).rev() {
-                let carry = if w > 0 { reg[w - 1] >> 63 } else { 0 };
-                reg[w] = (reg[w] << 1) | carry;
-            }
-            if r % 64 != 0 {
-                reg[words - 1] &= (1u64 << (r % 64)) - 1;
-            }
-            if fb == 1 {
-                for (x, y) in reg.iter_mut().zip(&g) {
-                    *x ^= y;
-                }
-            }
-        }
+        // the parity bits: the remainder of m(x) x^r by g(x)
         let mut c: Vec<u8> = msg.iter().map(|b| b & 1).collect();
-        c.extend((0..r).rev().map(|d| ((reg[d / 64] >> (d % 64)) & 1) as u8));
+        c.extend(poly_rem(msg, &self.generator));
         Ok(c)
     }
 
@@ -221,6 +195,53 @@ container_traits!(Bch);
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    /// The encoder of the BCH code before `poly_rem`: its own register of 64-bit words.
+    fn former_encode(code: &Bch, msg: &[u8]) -> Vec<u8> {
+        let r = code.generator.len() - 1;
+        let words = r.div_ceil(64);
+        let mut g = vec![0u64; words];
+        for (d, &b) in code.generator[..r].iter().enumerate() {
+            if b == 1 {
+                g[d / 64] |= 1 << (d % 64);
+            }
+        }
+        let mut reg = vec![0u64; words];
+        let top = r - 1;
+        for &b in msg {
+            let fb = ((reg[top / 64] >> (top % 64)) & 1) as u8 ^ (b & 1);
+            for w in (0..words).rev() {
+                let carry = if w > 0 { reg[w - 1] >> 63 } else { 0 };
+                reg[w] = (reg[w] << 1) | carry;
+            }
+            if r % 64 != 0 {
+                reg[words - 1] &= (1u64 << (r % 64)) - 1;
+            }
+            if fb == 1 {
+                for (x, y) in reg.iter_mut().zip(&g) {
+                    *x ^= y;
+                }
+            }
+        }
+        let mut c: Vec<u8> = msg.iter().map(|b| b & 1).collect();
+        c.extend((0..r).rev().map(|d| ((reg[d / 64] >> (d % 64)) & 1) as u8));
+        c
+    }
+
+    #[test]
+    fn the_codewords_are_those_of_the_former_encoder() {
+        let mut rng = Rng::new(17);
+        // degrees 10 to 192: one word, several words, a multiple of 64
+        for (m, poly, t, n) in
+            [(5, 0b10_0101, 2, 31), (16, 0x1_002D, 12, 16_200), (16, 0x1_002D, 4, 1000), (8, 0x11D, 8, 255)]
+        {
+            let code = Bch::new(m, poly, t, n).unwrap();
+            for _ in 0..3 {
+                let msg: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
+                assert_eq!(code.encode(&msg).unwrap(), former_encode(&code, &msg), "m {m}, t {t}, n {n}");
+            }
+        }
+    }
 
     #[test]
     fn the_generators_of_dvb_s2_are_the_products_of_the_published_polynomials() {

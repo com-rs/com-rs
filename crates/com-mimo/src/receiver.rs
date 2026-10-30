@@ -4,11 +4,13 @@
 //! [`Receiver`] detects the layers of every channel use $y = H x + w$ (spatial
 //! multiplexing) or every block of Alamouti's code, and accumulates a [`SoftOutput`]:
 //!
-//! - the estimate of every transmitted symbol: the unbiased linear estimate with ZF and
-//!   MMSE, the decided point with the other detectors;
-//! - its noise variance: that of the linear estimate, or the noise variance of the
-//!   channel for a decision;
-//! - optionally the bit LLRs of the detector (ZF, MMSE, ML, K-best, Alamouti).
+//! - the estimate of every transmitted symbol: the estimate of the detector when it forms
+//!   one ([`MimoDetector::soft_estimate`]: the unbiased linear estimate of ZF and MMSE,
+//!   the decoupled channel of AMP and OAMP), the decided point with the other detectors;
+//! - its noise variance: that of the estimate, or the noise variance of the channel for
+//!   a decision;
+//! - optionally the bit LLRs of the detector (ZF, MMSE, ML, K-best, AMP, OAMP, Alamouti:
+//!   [`MimoDetector::has_soft_output`]).
 //!
 //! # Examples
 //! ```
@@ -22,20 +24,20 @@
 //! let x = [c.points()[1], c.points()[2]];
 //! let y: Vec<C64> = (0..2).map(|r| h[[r, 0]] * x[0] + h[[r, 1]] * x[1]).collect();
 //! let mut out = SoftOutput::default();
-//! rx.layers(&h, &y, 1e-3, &mut out)?;
+//! rx.layers(&h.view(), &y, 1e-3, &mut out)?;
 //! assert_eq!(out.symbols, x.to_vec());
 //! assert_eq!(out.llr.len(), 4);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 
-use crate::detection::{KBest, Linear, MimoDetector, Ml, Sic, Sphere};
+use crate::detection::{Estimates, KBest, Linear, MimoDetector, Ml, Sic, Sphere};
 use crate::message_passing::{Amp, Oamp};
 use crate::stbc::Ostbc;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
 use com_math::linalg::CMat;
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView2};
 
 /// A detector of [`crate::detection`].
 #[non_exhaustive]
@@ -174,29 +176,38 @@ impl DetectorKind {
         })
     }
 
-    /// Whether the detector computes bit LLRs.
+    /// Whether the detector computes bit LLRs ([`MimoDetector::has_soft_output`] of its
+    /// detector; false for a detector that cannot be built, K-best with no path).
     pub fn has_soft_output(self) -> bool {
-        !matches!(self, DetectorKind::Sic | DetectorKind::ZfSic | DetectorKind::Sphere)
+        Constellation::psk(2).and_then(|c| self.detector(&c)).is_ok_and(|d| d.has_soft_output())
     }
 
     /// The detector for the alphabet `c`.
-    pub fn detector(self, c: &Constellation) -> Box<dyn MimoDetector + Send + Sync> {
-        let c = c.clone();
-        match self {
+    ///
+    /// # Errors
+    /// [`Error::Config`] for K-best with no path or AMP and OAMP with no iteration.
+    pub fn detector(self, c: &Constellation) -> Result<Box<dyn MimoDetector + Send + Sync>> {
+        self.build(c.clone())
+    }
+
+    /// [`DetectorKind::detector`] with the alphabet `c` moved into the detector.
+    fn build(self, c: Constellation) -> Result<Box<dyn MimoDetector + Send + Sync>> {
+        Ok(match self {
             DetectorKind::Zf => Box::new(Linear::zf(c)),
             DetectorKind::Mmse => Box::new(Linear::mmse(c)),
             DetectorKind::Sic => Box::new(Sic::mmse(c)),
             DetectorKind::ZfSic => Box::new(Sic::zf(c)),
             DetectorKind::Ml => Box::new(Ml::new(c)),
             DetectorKind::Sphere => Box::new(Sphere::new(c)),
-            DetectorKind::KBest(k) => Box::new(KBest::new(c, k)),
-            DetectorKind::Amp(n) => Box::new(Amp::new(c, n)),
-            DetectorKind::Oamp(n) => Box::new(Oamp::new(c, n)),
-        }
+            DetectorKind::KBest(k) => Box::new(KBest::new(c, k)?),
+            DetectorKind::Amp(n) => Box::new(Amp::new(c, n)?),
+            DetectorKind::Oamp(n) => Box::new(Oamp::new(c, n)?),
+        })
     }
 }
 
-/// The accumulated output of a [`Receiver`].
+/// The accumulated output of a [`Receiver`]: the [`Estimates`] of the channel uses one
+/// after the other (the same fields), and their bit LLRs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SoftOutput {
     /// The estimate of every symbol.
@@ -207,12 +218,20 @@ pub struct SoftOutput {
     pub llr: Vec<f64>,
 }
 
+impl SoftOutput {
+    /// Append the estimates `e` of one channel use.
+    pub fn append(&mut self, e: Estimates) {
+        self.symbols.extend(e.symbols);
+        self.noise_var.extend(e.noise_var);
+    }
+}
+
 /// A detector applied channel use after channel use (see the module).
 pub struct Receiver {
     kind: DetectorKind,
-    constellation: Constellation,
     detector: Box<dyn MimoDetector + Send + Sync>,
-    linear: Option<Linear>,
+    /// Alamouti's code, built (and checked) once.
+    alamouti: Ostbc,
     llr: bool,
 }
 
@@ -226,43 +245,50 @@ impl Receiver {
     /// The receiver of the detector `kind` for the alphabet `c`, with bit LLRs if `llr`.
     ///
     /// # Errors
-    /// [`Error::Config`] when LLRs are asked from a detector without soft output.
+    /// [`Error::Config`] when LLRs are asked from a detector without soft output, or for
+    /// a detector that cannot be built ([`DetectorKind::detector`]).
     pub fn new(kind: DetectorKind, c: Constellation, llr: bool) -> Result<Receiver> {
-        ensure(!llr || kind.has_soft_output(), || {
+        let detector = kind.build(c)?;
+        ensure(!llr || detector.has_soft_output(), || {
             format!("the {} detector has no soft output: demap its decisions instead", kind.name())
         })?;
-        let linear = match kind {
-            DetectorKind::Zf => Some(Linear::zf(c.clone())),
-            DetectorKind::Mmse => Some(Linear::mmse(c.clone())),
-            _ => None,
-        };
-        Ok(Receiver { kind, detector: kind.detector(&c), constellation: c, linear, llr })
+        Ok(Receiver { kind, detector, alamouti: Ostbc::alamouti(), llr })
+    }
+
+    /// The alphabet of every stream.
+    pub fn constellation(&self) -> &Constellation {
+        self.detector.constellation()
+    }
+
+    /// Append the bit LLRs of the estimates `e` (one noise variance each) to `out`.
+    fn append_llr(&self, e: &Estimates, out: &mut SoftOutput) -> Result<()> {
+        let start = out.llr.len();
+        out.llr.resize(start + e.symbols.len() * self.constellation().bits_per_symbol(), 0.0);
+        self.constellation().llr_with_variances_into(&e.symbols, &e.noise_var, None, false, &mut out.llr[start..])
     }
 
     /// Detect the layers of one channel use $y = H x + w$ and append them to `out`.
     ///
     /// # Errors
     /// The errors of the detector.
-    pub fn layers(&self, h: &CMat, y: &[C64], noise_var: f64, out: &mut SoftOutput) -> Result<()> {
-        let hv = h.view();
-        if let Some(lin) = &self.linear {
-            // the LLRs of a linear detector come from its own estimates: filter once
-            let (z, var) = lin.estimate(&hv, y, noise_var)?;
+    pub fn layers(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64, out: &mut SoftOutput) -> Result<()> {
+        if let Some(e) = self.detector.soft_estimate(h, y, noise_var)? {
+            // the LLRs of a detector that estimates come from its estimates: one pass
             if self.llr {
-                out.llr.extend(self.constellation.llr_with_variances(&z, &var, None, false)?);
+                self.append_llr(&e, out)?;
             }
-            out.symbols.extend(z);
-            out.noise_var.extend(var);
+            out.append(e);
         } else {
             // the decisions and the LLRs of one search
             let labels = if self.llr {
-                let (labels, llr) = self.detector.detect_llr(&hv, y, noise_var)?;
+                let (labels, llr) = self.detector.detect_llr(h, y, noise_var)?;
                 out.llr.extend(llr);
                 labels
             } else {
-                self.detector.detect(&hv, y, noise_var)?
+                self.detector.detect(h, y, noise_var)?
             };
-            out.symbols.extend(labels.iter().map(|&i| self.constellation.points()[i]));
+            let points = self.constellation().points();
+            out.symbols.extend(labels.iter().map(|&i| points[i]));
             out.noise_var.extend(std::iter::repeat_n(noise_var, labels.len()));
         }
         Ok(())
@@ -309,7 +335,7 @@ impl Receiver {
         let mut uses = uses.into_iter();
         if !alamouti {
             for i in uses {
-                self.layers(&channel(i)?, &received(i), noise_var, out)?;
+                self.layers(&channel(i)?.view(), &received(i), noise_var, out)?;
             }
             return Ok(());
         }
@@ -319,7 +345,7 @@ impl Receiver {
             };
             let (y0, y1) = (received(i0), received(i1));
             let y = Array2::from_shape_fn((y0.len(), 2), |(r, j)| if j == 0 { y0[r] } else { y1[r] });
-            self.decode_alamouti(&channel(i0)?, &y, noise_var, out)?;
+            self.decode_alamouti(&channel(i0)?.view(), &y.view(), noise_var, out)?;
         }
         Ok(())
     }
@@ -329,13 +355,76 @@ impl Receiver {
     ///
     /// # Errors
     /// The errors of [`Ostbc::decode`].
-    pub fn decode_alamouti(&self, h: &CMat, y: &Array2<C64>, noise_var: f64, out: &mut SoftOutput) -> Result<()> {
-        let (z, var) = Ostbc::alamouti().decode(&h.view(), &y.view(), noise_var)?;
+    pub fn decode_alamouti(
+        &self,
+        h: &ArrayView2<'_, C64>,
+        y: &ArrayView2<'_, C64>,
+        noise_var: f64,
+        out: &mut SoftOutput,
+    ) -> Result<()> {
+        let e = self.alamouti.decode(h, y, noise_var)?;
         if self.llr {
-            out.llr.extend(self.constellation.llr_with_variances(&z, &var, None, false)?);
+            self.append_llr(&e, out)?;
         }
-        out.symbols.extend(z);
-        out.noise_var.extend(var);
+        out.append(e);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use com_core::rng::Rng;
+    use com_math::linalg::matvec;
+
+    #[test]
+    fn the_soft_outputs_are_those_of_the_detectors() {
+        // the list that Receiver::new kept by hand before the trait method
+        for kind in DetectorKind::ALL {
+            let former = !matches!(kind, DetectorKind::Sic | DetectorKind::ZfSic | DetectorKind::Sphere);
+            assert_eq!(kind.has_soft_output(), former, "{kind:?}");
+        }
+        assert!(!DetectorKind::KBest(0).has_soft_output() && DetectorKind::KBest(0).detector(&qpsk()).is_err());
+        assert!(Receiver::new(DetectorKind::Sphere, qpsk(), true).is_err());
+    }
+
+    fn qpsk() -> Constellation {
+        Constellation::qam(4).unwrap().normalized()
+    }
+
+    #[test]
+    fn amp_and_oamp_give_their_decoupled_estimates_and_their_llrs() {
+        let c = qpsk();
+        let mut rng = Rng::new(31);
+        let h = Array2::from_shape_fn((16, 8), |_| rng.complex_gaussian() * 0.25);
+        let x: Vec<C64> = (0..8).map(|_| c.points()[rng.below(4)]).collect();
+        let y: Vec<C64> = matvec(&h.view(), &x).iter().map(|v| v + rng.complex_gaussian() * 0.1).collect();
+        for kind in [DetectorKind::Amp(10), DetectorKind::Oamp(10)] {
+            let rx = Receiver::new(kind, c.clone(), true).unwrap();
+            let mut out = SoftOutput::default();
+            rx.layers(&h.view(), &y, 0.01, &mut out).unwrap();
+            let d = kind.detector(&c).unwrap();
+            let e = d.soft_estimate(&h.view(), &y, 0.01).unwrap().unwrap();
+            assert_eq!((out.symbols, out.noise_var), (e.symbols, e.noise_var));
+            // the LLRs of the former path: those of the joint detection and decision
+            let (_, llr) = d.detect_llr(&h.view(), &y, 0.01).unwrap();
+            assert!(out.llr.iter().zip(&llr).all(|(a, b)| a.to_bits() == b.to_bits()) && out.llr.len() == 16);
+        }
+    }
+
+    #[test]
+    fn the_stored_alamouti_code_decodes_as_a_new_one() {
+        let c = qpsk();
+        let mut rng = Rng::new(32);
+        let rx = Receiver::new(DetectorKind::Mmse, c.clone(), true).unwrap();
+        let code = Ostbc::alamouti();
+        let s: Vec<C64> = (0..2).map(|_| c.points()[rng.below(4)]).collect();
+        let h = Array2::from_shape_fn((2, 2), |_| rng.complex_gaussian());
+        let y = h.dot(&code.encode(&s).unwrap()).mapv(|v| v + rng.complex_gaussian() * 0.1);
+        let mut out = SoftOutput::default();
+        rx.decode_alamouti(&h.view(), &y.view(), 0.01, &mut out).unwrap();
+        let e = Ostbc::alamouti().decode_blocks(&[h], &y.view(), 0.01).unwrap();
+        assert_eq!((out.symbols.clone(), out.noise_var.clone()), (e.symbols.clone(), e.noise_var.clone()));
+        assert_eq!(out.llr, c.llr_with_variances(&e.symbols, &e.noise_var, None, false).unwrap());
     }
 }

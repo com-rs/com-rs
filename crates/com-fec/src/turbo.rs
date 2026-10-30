@@ -14,14 +14,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::turbo::TurboCode;
 //! let code = TurboCode::lte(40)?;                         // K = 40, QPP (3, 10)
 //! let info: Vec<u8> = (0..40).map(|i| (i % 3 == 1) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert_eq!(c.len(), 3 * 40 + 12);
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 1.0))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 2.0 } else { -2.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -33,23 +33,41 @@
 //! 3. J. Sun and O. Y. Takeshita, "Interleavers for turbo codes using permutation
 //!    polynomials over integer rings," *IEEE Trans. Inf. Theory*, 51(1), 101–119, 2005.
 
-use crate::block::{BlockCode, container_traits, expect_len};
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len};
 use crate::conv::{BcjrWorkspace, Trellis, bcjr_into};
 use crate::interleaving::Interleaver;
-use com_core::Result;
 use com_core::signal::hard_decisions;
+use com_core::{Result, ensure};
+
+/// The seed of the random interleaver of [`TurboCode::lte`] for a block size outside
+/// the table of LTE.
+pub const RANDOM_INTERLEAVER_SEED: u64 = 7;
+
+/// The settings of the iterative decoder of a [`TurboCode`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TurboDecoder {
+    /// Decoding iterations (0: the a posteriori LLRs are the systematic channel LLRs).
+    pub iterations: usize,
+    /// log-MAP (true) or max-log-MAP decoding.
+    pub exact: bool,
+}
+
+impl Default for TurboDecoder {
+    /// 8 iterations of log-MAP.
+    fn default() -> TurboDecoder {
+        TurboDecoder { iterations: 8, exact: true }
+    }
+}
 
 /// A parallel concatenation of two $(13, 15)_{8}$ recursive systematic codes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TurboCode {
-    /// The constituent trellis.
-    pub trellis: Trellis,
+    /// The constituent trellis (two outputs per step: systematic, parity).
+    trellis: Trellis,
     /// The interleaver of the second encoder ($K$ positions).
-    pub interleaver: Interleaver,
-    /// Decoding iterations.
-    pub iterations: usize,
-    /// log-MAP (true) or max-log-MAP decoding.
-    pub exact: bool,
+    interleaver: Interleaver,
+    /// The decoder settings.
+    pub decoder: TurboDecoder,
 }
 
 /// The QPP coefficients $(K, f_{1}, f_{2})$ of the turbo interleaver of LTE, 3GPP TS 36.212,
@@ -104,22 +122,37 @@ pub fn lte_qpp(k: usize) -> Option<(usize, usize)> {
 impl TurboCode {
     /// The code of LTE: the quadratic permutation polynomial interleaver of [`lte_qpp`]
     /// for the 188 block sizes of TS 36.212 (40 to 6144), a random interleaver of the
-    /// same length for any other size.
+    /// same length (seeded by [`RANDOM_INTERLEAVER_SEED`]) for any other size.
     ///
     /// # Errors
-    /// Never for the sizes of the table.
+    /// [`com_core::Error::Config`] for $K = 0$.
     pub fn lte(k: usize) -> Result<TurboCode> {
         let interleaver = match lte_qpp(k) {
             Some((f1, f2)) => Interleaver::qpp(k, f1, f2)?,
-            None => Interleaver::random(k, 0x7u64),
+            None => Interleaver::random(k, RANDOM_INTERLEAVER_SEED),
         };
-        Ok(TurboCode::with_interleaver(interleaver))
+        TurboCode::with_interleaver(interleaver)
     }
 
-    /// The code with a given interleaver (its length is $K$), 8 iterations of log-MAP.
-    pub fn with_interleaver(interleaver: Interleaver) -> TurboCode {
+    /// The code with a given interleaver (its length is $K$), the decoder of
+    /// [`TurboDecoder::default`] (8 iterations of log-MAP).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an empty interleaver.
+    pub fn with_interleaver(interleaver: Interleaver) -> Result<TurboCode> {
+        ensure(!interleaver.is_empty(), || "a turbo code needs at least one information bit".into())?;
         let trellis = Trellis::recursive(4, 0o13, 0o15).unwrap_or_else(|_| unreachable!("a valid code"));
-        TurboCode { trellis, interleaver, iterations: 8, exact: true }
+        Ok(TurboCode { trellis, interleaver, decoder: TurboDecoder::default() })
+    }
+
+    /// The constituent trellis, the $(13, 15)_{8}$ recursive systematic code.
+    pub fn trellis(&self) -> &Trellis {
+        &self.trellis
+    }
+
+    /// The interleaver of the second encoder.
+    pub fn interleaver(&self) -> &Interleaver {
+        &self.interleaver
     }
 
     fn tail_len(&self) -> usize {
@@ -171,33 +204,60 @@ impl BlockCode for TurboCode {
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
+        Ok(hard_decisions(&self.app(llr, None)?))
+    }
+}
+
+impl SoftDecode for TurboCode {
+    /// The a posteriori LLRs of the second decoder after the last iteration,
+    /// deinterleaved; the a priori LLRs add to the systematic channel LLRs. With 0
+    /// iterations, the systematic LLRs (and the a priori ones).
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
         expect_len(llr.len(), self.n(), "LLRs")?;
         let k = self.k();
+        expect_len(out.len(), k, "a posteriori LLRs")?;
+        let with_prior;
+        let llr = match apriori {
+            None => llr,
+            Some(a) => {
+                expect_len(a.len(), k, "a priori LLRs")?;
+                let mut v = llr.to_vec();
+                for (l, a) in v.iter_mut().zip(a) {
+                    *l += a;
+                }
+                with_prior = v;
+                &with_prior
+            }
+        };
+        let TurboDecoder { iterations, exact } = self.decoder;
+        let sys = &llr[..k];
+        if iterations == 0 {
+            out.copy_from_slice(sys);
+            return Ok(0);
+        }
         let m = self.tail_len();
         let (a, b) = self.constituents(llr);
-        let sys = &llr[..k];
         let sys2 = self.interleaver.interleave(sys);
-        let perm = &self.interleaver.perm;
+        let perm = self.interleaver.perm();
         // the a priori LLRs of the two decoders, zero on their tails; la1 holds the
         // extrinsic LLRs of decoder 2, deinterleaved
         let (mut la1, mut la2) = (vec![0.0; k + m], vec![0.0; k + m]);
         let (mut app1, mut app2) = (Vec::with_capacity(k + m), Vec::with_capacity(k + m));
         let mut ws = BcjrWorkspace::default();
-        for _ in 0..self.iterations.max(1) {
-            bcjr_into(&self.trellis, &a, &la1, true, self.exact, &mut ws, &mut app1)?;
+        for _ in 0..iterations {
+            bcjr_into(&self.trellis, &a, &la1, true, exact, &mut ws, &mut app1)?;
             for (i, &p) in perm.iter().enumerate() {
                 la2[i] = app1[p] - la1[p] - sys[p];
             }
-            bcjr_into(&self.trellis, &b, &la2, true, self.exact, &mut ws, &mut app2)?;
+            bcjr_into(&self.trellis, &b, &la2, true, exact, &mut ws, &mut app2)?;
             for (i, &p) in perm.iter().enumerate() {
                 la1[p] = app2[i] - la2[i] - sys2[i];
             }
         }
-        let mut app = vec![0.0; k];
         for (i, &p) in perm.iter().enumerate() {
-            app[p] = app2[i];
+            out[p] = app2[i];
         }
-        Ok(hard_decisions(&app))
+        Ok(iterations)
     }
 }
 
@@ -221,9 +281,65 @@ mod tests {
     use crate::bounds::bpsk_noise_variance;
     use com_core::rng::Rng;
 
+    /// The decoder as it was written before the soft output: the hard decisions of
+    /// the deinterleaved a posteriori LLRs of the second decoder.
+    fn former_decode(code: &TurboCode, llr: &[f64]) -> Vec<u8> {
+        let k = code.k();
+        let m = code.tail_len();
+        let (a, b) = code.constituents(llr);
+        let sys = &llr[..k];
+        let sys2 = code.interleaver.interleave(sys);
+        let perm = code.interleaver.perm();
+        let (mut la1, mut la2) = (vec![0.0; k + m], vec![0.0; k + m]);
+        let (mut app1, mut app2) = (Vec::new(), Vec::new());
+        let mut ws = BcjrWorkspace::default();
+        for _ in 0..code.decoder.iterations.max(1) {
+            bcjr_into(&code.trellis, &a, &la1, true, code.decoder.exact, &mut ws, &mut app1).unwrap();
+            for (i, &p) in perm.iter().enumerate() {
+                la2[i] = app1[p] - la1[p] - sys[p];
+            }
+            bcjr_into(&code.trellis, &b, &la2, true, code.decoder.exact, &mut ws, &mut app2).unwrap();
+            for (i, &p) in perm.iter().enumerate() {
+                la1[p] = app2[i] - la2[i] - sys2[i];
+            }
+        }
+        let mut app = vec![0.0; k];
+        for (i, &p) in perm.iter().enumerate() {
+            app[p] = app2[i];
+        }
+        hard_decisions(&app)
+    }
+
+    #[test]
+    fn the_soft_output_gives_the_decisions_of_the_former_decoder() {
+        let mut r = Rng::new(4);
+        for exact in [true, false] {
+            let mut code = TurboCode::lte(104).unwrap();
+            code.decoder.exact = exact;
+            for _ in 0..10 {
+                let info: Vec<u8> = (0..104).map(|_| r.bit()).collect();
+                let s2 = bpsk_noise_variance(0.5, code.code_rate());
+                let y = awgn_llr(&code.encode_block(&info).unwrap(), s2, &mut r);
+                assert_eq!(code.decode_block(&y).unwrap(), former_decode(&code, &y));
+            }
+        }
+        // the a priori LLRs are those of the systematic bits
+        let code = TurboCode::lte(40).unwrap();
+        let y: Vec<f64> = (0..code.n()).map(|_| r.gaussian()).collect();
+        let la: Vec<f64> = (0..40).map(|_| r.gaussian()).collect();
+        let mut shifted = y.clone();
+        shifted.iter_mut().zip(&la).for_each(|(v, a)| *v += a);
+        let (with, moved) = (code.app(&y, Some(&la)).unwrap(), code.app(&shifted, None).unwrap());
+        assert!(with.iter().zip(&moved).all(|(a, b)| a.to_bits() == b.to_bits()));
+        // no iteration: the systematic LLRs
+        let none = TurboCode { decoder: TurboDecoder { iterations: 0, exact: true }, ..code.clone() };
+        assert_eq!(none.app(&y, None).unwrap(), y[..40]);
+        assert!(TurboCode::lte(0).is_err() && code.app(&y[1..], None).is_err());
+    }
+
     #[test]
     fn iterations_correct_more_errors() {
-        let mut code = TurboCode::with_interleaver(Interleaver::random(512, 9));
+        let mut code = TurboCode::with_interleaver(Interleaver::random(512, 9)).unwrap();
         let mut r = Rng::new(2);
         let (mut e1, mut e8) = (0usize, 0usize);
         for _ in 0..20 {
@@ -232,9 +348,9 @@ mod tests {
             // Eb/N0 = 1 dB at rate ≈ 1/3
             let s2 = bpsk_noise_variance(1.0, code.code_rate());
             let y = awgn_llr(&c, s2, &mut r);
-            code.iterations = 1;
+            code.decoder.iterations = 1;
             e1 += code.decode_block(&y).unwrap().iter().zip(&info).filter(|(a, b)| a != b).count();
-            code.iterations = 8;
+            code.decoder.iterations = 8;
             e8 += code.decode_block(&y).unwrap().iter().zip(&info).filter(|(a, b)| a != b).count();
         }
         assert!(e8 * 10 < e1.max(1), "1 iteration: {e1} errors, 8 iterations: {e8}");

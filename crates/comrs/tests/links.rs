@@ -62,7 +62,7 @@ fn information_rates_are_ordered_and_bounded() {
         let (_, x) = source::symbols(&c, 40_000, None, &mut rng).unwrap();
         let y = awgn::awgn(&x, snr_db, 1.0, 1.0, &mut rng);
         let mi = metrics::monte_carlo_mi(&y, &x, &c, None).unwrap();
-        let (gmi, _) = metrics::monte_carlo_gmi(&y, &x, &c, None).unwrap();
+        let gmi = metrics::monte_carlo_gmi(&y, &x, &c, None).unwrap().gmi;
         let capacity = (1.0 + db2lin(snr_db)).log2();
         assert!(gmi <= mi + 0.02, "GMI {gmi} above MI {mi} at {snr_db} dB");
         assert!(mi <= capacity + 0.02 && mi <= 4.0 + 1e-9, "MI {mi} above the bounds at {snr_db} dB");

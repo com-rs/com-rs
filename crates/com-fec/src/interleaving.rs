@@ -26,10 +26,34 @@ use com_core::{Error, Result, ensure};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Interleaver {
     /// $\pi$: output position $i$ takes input position `perm[i]`.
-    pub perm: Vec<usize>,
+    perm: Vec<usize>,
 }
 
 impl Interleaver {
+    /// The interleaver of the permutation `perm`: output position $i$ takes input
+    /// position `perm[i]`.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] if `perm` is not a permutation of $0, \dots, n - 1$.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_fec::interleaving::Interleaver;
+    /// let p = Interleaver::from_permutation(vec![2, 0, 1])?;
+    /// assert_eq!(p.interleave(&['a', 'b', 'c']), ['c', 'a', 'b']);
+    /// assert!(Interleaver::from_permutation(vec![0, 0, 1]).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn from_permutation(perm: Vec<usize>) -> Result<Interleaver> {
+        ensure_permutation(&perm, || "the interleaver is not a permutation".into())?;
+        Ok(Interleaver { perm })
+    }
+
+    /// $\pi$: output position $i$ takes input position `perm()[i]`.
+    pub fn perm(&self) -> &[usize] {
+        &self.perm
+    }
+
     /// Write row by row into `rows × cols`, read column by column.
     pub fn block(rows: usize, cols: usize) -> Interleaver {
         Interleaver { perm: (0..rows * cols).map(|i| (i % rows) * cols + i / rows).collect() }
@@ -48,11 +72,7 @@ impl Interleaver {
     /// [`com_core::Error::Config`] if the polynomial is not a permutation.
     pub fn qpp(k: usize, f1: usize, f2: usize) -> Result<Interleaver> {
         let perm: Vec<usize> = (0..k).map(|i| ((f1 * i) % k + (f2 * ((i * i) % k)) % k) % k).collect();
-        let mut seen = vec![false; k];
-        for &p in &perm {
-            ensure(!seen[p], || format!("({f1}, {f2}) is not a permutation polynomial modulo {k}"))?;
-            seen[p] = true;
-        }
+        ensure_permutation(&perm, || format!("({f1}, {f2}) is not a permutation polynomial modulo {k}"))?;
         Ok(Interleaver { perm })
     }
 
@@ -103,6 +123,19 @@ impl Interleaver {
         }
         x
     }
+}
+
+/// [`com_core::Error::Config`] with the message of `msg` unless `perm` holds every
+/// position below its length once.
+fn ensure_permutation(perm: &[usize], msg: impl FnOnce() -> String) -> Result<()> {
+    let mut seen = vec![false; perm.len()];
+    for &p in perm {
+        if p >= perm.len() || seen[p] {
+            return ensure(false, msg);
+        }
+        seen[p] = true;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

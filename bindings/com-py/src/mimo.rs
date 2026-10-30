@@ -69,7 +69,7 @@ fn detector(
     k: usize,
     iterations: usize,
 ) -> PyResult<Detector> {
-    Ok(DetectorKind::from_name(method, k).py()?.with_iterations(iterations).py()?.detector(c))
+    DetectorKind::from_name(method, k).py()?.with_iterations(iterations).py()?.detector(c).py()
 }
 
 /// The rows of a per-vector result, stored flat (`width` values per vector).
@@ -558,7 +558,9 @@ fn mimo_estimate(
     };
     let rows = py
         .detach(|| {
-            per_vector(&hs, &ys, |h, y| lin.estimate(h, y, noise_var).map(|(z, v)| z.into_iter().zip(v).collect()))
+            per_vector(&hs, &ys, |h, y| {
+                lin.estimate(h, y, noise_var).map(|e| e.symbols.into_iter().zip(e.noise_var).collect())
+            })
         })
         .py()?;
     let (z, v): (Vec<C64>, Vec<f64>) = rows.data.into_iter().unzip();
@@ -681,7 +683,7 @@ impl PyOstbc {
         let ya: Array2<C64> = carray(y)?
             .into_dimensionality()
             .map_err(|_| PyValueError::new_err("y must be (n_rx, n_slots · blocks)"))?;
-        let (est, var) = match channels(h)? {
+        let e = match channels(h)? {
             Channels::One(h) => py.detach(|| self.inner.decode(&h.view(), &ya.view(), noise_var)),
             Channels::Many(hs) => {
                 let list: Vec<Array2<C64>> = hs.outer_iter().map(|m| m.to_owned()).collect();
@@ -689,7 +691,7 @@ impl PyOstbc {
             }
         }
         .py()?;
-        Ok((est.into_pyarray(py), farr(py, var)))
+        Ok((e.symbols.into_pyarray(py), farr(py, e.noise_var)))
     }
 
     fn __repr__(&self) -> String {

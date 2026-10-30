@@ -32,23 +32,24 @@
 //! flooding, or layered (row by row with immediate updates, Hocevar 2004), which
 //! converges in about half the iterations; decoding stops as soon as $H \hat c = 0$.
 //!
-//! The decoder settings of a new code are the defaults of the crate, which the
-//! specifications (`com_spec`) and the Python bindings also take: [`DEFAULT_RULE`]
-//! (sum-product), [`DEFAULT_LAYERED`] (layered) and [`DEFAULT_MAX_ITERATIONS`] (50);
+//! The decoder settings of a new code ([`LdpcDecoder`], the field `decoder`) are the
+//! defaults of the crate, which the specifications (`com_spec`) and the Python bindings
+//! also take: [`DEFAULT_RULE`] (sum-product), [`DEFAULT_LAYERED`] (layered) and
+//! [`DEFAULT_MAX_ITERATIONS`] (50);
 //! [`DEFAULT_ALPHA`] is the scale or the offset of a min-sum rule named without it,
 //! [`DEFAULT_VAR_DEGREE`] and [`DEFAULT_PEG_SEED`] those of a PEG construction.
 //!
 //! # Examples
 //! ```
-//! use com_fec::block::{BlockCode, bpsk_llr};
+//! use com_fec::block::BlockCode;
 //! use com_fec::ldpc::LdpcCode;
 //! let code = LdpcCode::peg(256, 128, 3, 1)?;                 // (256, 128), degree 3
 //! assert_eq!(code.k(), 128);
 //! let info: Vec<u8> = (0..128).map(|i| (i % 5 == 2) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! assert!(code.is_codeword(&c));
-//! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
-//! assert_eq!(code.decode_block(&bpsk_llr(&y, 0.5))?, info);
+//! let llr: Vec<f64> = c.iter().map(|&b| if b == 0 { 4.0 } else { -4.0 }).collect(); // noiseless
+//! assert_eq!(code.decode_block(&llr)?, info);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -66,7 +67,7 @@
 //! 5. T. Richardson and R. Urbanke, *Modern Coding Theory*, Cambridge University Press,
 //!    2008.
 
-use crate::block::{BlockCode, container_traits, expect_len};
+use crate::block::{BlockCode, SoftDecode, container_traits, expect_len};
 use com_core::{Error, Result, ensure};
 use com_math::gf2;
 use std::collections::VecDeque;
@@ -85,6 +86,11 @@ pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 pub const DEFAULT_VAR_DEGREE: usize = 3;
 /// The default seed of a PEG construction.
 pub const DEFAULT_PEG_SEED: u64 = 1;
+
+/// The bound of $|\prod \tanh|$ in the check node of the sum-product rule, so that its
+/// $\operatorname{atanh}$ stays finite (a message of at most $2 \operatorname{atanh}(1 -
+/// 10^{-12}) \approx 28.3$).
+const TANH_BOUND: f64 = 0.999_999_999_999;
 
 /// The check-node rule of the decoder.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,25 +160,53 @@ enum Encoder {
     Core { core: usize, solve: Vec<Vec<usize>> },
 }
 
+/// The settings of the belief-propagation decoder of an [`LdpcCode`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LdpcDecoder {
+    /// The check-node rule.
+    pub rule: CheckRule,
+    /// Layered (true) or flooding schedule.
+    pub layered: bool,
+    /// Maximum iterations (0: the channel LLRs are returned as they are).
+    pub max_iterations: usize,
+}
+
+impl Default for LdpcDecoder {
+    /// [`DEFAULT_RULE`], [`DEFAULT_LAYERED`], [`DEFAULT_MAX_ITERATIONS`].
+    fn default() -> LdpcDecoder {
+        LdpcDecoder { rule: DEFAULT_RULE, layered: DEFAULT_LAYERED, max_iterations: DEFAULT_MAX_ITERATIONS }
+    }
+}
+
 /// An LDPC code with its systematic encoder and its decoder settings.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LdpcCode {
     n: usize,
     /// The variable nodes of every check node (the rows of $H$).
     rows: Vec<Vec<usize>>,
+    /// The messages of check `c` sit at `start[c]..start[c + 1]` of the edges (row
+    /// after row), computed once with the rows.
+    start: Vec<usize>,
     /// Positions of the information bits in the codeword.
     info: Vec<usize>,
     /// How the parity bits follow from the information bits.
     encoder: Encoder,
-    /// The check-node rule.
-    pub rule: CheckRule,
-    /// Layered (true) or flooding schedule.
-    pub layered: bool,
-    /// Maximum iterations.
-    pub max_iterations: usize,
+    /// The decoder settings.
+    pub decoder: LdpcDecoder,
 }
 
 impl LdpcCode {
+    /// The code of checked rows, its information positions and its encoder, with the
+    /// edge offsets of the decoder and the default settings.
+    fn assemble(n: usize, rows: Vec<Vec<usize>>, info: Vec<usize>, encoder: Encoder) -> LdpcCode {
+        let mut start = Vec::with_capacity(rows.len() + 1);
+        start.push(0);
+        for row in &rows {
+            start.push(start[start.len() - 1] + row.len());
+        }
+        LdpcCode { n, rows, start, info, encoder, decoder: LdpcDecoder::default() }
+    }
+
     /// The code of the parity-check matrix whose rows list the variable nodes of every
     /// check; $k = n - \operatorname{rank} H$.
     ///
@@ -193,15 +227,7 @@ impl LdpcCode {
             .enumerate()
             .map(|(row, &c)| (c, info.iter().copied().filter(|&v| m.get(row, v)).collect()))
             .collect();
-        Ok(LdpcCode {
-            n,
-            rows,
-            info,
-            encoder: Encoder::Sums(parity),
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, info, Encoder::Sums(parity)))
     }
 
     /// An irregular repeat-accumulate code: check $r$ of `rows` holds information bits
@@ -226,15 +252,7 @@ impl LdpcCode {
             })?;
             ensure(row.iter().all(|&v| v < n), || "a check refers to a missing variable".into())?;
         }
-        Ok(LdpcCode {
-            n,
-            rows,
-            info: (0..k).collect(),
-            encoder: Encoder::Accumulate,
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, (0..k).collect(), Encoder::Accumulate))
     }
 
     /// A code whose $m$ checks have a core and an extension, the structure of the LDPC
@@ -265,15 +283,7 @@ impl LdpcCode {
         }
         // parity bit j = (B^-1 s)_j: the checks of row j of the inverse of the core block
         let solve = core_inverse(&rows, k, core)?;
-        Ok(LdpcCode {
-            n,
-            rows,
-            info: (0..k).collect(),
-            encoder: Encoder::Core { core, solve },
-            rule: DEFAULT_RULE,
-            layered: DEFAULT_LAYERED,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
-        })
+        Ok(LdpcCode::assemble(n, rows, (0..k).collect(), Encoder::Core { core, solve }))
     }
 
     /// A code of length `n` with `n - k` checks built by progressive edge growth, every
@@ -288,58 +298,13 @@ impl LdpcCode {
         let mut rng = com_core::rng::Rng::new(seed);
         let mut check_vars: Vec<Vec<usize>> = vec![Vec::new(); m];
         let mut var_checks: Vec<Vec<usize>> = vec![Vec::new(); n];
-        let lowest = |cands: &[usize], cv: &[Vec<usize>], rng: &mut com_core::rng::Rng| -> usize {
-            let d = cands.iter().map(|&c| cv[c].len()).min().unwrap_or(0);
-            let best: Vec<usize> = cands.iter().copied().filter(|&c| cv[c].len() == d).collect();
-            best[rng.below(best.len())]
-        };
+        let all: Vec<usize> = (0..m).collect();
         for v in 0..n {
             for e in 0..var_degree {
                 let c = if e == 0 {
-                    let all: Vec<usize> = (0..m).collect();
-                    lowest(&all, &check_vars, &mut rng)
+                    lowest_degree(&all, &check_vars, &mut rng)
                 } else {
-                    // breadth-first expansion from v until no new check is reached
-                    let mut reached = vec![false; m];
-                    let mut frontier: VecDeque<usize> = VecDeque::new();
-                    for &c in &var_checks[v] {
-                        reached[c] = true;
-                        frontier.push_back(c);
-                    }
-                    let mut last_new: Vec<usize> = var_checks[v].clone();
-                    loop {
-                        let mut new = Vec::new();
-                        let mut next = VecDeque::new();
-                        while let Some(c) = frontier.pop_front() {
-                            for &u in &check_vars[c] {
-                                for &c2 in &var_checks[u] {
-                                    if !reached[c2] {
-                                        reached[c2] = true;
-                                        new.push(c2);
-                                        next.push_back(c2);
-                                    }
-                                }
-                            }
-                        }
-                        if new.is_empty() || reached.iter().all(|r| *r) {
-                            let unreached: Vec<usize> = (0..m).filter(|&c| !reached[c]).collect();
-                            break if unreached.is_empty() {
-                                let cands: Vec<usize> = if new.is_empty() { last_new.clone() } else { new };
-                                let cands: Vec<usize> =
-                                    cands.into_iter().filter(|c| !var_checks[v].contains(c)).collect();
-                                let cands = if cands.is_empty() {
-                                    (0..m).filter(|c| !var_checks[v].contains(c)).collect()
-                                } else {
-                                    cands
-                                };
-                                lowest(&cands, &check_vars, &mut rng)
-                            } else {
-                                lowest(&unreached, &check_vars, &mut rng)
-                            };
-                        }
-                        last_new = new;
-                        frontier = next;
-                    }
+                    lowest_degree(&farthest_checks(v, &check_vars, &var_checks), &check_vars, &mut rng)
                 };
                 check_vars[c].push(v);
                 var_checks[v].push(c);
@@ -482,7 +447,7 @@ impl LdpcCode {
     }
 
     fn check_message(&self, incoming: &[f64], out: &mut [f64], scratch: &mut Vec<f64>) {
-        match self.rule {
+        match self.decoder.rule {
             CheckRule::SumProduct => {
                 // the product of the other tanh(L/2) by prefix and suffix products, O(d)
                 let d = incoming.len();
@@ -497,7 +462,7 @@ impl LdpcCode {
                 for i in (0..d).rev() {
                     let p = out[i] * suffix;
                     suffix *= scratch[i];
-                    out[i] = 2.0 * p.clamp(-0.999_999_999_999, 0.999_999_999_999).atanh();
+                    out[i] = 2.0 * p.clamp(-TANH_BOUND, TANH_BOUND).atanh();
                 }
             }
             CheckRule::NormalizedMinSum(_) | CheckRule::OffsetMinSum(_) => {
@@ -516,7 +481,7 @@ impl LdpcCode {
                 for (i, o) in out.iter_mut().enumerate() {
                     let mag = if i == i1 { m2 } else { m1 };
                     let s = sign * if incoming[i] < 0.0 { -1.0 } else { 1.0 };
-                    let mag = match self.rule {
+                    let mag = match self.decoder.rule {
                         CheckRule::NormalizedMinSum(a) => a * mag,
                         CheckRule::OffsetMinSum(b) => (mag - b).max(0.0),
                         CheckRule::SumProduct => mag,
@@ -535,22 +500,26 @@ impl LdpcCode {
     pub fn decode_llr(&self, llr: &[f64]) -> Result<(Vec<f64>, usize)> {
         expect_len(llr.len(), self.n, "LLRs")?;
         let mut post = llr.to_vec();
-        if self.hard_decisions_are_a_codeword(&post) {
-            return Ok((post, 0));
+        let it = self.propagate(llr, &mut post);
+        Ok((post, it))
+    }
+
+    /// Belief propagation from the channel LLRs `channel` ($n$ values), `post` holding
+    /// them on entry and the a posteriori LLRs on exit: the iterations used.
+    fn propagate(&self, channel: &[f64], post: &mut [f64]) -> usize {
+        if self.hard_decisions_are_a_codeword(post) {
+            return 0;
         }
         // the check-to-variable messages, row after row: those of check c at
         // start[c]..start[c + 1]; the flooding schedule writes the next ones apart
-        let mut start = Vec::with_capacity(self.rows.len() + 1);
-        start.push(0);
-        for row in &self.rows {
-            start.push(start[start.len() - 1] + row.len());
-        }
+        let LdpcDecoder { layered, max_iterations, .. } = self.decoder;
+        let start = &self.start;
         let edges = start[self.rows.len()];
         let mut c2v = vec![0.0; edges];
-        let mut new_c2v = if self.layered { Vec::new() } else { vec![0.0; edges] };
+        let mut new_c2v = if layered { Vec::new() } else { vec![0.0; edges] };
         let (mut incoming, mut scratch) = (Vec::new(), Vec::new());
-        for it in 1..=self.max_iterations {
-            if self.layered {
+        for it in 1..=max_iterations {
+            if layered {
                 for (c, row) in self.rows.iter().enumerate() {
                     let msgs = &mut c2v[start[c]..start[c + 1]];
                     incoming.clear();
@@ -566,7 +535,7 @@ impl LdpcCode {
                     incoming.extend(row.iter().zip(&c2v[start[c]..start[c + 1]]).map(|(&v, m)| post[v] - m));
                     self.check_message(&incoming, &mut new_c2v[start[c]..start[c + 1]], &mut scratch);
                 }
-                post.copy_from_slice(llr);
+                post.copy_from_slice(channel);
                 for (c, row) in self.rows.iter().enumerate() {
                     for (&v, m) in row.iter().zip(&new_c2v[start[c]..start[c + 1]]) {
                         post[v] += m;
@@ -574,11 +543,11 @@ impl LdpcCode {
                 }
                 std::mem::swap(&mut c2v, &mut new_c2v);
             }
-            if self.hard_decisions_are_a_codeword(&post) {
-                return Ok((post, it));
+            if self.hard_decisions_are_a_codeword(post) {
+                return it;
             }
         }
-        Ok((post, self.max_iterations))
+        max_iterations
     }
 
     /// Whether the hard decisions of the LLRs `post` ($1$ for a negative LLR) satisfy
@@ -614,17 +583,60 @@ fn core_inverse(rows: &[Vec<usize>], k: usize, core: usize) -> Result<Vec<Vec<us
     Ok(solve)
 }
 
+/// The check of lowest degree among `cands` (in the graph `check_vars`), the ties
+/// broken by `rng`.
+fn lowest_degree(cands: &[usize], check_vars: &[Vec<usize>], rng: &mut com_core::rng::Rng) -> usize {
+    let d = cands.iter().map(|&c| check_vars[c].len()).min().unwrap_or(0);
+    let best: Vec<usize> = cands.iter().copied().filter(|&c| check_vars[c].len() == d).collect();
+    best[rng.below(best.len())]
+}
+
+/// The candidate checks of a new edge of the variable node `v` in progressive edge
+/// growth (Hu, Eleftheriou & Arnold 2005): the checks the breadth-first expansion from
+/// `v` never reaches, or, when it reaches them all, those of its last level not yet
+/// linked to `v` (any check not linked to `v` if none).
+fn farthest_checks(v: usize, check_vars: &[Vec<usize>], var_checks: &[Vec<usize>]) -> Vec<usize> {
+    let m = check_vars.len();
+    let mut reached = vec![false; m];
+    let mut frontier: VecDeque<usize> = VecDeque::new();
+    for &c in &var_checks[v] {
+        reached[c] = true;
+        frontier.push_back(c);
+    }
+    let mut last_new: Vec<usize> = var_checks[v].clone();
+    loop {
+        // the checks of the next level
+        let mut new = Vec::new();
+        let mut next = VecDeque::new();
+        while let Some(c) = frontier.pop_front() {
+            for &u in &check_vars[c] {
+                for &c2 in &var_checks[u] {
+                    if !reached[c2] {
+                        reached[c2] = true;
+                        new.push(c2);
+                        next.push_back(c2);
+                    }
+                }
+            }
+        }
+        if new.is_empty() || reached.iter().all(|r| *r) {
+            let unreached: Vec<usize> = (0..m).filter(|&c| !reached[c]).collect();
+            if !unreached.is_empty() {
+                return unreached;
+            }
+            let last = if new.is_empty() { last_new } else { new };
+            let cands: Vec<usize> = last.into_iter().filter(|c| !var_checks[v].contains(c)).collect();
+            return if cands.is_empty() { (0..m).filter(|c| !var_checks[v].contains(c)).collect() } else { cands };
+        }
+        last_new = new;
+        frontier = next;
+    }
+}
+
 /// The number of columns and the rows (0-based column indices, in the order of the
 /// file) of an `alist` text; the message of the error names what is wrong.
 fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), String> {
-    let mut numbers = Vec::new();
-    for (l, line) in text.lines().enumerate() {
-        let content = line.split('#').next().unwrap_or("");
-        for token in content.split_whitespace() {
-            numbers.push(token.parse::<usize>().map_err(|_| format!("line {}: {token:?} is not a number", l + 1))?);
-        }
-    }
-    let mut it = numbers.into_iter();
+    let mut it = alist_numbers(text)?.into_iter();
     let mut next = |what: &str| it.next().ok_or_else(|| format!("the file ends before {what}"));
     let (n, m) = (next("the number of columns")?, next("the number of rows")?);
     if n == 0 || m == 0 {
@@ -639,12 +651,8 @@ fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), Stri
     for _ in 0..m {
         row_deg.push(next("the row degrees")?);
     }
-    if col_deg.iter().any(|&d| d > max_col) || col_deg.iter().max() != Some(&max_col) {
-        return Err(format!("the column degrees do not have the maximum {max_col}"));
-    }
-    if row_deg.iter().any(|&d| d > max_row) || row_deg.iter().max() != Some(&max_row) {
-        return Err(format!("the row degrees do not have the maximum {max_row}"));
-    }
+    check_degrees(&col_deg, max_col, "column")?;
+    check_degrees(&row_deg, max_row, "row")?;
     let edges: usize = col_deg.iter().sum();
     if row_deg.iter().sum::<usize>() != edges {
         return Err(format!(
@@ -667,32 +675,8 @@ fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), Stri
         ));
     };
     let mut pos = 0;
-    let mut lists = |degrees: &[usize], width: usize, bound: usize, what: &str| {
-        let mut out = Vec::with_capacity(degrees.len());
-        for (i, &d) in degrees.iter().enumerate() {
-            let len = if padded { width } else { d };
-            let entries = &rest[pos..pos + len];
-            pos += len;
-            let (ones, zeros) = entries.split_at(d);
-            if zeros.iter().any(|&z| z != 0) {
-                return Err(format!("{what} {}: more entries than its degree {d}", i + 1));
-            }
-            let mut list = Vec::with_capacity(d);
-            for &e in ones {
-                if e == 0 || e > bound {
-                    return Err(format!("{what} {}: the index {e} is outside 1 to {bound}", i + 1));
-                }
-                if list.contains(&(e - 1)) {
-                    return Err(format!("{what} {}: the index {e} is repeated", i + 1));
-                }
-                list.push(e - 1);
-            }
-            out.push(list);
-        }
-        Ok(out)
-    };
-    let cols = lists(&col_deg, max_col, m, "column")?;
-    let rows = lists(&row_deg, max_row, n, "row")?;
+    let cols = alist_lists(&rest, &mut pos, &col_deg, padded.then_some(max_col), m, "column")?;
+    let rows = alist_lists(&rest, &mut pos, &row_deg, padded.then_some(max_row), n, "row")?;
     for (c, col) in cols.iter().enumerate() {
         for &r in col {
             if !rows[r].contains(&c) {
@@ -701,6 +685,60 @@ fn parse_alist(text: &str) -> std::result::Result<(usize, Vec<Vec<usize>>), Stri
         }
     }
     Ok((n, rows))
+}
+
+/// The numbers of an `alist` text, the comments (after `#`) left out.
+fn alist_numbers(text: &str) -> std::result::Result<Vec<usize>, String> {
+    let mut numbers = Vec::new();
+    for (l, line) in text.lines().enumerate() {
+        let content = line.split('#').next().unwrap_or("");
+        for token in content.split_whitespace() {
+            numbers.push(token.parse::<usize>().map_err(|_| format!("line {}: {token:?} is not a number", l + 1))?);
+        }
+    }
+    Ok(numbers)
+}
+
+/// The degrees of the columns (or rows) are at most, and reach, the declared maximum.
+fn check_degrees(degrees: &[usize], max: usize, what: &str) -> std::result::Result<(), String> {
+    if degrees.iter().any(|&d| d > max) || degrees.iter().max() != Some(&max) {
+        return Err(format!("the {what} degrees do not have the maximum {max}"));
+    }
+    Ok(())
+}
+
+/// The lists of the columns (or rows) of degrees `degrees` read from `rest` at `pos`
+/// (0-based indices below `bound`), each padded to `width` with zeros when given.
+fn alist_lists(
+    rest: &[usize],
+    pos: &mut usize,
+    degrees: &[usize],
+    width: Option<usize>,
+    bound: usize,
+    what: &str,
+) -> std::result::Result<Vec<Vec<usize>>, String> {
+    let mut out = Vec::with_capacity(degrees.len());
+    for (i, &d) in degrees.iter().enumerate() {
+        let len = width.unwrap_or(d);
+        let entries = &rest[*pos..*pos + len];
+        *pos += len;
+        let (ones, zeros) = entries.split_at(d);
+        if zeros.iter().any(|&z| z != 0) {
+            return Err(format!("{what} {}: more entries than its degree {d}", i + 1));
+        }
+        let mut list = Vec::with_capacity(d);
+        for &e in ones {
+            if e == 0 || e > bound {
+                return Err(format!("{what} {}: the index {e} is outside 1 to {bound}", i + 1));
+            }
+            if list.contains(&(e - 1)) {
+                return Err(format!("{what} {}: the index {e} is repeated", i + 1));
+            }
+            list.push(e - 1);
+        }
+        out.push(list);
+    }
+    Ok(out)
 }
 
 impl BlockCode for LdpcCode {
@@ -747,9 +785,8 @@ impl BlockCode for LdpcCode {
                 }
             }
         }
-        if !self.is_codeword(&c) {
-            return Err(Error::Numerical("the encoder produced a non-codeword".into()));
-        }
+        // the encoders solve H c = 0 by construction (the tests check every family)
+        debug_assert!(self.is_codeword(&c), "the encoder produced a non-codeword");
         Ok(c)
     }
 
@@ -759,12 +796,108 @@ impl BlockCode for LdpcCode {
     }
 }
 
+impl SoftDecode for LdpcCode {
+    /// The a posteriori LLRs of the information bits of [`LdpcCode::decode_llr`]; the a
+    /// priori LLRs add to the channel LLRs of the information positions.
+    fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
+        expect_len(llr.len(), self.n, "LLRs")?;
+        expect_len(out.len(), self.k(), "a posteriori LLRs")?;
+        let mut channel = llr.to_vec();
+        if let Some(a) = apriori {
+            expect_len(a.len(), self.k(), "a priori LLRs")?;
+            for (&p, a) in self.info.iter().zip(a) {
+                channel[p] += a;
+            }
+        }
+        let mut post = channel.clone();
+        let it = self.propagate(&channel, &mut post);
+        for (o, &p) in out.iter_mut().zip(&self.info) {
+            *o = post[p];
+        }
+        Ok(it)
+    }
+}
+
 container_traits!(LdpcCode);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block::testing::awgn_llr;
+
+    /// The progressive edge growth as it was written in one function, eight levels deep.
+    fn former_peg_rows(n: usize, k: usize, var_degree: usize, seed: u64) -> Vec<Vec<usize>> {
+        let m = n - k;
+        let mut rng = com_core::rng::Rng::new(seed);
+        let mut check_vars: Vec<Vec<usize>> = vec![Vec::new(); m];
+        let mut var_checks: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let lowest = |cands: &[usize], cv: &[Vec<usize>], rng: &mut com_core::rng::Rng| -> usize {
+            let d = cands.iter().map(|&c| cv[c].len()).min().unwrap_or(0);
+            let best: Vec<usize> = cands.iter().copied().filter(|&c| cv[c].len() == d).collect();
+            best[rng.below(best.len())]
+        };
+        for v in 0..n {
+            for e in 0..var_degree {
+                let c = if e == 0 {
+                    let all: Vec<usize> = (0..m).collect();
+                    lowest(&all, &check_vars, &mut rng)
+                } else {
+                    // breadth-first expansion from v until no new check is reached
+                    let mut reached = vec![false; m];
+                    let mut frontier: VecDeque<usize> = VecDeque::new();
+                    for &c in &var_checks[v] {
+                        reached[c] = true;
+                        frontier.push_back(c);
+                    }
+                    let mut last_new: Vec<usize> = var_checks[v].clone();
+                    loop {
+                        let mut new = Vec::new();
+                        let mut next = VecDeque::new();
+                        while let Some(c) = frontier.pop_front() {
+                            for &u in &check_vars[c] {
+                                for &c2 in &var_checks[u] {
+                                    if !reached[c2] {
+                                        reached[c2] = true;
+                                        new.push(c2);
+                                        next.push_back(c2);
+                                    }
+                                }
+                            }
+                        }
+                        if new.is_empty() || reached.iter().all(|r| *r) {
+                            let unreached: Vec<usize> = (0..m).filter(|&c| !reached[c]).collect();
+                            break if unreached.is_empty() {
+                                let cands: Vec<usize> = if new.is_empty() { last_new.clone() } else { new };
+                                let cands: Vec<usize> =
+                                    cands.into_iter().filter(|c| !var_checks[v].contains(c)).collect();
+                                let cands = if cands.is_empty() {
+                                    (0..m).filter(|c| !var_checks[v].contains(c)).collect()
+                                } else {
+                                    cands
+                                };
+                                lowest(&cands, &check_vars, &mut rng)
+                            } else {
+                                lowest(&unreached, &check_vars, &mut rng)
+                            };
+                        }
+                        last_new = new;
+                        frontier = next;
+                    }
+                };
+                check_vars[c].push(v);
+                var_checks[v].push(c);
+            }
+        }
+        check_vars
+    }
+
+    #[test]
+    fn the_peg_graphs_are_those_of_the_former_construction() {
+        for (n, k, d, seed) in [(64, 32, 3, 1), (256, 128, 3, 7), (96, 48, 2, 3), (40, 10, 5, 2), (20, 18, 2, 1)] {
+            let code = LdpcCode::peg(n, k, d, seed).unwrap();
+            assert_eq!(code.rows(), former_peg_rows(n, k, d, seed), "({n}, {k}), degree {d}");
+        }
+    }
 
     /// The Gauss–Jordan elimination of `[B | I]` that `from_core_rows` wrote itself
     /// before it used `gf2::Matrix::reduce`.
@@ -873,8 +1006,8 @@ mod tests {
         let mut its = Vec::new();
         for layered in [false, true] {
             for rule in [CheckRule::SumProduct, CheckRule::NormalizedMinSum(0.8), CheckRule::OffsetMinSum(0.15)] {
-                code.layered = layered;
-                code.rule = rule;
+                code.decoder.layered = layered;
+                code.decoder.rule = rule;
                 let (post, it) = code.decode_llr(&y).unwrap();
                 assert!(code.is_codeword(&hard_decisions(&post)), "{rule:?} layered={layered}");
                 assert_eq!(code.decode_block(&y).unwrap(), info);

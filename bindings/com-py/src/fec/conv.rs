@@ -51,7 +51,7 @@ impl PyConv {
             "ConvolutionalCode(k={}, n={}, constraint={}, punctured={})",
             self.inner.k(),
             self.inner.n(),
-            self.inner.code.trellis.constraint,
+            self.inner.code().trellis().constraint(),
             py_bool(self.punctured)
         )
     }
@@ -65,10 +65,11 @@ impl PyConv {
         hard_decision: bool,
         puncture: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let code = ConvolutionalCode { trellis: Trellis::feedforward(constraint, &generators).py()?, k, hard_decision };
+        let mut code = ConvolutionalCode::new(Trellis::feedforward(constraint, &generators).py()?, k).py()?;
+        code.hard_decision = hard_decision;
         let p = match puncture {
             Some(p) => puncturer(p)?,
-            None => Puncturer::identity(code.trellis.n_out).py()?,
+            None => Puncturer::identity(code.trellis().n_out()).py()?,
         };
         Ok(PyConv { inner: Punctured::new(code, p).py()?, punctured: puncture.is_some() })
     }
@@ -95,7 +96,7 @@ impl PyConv {
     /// `i`), `None` without puncturing.
     #[getter]
     fn puncture(&self) -> Option<Vec<Vec<u32>>> {
-        self.punctured.then(|| pattern_rows(&self.inner.puncturer))
+        self.punctured.then(|| pattern_rows(self.inner.puncturer()))
     }
 
     /// The free distance of the (punctured) code (see :func:`free_distance`).
@@ -106,7 +107,7 @@ impl PyConv {
     /// Raises:
     ///     ValueError: for an invalid parameter (the message names it).
     fn free_distance(&self) -> PyResult<u32> {
-        comrs::fec::puncture::free_distance(&self.inner.code.trellis, &self.inner.puncturer).py()
+        comrs::fec::puncture::free_distance(self.inner.code().trellis(), self.inner.puncturer()).py()
     }
 
     /// Encode whole blocks.
@@ -191,14 +192,14 @@ impl Turbo {
     fn code(&self) -> &TurboCode {
         match self {
             Turbo::Plain(c) => c,
-            Turbo::Punctured(p) => &p.code,
+            Turbo::Punctured(p) => p.code(),
         }
     }
 
-    fn code_mut(&mut self) -> &mut TurboCode {
+    fn decoder_mut(&mut self) -> &mut TurboDecoder {
         match self {
-            Turbo::Plain(c) => c,
-            Turbo::Punctured(p) => &mut p.code,
+            Turbo::Plain(c) => &mut c.decoder,
+            Turbo::Punctured(p) => p.decoder_mut(),
         }
     }
 
@@ -217,7 +218,7 @@ impl PyTurbo {
             "TurboCode(k={}, n={}, iterations={}, punctured={})",
             self.inner.block().k(),
             self.inner.block().n(),
-            self.inner.code().iterations,
+            self.inner.code().decoder.iterations,
             py_bool(matches!(self.inner, Turbo::Punctured(_)))
         )
     }
@@ -241,9 +242,9 @@ impl PyTurbo {
             }
             None => Interleaver::random(k, seed),
         };
-        let mut code = TurboCode::with_interleaver(il);
-        code.iterations = iterations;
-        code.exact = exact;
+        let mut code = TurboCode::with_interleaver(il).py()?;
+        code.decoder.iterations = iterations;
+        code.decoder.exact = exact;
         let inner = match puncture {
             Some(p) => Turbo::Punctured(PuncturedTurbo::new(code, puncturer(p)?).py()?),
             None => Turbo::Plain(code),
@@ -275,19 +276,19 @@ impl PyTurbo {
     fn puncture(&self) -> Option<Vec<Vec<u32>>> {
         match &self.inner {
             Turbo::Plain(_) => None,
-            Turbo::Punctured(p) => Some(pattern_rows(&p.puncturer)),
+            Turbo::Punctured(p) => Some(pattern_rows(p.puncturer())),
         }
     }
 
     /// int: Decoding iterations (read and write).
     #[getter]
     fn get_iterations(&self) -> usize {
-        self.inner.code().iterations
+        self.inner.code().decoder.iterations
     }
 
     #[setter]
     fn set_iterations(&mut self, n: usize) {
-        self.inner.code_mut().iterations = n;
+        self.inner.decoder_mut().iterations = n;
     }
 
     /// Encode whole blocks.

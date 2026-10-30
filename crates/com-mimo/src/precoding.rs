@@ -38,6 +38,7 @@
 //!    technique for near-capacity multiantenna multiuser communication — Part I:
 //!    channel inversion and regularization," *IEEE Trans. Commun.*, 53(1), 2005.
 
+use crate::detection::FLOOR;
 use com_core::signal::Symbols;
 use com_core::traits::Precode;
 use com_core::{Error, Result, ensure};
@@ -94,7 +95,7 @@ impl Eigenmode {
     pub fn new(h: &ArrayView2<'_, C64>, total_power: f64, noise_var: f64, water_filling: bool) -> Result<Eigenmode> {
         ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
         let (u, s, v) = svd(h);
-        let nonzero: Vec<usize> = (0..s.len()).filter(|&i| s[i] > 1e-12 * s[0].max(1e-300)).collect();
+        let nonzero: Vec<usize> = (0..s.len()).filter(|&i| s[i] > 1e-12 * s[0].max(FLOOR)).collect();
         ensure(!nonzero.is_empty(), || "the channel is zero".into())?;
         let powers_all = if water_filling {
             water_filling_powers(&s.iter().map(|x| x * x / noise_var).collect::<Vec<_>>(), total_power)?
@@ -122,8 +123,17 @@ impl Eigenmode {
 
 impl Precode for Eigenmode {
     fn precode_into(&self, x: &Symbols, out: &mut Symbols) -> Result<()> {
-        LinearPrecoder { w: self.precoder.clone() }.precode_into(x, out)
+        precode_with(&self.precoder, x, out)
     }
+}
+
+/// $x = W s$ for every column of the streams `x` into `out`.
+fn precode_with(w: &CMat, x: &Symbols, out: &mut Symbols) -> Result<()> {
+    if x.n_streams() != w.ncols() {
+        return Err(Error::Shape(format!("{} streams for a precoder of {}", x.n_streams(), w.ncols())));
+    }
+    out.assign(&w.dot(x.as_array()));
+    Ok(())
 }
 
 /// A linear precoder $x = W s$ (one column of the streams at a time).
@@ -165,11 +175,7 @@ impl LinearPrecoder {
 
 impl Precode for LinearPrecoder {
     fn precode_into(&self, x: &Symbols, out: &mut Symbols) -> Result<()> {
-        if x.n_streams() != self.w.ncols() {
-            return Err(Error::Shape(format!("{} streams for a precoder of {}", x.n_streams(), self.w.ncols())));
-        }
-        out.assign(&self.w.dot(x.as_array()));
-        Ok(())
+        precode_with(&self.w, x, out)
     }
 }
 

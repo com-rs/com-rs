@@ -66,7 +66,7 @@ fn alamouti_over_rayleigh_fading() {
                 let x = code.encode(&s).unwrap();
                 let h = ch.draw(&mut rng).unwrap();
                 let y: Array2<C64> = h.dot(&x).mapv(|v| v + rng.complex_gaussian() * (1.0 / g).sqrt());
-                let (est, _) = code.decode(&h.view(), &y.view(), 1.0 / g).unwrap();
+                let est = code.decode(&h.view(), &y.view(), 1.0 / g).unwrap().symbols;
                 errors += est.iter().zip(bits).filter(|(e, b)| (e.re < 0.0) != (*b == 1)).count() as u64;
                 total += 2;
             }
@@ -190,9 +190,9 @@ fn diversity_orders_follow_yang_hanzo_2015_table_x() {
             ("ZF-SIC", Box::new(unordered_zf), (low, low), linear),
             ("ZF-OSIC", Box::new(Sic::zf(c.clone())), (low, osic), linear),
             ("MMSE-OSIC", Box::new(Sic::mmse(c.clone())), (low, osic), linear),
-            ("K-best K=1", Box::new(KBest::new(c.clone(), 1)), (low, low), linear),
-            ("K-best K=2", Box::new(KBest::new(c.clone(), 2)), (low, full), linear),
-            ("K-best K=4", Box::new(KBest::new(c.clone(), 4)), (full, full), high),
+            ("K-best K=1", Box::new(KBest::new(c.clone(), 1).unwrap()), (low, low), linear),
+            ("K-best K=2", Box::new(KBest::new(c.clone(), 2).unwrap()), (low, full), linear),
+            ("K-best K=4", Box::new(KBest::new(c.clone(), 4).unwrap()), (full, full), high),
         ];
         for (name, det, (lo, hi), snrs) in detectors {
             let ber = ber_curve(det.as_ref(), nt, nr, &snrs, 1000, 1_000_000);

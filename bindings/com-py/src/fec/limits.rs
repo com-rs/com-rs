@@ -111,7 +111,7 @@ fn bpsk_noise_variance(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyA
 ///     [4.0, -2.0]
 #[pyfunction]
 fn bpsk_llr<'py>(py: Python<'py>, y: &Bound<'py, PyAny>, noise_var: f64) -> PyResult<FArr<'py>> {
-    Ok(farr(py, comrs::fec::block::bpsk_llr(&fvec(y)?, noise_var)))
+    Ok(farr(py, comrs::mapping::demapper::bpsk_llr(&fvec(y)?, noise_var)))
 }
 
 /// Register the bindings of this module.

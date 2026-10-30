@@ -98,12 +98,12 @@ impl PyDvbs2 {
     /// int: LDPC iterations (sum-product, layered; read and write).
     #[getter]
     fn get_iterations(&self) -> usize {
-        self.inner.fec().ldpc().max_iterations
+        self.inner.fec().ldpc().decoder.max_iterations
     }
 
     #[setter]
     fn set_iterations(&mut self, n: usize) {
-        self.inner.fec_mut().ldpc_mut().max_iterations = n;
+        self.inner.fec_mut().ldpc_mut().decoder.max_iterations = n;
     }
 
     /// The PLFRAME of a BBFRAME.

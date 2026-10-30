@@ -262,7 +262,7 @@ impl Dvbs2Fec {
         let mut ldpc = LdpcCode::accumulate(n, ldpc_rows(n, p.k_ldpc, p.table))?;
         // sum-product: the normalised min-sum loses 0.2 dB at rate 1/2 and fails at the
         // thresholds of Table 13 for the rates 1/4 and 1/3
-        ldpc.rule = CheckRule::SumProduct;
+        ldpc.decoder.rule = CheckRule::SumProduct;
         Ok(Dvbs2Fec { frame, rate, bch, ldpc })
     }
 
@@ -356,7 +356,8 @@ impl BlockCode for Dvbs2Fec {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
-    use com_fec::block::{bpsk, bpsk_llr};
+    use com_mapping::constellation::bpsk;
+    use com_mapping::demapper::bpsk_llr;
 
     #[test]
     fn every_code_has_the_dimensions_of_tables_5a_and_5b() {

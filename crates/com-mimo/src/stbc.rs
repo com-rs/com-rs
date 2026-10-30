@@ -41,6 +41,7 @@
 //!
 //! # Examples
 //! ```
+//! use com_mimo::detection::Estimates;
 //! use com_mimo::stbc::Ostbc;
 //! use com_math::C64;
 //! use ndarray::array;
@@ -48,7 +49,7 @@
 //! let s = [C64::new(1.0, 1.0), C64::new(-1.0, 1.0)];
 //! let x = code.encode(&s)?;                                  // 2 antennas × 2 uses
 //! let h = array![[C64::new(0.8, -0.3), C64::new(-0.2, 1.1)]]; // one receive antenna
-//! let (est, var) = code.decode(&h.view(), &h.dot(&x).view(), 0.01)?;
+//! let Estimates { symbols: est, noise_var: var } = code.decode(&h.view(), &h.dot(&x).view(), 0.01)?;
 //! assert!(est.iter().zip(&s).all(|(a, b)| (a - b).norm() < 1e-12));
 //! // the noise variance of every estimate is σ²/(c² ‖H‖²), with c² = 1/2 for Alamouti
 //! let h2: f64 = h.iter().map(|v| v.norm_sqr()).sum();
@@ -65,6 +66,7 @@
 //! 3. O. Tirkkonen and A. Hottinen, "Square-matrix embeddable space-time block codes
 //!    for complex signal constellations," *IEEE Trans. Inf. Theory*, 48(2), 2002.
 
+use crate::detection::{Estimates, FLOOR};
 use com_core::rng::Rng;
 use com_core::signal::Symbols;
 use com_core::traits::Precode;
@@ -131,10 +133,9 @@ impl Ostbc {
     }
 
     /// Alamouti's code: two antennas, rate one.
-    #[allow(clippy::missing_panics_doc, clippy::expect_used, reason = "the code is orthogonal by construction")]
     pub fn alamouti() -> Ostbc {
         Ostbc::from_generator("Alamouti", 2, 2, 2, |s| ndarray::array![[s[0], s[1]], [-s[1].conj(), s[0].conj()]])
-            .expect("Alamouti's code is orthogonal")
+            .unwrap_or_else(|_| unreachable!("Alamouti's code is orthogonal"))
     }
 
     /// The rate-3/4 code for three or four antennas (three symbols over four channel
@@ -229,62 +230,84 @@ impl Ostbc {
 
     /// Decode received blocks that share the channel `h` ($n_{r} \times n_{t}$): `y` is
     /// $n_{r} \times T \cdot$ blocks. Returns the estimate of every symbol and its noise
-    /// variance (the receiver noise has the variance `noise_var` per antenna).
+    /// variance (the receiver noise has the variance `noise_var` per antenna); the
+    /// equivalent channel is computed once for all the blocks.
     ///
     /// # Errors
     /// [`Error::Shape`] for inconsistent dimensions, [`Error::Numerical`] for a zero
     /// channel.
-    pub fn decode(
-        &self,
-        h: &ArrayView2<'_, C64>,
-        y: &ArrayView2<'_, C64>,
-        noise_var: f64,
-    ) -> Result<(Vec<C64>, Vec<f64>)> {
+    pub fn decode(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Estimates> {
         if y.ncols() % self.n_slots != 0 {
             return Err(Error::Shape(format!("{} channel uses is not a multiple of {}", y.ncols(), self.n_slots)));
         }
-        let hs = vec![h.to_owned(); y.ncols() / self.n_slots];
-        self.decode_blocks(&hs, y, noise_var)
+        self.check_channel(h, y.nrows())?;
+        let blocks = y.ncols() / self.n_slots;
+        let cols = self.equivalent(h);
+        let mut out = Estimates::default();
+        for blk in 0..blocks {
+            self.decode_block(&cols, y, blk, noise_var, &mut out)?;
+        }
+        Ok(out)
     }
 
     /// [`Ostbc::decode`] with one channel matrix per block.
     ///
     /// # Errors
     /// As [`Ostbc::decode`].
-    pub fn decode_blocks(&self, hs: &[CMat], y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<(Vec<C64>, Vec<f64>)> {
+    pub fn decode_blocks(&self, hs: &[CMat], y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Estimates> {
         let t = self.n_slots;
         if y.ncols() != hs.len() * t {
             return Err(Error::Shape(format!("{} channel uses for {} blocks of {t}", y.ncols(), hs.len())));
         }
-        let k = self.n_symbols();
-        let (mut est, mut var) = (Vec::with_capacity(hs.len() * k), Vec::with_capacity(hs.len() * k));
+        let mut out = Estimates::default();
         for (blk, h) in hs.iter().enumerate() {
-            if h.dim() != (y.nrows(), self.n_tx) {
-                return Err(Error::Shape(format!(
-                    "a {}×{} channel for {} receive and {} transmit antennas",
-                    h.nrows(),
-                    h.ncols(),
-                    y.nrows(),
-                    self.n_tx
-                )));
-            }
-            let cols = self.equivalent(&h.view());
-            let block: Vec<C64> =
-                (0..y.nrows()).flat_map(|r| (0..t).map(move |c| (r, c))).map(|(r, c)| y[[r, blk * t + c]]).collect();
-            let yr: Vec<f64> = block.iter().map(|x| x.re).chain(block.iter().map(|x| x.im)).collect();
-            let project = |u: &[f64]| -> Result<(f64, f64)> {
-                let n2: f64 = u.iter().map(|x| x * x).sum();
-                ensure(n2 > 1e-300, || "zero channel".into()).map_err(|_| Error::Numerical("zero channel".into()))?;
-                Ok((u.iter().zip(&yr).map(|(a, b)| a * b).sum::<f64>() / n2, n2))
-            };
-            for i in 0..k {
-                let (re, nu) = project(&cols[i])?;
-                let (im, nw) = project(&cols[k + i])?;
-                est.push(C64::new(re, im));
-                var.push(noise_var / 2.0 * (1.0 / nu + 1.0 / nw));
-            }
+            self.check_channel(&h.view(), y.nrows())?;
+            self.decode_block(&self.equivalent(&h.view()), y, blk, noise_var, &mut out)?;
         }
-        Ok((est, var))
+        Ok(out)
+    }
+
+    /// [`Error::Shape`] unless `h` is $n_{r} \times n_{t}$.
+    fn check_channel(&self, h: &ArrayView2<'_, C64>, n_rx: usize) -> Result<()> {
+        if h.dim() != (n_rx, self.n_tx) {
+            return Err(Error::Shape(format!(
+                "a {}×{} channel for {n_rx} receive and {} transmit antennas",
+                h.nrows(),
+                h.ncols(),
+                self.n_tx
+            )));
+        }
+        Ok(())
+    }
+
+    /// The estimates of block `blk` of `y` by the projections on the columns `cols` of
+    /// its real equivalent channel, appended to `out`.
+    fn decode_block(
+        &self,
+        cols: &[Vec<f64>],
+        y: &ArrayView2<'_, C64>,
+        blk: usize,
+        noise_var: f64,
+        out: &mut Estimates,
+    ) -> Result<()> {
+        let (t, k) = (self.n_slots, self.n_symbols());
+        let block: Vec<C64> =
+            (0..y.nrows()).flat_map(|r| (0..t).map(move |c| (r, c))).map(|(r, c)| y[[r, blk * t + c]]).collect();
+        let yr: Vec<f64> = block.iter().map(|x| x.re).chain(block.iter().map(|x| x.im)).collect();
+        let project = |u: &[f64]| -> Result<(f64, f64)> {
+            let n2: f64 = u.iter().map(|x| x * x).sum();
+            if n2.is_nan() || n2 <= FLOOR {
+                return Err(Error::Numerical("zero channel".into()));
+            }
+            Ok((u.iter().zip(&yr).map(|(a, b)| a * b).sum::<f64>() / n2, n2))
+        };
+        for i in 0..k {
+            let (re, nu) = project(&cols[i])?;
+            let (im, nw) = project(&cols[k + i])?;
+            out.symbols.push(C64::new(re, im));
+            out.noise_var.push(noise_var / 2.0 * (1.0 / nu + 1.0 / nw));
+        }
+        Ok(())
     }
 }
 
@@ -352,12 +375,32 @@ mod tests {
                         y.column_mut(b * t + c).assign(&h.dot(&x.column(b * t + c)));
                     }
                 }
-                let (est, var) = code.decode_blocks(&hs, &y.view(), 0.1).unwrap();
+                let Estimates { symbols: est, noise_var: var } = code.decode_blocks(&hs, &y.view(), 0.1).unwrap();
                 assert!(est.iter().zip(&s).all(|(a, b)| (a - b).norm() < 1e-10), "{} nr={nr}", code.name());
                 // the noise variance is σ²/(c² ‖H‖²) for every symbol of a block
                 let h0: f64 = hs[0].iter().map(C64::norm_sqr).sum();
                 assert!((var[0] - 0.1 / (code.scale * code.scale * h0)).abs() < 1e-12);
             }
+        }
+    }
+
+    #[test]
+    fn a_constant_channel_decodes_as_one_channel_per_block() {
+        let mut rng = Rng::new(4);
+        for code in [Ostbc::alamouti(), Ostbc::rate_3_4(4).unwrap()] {
+            let h = Array2::from_shape_fn((3, code.n_tx()), |_| rng.complex_gaussian());
+            let y = Array2::from_shape_fn((3, 6 * code.n_slots()), |_| rng.complex_gaussian());
+            let once = code.decode(&h.view(), &y.view(), 0.2).unwrap();
+            // the former decode: the channel cloned for every block
+            let per_block = code.decode_blocks(&vec![h.clone(); 6], &y.view(), 0.2).unwrap();
+            let bits = |e: &Estimates| -> Vec<u64> {
+                e.symbols
+                    .iter()
+                    .flat_map(|z| [z.re.to_bits(), z.im.to_bits()])
+                    .chain(e.noise_var.iter().map(|v| v.to_bits()))
+                    .collect()
+            };
+            assert_eq!(bits(&once), bits(&per_block));
         }
     }
 
@@ -371,7 +414,7 @@ mod tests {
         let x = code.encode(&s).unwrap();
         let s2: f64 = 0.3;
         let y = h.dot(&x).mapv(|v| v + rng.complex_gaussian() * s2.sqrt());
-        let (est, var) = code.decode(&h.view(), &y.view(), s2).unwrap();
+        let Estimates { symbols: est, noise_var: var } = code.decode(&h.view(), &y.view(), s2).unwrap();
         let mse: f64 = est.iter().zip(&s).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>() / s.len() as f64;
         assert!((mse / var[0] - 1.0).abs() < 0.03, "{mse} vs {}", var[0]);
     }
@@ -411,7 +454,7 @@ mod literature {
             let x = code.encode(&s).unwrap();
             let h = Array2::from_shape_fn((2, n_tx), |_| rng.complex_gaussian());
             let y = h.dot(&x);
-            let (decoded, _) = code.decode(&h.view(), &y.view(), 1e-12).unwrap();
+            let decoded = code.decode(&h.view(), &y.view(), 1e-12).unwrap().symbols;
             assert!(decoded.iter().zip(&s).all(|(a, b)| (a - b).norm() < 1e-9), "{n_tx} antennas");
         }
     }

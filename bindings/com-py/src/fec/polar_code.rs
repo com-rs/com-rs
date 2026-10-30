@@ -42,7 +42,7 @@ impl PyPolar {
         if let Some(c) = crc {
             code = code.with_crc(Crc::from_name(c).py()?).py()?;
         }
-        Ok(PyPolar { inner: code.with_list(list_size) })
+        Ok(PyPolar { inner: code.with_list(list_size).py()? })
     }
 
     /// int: Information bits per block.
