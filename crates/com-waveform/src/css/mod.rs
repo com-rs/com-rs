@@ -46,19 +46,38 @@
 //! This module models the published descriptions above for simulation and research; it
 //! is not the code of any vendor nor a certified implementation.
 //!
+//! # Verb traits
+//!
+//! [`Css`] implements `Modulate<Labels>` and `Demodulate<Labels>` of `com-core` on one
+//! stream of symbol indices ([`Labels`]), at its [`Css::sample_rate`] (1 Hz by default,
+//! time in samples), the demodulator refusing an input at another rate: the slice methods
+//! [`Css::modulate`] and [`Css::demodulate`] (the noncoherent decisions) inside. The soft
+//! output, [`Css::energies`], stays a method.
+//!
 //! # Examples
 //! ```
+//! use com_core::prelude::*;
 //! use com_waveform::css::Css;
 //! let css = Css::lora(7)?;
 //! let s = css.modulate(&[0, 5, 127])?;
 //! assert_eq!(s.len(), 3 * 128);
 //! assert!(s.iter().all(|v| (v.norm() - 1.0).abs() < 1e-12));   // constant envelope
 //! assert_eq!(css.demodulate(&s)?, vec![0, 5, 127]);
+//! // the same through the verb traits
+//! let mut css = Css { sample_rate: Hertz(125e3), ..css };
+//! let x = Modulate::modulate(&css, &Labels::from_stream(vec![0, 5, 127])?)?;
+//! assert_eq!((x.stream(0), x.sample_rate()), (&s[..], Hertz(125e3)));
+//! let a: Labels = Demodulate::demodulate(&mut css, &x)?;
+//! assert_eq!(a.stream(0), [0, 5, 127]);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 
 pub mod theory;
 
+use crate::ofdm::{check_input, check_rate};
+use com_core::signal::{Labels, Signal};
+use com_core::traits::{Demodulate, Modulate};
+use com_core::units::Hertz;
 use com_core::{Result, ensure, ensure_shape};
 use com_math::{C64, cis, fft};
 use std::f64::consts::TAU;
@@ -103,10 +122,13 @@ pub struct Css {
     pub oversampling: usize,
     /// The family of waveforms.
     pub waveform: Waveform,
+    /// The sample rate of the signal of the verb traits, `J` times the chip rate `B`
+    /// (1 Hz by default: time in samples).
+    pub sample_rate: Hertz,
 }
 
 impl Css {
-    /// The LoRa waveform at one sample per chip.
+    /// The LoRa waveform at one sample per chip, at 1 Hz.
     ///
     /// # Errors
     /// As [`Css::check`]: the spreading factor lies in 1..=16.
@@ -120,7 +142,7 @@ impl Css {
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn lora(sf: u32) -> Result<Css> {
-        let css = Css { sf, oversampling: 1, waveform: Waveform::LoRa };
+        let css = Css { sf, oversampling: 1, waveform: Waveform::LoRa, sample_rate: Hertz(1.0) };
         css.check()?;
         Ok(css)
     }
@@ -138,10 +160,12 @@ impl Css {
     /// Check the configuration.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] unless the spreading factor lies in 1..=16 and the
-    /// oversampling factor is at least 1 (exactly 1 for the FSK reference).
+    /// [`com_core::Error::Config`] unless the spreading factor lies in 1..=16, the
+    /// oversampling factor is at least 1 (exactly 1 for the FSK reference) and the sample
+    /// rate is positive and finite.
     pub fn check(&self) -> Result<()> {
         ensure((1..=16).contains(&self.sf), || format!("the spreading factor must lie in 1..=16, got {}", self.sf))?;
+        check_rate(self.sample_rate)?;
         ensure(self.oversampling >= 1, || "the oversampling factor must be at least 1".into())?;
         ensure(self.waveform == Waveform::LoRa || self.oversampling == 1, || {
             format!("the {:?} waveform is defined at one sample per chip", self.waveform)
@@ -249,6 +273,32 @@ impl Css {
     }
 }
 
+/// CSS as a [`Modulate`] block: one stream of symbol indices into one stream of samples
+/// at [`Css::sample_rate`], by [`Css::modulate`].
+impl Modulate<Labels> for Css {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams, and the errors of
+    /// [`Css::modulate`].
+    fn modulate_into(&self, x: &Labels, out: &mut Signal) -> Result<()> {
+        ensure(x.n_streams() == 1, || format!("CSS modulates one stream, not {}", x.n_streams()))?;
+        out.set_stream(&Css::modulate(self, x.stream(0))?, self.sample_rate);
+        Ok(())
+    }
+}
+
+/// CSS as a [`Demodulate`] block: the noncoherent decisions of [`Css::demodulate`] on one
+/// stream of samples at [`Css::sample_rate`].
+impl Demodulate<Labels> for Css {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
+    /// and the errors of [`Css::demodulate`].
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Labels) -> Result<()> {
+        check_input(y, self.sample_rate, "CSS")?;
+        out.set_stream(&Css::demodulate(self, y.stream(0))?);
+        Ok(())
+    }
+}
+
 /// The tables of [`Css::modulate`]: the chirp of symbol 0 and the tones
 /// $e^{j 2\pi k/(JM)}$, $k < JM$.
 struct Chirps {
@@ -288,6 +338,33 @@ impl Chirps {
 mod tests {
     use super::*;
 
+    /// The verb traits give the samples and the decisions of the slice methods, bit for
+    /// bit, at the sample rate of the configuration; an input at another rate or with two
+    /// streams is refused.
+    #[test]
+    fn the_verb_traits_are_the_slice_methods() {
+        let mut rng = com_core::rng::Rng::new(7);
+        for (sf, oversampling, waveform) in
+            [(7u32, 1usize, Waveform::LoRa), (8, 4, Waveform::LoRa), (6, 1, Waveform::Fsk)]
+        {
+            let mut css = Css { sf, oversampling, waveform, sample_rate: Hertz(250e3) };
+            let a: Vec<usize> = (0..50).map(|_| rng.below(css.m())).collect();
+            let s = css.modulate(&a).unwrap();
+            let mut x = Signal::zeros(0, 0, Hertz(1.0));
+            css.modulate_into(&Labels::from_stream(a.clone()).unwrap(), &mut x).unwrap();
+            assert_eq!((x.stream(0), x.sample_rate()), (&s[..], Hertz(250e3)));
+            // a noisy signal: the decisions of the trait are those of the method
+            let noisy: Vec<C64> = s.iter().map(|v| v + C64::new(rng.gaussian(), rng.gaussian()) * 3.0).collect();
+            let y = Signal::from_stream(noisy.clone(), Hertz(250e3)).unwrap();
+            let mut out = Labels::default();
+            css.demodulate_into(&y, &mut out).unwrap();
+            assert_eq!(out.stream(0), css.demodulate(&noisy).unwrap());
+            assert!(css.demodulate_into(&Signal::from_stream(noisy, Hertz(1.0)).unwrap(), &mut out).is_err());
+            assert!(Modulate::modulate(&css, &Labels::zeros(2, 4)).is_err());
+        }
+        assert!(Css { sample_rate: Hertz(0.0), ..Css::lora(7).unwrap() }.check().is_err());
+    }
+
     /// The chirps were computed from their phase, sample after sample and symbol after
     /// symbol, before they were tabulated: the same samples within $10^{-11}$ up to
     /// SF 12, symbol 0 exactly. Against the phase reduced exactly modulo
@@ -306,7 +383,7 @@ mod tests {
             (10, 1, Waveform::Vangelista),
             (7, 1, Waveform::Fsk),
         ] {
-            let css = Css { sf, oversampling, waveform };
+            let css = Css { sf, oversampling, waveform, sample_rate: Hertz(1.0) };
             let m = css.m();
             let jf = oversampling as f64;
             let symbols: Vec<usize> = (0..m).step_by((m / 64).max(1)).chain([m - 1]).collect();
@@ -343,7 +420,7 @@ mod tests {
     fn the_waveforms_are_orthogonal_and_the_fft_receiver_is_the_correlator_bank() {
         // Vangelista 2017, eqs. (9) and (16); Chiani and Elzanaty 2019, Property 3
         for waveform in [Waveform::LoRa, Waveform::Vangelista, Waveform::Fsk] {
-            let css = Css { sf: 5, oversampling: 1, waveform };
+            let css = Css { sf: 5, oversampling: 1, waveform, sample_rate: Hertz(1.0) };
             let m = css.m();
             let x: Vec<Vec<C64>> = (0..m).map(|a| css.symbol(a).unwrap()).collect();
             for i in 0..m {
@@ -366,7 +443,7 @@ mod tests {
     #[test]
     fn lora_is_a_continuous_phase_chirp_sampled_at_any_rate() {
         // Chiani and Elzanaty 2019, Property 1: the phase starts and ends at 0 (mod 2π)
-        let css = Css { sf: 6, oversampling: 8, waveform: Waveform::LoRa };
+        let css = Css { sf: 6, oversampling: 8, waveform: Waveform::LoRa, sample_rate: Hertz(1.0) };
         let m = css.m() as f64;
         for a in [0usize, 1, 17, 63] {
             let end = css.phase(a, m - 1e-9).rem_euclid(TAU);
@@ -387,7 +464,7 @@ mod tests {
             let want = cis(TAU * n * (9.0 / 64.0 - 0.5 + n / 128.0));
             assert!((v - want).norm() < 1e-9);
         }
-        assert!(Css { sf: 6, oversampling: 2, waveform: Waveform::Fsk }.symbol(0).is_err());
+        assert!(Css { sf: 6, oversampling: 2, waveform: Waveform::Fsk, sample_rate: Hertz(1.0) }.symbol(0).is_err());
         assert!(one.symbol(64).is_err() && Css::lora(0).is_err());
     }
 

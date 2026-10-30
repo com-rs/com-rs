@@ -589,7 +589,7 @@ mod tests {
     fn the_cross_correlation_is_that_of_the_sampled_waveforms() {
         // Chiani and Elzanaty 2019, eq. (7), against the inner product of the waveforms
         // sampled 64 times per chip (an O(1/J) error)
-        let css = Css { sf: 4, oversampling: 64, waveform: Waveform::LoRa };
+        let css = Css { sf: 4, oversampling: 64, waveform: Waveform::LoRa, sample_rate: com_core::units::Hertz(1.0) };
         let x: Vec<Vec<C64>> = (0..16).map(|a| css.symbol(a).unwrap()).collect();
         let n = x[0].len() as f64;
         for (l, q) in [(0usize, 1usize), (3, 7), (15, 2), (5, 13), (6, 6)] {

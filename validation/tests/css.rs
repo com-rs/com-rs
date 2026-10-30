@@ -30,18 +30,22 @@ use comrs::metrics::errors::symbol_errors;
 use comrs::prelude::*;
 use comrs::waveform::css::{Css, Waveform, theory};
 
-/// SER of `css` through the taps `h` (applied to the stream) at the SNR per sample `snr_db`.
+/// SER of `css` through the taps `h` (applied to the stream) at the SNR per sample
+/// `snr_db`, through the verb traits `Modulate<Labels>` and `Demodulate<Labels>`.
 fn ser_channel(css: &Css, h: &[f64], snr_db: f64, n_sym: usize, seed: u64) -> f64 {
     let mut rng = Rng::new(seed);
+    let mut css = css.clone();
     let m = css.m();
     let s: Vec<usize> = (0..n_sym).map(|_| rng.below(m)).collect();
-    let x = css.modulate(&s).unwrap();
+    let x = Modulate::modulate(&css, &Labels::from_stream(s.clone()).unwrap()).unwrap();
     // the causal filter, then the noise
     let hc: Vec<C64> = h.iter().map(|&v| C64::new(v, 0.0)).collect();
-    let mut y = convolve_full(&hc, &x);
+    let mut y = convolve_full(&hc, x.stream(0));
     y.truncate(x.len());
     add_noise(&mut y, comrs::math::db2lin(-snr_db), &mut rng);
-    symbol_errors(&css.demodulate(&y).unwrap(), &s).unwrap() as f64 / n_sym as f64
+    let y = Signal::from_stream(y, x.sample_rate()).unwrap();
+    let decided: Labels = Demodulate::demodulate(&mut css, &y).unwrap();
+    symbol_errors(decided.stream(0), &s).unwrap() as f64 / n_sym as f64
 }
 
 /// SER under a same-SF interferer of power `pi_db`, random offsets (integer and phase-aligned if `aligned`).
@@ -81,13 +85,13 @@ fn ber_of(ser: f64, m: usize) -> f64 {
 #[ignore = "statistical validation: run with --ignored"]
 fn vangelista2017_fig1_frequency_selective() {
     let h = [0.8f64.sqrt(), 0.2f64.sqrt()];
-    let fsk = Css { sf: 7, oversampling: 1, waveform: Waveform::Fsk };
+    let fsk = Css { waveform: Waveform::Fsk, ..Css::lora(7).unwrap() };
     for (snr, read) in [(-5.0, 1.2e-2), (-3.0, 1.5e-3)] {
         let b = ber_of(ser_channel(&fsk, &h, snr, 40_000, 1), 128);
         assert!((b / read - 1.0).abs() < 0.3, "FSK {snr} dB: {b} vs {read}");
     }
     for waveform in [Waveform::Vangelista, Waveform::LoRa] {
-        let css = Css { sf: 7, oversampling: 1, waveform };
+        let css = Css { waveform, ..Css::lora(7).unwrap() };
         for (snr, read) in [(-9.0, 2.4e-2), (-7.0, 4e-3), (-5.0, 6.5e-4)] {
             let b = ber_of(ser_channel(&css, &h, snr, 60_000, 2), 128);
             assert!((1.2..2.5).contains(&(b / read)), "{waveform:?} {snr} dB: {b} vs {read}");

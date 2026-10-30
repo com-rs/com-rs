@@ -74,6 +74,14 @@
 //!   merges of a few symbols, $d^{2} = \frac{\log_{2} M}{T} \int [1 - \cos \Delta
 //!   \varphi(t)] \\, dt$ (Anderson, Aulin & Sundberg, 1986, ch. 3), 2 for MSK.
 //!
+//! # Verb traits
+//!
+//! [`Cpm`] implements `Modulate<Labels>` ([`Cpm::modulate`]) and `Demodulate<Labels>`
+//! (the coherent maximum-likelihood sequence detector [`Cpm::ml_detect`]) of `com-core`
+//! on one stream of symbol indices, at its [`Cpm::sample_rate`] (1 Hz by default, time
+//! in samples; [`Cpm::with_sample_rate`]), the demodulator refusing an input at another
+//! rate. The other detectors and the phase states of the path stay methods.
+//!
 //! # Examples
 //! ```
 //! use com_waveform::cpm::{Cpm, CpmConfig, FrequencyPulse, msk_precode};
@@ -112,6 +120,10 @@ mod pulse;
 pub use detection::{MlPath, msk_bits, msk_precode};
 pub use pulse::{FrequencyPulse, gmsk_phase, gmsk_pulse, msk_psd};
 
+use crate::ofdm::{check_input, check_rate};
+use com_core::signal::{Labels, Signal};
+use com_core::traits::{Demodulate, Modulate};
+use com_core::units::Hertz;
 use com_core::{Error, Result, ensure};
 use com_math::{C64, cis};
 use std::f64::consts::{PI, TAU};
@@ -201,7 +213,7 @@ impl CpmConfig {
         // j intervals in the past at the sample i
         let q_table: Vec<f64> = (0..l * sps).map(|k| cfg.pulse.phase_response(k as f64 / sps as f64, l)).collect();
         let past_combos = cfg.order.pow((l - 1) as u32);
-        Ok(Cpm { cfg, q_table, past_combos })
+        Ok(Cpm { cfg, q_table, past_combos, sample_rate: Hertz(1.0) })
     }
 }
 
@@ -214,12 +226,42 @@ pub struct Cpm {
     q_table: Vec<f64>,
     /// $M^{L-1}$, the number of combinations of the past symbols of a state.
     past_combos: usize,
+    /// The sample rate of the signal of the verb traits.
+    sample_rate: Hertz,
 }
 
 impl Cpm {
     /// The validated parameters (the modulation index in lowest terms).
     pub fn config(&self) -> &CpmConfig {
         &self.cfg
+    }
+
+    /// The same modulator at the sample rate `sample_rate` (`sps` samples per symbol) of
+    /// the verb traits.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a sample rate that is not positive and finite.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::prelude::*;
+    /// use com_waveform::cpm::CpmConfig;
+    /// let mut msk = CpmConfig::msk(8).build()?.with_sample_rate(Hertz(8e3))?;
+    /// let a = Labels::from_stream(vec![1, 0, 0, 1, 1])?;
+    /// let s = Modulate::modulate(&msk, &a)?;
+    /// assert_eq!((s.len(), s.sample_rate()), (40, Hertz(8e3)));
+    /// assert_eq!(Demodulate::<Labels>::demodulate(&mut msk, &s)?, a);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn with_sample_rate(self, sample_rate: Hertz) -> Result<Cpm> {
+        check_rate(sample_rate)?;
+        Ok(Cpm { sample_rate, ..self })
+    }
+
+    /// The sample rate of the signal of the verb traits (1 Hz unless set by
+    /// [`Cpm::with_sample_rate`]).
+    pub fn sample_rate(&self) -> Hertz {
+        self.sample_rate
     }
 
     /// The modulation index $h = p/q$.
@@ -303,9 +345,63 @@ impl Cpm {
     }
 }
 
+/// CPM as a [`Modulate`] block: one stream of symbol indices into one stream of samples
+/// at [`Cpm::sample_rate`], by [`Cpm::modulate`].
+impl Modulate<Labels> for Cpm {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams, and the errors of
+    /// [`Cpm::modulate`].
+    fn modulate_into(&self, x: &Labels, out: &mut Signal) -> Result<()> {
+        ensure(x.n_streams() == 1, || format!("CPM modulates one stream, not {}", x.n_streams()))?;
+        out.set_stream(&Cpm::modulate(self, x.stream(0))?, self.sample_rate);
+        Ok(())
+    }
+}
+
+/// CPM as a [`Demodulate`] block: the coherent maximum-likelihood sequence detector
+/// [`Cpm::ml_detect`] on one stream of samples at [`Cpm::sample_rate`].
+impl Demodulate<Labels> for Cpm {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
+    /// and the errors of [`Cpm::ml_detect`].
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Labels) -> Result<()> {
+        check_input(y, self.sample_rate, "CPM")?;
+        out.set_stream(&self.ml_detect(y.stream(0))?);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The verb traits give the samples of `modulate` and the decisions of `ml_detect`,
+    /// bit for bit, at the sample rate of the modulator; an input at another rate or with
+    /// two streams is refused.
+    #[test]
+    fn the_verb_traits_are_the_slice_methods() {
+        let mut rng = com_core::rng::Rng::new(11);
+        for cfg in [
+            CpmConfig::msk(4),
+            CpmConfig::gmsk(0.3, 3, 8),
+            CpmConfig { order: 4, h_num: 1, h_den: 4, pulse: FrequencyPulse::RaisedCosine, length: 2, sps: 4 },
+        ] {
+            let mut cpm = cfg.build().unwrap().with_sample_rate(Hertz(1e6)).unwrap();
+            let a: Vec<usize> = (0..60).map(|_| rng.below(cfg.order)).collect();
+            let s = cpm.modulate(&a).unwrap();
+            let mut x = Signal::zeros(0, 0, Hertz(1.0));
+            cpm.modulate_into(&Labels::from_stream(a.clone()).unwrap(), &mut x).unwrap();
+            assert_eq!((x.stream(0), x.sample_rate()), (&s[..], Hertz(1e6)));
+            let noisy: Vec<C64> = s.iter().map(|v| v + C64::new(rng.gaussian(), rng.gaussian()) * 0.6).collect();
+            let y = Signal::from_stream(noisy.clone(), Hertz(1e6)).unwrap();
+            let mut out = Labels::default();
+            cpm.demodulate_into(&y, &mut out).unwrap();
+            assert_eq!(out.stream(0), cpm.ml_detect(&noisy).unwrap());
+            assert!(cpm.demodulate_into(&Signal::from_stream(noisy, Hertz(1.0)).unwrap(), &mut out).is_err());
+            assert!(Modulate::modulate(&cpm, &Labels::zeros(2, 4)).is_err());
+        }
+        assert!(CpmConfig::msk(4).build().unwrap().with_sample_rate(Hertz(f64::NAN)).is_err());
+    }
     use com_core::rng::Rng;
 
     #[test]

@@ -32,7 +32,12 @@ impl PyCss {
     #[new]
     #[pyo3(signature = (sf, *, oversampling=1, waveform="lora"))]
     fn new(sf: u32, oversampling: usize, waveform: &str) -> PyResult<Self> {
-        let inner = Css { sf, oversampling, waveform: waveform.parse::<Waveform>().py()? };
+        let inner = Css {
+            sf,
+            oversampling,
+            waveform: waveform.parse::<Waveform>().py()?,
+            sample_rate: comrs::core::units::Hertz(1.0),
+        };
         inner.symbol(0).py()?;
         Ok(PyCss { inner })
     }
