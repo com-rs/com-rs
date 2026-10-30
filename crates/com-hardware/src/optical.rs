@@ -49,7 +49,7 @@ use com_core::rng::Rng;
 use com_core::{Result, ensure, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
 use com_dsp::signal::freq_shift;
-use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, cis, db2lin, dbm2w};
+use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, ZERO_CELSIUS, cis, db2lin, dbm2w};
 use std::f64::consts::PI;
 
 /// A continuous-wave laser.
@@ -299,13 +299,12 @@ impl Photodiode {
         ensure(fs >= 2.0 * b, || format!("the sampling rate {fs} Hz is below twice the bandwidth {b} Hz"))?;
         if self.shot_noise {
             for v in &mut i {
-                let s2 = 2.0 * ELEMENTARY_CHARGE * (*v + self.dark_current) * b;
+                let s2 = shot_noise_variance(*v + self.dark_current, b);
                 *v += (fs * s2 / (2.0 * b)).max(0.0).sqrt() * rng.gaussian();
             }
         }
         if self.thermal_noise {
-            let t = self.temperature_c + 273.15;
-            let s2 = 4.0 * BOLTZMANN * t * b / self.load_ohm;
+            let s2 = thermal_noise_variance(self.temperature_c + ZERO_CELSIUS, self.load_ohm, b);
             let s = (fs * s2 / (2.0 * b)).sqrt();
             for v in &mut i {
                 *v += s * rng.gaussian();
@@ -393,9 +392,8 @@ impl PinFetReceiver {
     /// The variance of the shot noise (A²) for the received powers `signal_w` and
     /// `isi_w` and the noise bandwidth `bandwidth_hz`.
     pub fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
-        let q = ELEMENTARY_CHARGE;
-        2.0 * q * self.responsivity * (signal_w + isi_w) * bandwidth_hz
-            + 2.0 * q * self.background_current_a * self.i2 * bandwidth_hz
+        shot_noise_variance(self.responsivity * (signal_w + isi_w), bandwidth_hz)
+            + shot_noise_variance(self.background_current_a * self.i2, bandwidth_hz)
     }
 
     /// The variance of the thermal noise (A²) of a photodiode of area `area_m2`.
@@ -414,6 +412,35 @@ impl PinFetReceiver {
             + (self.responsivity * isi_w).powi(2);
         com_math::lin2db(s / n)
     }
+}
+
+/// The variance $2 q I B$ (A²) of the shot noise of the mean current `current_a` $I$ in
+/// the noise bandwidth `bandwidth_hz` $B$, the shot noise of [`Photodiode`] and of
+/// [`PinFetReceiver`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::shot_noise_variance;
+/// let v = shot_noise_variance(1e-3, 1e9);                    // 1 mA over 1 GHz
+/// assert!((v - 2.0 * com_math::ELEMENTARY_CHARGE * 1e-3 * 1e9).abs() < 1e-30);
+/// ```
+pub fn shot_noise_variance(current_a: f64, bandwidth_hz: f64) -> f64 {
+    2.0 * ELEMENTARY_CHARGE * current_a * bandwidth_hz
+}
+
+/// The variance $4 k T B / R$ (A²) of the thermal (Johnson–Nyquist) noise current of a
+/// resistance `resistance_ohm` $R$ at the absolute temperature `temperature_k` $T$ in the
+/// noise bandwidth `bandwidth_hz` $B$, the thermal noise of the load of [`Photodiode`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::thermal_noise_variance;
+/// // 50 Ω at 25 °C over 30 GHz: about 1e-11 A²
+/// let v = thermal_noise_variance(25.0 + com_math::ZERO_CELSIUS, 50.0, 30e9);
+/// assert!((v / 9.88e-12 - 1.0).abs() < 1e-3);
+/// ```
+pub fn thermal_noise_variance(temperature_k: f64, resistance_ohm: f64, bandwidth_hz: f64) -> f64 {
+    4.0 * BOLTZMANN * temperature_k * bandwidth_hz / resistance_ohm
 }
 
 /// Balanced detection `i(E₁) - i(E₂)`.
