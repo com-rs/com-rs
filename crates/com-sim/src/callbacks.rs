@@ -51,8 +51,11 @@ use std::time::Instant;
 pub enum Action {
     /// Go on.
     Continue,
-    /// At the start of a condition: do not run it; after a batch: stop the condition.
+    /// At the start of a condition: do not run it (after a batch, it stops the
+    /// condition as [`Action::StopCondition`] does).
     Skip,
+    /// After a batch: stop the condition (its status is `stopped`).
+    StopCondition,
     /// After a condition: run no further condition.
     StopRun,
 }
@@ -65,7 +68,7 @@ pub trait Callback: Send {
     fn on_condition_start(&mut self, _index: usize, _condition: &Condition) -> Action {
         Action::Continue
     }
-    /// After every batch of trials: [`Action::Skip`] stops the condition.
+    /// After every batch of trials: [`Action::StopCondition`] stops the condition.
     fn on_batch_end(&mut self, _progress: &Progress<'_>) -> Action {
         Action::Continue
     }

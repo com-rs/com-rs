@@ -415,7 +415,7 @@ impl Runner {
             let progress = Progress { condition: index, trials, record: &record, elapsed: t0.elapsed() };
             let mut stopped = false;
             for c in &mut self.callbacks {
-                if c.on_batch_end(&progress) == Action::Skip {
+                if matches!(c.on_batch_end(&progress), Action::StopCondition | Action::Skip) {
                     stopped = true;
                 }
             }
@@ -504,6 +504,19 @@ mod tests {
         assert!(Runner::new().stop(rule).run(&coin(), &grid).is_err());
         let rule = Stop::precision_at("u", 1e-9, 0.5).or(Stop::max_trials(4));
         assert_eq!(Runner::new().batch(2).stop(rule).run(&coin(), &grid).unwrap()[0].trials, 4);
+    }
+
+    #[test]
+    fn a_callback_stops_a_condition_after_a_batch() {
+        struct Once;
+        impl Callback for Once {
+            fn on_batch_end(&mut self, _: &Progress<'_>) -> Action {
+                Action::StopCondition
+            }
+        }
+        let r = Runner::new().batch(8).stop(Stop::max_trials(100)).callback(Once).run(&coin(), &Grid::new()).unwrap();
+        assert_eq!((r[0].status.clone(), r[0].trials), (Status::Stopped, 8));
+        assert_eq!(Stop::max_trials(5).and(Stop::min_trials(2)).to_string(), "(max_trials(5) and min_trials(2))");
     }
 
     #[test]

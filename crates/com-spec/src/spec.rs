@@ -448,12 +448,12 @@ mod tests {
     #[test]
     fn stopping_rules() {
         let s = |y: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nstop: {y}")).unwrap().stop.to_string();
-        assert_eq!(s("{}"), "trials ≥ 100");
-        assert_eq!(s("{max_trials: 5}"), "trials ≥ 5");
-        assert_eq!(s("{min_errors: {ber: 10}, max_trials: 5}"), "(errors(ber) ≥ 10 or trials ≥ 5)");
+        assert_eq!(s("{}"), "max_trials(100)");
+        assert_eq!(s("{max_trials: 5}"), "max_trials(5)");
+        assert_eq!(s("{min_errors: {ber: 10}, max_trials: 5}"), "(errors(ber) ≥ 10 or max_trials(5))");
         assert_eq!(
             s("{min_errors: {ber: 10}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5}"),
-            "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and trials ≥ 2) or trials ≥ 5)"
+            "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and min_trials(2)) or max_trials(5))"
         );
     }
 
@@ -483,7 +483,7 @@ mod tests {
             "name: t\nlink: [source]\nconfidence: 0.99\nstop: {precision: {snr_db: 0.1}, max_trials: 5}",
         )
         .unwrap();
-        assert_eq!(spec.stop.to_string(), "(precision(snr_db) ≤ 0.1 at 0.99 or trials ≥ 5)");
+        assert_eq!(spec.stop.to_string(), "(precision(snr_db) ≤ 0.1 at 0.99 or max_trials(5))");
         // the runner refuses it too, whoever builds it
         let spec = Spec::from_yaml("name: t\nlink: [source]\nstop: {max_trials: 2}").unwrap();
         let e = spec

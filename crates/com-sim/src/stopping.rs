@@ -37,7 +37,7 @@
 //! assert!(!rule.is_met(&p));            // enough errors but fewer than 10 trials
 //! let p = Progress { trials: 12, ..p };
 //! assert!(rule.is_met(&p));
-//! assert_eq!(rule.to_string(), "((errors(ber) ≥ 100 or trials ≥ 1000) and trials ≥ 10)");
+//! assert_eq!(rule.to_string(), "((errors(ber) ≥ 100 or max_trials(1000)) and min_trials(10))");
 //! ```
 
 use crate::scenario::Record;
@@ -62,9 +62,10 @@ pub struct Progress<'a> {
 /// A stopping rule.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stop {
-    /// At least this many trials.
+    /// At most this many trials: met once they have run (a cap, printed `max_trials(n)`).
     MaxTrials(u64),
-    /// Never before this many trials (use with [`Stop::and`]).
+    /// Never before this many trials (use with [`Stop::and`]; met once they have run,
+    /// as [`Stop::MaxTrials`], but printed `min_trials(n)`).
     MinTrials(u64),
     /// At least `errors` errors of the error rate `metric` (never met by a mean).
     MinErrors {
@@ -273,7 +274,8 @@ pub fn check_confidence(c: f64, what: &str) -> Result<()> {
 impl fmt::Display for Stop {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stop::MaxTrials(n) | Stop::MinTrials(n) => write!(f, "trials ≥ {n}"),
+            Stop::MaxTrials(n) => write!(f, "max_trials({n})"),
+            Stop::MinTrials(n) => write!(f, "min_trials({n})"),
             Stop::MinErrors { metric, errors } => write!(f, "errors({metric}) ≥ {errors}"),
             Stop::Precision { metric, relative, confidence } => {
                 write!(f, "precision({metric}) ≤ {relative} at {confidence}")

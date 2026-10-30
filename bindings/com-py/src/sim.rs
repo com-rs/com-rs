@@ -71,7 +71,7 @@ pub(crate) fn condition_of(d: &Bound<'_, PyAny>) -> PyResult<Condition> {
 /// Examples:
 ///     >>> from comrs.sim import Stop
 ///     >>> Stop.min_errors("ber", 100) | Stop.max_trials(1000)
-///     (errors(ber) ≥ 100 or trials ≥ 1000)
+///     (errors(ber) ≥ 100 or max_trials(1000))
 ///     >>> Stop.from_spec({"min_errors": {"ber": 100}, "max_trials": 1000}).bounded
 ///     True
 #[pyclass(name = "Stop", module = "comrs.sim", frozen)]
@@ -166,7 +166,7 @@ impl PyStop {
     /// Examples:
     ///     >>> from comrs.sim import Stop
     ///     >>> Stop.from_spec({"min_trials": 50})
-    ///     trials ≥ 50
+    ///     max_trials(50)
     #[staticmethod]
     fn from_spec(py: Python<'_>, stop: &Bound<'_, PyAny>) -> PyResult<Self> {
         let v = serde_json::json!({ "name": "stop", "link": ["source"], "stop": json(py, stop)? });
