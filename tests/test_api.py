@@ -503,9 +503,9 @@ def test_python_stopping_rules():
 def test_stop_mappings_are_parsed_by_the_rust_runner():
     # min_trials alone caps the trials (the rule of the specifications)
     assert sim.Stop.from_spec({"min_trials": 50}) == sim.Stop.max_trials(50)
-    assert repr(sim.Stop.from_spec({})) == "trials ≥ 100"
+    assert repr(sim.Stop.from_spec({})) == "max_trials(100)"
     rule = sim.Stop.from_spec({"min_errors": {"ber": 10}, "min_trials": 5, "max_trials": 9})
-    assert repr(rule) == "((errors(ber) ≥ 10 and trials ≥ 5) or trials ≥ 9)"
+    assert repr(rule) == "((errors(ber) ≥ 10 and min_trials(5)) or max_trials(9))"
     res = sim.run(bernoulli, [{"p": 0.5}], name="s", batch=1, stop={"min_trials": 3})
     assert res[0].trials == 3
 
