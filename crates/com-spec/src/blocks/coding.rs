@@ -49,6 +49,8 @@
 use super::schema::{ParamType, variants_schema};
 use super::{Block, Coding, ConstellationParam, Extension, Frame, ParamInfo, Params, parse_constellation};
 use com_core::rng::Rng;
+use com_core::signal::Symbols;
+use com_core::traits::{Demap as _, Demapping};
 use com_core::{Error, Result, ensure};
 use com_fec::block::BlockCode;
 use com_fec::conv::ConvolutionalCode;
@@ -59,7 +61,7 @@ use com_fec::polar::PolarCode;
 use com_fec::puncture::{Punctured, Puncturer};
 use com_fec::rs::ReedSolomon;
 use com_fec::turbo::{TurboCode, TurboDecoder};
-use com_mapping::constellation::Constellation;
+use com_mapping::constellation::{Constellation, log_priors};
 use com_math::C64;
 use com_math::Jacobian;
 use com_systems::pas::Pas;
@@ -438,15 +440,17 @@ impl Block for Demap {
         p.require_symbols("demap")?;
         let c = p.constellation("demap")?;
         let var = p.symbol_noise("demap")?;
+        let jacobian = Jacobian::from_max_log(self.max_log);
         let llr = if var.windows(2).all(|w| w[0] == w[1]) {
-            c.llr(
-                &p.samples,
-                var.first().copied().unwrap_or(1.0),
-                p.pmf.as_deref(),
-                Jacobian::from_max_log(self.max_log),
-            )?
+            // one noise variance: the soft demapper of the trait, with the log-priors of
+            // the probabilities of the source
+            let lp = p.pmf.as_deref().map(|px| c.priors(Some(px)).map(|q| log_priors(&q))).transpose()?;
+            let y = Symbols::from_stream(p.samples.clone())?;
+            let demapping = Demapping { log_priors: lp.as_deref(), jacobian };
+            c.demap_with(&y, var.first().copied().unwrap_or(1.0), demapping)?.as_slice().to_vec()
         } else {
-            c.llr_with_variances(&p.samples, &var, p.pmf.as_deref(), Jacobian::from_max_log(self.max_log))?
+            // one variance per symbol (a linear MIMO detector): the slice method
+            c.llr_with_variances(&p.samples, &var, p.pmf.as_deref(), jacobian)?
         };
         drop(pooled);
         s.coding.llr = llr;

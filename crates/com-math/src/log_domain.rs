@@ -1,5 +1,5 @@
 //! The log domain of probabilities and LLRs, without overflow: [`ln_1p_exp`],
-//! [`max_star`] and its choice [`Jacobian`], [`log_sum_exp`] and [`log_sum_exp_iter`]
+//! [`max_star`] and its choice [`Jacobian`] (of `com-core`), [`log_sum_exp`] and [`log_sum_exp_iter`]
 //! (re-exported at the root).
 
 /// `ln(1 + e^x)` (the softplus) without overflow.
@@ -15,45 +15,11 @@ pub fn ln_1p_exp(x: f64) -> f64 {
     x.max(0.0) + (-x.abs()).exp().ln_1p()
 }
 
-/// The Jacobian logarithm of the log-MAP algorithms and of the soft demappers, exact or
-/// approximated by its maximum:
-///
-/// $$
-/// \ln\left(e^{a} + e^{b}\right) = \max(a, b) + \ln\left(1 + e^{-\lvert a - b \rvert}\right)
-/// \approx \max(a, b).
-/// $$
-///
-/// One choice for [`max_star`], the BCJR and turbo decoders of `com-fec` and the
-/// demappers of `com-mapping`; a specification keeps the boolean key `max_log`
-/// ([`Jacobian::from_max_log`]).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Jacobian {
-    /// The exact logarithm (log-MAP, log-sum-exp).
-    #[default]
-    Exact,
-    /// The max-log approximation, $\max(a, b)$.
-    MaxLog,
-}
-
-impl Jacobian {
-    /// [`Jacobian::MaxLog`] when `max_log` is true, [`Jacobian::Exact`] otherwise (the
-    /// boolean key `max_log` of the specifications and of the Python API).
-    ///
-    /// # Examples
-    /// ```
-    /// use com_math::Jacobian;
-    /// assert_eq!(Jacobian::from_max_log(true), Jacobian::MaxLog);
-    /// assert_eq!(Jacobian::from_max_log(false), Jacobian::default());
-    /// ```
-    pub fn from_max_log(max_log: bool) -> Jacobian {
-        if max_log { Jacobian::MaxLog } else { Jacobian::Exact }
-    }
-
-    /// Whether the logarithm is exact.
-    pub fn is_exact(self) -> bool {
-        self == Jacobian::Exact
-    }
-}
+/// The Jacobian logarithm, exact or max-log: defined in `com-core`, since the soft
+/// demapper trait [`com_core::traits::Demap`] takes it, and re-exported here for
+/// [`max_star`], the BCJR and turbo decoders of `com-fec` and the demappers of
+/// `com-mapping`.
+pub use com_core::traits::Jacobian;
 
 /// The `max*` operation `ln(e^a + e^b)` of the log-MAP algorithms; `max(a, b)` with
 /// [`Jacobian::MaxLog`] or when the maximum is not finite.

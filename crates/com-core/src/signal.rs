@@ -1,4 +1,4 @@
-//! Multi-stream containers: bits, log-likelihood ratios, symbols and waveforms.
+//! Multi-stream containers: bits, log-likelihood ratios, symbols, labels and waveforms.
 //!
 //! Every container is two-dimensional, streams × elements, in standard (row-major)
 //! layout; SISO is `n_streams == 1`. MIMO, polarisation multiplexing and space-division
@@ -185,6 +185,13 @@ container!(
 container!(
     /// Complex symbols at one sample per symbol, one row per stream.
     Symbols, C64, C64::new(0.0, 0.0)
+);
+container!(
+    /// The labels of symbols, one row per stream: the index $a \in \\{0, \dots, M - 1\\}$
+    /// of every symbol of an alphabet of $M$ (a chirp of chirp spread spectrum, a level of
+    /// continuous-phase modulation, a point of a constellation), the input and the
+    /// decisions of the waveforms that carry an index (`Modulate<Labels>`).
+    Labels, usize, 0
 );
 
 /// A complex baseband waveform, `[n_streams, n_samples]`, with its sample rate.

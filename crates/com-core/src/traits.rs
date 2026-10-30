@@ -8,11 +8,18 @@
 //! [`Detect`] also have an allocating method that calls it. Randomness is always
 //! explicit: a random block receives `&mut SimRng`.
 //!
+//! The waveform traits are generic over the symbols they carry, [`Symbols`] by default:
+//! a waveform of complex symbols (OFDM) implements `Modulate`, one that carries the
+//! index of a symbol (chirp spread spectrum, continuous-phase modulation) implements
+//! `Modulate<Labels>` (`docs/adr/0012-index-symbol-waveforms.md`). [`Demap`] takes the
+//! a priori log-probabilities of the points and the [`Jacobian`] logarithm through
+//! [`Demapping`], uniform and exact by default.
+//!
 //! | Trait | Role | Input → output |
 //! |---|---|---|
 //! | [`Encode`] / [`Decode`] | channel coding | [`Bits`] → [`Bits`], [`Llr`] → [`Bits`] |
 //! | [`Map`] / [`Demap`] | constellation mapping | [`Bits`] → [`Symbols`] → [`Llr`] |
-//! | [`Modulate`] / [`Demodulate`] | waveform | [`Symbols`] → [`Signal`] → [`Symbols`] |
+//! | [`Modulate`] / [`Demodulate`] | waveform | [`Symbols`] or [`Labels`](crate::signal::Labels) → [`Signal`] → [`Symbols`] or [`Labels`](crate::signal::Labels) |
 //! | [`Precode`] / [`Detect`] | MIMO | [`Symbols`] → [`Symbols`] |
 //! | [`Propagate`] | propagation medium | [`Signal`] → [`Signal`] |
 //! | [`Impair`] | component non-ideality | [`Signal`] → [`Signal`] |
@@ -103,13 +110,108 @@ pub trait Map {
     }
 }
 
+/// The Jacobian logarithm of the log-MAP algorithms and of the soft demappers, exact or
+/// approximated by its maximum:
+///
+/// $$
+/// \ln\left(e^{a} + e^{b}\right) = \max(a, b) + \ln\left(1 + e^{-\lvert a - b \rvert}\right)
+/// \approx \max(a, b).
+/// $$
+///
+/// One choice for [`Demap`] ([`Demapping::jacobian`]), `max_star` of `com-math` (which
+/// re-exports it as `com_math::Jacobian`), the BCJR and turbo decoders of `com-fec` and
+/// the demappers of `com-mapping`; a specification keeps the boolean key `max_log`
+/// ([`Jacobian::from_max_log`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Jacobian {
+    /// The exact logarithm (log-MAP, log-sum-exp).
+    #[default]
+    Exact,
+    /// The max-log approximation, $\max(a, b)$.
+    MaxLog,
+}
+
+impl Jacobian {
+    /// [`Jacobian::MaxLog`] when `max_log` is true, [`Jacobian::Exact`] otherwise (the
+    /// boolean key `max_log` of the specifications and of the Python API).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::traits::Jacobian;
+    /// assert_eq!(Jacobian::from_max_log(true), Jacobian::MaxLog);
+    /// assert_eq!(Jacobian::from_max_log(false), Jacobian::default());
+    /// ```
+    pub fn from_max_log(max_log: bool) -> Jacobian {
+        if max_log { Jacobian::MaxLog } else { Jacobian::Exact }
+    }
+
+    /// Whether the logarithm is exact.
+    pub fn is_exact(self) -> bool {
+        self == Jacobian::Exact
+    }
+}
+
+/// The a priori information and the approximation of a soft demapper
+/// ([`Demap::demap_with_into`]). With the log-priors $\lambda_{x} = \ln P(x)$ of the
+/// points $x$ of the alphabet and the variance $\sigma^{2}$ of the complex noise, the
+/// LLR of a bit of the received symbol $y$ is
+///
+/// $$
+/// L(b) = \ln \sum_{x:\\, b = 0} e^{\lambda_{x} - |y - x|^{2} / \sigma^{2}}
+///      - \ln \sum_{x:\\, b = 1} e^{\lambda_{x} - |y - x|^{2} / \sigma^{2}},
+/// $$
+///
+/// each sum exact or max-log by [`Demapping::jacobian`]. A constant added to every
+/// $\lambda_{x}$ cancels, so the log-priors need not be normalised. The default, uniform
+/// priors and the exact logarithm, is that of [`Demap::demap_into`].
+///
+/// # Examples
+/// ```
+/// use com_core::traits::{Demapping, Jacobian};
+/// let lp = [-0.5f64, -1.5];
+/// let d = Demapping { log_priors: Some(&lp), jacobian: Jacobian::MaxLog };
+/// assert_eq!(Demapping::default(), Demapping { log_priors: None, jacobian: Jacobian::Exact });
+/// assert_ne!(d, Demapping::default());
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Demapping<'a> {
+    /// The a priori log-probabilities $\ln P(x)$, one per point in the order of the
+    /// labels (probabilistic shaping); `None` for uniform priors, which need no table.
+    pub log_priors: Option<&'a [f64]>,
+    /// The Jacobian logarithm of the sums over the labels: exact or max-log.
+    pub jacobian: Jacobian,
+}
+
 /// Soft demapping of received symbols into log-likelihood ratios.
 pub trait Demap {
-    /// Demap `y`, received with a complex noise variance `noise_var`, into `out`.
+    /// Demap `y`, received with a complex noise variance `noise_var`, into `out`, with
+    /// the priors and the logarithm of `demapping` (see [`Demapping`]).
     ///
     /// # Errors
-    /// For a non-positive noise variance.
-    fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()>;
+    /// [`crate::Error::Config`] for a noise variance that is not positive and finite, or
+    /// log-priors with a NaN or $+\infty$, or none finite; [`crate::Error::Shape`] for
+    /// log-priors of another length than the alphabet.
+    fn demap_with_into(&self, y: &Symbols, noise_var: f64, demapping: Demapping<'_>, out: &mut Llr) -> Result<()>;
+
+    /// Demap `y`, received with a complex noise variance `noise_var`, into `out`: the
+    /// exact LLRs under uniform priors ([`Demap::demap_with_into`] with the default
+    /// [`Demapping`]).
+    ///
+    /// # Errors
+    /// As [`Demap::demap_with_into`].
+    fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> {
+        self.demap_with_into(y, noise_var, Demapping::default(), out)
+    }
+
+    /// Demap `y` with `demapping` (allocates, calls [`Demap::demap_with_into`]).
+    ///
+    /// # Errors
+    /// As [`Demap::demap_with_into`].
+    fn demap_with(&self, y: &Symbols, noise_var: f64, demapping: Demapping<'_>) -> Result<Llr> {
+        let mut out = Llr::default();
+        self.demap_with_into(y, noise_var, demapping, &mut out)?;
+        Ok(out)
+    }
 
     /// Demap `y` (allocates, calls [`Demap::demap_into`]).
     ///
@@ -122,39 +224,45 @@ pub trait Demap {
     }
 }
 
-/// Modulation of symbols onto a waveform.
-pub trait Modulate {
+/// Modulation of symbols onto a waveform: complex [`Symbols`] by default, or the
+/// [`Labels`](crate::signal::Labels) of a waveform that carries the index of a symbol (`Modulate<Labels>`).
+pub trait Modulate<In = Symbols> {
     /// Modulate `x` into `out`.
     ///
     /// # Errors
     /// When the number of symbols does not fit the waveform structure.
-    fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()>;
+    fn modulate_into(&self, x: &In, out: &mut Signal) -> Result<()>;
 
     /// Modulate `x` (allocates, calls [`Modulate::modulate_into`]).
     ///
     /// # Errors
     /// As [`Modulate::modulate_into`].
-    fn modulate(&self, x: &Symbols) -> Result<Signal> {
+    fn modulate(&self, x: &In) -> Result<Signal> {
         let mut out = Signal::zeros(0, 0, Hertz(1.0));
         self.modulate_into(x, &mut out)?;
         Ok(out)
     }
 }
 
-/// Demodulation of a waveform back to symbols.
-pub trait Demodulate {
+/// Demodulation of a waveform back to symbols: complex [`Symbols`] by default, or the
+/// decided [`Labels`](crate::signal::Labels) of a waveform that carries the index of a symbol
+/// (`Demodulate<Labels>`).
+pub trait Demodulate<Out = Symbols> {
     /// Demodulate `y` into `out`.
     ///
     /// # Errors
     /// When the number of samples does not fit the waveform structure.
-    fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()>;
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Out) -> Result<()>;
 
     /// Demodulate `y` (allocates, calls [`Demodulate::demodulate_into`]).
     ///
     /// # Errors
     /// As [`Demodulate::demodulate_into`].
-    fn demodulate(&mut self, y: &Signal) -> Result<Symbols> {
-        let mut out = Symbols::default();
+    fn demodulate(&mut self, y: &Signal) -> Result<Out>
+    where
+        Out: Default,
+    {
+        let mut out = Out::default();
         self.demodulate_into(y, &mut out)?;
         Ok(out)
     }

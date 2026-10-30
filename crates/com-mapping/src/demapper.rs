@@ -18,8 +18,13 @@
 //! sum.
 //!
 //! [`Constellation`] implements the verb traits [`Map`] and [`Demap`] on the
-//! multi-stream containers, the latter with the exact (not max-log) LLRs and uniform
-//! priors.
+//! multi-stream containers: [`Demap::demap_into`] gives the exact LLRs under uniform
+//! priors, [`Demap::demap_with_into`] takes the log-priors $\ln p(x)$ of the points
+//! (probabilistic shaping) and the [`Jacobian`] in a [`Demapping`]. Both write into the
+//! caller's [`Llr`] and allocate nothing once its shape is stable (the metric row of a
+//! symbol is on the stack up to [`STACK_POINTS`] points); with log-priors from
+//! [`log_priors`] of the normalised [`Constellation::priors`], their LLRs are those of
+//! [`Constellation::llr`] with the probabilities, bit for bit.
 //!
 //! # Examples
 //! ```
@@ -32,14 +37,23 @@
 //! // positive LLR: bit 0
 //! let hard: Vec<u8> = com_core::signal::hard_decisions(llr.as_slice());
 //! assert_eq!(hard, bits.as_slice());
+//! // shaped priors and max-log: the log-priors of the normalised probabilities
+//! let px = [0.4, 0.3, 0.2, 0.1];
+//! let lp = com_mapping::constellation::log_priors(&c.priors(Some(&px))?);
+//! let shaped = c.demap_with(&x, 0.01, Demapping { log_priors: Some(&lp), jacobian: Jacobian::MaxLog })?;
+//! assert_eq!(shaped.as_slice(), c.llr(x.as_slice(), 0.01, Some(&px), Jacobian::MaxLog)?);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 
 use crate::constellation::{Constellation, log_priors};
 use com_core::signal::{Bits, Llr, Symbols};
-use com_core::traits::{Demap, Map};
+use com_core::traits::{Demap, Demapping, Map};
 use com_core::{Result, ensure, same_len};
 use com_math::{C64, Jacobian};
+
+/// The largest constellation whose metric row (one `f64` per point, 8 KiB) the demapper
+/// keeps on the stack; a larger one allocates the row once per call.
+pub const STACK_POINTS: usize = 1024;
 
 /// The metrics of one symbol over the two halves of its labels for one bit: the label
 /// $i$ of a point is in half $b$ when bit `shift` of $i$ is $b$, and every half keeps its
@@ -150,7 +164,7 @@ impl Constellation {
     }
 
     /// [`Constellation::llr`] into the `z.len() log2 M` values of `out` (no allocation
-    /// with uniform priors).
+    /// with uniform priors up to [`STACK_POINTS`] points).
     ///
     /// # Errors
     /// As [`Constellation::llr`], and [`com_core::Error::Shape`] for an `out` of another
@@ -241,6 +255,16 @@ impl Constellation {
         })
     }
 
+    /// `Ok` for log-priors of one value per point, none NaN or $+\infty$, one at least
+    /// finite (a point possible).
+    fn check_log_priors(&self, log_px: &[f64]) -> Result<()> {
+        same_len(log_px.len(), self.order(), "log-priors and constellation points")?;
+        ensure(log_px.iter().all(|v| !v.is_nan() && *v < f64::INFINITY), || {
+            "the log-priors must be below +inf and not NaN".into()
+        })?;
+        ensure(log_px.iter().any(|v| v.is_finite()), || "the log-priors leave no point possible".into())
+    }
+
     /// The LLRs of `z` into `out`, the noise variance of symbol `i` being `var(i)`, the
     /// log-priors `log_px` (uniform if `None`).
     fn llr_kernel(
@@ -254,14 +278,21 @@ impl Constellation {
         let m = self.order();
         let b = self.bits_per_symbol();
         let uniform = -(m as f64).ln();
-        let mut metric = vec![0.0; m];
+        let mut stack = [0.0; STACK_POINTS];
+        let mut heap = Vec::new();
+        let metric: &mut [f64] = if m <= STACK_POINTS {
+            &mut stack[..m]
+        } else {
+            heap.resize(m, 0.0);
+            &mut heap
+        };
         let points = self.points();
         for (n, (&y, o)) in z.iter().zip(out.chunks_exact_mut(b)).enumerate() {
             let sigma2 = var(n);
             for i in 0..m {
                 metric[i] = -(y - points[i]).norm_sqr() / sigma2 + log_px.map_or(uniform, |l| l[i]);
             }
-            llr_from_metrics(&metric, jacobian, o);
+            llr_from_metrics(metric, jacobian, o);
         }
     }
 }
@@ -303,11 +334,21 @@ impl Map for Constellation {
     }
 }
 
+/// The soft demapper of the constellation: the kernel of [`Constellation::llr_into`] on
+/// every stream, with the log-priors and the logarithm of the [`Demapping`].
 impl Demap for Constellation {
-    fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> {
+    /// # Errors
+    /// [`com_core::Error::Config`] for a noise variance that is not positive and finite,
+    /// or log-priors with a NaN or $+\infty$, or none finite; [`com_core::Error::Shape`]
+    /// for log-priors of another length than the constellation.
+    fn demap_with_into(&self, y: &Symbols, noise_var: f64, demapping: Demapping<'_>, out: &mut Llr) -> Result<()> {
+        ensure_variance(noise_var)?;
+        if let Some(lp) = demapping.log_priors {
+            self.check_log_priors(lp)?;
+        }
         out.resize(y.n_streams(), y.len() * self.bits_per_symbol());
         for s in 0..y.n_streams() {
-            self.llr_into(y.stream(s), noise_var, None, Jacobian::Exact, out.stream_mut(s))?;
+            self.llr_kernel(y.stream(s), |_| noise_var, demapping.log_priors, demapping.jacobian, out.stream_mut(s));
         }
         Ok(())
     }
@@ -316,6 +357,74 @@ impl Demap for Constellation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two streams of a 16-QAM through a fixed perturbation.
+    fn received(c: &Constellation) -> Symbols {
+        let p = c.points();
+        let row = |k: usize| {
+            (0..40)
+                .map(|i| p[(7 * i + k) % 16] + C64::new(0.3 * ((i % 5) as f64 - 2.0), 0.1 * (i % 3) as f64))
+                .collect()
+        };
+        Symbols::from_streams(&[row(0), row(3)]).unwrap()
+    }
+
+    /// The trait LLRs are those of `Constellation::llr`, bit for bit: uniform priors and
+    /// shaped priors (their log-priors from `log_priors` of the normalised `priors`),
+    /// exact and max-log.
+    #[test]
+    fn demap_with_equals_llr_with_and_without_priors() {
+        let c = Constellation::qam(16).unwrap().normalized();
+        let y = received(&c);
+        let px: Vec<f64> = (1..=16).map(|i| f64::from(i).sqrt()).collect();
+        let lp = log_priors(&c.priors(Some(&px)).unwrap());
+        for jacobian in [Jacobian::Exact, Jacobian::MaxLog] {
+            for (log_priors, probabilities) in [(None, None), (Some(&lp[..]), Some(&px[..]))] {
+                let got = c.demap_with(&y, 0.2, Demapping { log_priors, jacobian }).unwrap();
+                for s in 0..2 {
+                    assert_eq!(
+                        got.stream(s),
+                        c.llr(y.stream(s), 0.2, probabilities, jacobian).unwrap(),
+                        "{jacobian:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(c.demap(&y, 0.2).unwrap(), c.demap_with(&y, 0.2, Demapping::default()).unwrap());
+    }
+
+    /// The output keeps its storage, a constellation above `STACK_POINTS` points too.
+    #[test]
+    fn demap_with_into_reuses_the_output() {
+        for c in [Constellation::qam(16).unwrap(), Constellation::qam(4096).unwrap()] {
+            let y = Symbols::from_streams(&[c.points()[..8].to_vec(), c.points()[8..16].to_vec()]).unwrap();
+            let mut out = Llr::default();
+            c.demap_into(&y, 0.5, &mut out).unwrap();
+            let ptr = out.as_slice().as_ptr();
+            c.demap_with_into(&y, 0.5, Demapping { log_priors: None, jacobian: Jacobian::MaxLog }, &mut out).unwrap();
+            assert_eq!(out.as_slice().as_ptr(), ptr);
+            assert_eq!(out.stream(1), c.llr(y.stream(1), 0.5, None, Jacobian::MaxLog).unwrap());
+        }
+    }
+
+    /// Log-priors: one per point (`Shape`), no NaN or +inf, one finite (`Config`); an
+    /// unnormalised row gives the same decisions.
+    #[test]
+    fn demap_with_checks_the_log_priors() {
+        let c = Constellation::qam(4).unwrap().normalized();
+        let y = Symbols::from_stream(c.points().to_vec()).unwrap();
+        let with = |lp: &[f64]| c.demap_with(&y, 0.1, Demapping { log_priors: Some(lp), jacobian: Jacobian::Exact });
+        assert!(matches!(with(&[0.0; 3]), Err(com_core::Error::Shape(_))));
+        assert!(matches!(with(&[0.0, f64::NAN, 0.0, 0.0]), Err(com_core::Error::Config(_))));
+        assert!(matches!(with(&[0.0, f64::INFINITY, 0.0, 0.0]), Err(com_core::Error::Config(_))));
+        assert!(matches!(with(&[f64::NEG_INFINITY; 4]), Err(com_core::Error::Config(_))));
+        assert!(matches!(c.demap(&y, 0.0), Err(com_core::Error::Config(_))));
+        let shifted = with(&[3.0; 4]).unwrap();
+        let uniform = c.demap(&y, 0.1).unwrap();
+        for (a, b) in shifted.as_slice().iter().zip(uniform.as_slice()) {
+            assert!((a - b).abs() < 1e-12);
+        }
+    }
 
     #[test]
     fn llr_signs_and_max_log() {
