@@ -16,7 +16,7 @@ reproducible random streams, and their results come with confidence intervals.
 
 - **Lightweight**: one run-time dependency in Python (numpy), 9 direct crates in Rust and no C, C++ or Fortran library to build; 27 MB installed with its dependencies (the benchmark's environment: komm 22 MB, OptiCommPy 321 MB, Sionna 1004 MB).
 - **Fast**: compiled Rust, Monte Carlo runs on every core; on one CPU thread, the links of the benchmark take 2.1 to 33 times as long with komm, 2.3 to 4.7 times as long with OptiCommPy and 1.1 to 7.4 times as long with Sionna as with com-rs.
-- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 556 unit tests, 141 validation tests, 234 Python tests.
+- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 557 unit tests, 141 validation tests, 234 Python tests.
 - **Validated**: compared with 100 papers, standards and reference tools (62 fully reproduced, 32 partly), 54 inconsistencies found in them; 52 validation cards rerun a comparison without the paper.
 
 The details, and how these numbers are produced: :doc:`why`.
@@ -29,8 +29,8 @@ The details, and how these numbers are produced: :doc:`why`.
    rng = comrs.Rng(1)
    c = comrs.Constellation("qam", 16).normalized()
    bits = comrs.bits(4 * 100_000, rng)
-   y = comrs.awgn_ebn0(c.modulate(bits), 10.0, 4, rng)
-   comrs.ber(c.demodulate(y), bits), comrs.theory_ber(16, 10.0, "qam")
+   y = comrs.awgn_ebn0(c.map_bits(bits), 10.0, 4, rng)
+   comrs.ber(c.demap_bits(y), bits), comrs.theory_ber(16, 10.0, "qam")
 
 .. grid:: 1 2 2 2
    :gutter: 3

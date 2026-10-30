@@ -36,7 +36,7 @@ def simulate(n_tx, n_rx, eb_db, seed):
         rng = comrs.Rng.stream(seed, "diversity", int(eb_db), t)
         bits = comrs.bits(2 * blocks, rng)
         s = 1.0 - 2.0 * bits
-        h = comrs.mimo_channel(n_rx, n_tx, rng, n=blocks)
+        h = comrs.mimo_channels(blocks, n_rx, n_tx, rng)
         if n_tx == 2:
             x = code.encode(s)  # 2 antennas x 2 uses per block
             y = np.einsum("nij,njt->nit", h, x.reshape(2, blocks, 2).transpose(1, 0, 2))
@@ -67,7 +67,7 @@ for (name, (nt, nr, branches, share)), marker in zip(
 ):
     (line,) = ax.semilogy(
         eb,
-        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), branches),
+        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), branches=branches),
         linewidth=1.4,
     )
     sim = np.array([simulate(nt, nr, e, seed=nt * 10 + nr) for e in points])

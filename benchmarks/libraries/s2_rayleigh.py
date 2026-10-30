@@ -64,11 +64,11 @@ def chain_comrs(m: int, seed: int):
 
     def run(n: int, ebn0: float) -> int:
         b = comrs.bits(n, rng)
-        x = c.modulate(b)
-        h = comrs.mimo_channel(1, 1, rng, n=x.size)
+        x = c.map_bits(b)
+        h = comrs.mimo_channels(x.size, 1, 1, rng)
         n0 = 1.0 / (k * 10 ** (ebn0 / 10))
         y = h[:, 0, 0] * x + rng.complex_noise(x.size, n0)
-        labels = comrs.mimo_detect(h, y[:, None], c, n0, "zf")
+        labels = comrs.mimo_detect(h, y[None, :], c, n0, "zf")
         bh = comrs.unpack_symbols(labels.ravel(), k)
         return int(np.count_nonzero(bh != b))
 

@@ -56,7 +56,7 @@ for (name, (nt, nr, order, share, last)), marker in zip(
 ):
     (line,) = ax.semilogy(
         eb,
-        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), order),
+        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), branches=order),
         linewidth=1.4,
     )
     res = system(nt, nr).run(
@@ -85,8 +85,8 @@ fig.tight_layout()
 # with half the power per antenna, which is the conclusion of the paper.
 for order in [2, 4]:
     e = np.linspace(10, 30, 201)
-    ratio = comrs.theory_ber_rayleigh_mrc(e, order) / comrs.theory_ber_rayleigh_mrc(
-        e - comrs.lin2db(2), order
+    ratio = comrs.theory_ber_rayleigh_mrc(e, branches=order) / comrs.theory_ber_rayleigh_mrc(
+        e - comrs.lin2db(2), branches=order
     )
     print(
         f"order {order}: the BER ratio of MRRC to the new scheme tends to {ratio[-1]:.3f} = 2^-{order}"

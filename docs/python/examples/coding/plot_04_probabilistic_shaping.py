@@ -26,7 +26,7 @@ import numpy as np
 
 import comrs
 from comrs import blocks as B
-from comrs.plot import BACKGROUND, COBALT, GREY, MUTED, RUST
+from comrs.plot import BACKGROUND, BLUE, GREY, MUTED, RUST
 
 # %%
 # The rates of uniform and shaped 64-QAM against the capacity.
@@ -46,7 +46,7 @@ for s in snr:
     best.append((max(rates), lambdas[int(np.argmax(rates))]))
 fig, ax = plt.subplots()
 ax.plot(snr, np.log2(1 + comrs.db2lin(snr)), color=GREY, linewidth=1.4, label="AWGN capacity")
-ax.plot(snr, [b[0] for b in best], color=COBALT, label="shaped 64-QAM, best λ")
+ax.plot(snr, [b[0] for b in best], color=BLUE, label="shaped 64-QAM, best λ")
 ax.plot(snr, uniform, color=RUST, label="uniform 64-QAM")
 # simulated links at the best λ of every SNR
 link = comrs.Chain(
@@ -55,7 +55,7 @@ link = comrs.Chain(
 )
 for s, (_, lam) in zip(snr[::2], best[::2], strict=True):
     r = link.run(grid={"snr": [s], "lam": [lam]}, metrics=["gmi"], stop={"max_trials": 8})
-    ax.plot(s, r.series("snr", "gmi")[1], "o", color=COBALT, markeredgecolor=BACKGROUND)
+    ax.plot(s, r.series("snr", "gmi")[1], "o", color=BLUE, markeredgecolor=BACKGROUND)
 ax.set(xlabel="SNR (dB)", ylabel="GMI (bits per QAM symbol)", xlim=(0, 24), ylim=(0, 6.5),
        title="Bit-metric decoding of 64-QAM over AWGN")  # fmt: skip
 ax.legend(loc="upper left")

@@ -285,6 +285,22 @@ pub(crate) fn taps_out(py: Python<'_>, taps: Vec<(f64, f64)>) -> PyResult<FMat<'
     mat(py, taps.into_iter().map(|(d, p)| vec![d, p]).collect())
 }
 
+/// The columns of a `(K, L)` grid (subcarriers × symbols), symbol-major.
+pub(crate) fn grid_in(grid: &Bound<'_, PyAny>) -> PyResult<(Vec<C64>, usize)> {
+    let a = carray(grid)?;
+    if a.ndim() != 2 {
+        return Err(PyValueError::new_err("expected a 2-D grid (subcarriers × symbols)"));
+    }
+    let (k, l) = (a.shape()[0], a.shape()[1]);
+    Ok(((0..l).flat_map(|j| (0..k).map(move |i| (i, j))).map(|(i, j)| a[[i, j]]).collect(), k))
+}
+
+/// A symbol-major grid as a `(K, L)` array.
+pub(crate) fn grid_out<'py>(py: Python<'py>, g: &[C64], k: usize) -> PyResult<Bound<'py, PyArray2<C64>>> {
+    let l = g.len() / k;
+    mat(py, (0..k).map(|i| (0..l).map(|j| g[j * k + i]).collect()).collect())
+}
+
 /// Rows of equal length as a 2-D NumPy array.
 pub(crate) fn mat<T: numpy::Element + Clone>(py: Python<'_>, rows: Vec<Vec<T>>) -> PyResult<Bound<'_, PyArray2<T>>> {
     PyArray2::from_vec2(py, &rows).map_err(|e| PyValueError::new_err(e.to_string()))

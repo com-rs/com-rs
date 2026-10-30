@@ -38,9 +38,9 @@ def error_rates(c, ebn0_db, seed, min_errors=MIN_ERRORS):
     while b_err < min_errors:
         rng = comrs.Rng.stream(seed, "awgn", 0, trial)
         bits = comrs.bits(k * BLOCK, rng)
-        x = c.modulate(bits)
+        x = c.map_bits(bits)
         y = comrs.awgn_ebn0(x, ebn0_db, k, rng)
-        b_err += int((c.demodulate(y) != bits).sum())
+        b_err += int((c.demap_bits(y) != bits).sum())
         s_err += int((c.decide(y) != c.indices(bits)).sum())
         n_bits += bits.size
         n_sym += BLOCK
@@ -107,7 +107,7 @@ def test_bpsk_over_flat_rayleigh_fading(ebn0_db):
         errors += int((((np.conj(h) * y).real < 0) != (bits == 1)).sum())
         total += BLOCK
         trial += 1
-    theory = comrs.theory_ber_rayleigh_mrc(ebn0_db, 1)
+    theory = comrs.theory_ber_rayleigh_mrc(ebn0_db, branches=1)
     assert_rate(errors, total, theory, label=f"Rayleigh {ebn0_db} dB")
 
 
@@ -183,7 +183,7 @@ def test_back_propagation_beats_dispersion_compensation_at_high_power():
     _, x = comrs.symbols(c, n, rng)
     h = comrs.pulse_shape("rrc", sps, n_taps=4 * 256 + 1, rolloff=0.1)
     tx = comrs.pnorm(comrs.fir_filter(h, comrs.upsample(x, sps))) * math.sqrt(comrs.dbm2w(6.0))
-    y = link.propagate(tx, fs, rng)
+    y = link.propagate(tx, fs, rng=rng)
 
     def snr(r):
         z = comrs.pnorm(comrs.downsample(comrs.fir_filter(h, r), sps))
@@ -206,11 +206,11 @@ def bpsk_mimo_errors(n_rx, n_tx, ebn0_db, method, seed, min_errors=MIN_ERRORS):
     n = 20_000
     while errors < min_errors:
         rng = comrs.Rng.stream(seed, method, n_rx * 10 + n_tx, trial)
-        h = comrs.mimo_channel(n_rx, n_tx, rng, n=n)
-        idx = rng.integers(2, n * n_tx).reshape(n, n_tx)
+        h = comrs.mimo_channels(n, n_rx, n_tx, rng)
+        idx = rng.integers(2, n * n_tx).reshape(n, n_tx).T  # (n_tx, n)
         x = c.points[idx]
-        w = rng.complex_noise(n * n_rx, s2).reshape(n, n_rx)
-        y = np.einsum("nij,nj->ni", h, x) + w
+        w = rng.complex_noise(n * n_rx, s2).reshape(n, n_rx).T
+        y = np.einsum("nij,jn->in", h, x) + w  # (n_rx, n)
         errors += int((comrs.mimo_detect(h, y, c, s2, method) != idx).sum())
         total += idx.size
         trial += 1
@@ -225,7 +225,7 @@ def test_zero_forcing_has_the_diversity_of_mrc_with_nr_minus_nt_plus_one_branche
     assert_rate(
         errors,
         total,
-        comrs.theory_ber_rayleigh_mrc(ebn0_db, n_rx - n_tx + 1),
+        comrs.theory_ber_rayleigh_mrc(ebn0_db, branches=n_rx - n_tx + 1),
         label=f"ZF {n_rx}x{n_tx}",
     )
 
@@ -242,7 +242,7 @@ def test_alamouti_is_mrc_of_two_branches_at_half_power():
             bits = comrs.bits(2 * blocks, rng)
             s = 1.0 - 2.0 * bits
             x = code.encode(s)
-            h = comrs.mimo_channel(n_rx, 2, rng, n=blocks)
+            h = comrs.mimo_channels(blocks, n_rx, 2, rng)
             y = np.concatenate([h[b] @ x[:, 2 * b : 2 * b + 2] for b in range(blocks)], axis=1)
             y = y + rng.complex_noise(y.size, 1 / g).reshape(y.shape)
             est, _ = code.decode(h, y, 1 / g)
@@ -252,7 +252,7 @@ def test_alamouti_is_mrc_of_two_branches_at_half_power():
         assert_rate(
             errors,
             total,
-            comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g / 2), 2 * n_rx),
+            comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g / 2), branches=2 * n_rx),
             label=f"Alamouti 2x{n_rx}",
         )
 
@@ -262,9 +262,9 @@ def test_detectors_rank_ml_sic_linear():
     c = comrs.Constellation("qam", 16).normalized()
     rng = comrs.Rng(23)
     n, s2 = 3000, 4 / comrs.db2lin(20.0)
-    h = comrs.mimo_channel(4, 4, rng, n=n)
-    idx = rng.integers(16, n * 4).reshape(n, 4)
-    y = np.einsum("nij,nj->ni", h, c.points[idx]) + rng.complex_noise(n * 4, s2).reshape(n, 4)
+    h = comrs.mimo_channels(n, 4, 4, rng)
+    idx = rng.integers(16, n * 4).reshape(n, 4).T  # (n_tx, n)
+    y = np.einsum("nij,jn->in", h, c.points[idx]) + rng.complex_noise(n * 4, s2).reshape(n, 4).T
     ser = {
         m: float((comrs.mimo_detect(h, y, c, s2, m) != idx).mean())
         for m in ["zf", "mmse", "mmse_sic", "sphere"]
@@ -273,8 +273,8 @@ def test_detectors_rank_ml_sic_linear():
     # the sphere decoder is exact ML: K-best with every path kept agrees with it
     sub = slice(0, 200)
     assert np.array_equal(
-        comrs.mimo_detect(h[sub], y[sub], c, s2, "sphere"),
-        comrs.mimo_detect(h[sub], y[sub], c, s2, "kbest", k=4096),
+        comrs.mimo_detect(h[sub], y[:, sub], c, s2, "sphere"),
+        comrs.mimo_detect(h[sub], y[:, sub], c, s2, "kbest", k=4096),
     )
 
 
@@ -282,11 +282,12 @@ def large_mimo(n_rx, n_tx, snr_db, rng, n=60, correlation=0.0):
     """16-QAM vectors over a channel of unit-norm columns at the SNR β Es/N0."""
     c = comrs.Constellation("qam", 16).normalized()
     n0 = n_tx / n_rx / comrs.db2lin(snr_db)
-    h = comrs.mimo_channel(
-        n_rx, n_tx, rng, n=n, rx_correlation=correlation, tx_correlation=correlation
+    h = comrs.mimo_channels(
+        n, n_rx, n_tx, rng, rx_correlation=correlation, tx_correlation=correlation
     ) / np.sqrt(n_rx)
-    idx = rng.integers(16, n * n_tx).reshape(n, n_tx)
-    y = np.einsum("nij,nj->ni", h, c.points[idx]) + rng.complex_noise(n * n_rx, n0).reshape(n, n_rx)
+    idx = rng.integers(16, n * n_tx).reshape(n, n_tx).T  # (n_tx, n)
+    noise = rng.complex_noise(n * n_rx, n0).reshape(n, n_rx).T
+    y = np.einsum("nij,jn->in", h, c.points[idx]) + noise  # (n_rx, n)
     return c, h, y, idx, n0
 
 
@@ -305,9 +306,9 @@ def test_message_passing_reaches_the_io_bound_of_large_mimo():
     assert ser["amp"] < ser["mmse"] / 5 and ser["oamp"] < ser["mmse"] / 5, ser
     # the signs of the LLRs of the decoupled channel are the decisions (bitwise and
     # symbolwise MAP may differ in a few ambiguous symbols)
-    llr = comrs.mimo_llr(h[:5], y[:5], c, n0, "oamp", iterations=8)
-    bits = (llr < 0).astype(int).reshape(5, 64, 4)
-    labels = comrs.mimo_detect(h[:5], y[:5], c, n0, "oamp", iterations=8)
+    llr = comrs.mimo_llr(h[:5], y[:, :5], c, n0, "oamp", iterations=8)  # (64, 5 · 4)
+    bits = (llr < 0).astype(int).reshape(64, 5, 4)
+    labels = comrs.mimo_detect(h[:5], y[:, :5], c, n0, "oamp", iterations=8)  # (64, 5)
     assert np.mean(bits @ np.array([8, 4, 2, 1]) != labels) < 0.02
 
 
@@ -329,10 +330,10 @@ def test_ergodic_capacity_of_rayleigh_fading():
     special = pytest.importorskip("scipy.special")
     rng = comrs.Rng(24)
     rho = 10.0
-    c = comrs.mimo_capacity(comrs.mimo_channel(1, 1, rng, n=200_000), 10.0).mean()
+    c = comrs.mimo_capacity(comrs.mimo_channels(200_000, 1, 1, rng), 10.0).mean()
     exact = math.log2(math.e) * math.exp(1 / rho) * special.exp1(1 / rho)
     assert c == pytest.approx(exact, rel=0.01)
-    h = comrs.mimo_channel(4, 4, rng, n=4000)
+    h = comrs.mimo_channels(4000, 4, 4, rng)
     slope = (comrs.mimo_capacity(h, 40.0).mean() - comrs.mimo_capacity(h, 30.0).mean()) / math.log2(
         10.0
     )
@@ -368,7 +369,7 @@ def test_slm_ccdf_is_the_power_of_the_original_one():
     # U independent candidates: P(PAPR > γ) = CCDF(γ)^U (Bäuml, Fischer & Huber 1996)
     ofdm = comrs.Ofdm(256, 256)
     _, d = ofdm_blocks(ofdm, "qam", 4, 4000, seed=32)
-    x, side = ofdm.modulate(d, comrs.PaprReduction.slm(4, seed=3))
+    x, side = ofdm.modulate_with(d, comrs.PaprReduction.slm(4, seed=3))
     t = np.array([7.0, 7.5])
     emp = comrs.ccdf(ofdm.papr_db(x), t)
     th = comrs.theory_papr_ccdf(256, t, candidates=4)
@@ -391,7 +392,7 @@ def test_nyquist_rate_clipping_follows_bussgang():
     _, d = ofdm_blocks(ofdm, "qam", 16, 1000, seed=34)
     x = ofdm.modulate(d)
     for cr in [1.0, 3.0, 5.0]:
-        y, _ = ofdm.modulate(d, comrs.PaprReduction.clip(cr))
+        y, _ = ofdm.modulate_with(d, comrs.PaprReduction.clip(cr))
         th = comrs.clipping_bussgang(cr)
         alpha = np.vdot(x, y).real / np.vdot(x, x).real
         sdr = 10 * np.log10(alpha**2 / np.mean(np.abs(y - alpha * x) ** 2))
@@ -405,10 +406,10 @@ def test_filtering_removes_the_out_of_band_regrowth_of_clipping():
     fs, bw = 4.0, 150 / 256
 
     def aclr(x):
-        return comrs.aclr_db(*comrs.periodogram(x, fs, nfft=ofdm.fft_len), bw, bw)
+        return comrs.aclr_db(*comrs.periodogram(x, fs=fs, nfft=ofdm.fft_len), bw, bw)
 
-    clipped, _ = ofdm.modulate(d, comrs.PaprReduction.clip(4.0))
-    filtered, _ = ofdm.modulate(d, comrs.PaprReduction.clip_filter(4.0, iterations=4))
+    clipped, _ = ofdm.modulate_with(d, comrs.PaprReduction.clip(4.0))
+    filtered, _ = ofdm.modulate_with(d, comrs.PaprReduction.clip_filter(4.0, iterations=4))
     assert aclr(clipped) < 35.0
     assert aclr(filtered) > 100.0
     # and the repeated filtering keeps the PAPR close to the target
@@ -427,11 +428,11 @@ def test_lossless_techniques_reduce_the_papr_tail():
     ]:
         k = ofdm.data_len(r)
         dd = d[: (d.size // k) * k]
-        x, side = ofdm.modulate(dd, r)
+        x, side = ofdm.modulate_with(dd, r)
         assert np.percentile(ofdm.papr_db(x), 99.9) < base - gain, r
-        assert np.allclose(ofdm.demodulate(x, r, side=side), dd, atol=1e-6), r
+        assert np.allclose(ofdm.demodulate_with(x, r, side=side), dd, atol=1e-6), r
     # ACE keeps every decision and reduces the tail
-    x, _ = ofdm.modulate(d, comrs.PaprReduction.ace(c, 4.0))
+    x, _ = ofdm.modulate_with(d, comrs.PaprReduction.ace(c, 4.0))
     assert np.array_equal(c.decide(ofdm.demodulate(x)), c.decide(d))
     assert np.percentile(ofdm.papr_db(x), 99.9) < base - 1.5
 
@@ -446,7 +447,7 @@ def test_digital_predistortion_linearises_the_amplifier():
     fs, bw = 4.0, 150 / 256
 
     def aclr(y):
-        return comrs.aclr_db(*comrs.periodogram(y, fs, nfft=ofdm.fft_len), bw, bw)
+        return comrs.aclr_db(*comrs.periodogram(y, fs=fs, nfft=ofdm.fft_len), bw, bw)
 
     def evm_db(y):
         r = ofdm.demodulate(y / (0.15 * g))
@@ -474,8 +475,8 @@ coded_errors = coded_error_rates
 
 def test_shannon_limits_of_bpsk():
     # the classical values of the binary-input AWGN channel
-    assert comrs.shannon_limit_ebn0_db(0.5) == pytest.approx(0.187, abs=0.01)
-    assert comrs.shannon_limit_ebn0_db(1 / 3) == pytest.approx(-0.495, abs=0.01)
+    assert comrs.theory_shannon_limit_ebn0_db(0.5) == pytest.approx(0.187, abs=0.01)
+    assert comrs.theory_shannon_limit_ebn0_db(1 / 3) == pytest.approx(-0.495, abs=0.01)
 
 
 def test_soft_decision_viterbi_gains_about_two_db():
@@ -499,18 +500,18 @@ def test_ldpc_and_polar_codes_approach_the_normal_approximation():
     for eb in [1.5, 2.0]:
         _, bler = coded_errors(ldpc, eb, 500, seed=43)
         assert (
-            comrs.normal_approximation(1024, 512, [eb])[0]
+            comrs.theory_normal_approximation(1024, 512, [eb])[0]
             <= bler
-            <= comrs.normal_approximation(1024, 512, [eb - 1.3])[0]
+            <= comrs.theory_normal_approximation(1024, 512, [eb - 1.3])[0]
         )
     polar = comrs.PolarCode(256, 128, design_ebn0_db=2.0, crc="crc6", list_size=8)
     sc = comrs.PolarCode(256, 128, design_ebn0_db=2.0)
     for eb in [2.0, 2.5]:
         _, bler = coded_errors(polar, eb, 1000, seed=44)
         assert (
-            comrs.normal_approximation(256, 128, [eb])[0]
+            comrs.theory_normal_approximation(256, 128, [eb])[0]
             <= bler
-            <= comrs.normal_approximation(256, 128, [eb - 1.0])[0]
+            <= comrs.theory_normal_approximation(256, 128, [eb - 1.0])[0]
         )
         # CRC-aided list decoding beats successive cancellation (Tal & Vardy 2015)
         assert bler < coded_errors(sc, eb, 1000, seed=44)[1] / 3
@@ -533,11 +534,11 @@ def ofdm_link_ber(ebn0_db, estimator, frames, seed):
     for f in range(frames):
         rng = comrs.Rng.stream(seed, "ofdm", int(ebn0_db * 10), f)
         bits = comrs.bits(2 * grid.n_data, rng)
-        x = ofdm.modulate(grid.map(c.modulate(bits)))
+        x = ofdm.modulate(grid.map(c.map_bits(bits)))
         y, taps = ch.fade(x, rng)
         s2 = OFDM_N / (2 * OFDM_K * comrs.db2lin(ebn0_db))  # Eb/N0 per subcarrier
         rx = ofdm.demodulate(y + rng.complex_noise(y.size, s2))
-        h = np.tile(taps.frequency_response(0, ofdm.bins, OFDM_N), 14)
+        h = np.tile(taps.frequency_response(0, ofdm.bins, OFDM_N)[:, 0, 0], 14)
         nv = s2 * OFDM_K / OFDM_N
         if estimator == "perfect":
             hh = h
@@ -551,7 +552,7 @@ def ofdm_link_ber(ebn0_db, estimator, frames, seed):
         else:
             hh = comrs.ofdm_estimate(grid, rx, nv, "linear")
         mse += float(np.mean(np.abs(hh - h) ** 2)) / frames
-        err += int((c.demodulate(grid.extract(rx / hh)) != bits).sum())
+        err += int((c.demap_bits(grid.extract(rx / hh)) != bits).sum())
         tot += bits.size
     return err / tot, mse
 
@@ -561,7 +562,7 @@ def test_ofdm_turns_multipath_into_flat_rayleigh_subcarriers():
     # Gray QPSK with perfect CSI has the BER of BPSK over Rayleigh (Proakis & Salehi 13.3)
     for eb in [5.0, 10.0]:
         ber, _ = ofdm_link_ber(eb, "perfect", 400, seed=51)
-        assert ber == pytest.approx(comrs.theory_ber_rayleigh_mrc(eb, 1), rel=0.15)
+        assert ber == pytest.approx(comrs.theory_ber_rayleigh_mrc(eb, branches=1), rel=0.15)
 
 
 def test_lmmse_channel_estimation_beats_interpolation():
@@ -641,7 +642,7 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
     assert_rate(
         e,
         n,
-        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(comrs.db2lin(12.0) / 4), 2),
+        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(comrs.db2lin(12.0) / 4), branches=2),
         label="Alamouti 2x1",
     )
     zf = comrs.Chain(
@@ -653,7 +654,10 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
     )
     e, n = chain_rate(zf, "ber", stop, snr_db=12.0)
     assert_rate(
-        e, n, comrs.theory_ber_rayleigh_mrc(comrs.lin2db(comrs.db2lin(12.0) / 4), 2), label="ZF 3x2"
+        e,
+        n,
+        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(comrs.db2lin(12.0) / 4), branches=2),
+        label="ZF 3x2",
     )
 
 
@@ -679,7 +683,7 @@ def test_ofdm_chain_over_eva_with_estimated_channels():
     # less with LMMSE than with linear interpolation
     g = comrs.db2lin(15.0) / 2
     assert ber["perfect"] == pytest.approx(
-        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g), 1), rel=0.15
+        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g), branches=1), rel=0.15
     ), ber
     assert ber["perfect"] < ber["lmmse"] < ber["ls"] < 1.6 * ber["perfect"], ber
 

@@ -12,13 +12,13 @@ use super::*;
 ///
 /// Args:
 ///     k (int): information bits per block (at most 8448 for base graph 1, 3840 for 2).
-///     n (int): transmitted bits per block.
+///     e (int): transmitted bits per block `E` (the rate-matched length).
 ///     base_graph (int, optional): 1 or 2 (default: the rule of Sec. 7.2.2).
 ///     rv (int): the redundancy version, 0 to 3.
 ///     qm (int): bits per modulation symbol of the bit interleaver (1: none).
 ///     rule (str): the check-node rule (as `LdpcCode.set_decoder`).
 ///     alpha (float): the scale or the offset of the min-sum rules.
-///     iterations (int): the maximum number of iterations.
+///     max_iterations (int): the maximum number of iterations.
 ///     layered (bool): the layered schedule (default), or flooding (``False``); both stop
 ///         early on a codeword.
 ///
@@ -53,31 +53,31 @@ impl PyNrLdpc {
     #[new]
     #[pyo3(signature = (
         k,
-        n,
+        e,
         *,
         base_graph = None,
         rv = 0,
         qm = 1,
         rule = ldpc::DEFAULT_RULE.name(),
         alpha = ldpc::DEFAULT_ALPHA,
-        iterations = ldpc::DEFAULT_MAX_ITERATIONS,
+        max_iterations = ldpc::DEFAULT_MAX_ITERATIONS,
         layered = ldpc::DEFAULT_LAYERED,
     ))]
     #[allow(clippy::too_many_arguments, reason = "keyword-only options of the Python constructor")]
     fn new(
         k: usize,
-        n: usize,
+        e: usize,
         base_graph: Option<u8>,
         rv: u8,
         qm: usize,
         rule: &str,
         alpha: f64,
-        iterations: usize,
+        max_iterations: usize,
         layered: bool,
     ) -> PyResult<Self> {
-        let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
+        let mut code = comrs::fec::nr::NrLdpc::with_options(k, e, base_graph, rv, qm).py()?;
         code.decoder_mut().rule = CheckRule::from_name(rule, alpha).py()?;
-        code.decoder_mut().max_iterations = iterations;
+        code.decoder_mut().max_iterations = max_iterations;
         code.decoder_mut().layered = layered;
         Ok(PyNrLdpc { inner: code })
     }
@@ -153,7 +153,7 @@ impl PyNrLdpc {
 ///
 /// Args:
 ///     k (int): payload bits per block.
-///     n (int): transmitted bits per block (`E`).
+///     e (int): transmitted bits per block `E` (the rate-matched length).
 ///     link (str): ``"uplink"`` or ``"downlink"``.
 ///     list_size (int): the list size `L`.
 ///
@@ -180,9 +180,9 @@ impl PyNrPolar {
     }
 
     #[new]
-    #[pyo3(signature = (k, n, *, link="uplink", list_size=8))]
-    fn new(k: usize, n: usize, link: &str, list_size: usize) -> PyResult<Self> {
-        let code = comrs::fec::nr::NrPolar::from_name(link, k, n).py()?;
+    #[pyo3(signature = (k, e, *, link="uplink", list_size=8))]
+    fn new(k: usize, e: usize, link: &str, list_size: usize) -> PyResult<Self> {
+        let code = comrs::fec::nr::NrPolar::from_name(link, k, e).py()?;
         Ok(PyNrPolar { inner: code.with_list(list_size).py()? })
     }
 

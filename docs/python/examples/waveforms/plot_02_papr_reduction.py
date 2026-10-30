@@ -43,7 +43,7 @@ original = comrs.ccdf(ofdm.papr_db(ofdm.modulate(d)), t)
 
 def ccdf_of(reduction):
     k = ofdm.data_len(reduction)
-    x, _ = ofdm.modulate(d[: (d.size // k) * k], reduction)
+    x, _ = ofdm.modulate_with(d[: (d.size // k) * k], reduction)
     return comrs.ccdf(ofdm.papr_db(x), t)
 
 
@@ -98,8 +98,8 @@ fig.tight_layout()
 def ber_curve(reduction, ebn0s, blocks=400, seed=2, expand=True):
     k = ofdm.data_len(reduction)
     bits = comrs.bits(4 * k * blocks, comrs.Rng(seed))
-    s = c.modulate(bits)
-    x, side = ofdm.modulate(s, reduction)
+    s = c.map_bits(bits)
+    x, side = ofdm.modulate_with(s, reduction)
     p = np.mean(np.abs(x) ** 2)
     out = []
     for i, eb in enumerate(ebn0s):
@@ -107,11 +107,11 @@ def ber_curve(reduction, ebn0s, blocks=400, seed=2, expand=True):
         s2 = p * ofdm.fft_len / (4 * k * comrs.db2lin(eb))
         y = x + comrs.Rng.stream(seed, "awgn", i, 0).complex_noise(x.size, s2)
         if expand:
-            z = ofdm.demodulate(y, reduction, side=side)
+            z = ofdm.demodulate_with(y, reduction, side=side)
         else:  # no expansion: one-tap equalisation by the Bussgang gain
             z = ofdm.demodulate(y)
             z = z * np.vdot(s, s) / np.vdot(s, z)
-        out.append(comrs.ber(c.demodulate(z), bits))
+        out.append(comrs.ber(c.demap_bits(z), bits))
     return np.array(out)
 
 

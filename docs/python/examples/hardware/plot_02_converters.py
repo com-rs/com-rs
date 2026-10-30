@@ -142,11 +142,11 @@ for bits, marker in zip([3, 4, 5, None], ["o", "s", "D", "^"], strict=True):
         errors = total = 0
         for _ in range(30):
             b = rng.integers(2, 256 * 4).astype(np.uint8)
-            x = np.fft.ifft(c16.modulate(b)) * np.sqrt(256)
+            x = np.fft.ifft(c16.map_bits(b)) * np.sqrt(256)
             y = x + rng.complex_noise(256, s2)
             if bits is not None:
                 y = comrs.adc(y, bits)
-            d = c16.demodulate(np.fft.fft(y) / np.sqrt(256))
+            d = c16.demap_bits(np.fft.fft(y) / np.sqrt(256))
             errors += int(np.sum(d != b))
             total += b.size
         ber.append(errors / total)

@@ -19,7 +19,7 @@ use pyo3::prelude::*;
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
+#[pyo3(signature = (x, *, fs=1.0, nfft=1024))]
 fn psd<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
     let v = cvec(x)?;
     let (f, s) = py.detach(|| spectrum::psd(&v, fs, nfft)).py()?;
@@ -42,7 +42,7 @@ fn psd<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyR
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
+#[pyo3(signature = (x, *, fs=1.0, nfft=1024))]
 fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
     let v = cvec(x)?;
     let (f, s) = py.detach(|| spectrum::periodogram(&v, fs, nfft)).py()?;
@@ -56,8 +56,8 @@ fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize
 /// Args:
 ///     freqs (array_like): the frequencies of the density (Hz).
 ///     density (array_like): the density.
-///     bandwidth (float): the channel width `B` (Hz).
-///     offset (float): the offset of the adjacent channels (Hz).
+///     bandwidth_hz (float): the channel width `B` (Hz).
+///     offset_hz (float): the offset of the adjacent channels (Hz).
 ///
 /// Returns:
 ///     float: the ACLR (dB).
@@ -65,8 +65,8 @@ fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth: f64, offset: f64) -> PyResult<f64> {
-    spectrum::aclr_db(&fvec(freqs)?, &fvec(density)?, bandwidth, offset).py()
+fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth_hz: f64, offset_hz: f64) -> PyResult<f64> {
+    spectrum::aclr_db(&fvec(freqs)?, &fvec(density)?, bandwidth_hz, offset_hz).py()
 }
 
 /// Register the bindings of this module.

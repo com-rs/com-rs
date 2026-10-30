@@ -61,8 +61,8 @@ def chain_comrs(m: int, seed: int):
 
     def run(n: int, ebn0: float) -> int:
         b = comrs.bits(n, rng)
-        y = comrs.awgn_ebn0(c.modulate(b), ebn0, k, rng)
-        return int(np.count_nonzero(c.demodulate(y) != b))
+        y = comrs.awgn_ebn0(c.map_bits(b), ebn0, k, rng)
+        return int(np.count_nonzero(c.demap_bits(y) != b))
 
     return run, "float64"
 

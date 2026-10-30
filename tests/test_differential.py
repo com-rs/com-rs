@@ -21,7 +21,7 @@ def test_encode_decode_and_detection_round_trip():
     assert dqpsk.detect_coherent(x).tolist() == c.tolist()
     # the bit level is the index level through the Gray labels of the transitions
     bits = dqpsk.bits(a)
-    np.testing.assert_allclose(dqpsk.modulate(bits), x, atol=1e-12)
+    np.testing.assert_allclose(dqpsk.map_bits(bits), x, atol=1e-12)
     assert dqpsk.indices(bits).tolist() == a
     with pytest.raises(ValueError):
         dqpsk.encode([0, 4])
@@ -30,7 +30,7 @@ def test_encode_decode_and_detection_round_trip():
     with pytest.raises(ValueError):
         comrs.Dpsk(6)
     with pytest.raises(ValueError):
-        comrs.Dpsk(4).modulate(np.array([1, 0, 1], dtype=np.uint8))
+        comrs.Dpsk(4).map_bits(np.array([1, 0, 1], dtype=np.uint8))
 
 
 @pytest.mark.parametrize("m", [2, 4, 8, 16])
@@ -39,14 +39,14 @@ def test_dpsk_is_invariant_to_a_constant_rotation(m):
     assert (d.order, d.bits_per_symbol) == (m, int(math.log2(m)))
     rng = comrs.Rng(8)
     bits = comrs.bits(300 * d.bits_per_symbol, rng)
-    x = d.modulate(bits)
+    x = d.map_bits(bits)
     assert x.shape == (301,)
     assert x.dtype == np.complex128
     np.testing.assert_allclose(np.abs(x), 1.0, atol=1e-12)
     assert x[0] == 1.0
     assert d.bits(d.indices(bits)).tolist() == bits.tolist()
     for phi in [0.1, 1.0, 2.5, -3.0]:
-        np.testing.assert_array_equal(d.demodulate(x * np.exp(1j * phi)), bits)
+        np.testing.assert_array_equal(d.demap_bits(x * np.exp(1j * phi)), bits)
     np.testing.assert_array_equal(d.demodulate_coherent(x), bits)
     # Gray labelling of the transitions: neighbouring phases differ by one bit
     for k in range(m):
@@ -61,8 +61,8 @@ def test_proakis_dbpsk_noncoherent_ber_at_8_db():
     rng = comrs.Rng(31)
     n = 1_000_000
     bits = comrs.bits(n, rng)
-    r = comrs.awgn_ebn0(d.modulate(bits), 8.0, 1, rng)
-    got = comrs.ber(d.demodulate(r), bits)
+    r = comrs.awgn_ebn0(d.map_bits(bits), 8.0, 1, rng)
+    got = comrs.ber(d.demap_bits(r), bits)
     want = 0.5 * math.exp(-comrs.db2lin(8.0))
     assert abs(comrs.theory_ber_dpsk(2, 8.0) - want) < 1e-12
     assert got * n > 300
@@ -77,13 +77,13 @@ def test_pawula_rice_roberts_dqpsk_noncoherent_ber_at_8_db():
     rng = comrs.Rng(33)
     n = 400_000
     bits = comrs.bits(n, rng)
-    r = comrs.awgn_ebn0(d.modulate(bits), 8.0, 2, rng)
-    got = comrs.ber(d.demodulate(r), bits)
+    r = comrs.awgn_ebn0(d.map_bits(bits), 8.0, 2, rng)
+    got = comrs.ber(d.demap_bits(r), bits)
     want = comrs.theory_ber_dpsk(4, 8.0)
     assert abs(got / want - 1) < 0.1, (got, want)
     # the closed form is the sum over the Gray-weighted decision sectors of the tail
     g = comrs.db2lin(8.0) * 2
-    tail = comrs.differential_phase_tail
+    tail = comrs.theory_differential_phase_tail
     assert abs(want - 0.5 * (tail(math.pi / 4, g) + tail(3 * math.pi / 4, g))) < 1e-12
     assert comrs.theory_ber_dpsk(8, 8.0) > want > comrs.theory_ber_dpsk(2, 8.0)
 
@@ -95,7 +95,7 @@ def test_proakis_coherent_detection_with_differential_decoding():
     rng = comrs.Rng(32)
     n = 400_000
     bits = comrs.bits(n, rng)
-    r = comrs.awgn_ebn0(d.modulate(bits), 6.0, 1, rng)
+    r = comrs.awgn_ebn0(d.map_bits(bits), 6.0, 1, rng)
     got = comrs.ber(d.demodulate_coherent(r), bits)
     p = comrs.qfunc(math.sqrt(2 * comrs.db2lin(6.0)))
     want = 2 * p * (1 - p)

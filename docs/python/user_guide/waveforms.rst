@@ -24,7 +24,7 @@ back.
    import comrs, numpy as np
 
    fbmc = comrs.Fbmc(64, overlap=4)
-   c = comrs.Constellation("qam", 16).normalized().modulate(comrs.bits(4 * 64 * 20, comrs.Rng(1)))
+   c = comrs.Constellation("qam", 16).normalized().map_bits(comrs.bits(4 * 64 * 20, comrs.Rng(1)))
    x = fbmc.modulate(comrs.oqam_stagger(c, 64))
    c_hat = comrs.oqam_destagger(fbmc.demodulate(x).real, 64)
 
@@ -72,7 +72,7 @@ Chirp spread spectrum
 ---------------------
 
 :class:`~comrs.Css` is the modulation of LoRa: :math:`2^{SF}` cyclic shifts of an
-up-chirp, detected by dechirping and an FFT. :func:`~comrs.css_ser` and
-:func:`~comrs.css_ber` give the error rates over AWGN, the ``css_*`` functions the
+up-chirp, detected by dechirping and an FFT. :func:`~comrs.theory_css_ser` and
+:func:`~comrs.theory_css_ber` give the error rates over AWGN, the ``css_*`` functions the
 spectrum and the interference between two signals; the gallery page
 :doc:`../auto_examples/waveforms/plot_07_lora` compares them with three papers.

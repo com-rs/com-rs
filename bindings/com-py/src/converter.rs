@@ -2,7 +2,7 @@
 //! zero-order hold, with the closed forms of their noise.
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec};
+use crate::{CArr, IntoPy, carr, cvec, map_real};
 use comrs::hardware::converter::{self as conv, Adc, Dac, Quantizer};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -170,41 +170,47 @@ fn optimal_loading(bits: u32) -> f64 {
     conv::optimal_loading(bits)
 }
 
-/// The SNR of a sine of frequency ``f`` sampled with an RMS clock jitter ``jitter_s``:
+/// The SNR of a sine of frequency ``f_hz`` sampled with an RMS clock jitter ``jitter_s``:
 /// `-20 log10(2π f σ_j)` dB (Walden 1999).
 ///
 /// Args:
-///     f (float): frequency of the sine (Hz).
+///     f_hz (float | array_like): frequency of the sine (Hz).
 ///     jitter_s (float): RMS jitter (s).
 ///
 /// Returns:
-///     float: the SNR (dB).
+///     float | numpy.ndarray: the SNR (dB) at every frequency.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.theory_jitter_snr_db(1e9, 100e-15), 1)
 ///     64.0
 #[pyfunction]
-fn theory_jitter_snr_db(f: f64, jitter_s: f64) -> f64 {
-    conv::jitter_snr_db(f, jitter_s)
+fn theory_jitter_snr_db(f_hz: &Bound<'_, PyAny>, jitter_s: f64) -> PyResult<Py<PyAny>> {
+    map_real(f_hz, |f| Ok(conv::jitter_snr_db(f, jitter_s)))
 }
 
 /// The effective number of bits of a SINAD measured on a full-scale sine:
 /// `(SINAD - 1.76) / 6.02` (IEEE Std 1241).
 ///
 /// Args:
-///     sinad_db (float): the SINAD (dB).
+///     sinad_db (float | array_like): the SINAD (dB).
 ///
 /// Returns:
-///     float: the ENOB (bits).
+///     float | numpy.ndarray: the ENOB (bits).
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.enob_from_sinad_db(comrs.theory_sqnr_sine_db(10)), 6)
 ///     10.0
 #[pyfunction]
-fn enob_from_sinad_db(sinad_db: f64) -> f64 {
-    conv::enob_from_sinad_db(sinad_db)
+fn enob_from_sinad_db(sinad_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    map_real(sinad_db, |s| Ok(conv::enob_from_sinad_db(s)))
 }
 
 /// The amplitude response of a zero-order hold of ``hold`` output samples per input
@@ -212,20 +218,23 @@ fn enob_from_sinad_db(sinad_db: f64) -> f64 {
 /// to `|sinc(f/f_s)|`.
 ///
 /// Args:
-///     f (float): frequency (Hz).
+///     f_hz (float | array_like): frequency (Hz).
 ///     fs (float): input sampling rate (Hz).
 ///     hold (int): output samples per input sample.
 ///
 /// Returns:
-///     float: the gain.
+///     float | numpy.ndarray: the gain at every frequency.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.zero_order_hold_gain(0.5, 1.0, 1000), 4)
 ///     0.6366
 #[pyfunction]
-fn zero_order_hold_gain(f: f64, fs: f64, hold: usize) -> f64 {
-    conv::zero_order_hold_gain(f, fs, hold)
+fn zero_order_hold_gain(f_hz: &Bound<'_, PyAny>, fs: f64, hold: usize) -> PyResult<Py<PyAny>> {
+    map_real(f_hz, |f| Ok(conv::zero_order_hold_gain(f, fs, hold)))
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

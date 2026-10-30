@@ -6,8 +6,6 @@ use crate::{CArr, FArr, IntoPy, carr, count, cvec, farr, fvec, py_bool};
 use comrs::channel::awgn as awgn_ch;
 use comrs::dsp::filter::LowPass;
 use comrs::hardware::optical::{self as devices, Iqm, Laser, Mzm, Photodiode};
-use comrs::math::ZERO_CELSIUS;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -69,8 +67,8 @@ fn awgn<'py>(
 ///     >>> import comrs
 ///     >>> c = comrs.Constellation("qam", 4).normalized()
 ///     >>> b = comrs.bits(2 * 50_000, comrs.Rng(1))
-///     >>> y = comrs.awgn_ebn0(c.modulate(b), 6.0, 2, comrs.Rng(2))
-///     >>> abs(comrs.ber(c.demodulate(y), b) / comrs.theory_ber(4, 6.0) - 1) < 0.15
+///     >>> y = comrs.awgn_ebn0(c.map_bits(b), 6.0, 2, comrs.Rng(2))
+///     >>> abs(comrs.ber(c.demap_bits(y), b) / comrs.theory_ber(4, 6.0) - 1) < 0.15
 ///     True
 #[pyfunction]
 #[pyo3(signature = (x, ebn0_db, bits_per_symbol, rng, *, sps = 1.0))]
@@ -107,9 +105,6 @@ fn phase_noise<'py>(
     fs: f64,
     mut rng: PyRefMut<'py, PyRng>,
 ) -> PyResult<FArr<'py>> {
-    if fs <= 0.0 {
-        return Err(PyValueError::new_err(format!("the sampling rate must be positive, got {fs}")));
-    }
     let n = count(n, "n")?;
     Ok(farr(py, comrs::hardware::oscillator::phase_noise(linewidth_hz, n, 1.0 / fs, &mut rng.inner).py()?))
 }
@@ -264,8 +259,8 @@ fn iqm<'py>(
 ///
 /// Args:
 ///     responsivity (float): responsivity (A/W).
-///     temperature_c (float): temperature (°C).
-///     dark_current (float): dark current (A).
+///     temperature_k (float): temperature (K).
+///     dark_current_a (float): dark current (A).
 ///     load_ohm (float): load resistance (Ω).
 ///     bandwidth_hz (float): electrical bandwidth `B` (Hz).
 ///     n_taps (int): taps of the bandwidth-limiting filter (made odd).
@@ -287,6 +282,10 @@ wrapper_methods! {
     PyPhotodiode {
         /// float: Responsivity (A/W) (read and write).
         responsivity / set_responsivity: f64,
+        /// float: Temperature (K) (read and write).
+        temperature_k / set_temperature_k: f64,
+        /// float: Dark current (A) (read and write).
+        dark_current_a / set_dark_current_a: f64,
         /// float: Load resistance (Ω) (read and write).
         load_ohm / set_load_ohm: f64,
         /// float: Electrical bandwidth `B` (Hz) (read and write).
@@ -307,8 +306,8 @@ wrapper_methods! {
     #[pyo3(signature = (
         *,
         responsivity = Photodiode::default().responsivity,
-        temperature_c = Photodiode::default().temperature_k - ZERO_CELSIUS,
-        dark_current = Photodiode::default().dark_current_a,
+        temperature_k = Photodiode::default().temperature_k,
+        dark_current_a = Photodiode::default().dark_current_a,
         load_ohm = Photodiode::default().load_ohm,
         bandwidth_hz = Photodiode::default().bandwidth_hz,
         n_taps = Photodiode::default().n_taps,
@@ -321,8 +320,8 @@ wrapper_methods! {
     #[allow(clippy::too_many_arguments, reason = "one keyword argument per field of the photodiode")]
     fn new(
         responsivity: f64,
-        temperature_c: f64,
-        dark_current: f64,
+        temperature_k: f64,
+        dark_current_a: f64,
         load_ohm: f64,
         bandwidth_hz: f64,
         n_taps: usize,
@@ -335,8 +334,8 @@ wrapper_methods! {
         Ok(PyPhotodiode {
             inner: Photodiode {
                 responsivity,
-                temperature_k: temperature_c + ZERO_CELSIUS,
-                dark_current_a: dark_current,
+                temperature_k,
+                dark_current_a,
                 load_ohm,
                 bandwidth_hz,
                 n_taps,
@@ -347,28 +346,6 @@ wrapper_methods! {
                 ideal,
             },
         })
-    }
-
-    /// float: Temperature (°C) (read and write).
-    #[getter]
-    fn temperature_c(&self) -> f64 {
-        self.inner.temperature_k - ZERO_CELSIUS
-    }
-
-    #[setter]
-    fn set_temperature_c(&mut self, value: f64) {
-        self.inner.temperature_k = value + ZERO_CELSIUS;
-    }
-
-    /// float: Dark current (A) (read and write).
-    #[getter]
-    fn dark_current(&self) -> f64 {
-        self.inner.dark_current_a
-    }
-
-    #[setter]
-    fn set_dark_current(&mut self, value: f64) {
-        self.inner.dark_current_a = value;
     }
 
     /// str: The filter, `"rect"` or `"gauss"` (read and write; a name is checked when
@@ -431,10 +408,10 @@ wrapper_methods! {
     fn __repr__(&self) -> String {
         let d = &self.inner;
         format!(
-            "comrs.Photodiode(responsivity={}, temperature_c={}, dark_current={:e}, load_ohm={}, bandwidth_hz={:e}, \
+            "comrs.Photodiode(responsivity={}, temperature_k={}, dark_current_a={:e}, load_ohm={}, bandwidth_hz={:e}, \
              n_taps={}, filter_kind='{}', shot_noise={}, thermal_noise={}, bandwidth_limitation={}, ideal={})",
             d.responsivity,
-            d.temperature_k - ZERO_CELSIUS,
+            d.temperature_k,
             d.dark_current_a,
             d.load_ohm,
             d.bandwidth_hz,
@@ -451,8 +428,8 @@ wrapper_methods! {
         let d = &self.inner;
         let kw = PyDict::new(py);
         kw.set_item("responsivity", d.responsivity)?;
-        kw.set_item("temperature_c", d.temperature_k - ZERO_CELSIUS)?;
-        kw.set_item("dark_current", d.dark_current_a)?;
+        kw.set_item("temperature_k", d.temperature_k)?;
+        kw.set_item("dark_current_a", d.dark_current_a)?;
         kw.set_item("load_ohm", d.load_ohm)?;
         kw.set_item("bandwidth_hz", d.bandwidth_hz)?;
         kw.set_item("n_taps", d.n_taps)?;

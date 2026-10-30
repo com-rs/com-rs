@@ -33,7 +33,10 @@ ch = comrs.TdlChannel("eva", FS, doppler_hz=300.0)
 x = ofdm.modulate(np.ones(K * L))
 _, taps = ch.fade(x, comrs.Rng(1))
 H = np.stack(
-    [np.abs(taps.frequency_response(sym * ofdm.block_len, ofdm.bins, N)) for sym in range(L)]
+    [
+        np.abs(taps.frequency_response(sym * ofdm.block_len, ofdm.bins, N)[:, 0, 0])
+        for sym in range(L)
+    ]
 )
 fig, ax = plt.subplots(figsize=(7.0, 3.6))
 im = ax.imshow(
@@ -63,11 +66,11 @@ def link(eb, estimator, frames=150, seed=1):
     for f in range(frames):
         rng = comrs.Rng.stream(seed, "ofdm", int(eb * 10), f)
         bits = comrs.bits(2 * grid.n_data, rng)
-        x = ofdm.modulate(grid.map(c.modulate(bits)))
+        x = ofdm.modulate(grid.map(c.map_bits(bits)))
         y, taps = ch.fade(x, rng)
         s2 = N / (2 * K * comrs.db2lin(eb))
         rx = ofdm.demodulate(y + rng.complex_noise(y.size, s2))
-        h = np.tile(taps.frequency_response(0, ofdm.bins, N), 14)
+        h = np.tile(taps.frequency_response(0, ofdm.bins, N)[:, 0, 0], 14)
         nv = s2 * K / N
         if estimator == "perfect CSI":
             hh = h
@@ -86,7 +89,7 @@ def link(eb, estimator, frames=150, seed=1):
         else:
             hh = comrs.ofdm_estimate(grid, rx, nv, "linear")
         mse += np.mean(np.abs(hh - h) ** 2) / frames
-        err += int((c.demodulate(grid.extract(rx / hh)) != bits).sum())
+        err += int((c.demap_bits(grid.extract(rx / hh)) != bits).sum())
         tot += bits.size
     return err / tot, mse
 
@@ -104,7 +107,7 @@ ax1.legend()
 fine = np.linspace(0, 30, 121)
 ax2.semilogy(
     fine,
-    comrs.theory_ber_rayleigh_mrc(fine, 1),
+    comrs.theory_ber_rayleigh_mrc(fine, branches=1),
     color=GREY,
     linewidth=1.4,
     label="Rayleigh, theory",
@@ -125,5 +128,5 @@ fig.tight_layout()
 eb = 10.0
 print(
     f"{eb} dB: simulated {res['perfect CSI'][2][0]:.4f}, theory "
-    f"{comrs.theory_ber_rayleigh_mrc(eb, 1):.4f}"
+    f"{comrs.theory_ber_rayleigh_mrc(eb, branches=1):.4f}"
 )

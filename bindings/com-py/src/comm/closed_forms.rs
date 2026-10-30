@@ -87,10 +87,10 @@ fn theory_ber_gray(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str, mq: Option<
 ///     >>> g = comrs.db2lin(10.0)
 ///     >>> round(comrs.theory_ber_rayleigh_mrc(10.0) / (0.5 * (1 - math.sqrt(g / (1 + g)))), 12)
 ///     1.0
-///     >>> bool(comrs.theory_ber_rayleigh_mrc(10.0, 4) < 1e-5)
+///     >>> bool(comrs.theory_ber_rayleigh_mrc(10.0, branches=4) < 1e-5)
 ///     True
 #[pyfunction]
-#[pyo3(signature = (ebn0_db, branches = 1))]
+#[pyo3(signature = (ebn0_db, *, branches = 1))]
 fn theory_ber_rayleigh_mrc(ebn0_db: &Bound<'_, PyAny>, branches: usize) -> PyResult<Py<PyAny>> {
     map_real(ebn0_db, |e| theory::ber_rayleigh_mrc(comrs::math::db2lin(e), branches).py())
 }
@@ -100,7 +100,7 @@ fn theory_ber_rayleigh_mrc(ebn0_db: &Bound<'_, PyAny>, branches: usize) -> PyRes
 ///
 /// Args:
 ///     theta (float | array_like): phase error (rad), in `(-π, π]`.
-///     snr (float): `A²/E|w|²` (linear).
+///     snr_lin (float): `A²/E|w|²` (linear).
 ///
 /// Returns:
 ///     float | numpy.ndarray: the density at every `theta`.
@@ -113,8 +113,8 @@ fn theory_ber_rayleigh_mrc(ebn0_db: &Bound<'_, PyAny>, branches: usize) -> PyRes
 ///     >>> round(comrs.theory_phase_pdf(1.0, 0.0) * 2 * math.pi, 12)
 ///     1.0
 #[pyfunction]
-fn theory_phase_pdf(theta: &Bound<'_, PyAny>, snr: f64) -> PyResult<Py<PyAny>> {
-    map_real(theta, |t| Ok(comrs::mapping::theory::phase_pdf(t, snr)))
+fn theory_phase_pdf(theta: &Bound<'_, PyAny>, snr_lin: f64) -> PyResult<Py<PyAny>> {
+    map_real(theta, |t| Ok(comrs::mapping::theory::phase_pdf(t, snr_lin)))
 }
 
 /// Theoretical SER over AWGN (exact for square QAM and PAM, a tight bound for PSK).
@@ -141,6 +141,32 @@ fn theory_phase_pdf(theta: &Bound<'_, PyAny>, snr: f64) -> PyResult<Py<PyAny>> {
 fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
     let k = self::kind(kind)?;
     map_real(ebn0_db, |e| metrics::theory_ser(k, m, e).py())
+}
+
+/// Theoretical SER over AWGN as a function of `E_s/N_0`: :func:`theory_ser` with
+/// `E_b/N_0 = E_s/N_0 - 10 log10(log2 M)`, for the links whose SNR is per symbol.
+///
+/// Args:
+///     m (int): order.
+///     esn0_db (float | array_like): `E_s/N_0` (dB).
+///     kind (str): `"qam"`, `"psk"` or `"pam"`.
+///
+/// Returns:
+///     float | numpy.ndarray: the symbol error probability at every `E_s/N_0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> a = comrs.theory_ser_esn0(4, 10.0 + 10 * math.log10(2))
+///     >>> round(a / comrs.theory_ser(4, 10.0), 12)
+///     1.0
+#[pyfunction]
+#[pyo3(signature = (m, esn0_db, kind = "qam"))]
+fn theory_ser_esn0(m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
+    let k = self::kind(kind)?;
+    map_real(esn0_db, |e| theory::ser_esn0(k, m, e).py())
 }
 
 /// Mutual information of a constellation over AWGN (OptiCommPy `theoryMI`) or Rayleigh
@@ -230,11 +256,11 @@ fn theory_gmi(
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.cm_capacity(comrs.Constellation("qam", 4), 30.0), 6)
+///     >>> round(comrs.theory_cm_capacity(comrs.Constellation("qam", 4), 30.0), 6)
 ///     2.0
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
-fn cm_capacity(
+#[pyo3(signature = (constellation, snr_db, *, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
+fn theory_cm_capacity(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
     fading: &str,
@@ -261,8 +287,8 @@ fn cm_capacity(
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
-fn bicm_capacity(
+#[pyo3(signature = (constellation, snr_db, *, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
+fn theory_bicm_capacity(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
     fading: &str,
@@ -288,12 +314,16 @@ fn bicm_capacity(
 ///
 /// Examples:
 ///     >>> import comrs, math
-///     >>> r0 = comrs.cm_cutoff_rate(comrs.Constellation("psk", 2), 0.0)
+///     >>> r0 = comrs.theory_cm_cutoff_rate(comrs.Constellation("psk", 2), 0.0)
 ///     >>> round(r0 - (1 - math.log2(1 + math.exp(-1))), 12)
 ///     0.0
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn"))]
-fn cm_cutoff_rate(constellation: &PyConstellation, snr_db: &Bound<'_, PyAny>, fading: &str) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (constellation, snr_db, *, fading = "awgn"))]
+fn theory_cm_cutoff_rate(
+    constellation: &PyConstellation,
+    snr_db: &Bound<'_, PyAny>,
+    fading: &str,
+) -> PyResult<Py<PyAny>> {
     let f = self::fading(fading)?;
     map_real(snr_db, |s| Ok(bicm::cm_cutoff_rate(&constellation.inner, s, f)))
 }
@@ -314,8 +344,8 @@ fn cm_cutoff_rate(constellation: &PyConstellation, snr_db: &Bound<'_, PyAny>, fa
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
-fn bicm_cutoff_rate(
+#[pyo3(signature = (constellation, snr_db, *, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
+fn theory_bicm_cutoff_rate(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
     fading: &str,
@@ -329,14 +359,15 @@ fn bicm_cutoff_rate(
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(theory_ber, m)?)?;
     m.add_function(wrap_pyfunction!(theory_ser, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_ser_esn0, m)?)?;
     m.add_function(wrap_pyfunction!(theory_ber_gray, m)?)?;
     m.add_function(wrap_pyfunction!(theory_ber_rayleigh_mrc, m)?)?;
     m.add_function(wrap_pyfunction!(theory_phase_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(theory_mi, m)?)?;
     m.add_function(wrap_pyfunction!(theory_gmi, m)?)?;
-    m.add_function(wrap_pyfunction!(cm_capacity, m)?)?;
-    m.add_function(wrap_pyfunction!(bicm_capacity, m)?)?;
-    m.add_function(wrap_pyfunction!(cm_cutoff_rate, m)?)?;
-    m.add_function(wrap_pyfunction!(bicm_cutoff_rate, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_cm_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_bicm_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_cm_cutoff_rate, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_bicm_cutoff_rate, m)?)?;
     Ok(())
 }

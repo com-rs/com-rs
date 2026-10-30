@@ -31,7 +31,7 @@ import numpy as np
 
 import comrs
 from comrs import blocks as B
-from comrs.plot import BACKGROUND, COBALT, GREY, INK, PURPLE, RULE, RUST, TEAL
+from comrs.plot import BACKGROUND, BLUE, GREY, INK, PURPLE, RULE, RUST, TEAL
 
 # %%
 # The spectral efficiency of the 28 MODCODs at the thresholds of Table 13.
@@ -40,7 +40,7 @@ families = [
         "QPSK",
         ["1/4", "1/3", "2/5", "1/2", "3/5", "2/3", "3/4", "4/5", "5/6", "8/9", "9/10"],
         "o",
-        COBALT,
+        BLUE,
     ),
     ("8PSK", ["3/5", "2/3", "3/4", "5/6", "8/9", "9/10"], "s", RUST),
     ("16APSK", ["2/3", "3/4", "4/5", "5/6", "8/9", "9/10"], "D", TEAL),
@@ -71,7 +71,7 @@ for ax, (name, rate) in zip(axes, [("16APSK", "3/4"), ("32APSK", "4/5")], strict
     c = comrs.Dvbs2(name, rate, frame="short").constellation
     p = np.asarray(c.points)
     b = c.bits_per_symbol
-    ax.plot(p.real, p.imag, "o", color=COBALT, markeredgecolor=BACKGROUND)
+    ax.plot(p.real, p.imag, "o", color=BLUE, markeredgecolor=BACKGROUND)
     for label, z in enumerate(p):
         ax.annotate(format(label, f"0{b}b"), (z.real, z.imag), textcoords="offset points", xytext=(0, 6),
                     ha="center", fontsize=7, color=INK)  # fmt: skip
@@ -82,7 +82,7 @@ fig.tight_layout()
 
 # %%
 # Frame error rate of short frames over AWGN, with the thresholds of Table 13.
-cases = [("QPSK", "1/2", "o", COBALT), ("8PSK", "3/5", "s", RUST),
+cases = [("QPSK", "1/2", "o", BLUE), ("8PSK", "3/5", "s", RUST),
          ("16APSK", "3/4", "D", TEAL), ("32APSK", "4/5", "^", PURPLE)]  # fmt: skip
 fig, ax = plt.subplots()
 for name, rate, marker, color in cases:

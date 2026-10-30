@@ -7,7 +7,7 @@ source:
   locator: "Fig. 1, flat channel (FSCM and FSK coincide), read at -10, -9, -8, -7 dB (SNR per sample)"
   file: modulation/2017_vangelista_frequency-shift-chirp-modulation-lora_spl.pdf
 run:
-  function: comrs.css_ber
+  function: comrs.theory_css_ber
 tolerance: {rtol: 0.15}
 why: "values read on the figure"
 note: "the BER of 128 orthogonal signals detected noncoherently"

@@ -119,4 +119,4 @@ def test_same_seed_same_realisation_and_errors():
     with pytest.raises(ValueError):
         comrs.CdlChannel("CDL-A", 100e-9, 0.0)
     with pytest.raises(ValueError):
-        comrs.CdlChannel("CDL-A", 100e-9, 1e6, spacing=0.0)
+        comrs.CdlChannel("CDL-A", 100e-9, 1e6, spacing_wavelengths=0.0)

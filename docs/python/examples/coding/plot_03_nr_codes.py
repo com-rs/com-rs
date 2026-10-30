@@ -44,7 +44,7 @@ for k, n in [(100, 300), (1000, 1500), (4000, 4800), (8448, 25344)]:
 # Belief propagation (50 iterations of sum-product) for the LDPC code, CRC-aided SC
 # list (L = 8) for the polar code, against the normal approximation of the best code of
 # the same length and rate (Y. Polyanskiy, H. V. Poor and S. Verdú, *IEEE Trans. Inf.
-# Theory* 56(5), 2010; :func:`comrs.normal_approximation`, dashed). At a block error
+# Theory* 56(5), 2010; :func:`comrs.theory_normal_approximation`, dashed). At a block error
 # rate of 10⁻², the LDPC code of 500 bits at rate 1/2 sits about 0.6 dB from it, the
 # polar code of 40 bits in 128 about 1.1 dB, part of which is its CRC
 # (``validation/tests/nr_codes.rs``).
@@ -74,7 +74,11 @@ for name, code, grid, color in cases:
     ax.semilogy(grid, np.maximum(p, 1e-3), "o-", color=color, markersize=4, label=name)
     fine = np.linspace(grid[0] - 1, grid[-1], 60)
     ax.semilogy(
-        fine, comrs.normal_approximation(code.n, code.k, fine), "--", color=color, linewidth=1
+        fine,
+        comrs.theory_normal_approximation(code.n, code.k, fine),
+        "--",
+        color=color,
+        linewidth=1,
     )
 ax.set(xlabel="$E_b/N_0$ (dB)", ylabel="block error rate", ylim=(3e-3, 1.1))
 ax.grid(alpha=0.3, which="both")

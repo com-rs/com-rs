@@ -88,13 +88,13 @@ def chain_comrs(case: str, seed: int):
 
     def run(n: int, ebn0: float) -> np.ndarray:
         b = comrs.bits(n * NT * K, rng)
-        x = c.modulate(b).reshape(n, NT)
-        h = comrs.mimo_channel(NR, NT, rng, n=n)
+        x = c.map_bits(b).reshape(n, NT)
+        h = comrs.mimo_channels(n, NR, NT, rng)
         n0 = 1.0 / (K * 10 ** (ebn0 / 10))
         # y = H x + w (the Python API draws H; the product is NumPy's)
         y = np.matmul(h, x[:, :, None])[:, :, 0] + rng.complex_noise(n * NR, n0).reshape(n, NR)
-        labels = comrs.mimo_detect(h, y, c, n0, case)
-        bh = comrs.unpack_symbols(labels.ravel(), K)
+        labels = comrs.mimo_detect(h, y.T, c, n0, case)  # stream-major (NT, n)
+        bh = comrs.unpack_symbols(labels.T.ravel(), K)
         return np.count_nonzero((bh != b).reshape(n, NT * K), axis=1)  # bit errors per vector
 
     return run, "float64"

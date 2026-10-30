@@ -2,7 +2,7 @@
 //! Fourier method (one polarisation) and the Manakov equation (two polarisations).
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec, json, py_bool, rng_of};
+use crate::{CArr, CMat, IntoPy, carr, cvec, json, mat, py_bool, rng_of, streams_in};
 use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::fiber::{self as channels, Amplification, Precision, Ssfm};
@@ -398,14 +398,14 @@ impl PySsfm {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (x, fs, rng = None, *, precision = "f64"))]
+    #[pyo3(signature = (x, fs, *, precision = "f64", rng = None))]
     fn propagate<'py>(
         &self,
         py: Python<'py>,
         x: &Bound<'py, PyAny>,
         fs: f64,
-        rng: Option<PyRefMut<'py, PyRng>>,
         precision: &str,
+        rng: Option<PyRefMut<'py, PyRng>>,
     ) -> PyResult<CArr<'py>> {
         let precision: Precision = precision.parse().py()?;
         let mut y = cvec(x)?;
@@ -466,7 +466,7 @@ impl PySsfm {
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter (the message names it).
-#[pyclass(name = "Manakov", module = "comrs")]
+#[pyclass(name = "ManakovPmd", module = "comrs")]
 pub struct PyManakov {
     inner: ManakovPmd,
 }
@@ -474,7 +474,7 @@ pub struct PyManakov {
 #[pymethods]
 impl PyManakov {
     fn __repr__(&self) -> String {
-        format!("Manakov(n_spans={}, rms_dgd_s={:e})", self.inner.fiber.n_spans, self.inner.pmd.rms_dgd_s())
+        format!("ManakovPmd(n_spans={}, rms_dgd_s={:e})", self.inner.fiber.n_spans, self.inner.pmd.rms_dgd_s())
     }
 
     #[new]
@@ -503,83 +503,67 @@ impl PyManakov {
     /// Propagate the two polarisations.
     ///
     /// Args:
-    ///     x (array_like): the field of the first polarisation (√W).
-    ///     y (array_like): the field of the second polarisation (√W).
+    ///     u (array_like): the field, `(2, n)`: the two polarisations (√W).
     ///     fs (float): sampling rate (Hz).
     ///     rng (Rng, optional): the generator of the ASE (noiseless without one).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, numpy.ndarray]: the fields of the two polarisations.
+    ///     numpy.ndarray: the field at the end of the link, `(2, n)` (complex128).
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (x, y, fs, rng = None))]
+    #[pyo3(signature = (u, fs, *, rng = None))]
     fn propagate<'py>(
         &self,
         py: Python<'py>,
-        x: &Bound<'py, PyAny>,
-        y: &Bound<'py, PyAny>,
+        u: &Bound<'py, PyAny>,
         fs: f64,
         rng: Option<PyRefMut<'py, PyRng>>,
-    ) -> PyResult<(CArr<'py>, CArr<'py>)> {
-        let mut u = dual_pol(x, y)?;
+    ) -> PyResult<CMat<'py>> {
+        let mut u = dual_pol(u)?;
         let mut rng = rng;
         let r = rng_of(&mut rng);
         let m = &self.inner;
         py.detach(|| m.propagate(&mut u, fs, r)).py()?;
-        Ok(split(py, u))
+        field_out(py, u)
     }
 
     /// Back-propagation with the known PMD realisation (inverts `propagate` without
     /// noise).
     ///
     /// Args:
-    ///     x (array_like): the received field of the first polarisation (√W).
-    ///     y (array_like): the received field of the second polarisation (√W).
+    ///     u (array_like): the received field, `(2, n)` (√W).
     ///     fs (float): sampling rate (Hz).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///     numpy.ndarray: the back-propagated field, `(2, n)` (complex128).
     ///
     /// Raises:
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
-    fn backpropagate_with_pmd<'py>(
-        &self,
-        py: Python<'py>,
-        x: &Bound<'py, PyAny>,
-        y: &Bound<'py, PyAny>,
-        fs: f64,
-    ) -> PyResult<(CArr<'py>, CArr<'py>)> {
-        let mut u = dual_pol(x, y)?;
+    fn backpropagate_with_pmd<'py>(&self, py: Python<'py>, u: &Bound<'py, PyAny>, fs: f64) -> PyResult<CMat<'py>> {
+        let mut u = dual_pol(u)?;
         let m = &self.inner;
         py.detach(|| m.backpropagate_with_pmd(&mut u, fs));
-        Ok(split(py, u))
+        field_out(py, u)
     }
 
     /// Undo the lumped PMD of the link (inverse of its frequency response), leaving the
     /// dispersion and the nonlinearity.
     ///
     /// Args:
-    ///     x (array_like): the field of the first polarisation (√W).
-    ///     y (array_like): the field of the second polarisation (√W).
+    ///     u (array_like): the field, `(2, n)` (√W).
     ///     fs (float): sampling rate (Hz).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, numpy.ndarray]: the two fields without the PMD.
+    ///     numpy.ndarray: the field without the PMD, `(2, n)` (complex128).
     ///
     /// Raises:
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
-    fn equalize_pmd<'py>(
-        &self,
-        py: Python<'py>,
-        x: &Bound<'py, PyAny>,
-        y: &Bound<'py, PyAny>,
-        fs: f64,
-    ) -> PyResult<(CArr<'py>, CArr<'py>)> {
-        let mut u = dual_pol(x, y)?;
+    fn equalize_pmd<'py>(&self, py: Python<'py>, u: &Bound<'py, PyAny>, fs: f64) -> PyResult<CMat<'py>> {
+        let mut u = dual_pol(u)?;
         let m = &self.inner;
         py.detach(|| m.equalize_pmd(&mut u, fs));
-        Ok(split(py, u))
+        field_out(py, u)
     }
 }
 
@@ -591,7 +575,7 @@ impl PyManakov {
 /// iterated until the relative change of the fields falls below ``tolerance``) and a half
 /// linear step. The step is fixed (``step_km``) or adapted so that the largest nonlinear
 /// phase of a step is ``max_nl_phase`` (Sinkin et al. 2003). An amplifier follows every
-/// span. Polarisation-mode dispersion is neglected (see :class:`Manakov`).
+/// span. Polarisation-mode dispersion is neglected (see :class:`ManakovPmd`).
 ///
 /// Args:
 ///     fiber (FiberParams): the link.
@@ -608,6 +592,7 @@ impl PyManakov {
 #[pyclass(name = "ManakovSsfm", module = "comrs")]
 pub struct PyManakovSsfm {
     inner: ManakovSsfm,
+    last_steps: Option<usize>,
 }
 
 #[pymethods]
@@ -647,38 +632,44 @@ impl PyManakovSsfm {
                 amplification: amplification.parse::<Amplification>().py()?,
                 raman: self::raman(py, raman)?,
             },
+            last_steps: None,
         })
+    }
+
+    /// int | None: The number of steps of the last propagation (None before the first).
+    #[getter]
+    fn last_steps(&self) -> Option<usize> {
+        self.last_steps
     }
 
     /// Propagate the two polarisations.
     ///
     /// Args:
-    ///     x (array_like): the field of the first polarisation (√W).
-    ///     y (array_like): the field of the second polarisation (√W).
+    ///     u (array_like): the field, `(2, n)`: the two polarisations (√W).
     ///     fs (float): sampling rate (Hz).
     ///     rng (Rng, optional): the generator of the ASE (noiseless without one).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, numpy.ndarray, int]: the two fields and the number of
-    ///     steps.
+    ///     numpy.ndarray: the field at the end of the link, `(2, n)` (complex128); the
+    ///     number of steps is kept in :attr:`last_steps`.
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (x, y, fs, rng = None))]
+    #[pyo3(signature = (u, fs, *, rng = None))]
     fn propagate<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
-        x: &Bound<'py, PyAny>,
-        y: &Bound<'py, PyAny>,
+        u: &Bound<'py, PyAny>,
         fs: f64,
         rng: Option<PyRefMut<'py, PyRng>>,
-    ) -> PyResult<(CArr<'py>, CArr<'py>, usize)> {
-        let mut u = dual_pol(x, y)?;
+    ) -> PyResult<CMat<'py>> {
+        let mut u = dual_pol(u)?;
         let mut rng = rng;
         let r = rng_of(&mut rng);
         let m = &self.inner;
         let steps = py.detach(|| m.propagate(&mut u, fs, r)).py()?;
-        Ok((carr(py, u.x), carr(py, u.y), steps))
+        self.last_steps = Some(steps);
+        field_out(py, u)
     }
 
     /// Dual-polarisation digital back-propagation with `steps_per_span` symmetric steps
@@ -686,43 +677,45 @@ impl PyManakovSsfm {
     /// before each span, the nonlinear phase of a step on its effective length).
     ///
     /// Args:
-    ///     x (array_like): the received field of the first polarisation (√W).
-    ///     y (array_like): the received field of the second polarisation (√W).
+    ///     u (array_like): the received field, `(2, n)` (√W).
     ///     fs (float): sampling rate (Hz).
     ///     steps_per_span (int): steps per span.
     ///     nonlinear_scale (float): ξ, multiplies the nonlinear phase (0: dispersion
     ///         compensation only).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///     numpy.ndarray: the back-propagated field, `(2, n)` (complex128).
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (x, y, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
+    #[pyo3(signature = (u, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
     fn backpropagate<'py>(
         &self,
         py: Python<'py>,
-        x: &Bound<'py, PyAny>,
-        y: &Bound<'py, PyAny>,
+        u: &Bound<'py, PyAny>,
         fs: f64,
         steps_per_span: usize,
         nonlinear_scale: f64,
-    ) -> PyResult<(CArr<'py>, CArr<'py>)> {
-        let (mut x, mut y) = (cvec(x)?, cvec(y)?);
+    ) -> PyResult<CMat<'py>> {
+        let DualPol { mut x, mut y } = dual_pol(u)?;
         let d = self.inner.dbp(steps_per_span, nonlinear_scale);
         py.detach(|| d.run_dual(&mut x, &mut y, fs)).py()?;
-        Ok((carr(py, x), carr(py, y)))
+        mat(py, vec![x, y])
     }
 }
 
-/// The two polarisations of a dual-polarisation field from two arrays.
-fn dual_pol(x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>) -> PyResult<DualPol> {
-    DualPol::new(cvec(x)?, cvec(y)?).py()
+/// The two polarisations of a dual-polarisation field given as a `(2, n)` array.
+fn dual_pol(u: &Bound<'_, PyAny>) -> PyResult<DualPol> {
+    let (rows, _) = streams_in(u)?;
+    let [x, y]: [Vec<_>; 2] = rows.try_into().map_err(|r: Vec<_>| {
+        PyValueError::new_err(format!("a dual-polarisation field is a (2, n) array, got {} streams", r.len()))
+    })?;
+    DualPol::new(x, y).py()
 }
 
-/// The two polarisations as two arrays.
-fn split(py: Python<'_>, u: DualPol) -> (CArr<'_>, CArr<'_>) {
-    (carr(py, u.x), carr(py, u.y))
+/// A dual-polarisation field as a `(2, n)` array.
+fn field_out(py: Python<'_>, u: DualPol) -> PyResult<CMat<'_>> {
+    mat(py, vec![u.x, u.y])
 }
 
 /// Register the bindings of this module.

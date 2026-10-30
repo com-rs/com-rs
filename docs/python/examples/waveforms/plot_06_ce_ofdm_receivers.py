@@ -46,7 +46,7 @@ def ber(e, d):
 
 def link(ce, ebn0_db, blocks, seed):
     rng = comrs.Rng(seed)
-    _, d = comrs.symbols(QPSK, ce.n_data * blocks, rng)
+    _, d = comrs.symbols(QPSK, ce.n_subcarriers * blocks, rng)
     sigma2 = ce.noise_variance(ebn0_db + comrs.lin2db(2))
     s = ce.modulate(d)
     return d, s + rng.complex_noise(s.size, sigma2), sigma2
@@ -64,7 +64,9 @@ for i, e in enumerate(ebn0):
     pd.append(ber(ce.demodulate(r), d))
     gamp.append(ber(ce.gamp(r, s2, QPSK), d))
 fine = np.linspace(0, 8, 81)
-ax.semilogy(fine, comrs.ce_ofdm_ber_optimum(1.4, fine), color=MUTED, label="optimum, eq. (8)")
+ax.semilogy(
+    fine, comrs.theory_ce_ofdm_ber_optimum(1.4, fine), color=MUTED, label="optimum, eq. (8)"
+)
 ax.semilogy(ebn0, pd, "o--", label="phase detector")
 ax.semilogy(ebn0, np.maximum(gamp, 1e-6), "s-", label="GAMP")
 ax.set(
@@ -91,7 +93,7 @@ for j, (receiver, label) in enumerate(names.items()):
         theory = ce.ber_receiver(4, fine + comrs.lin2db(2), receiver=receiver)
         ax.semilogy(fine, theory, color=line.get_color(), linewidth=1.2)
 ax.semilogy(
-    fine, ce.ber(4, fine + comrs.lin2db(2)), color=MUTED, linewidth=1.0, label="linear regime"
+    fine, ce.ber_esn0(4, fine + comrs.lin2db(2)), color=MUTED, linewidth=1.0, label="linear regime"
 )
 ax.set(
     ylim=(1e-5, 0.5),
@@ -151,4 +153,4 @@ fig.tight_layout()
 # basic one everywhere and the arctangent one at high BERs, as in Fig. 6 of Ahmed and
 # Zeidler. Below :math:`10^{-4}`, the wraps of the phase (not unwrapped) floor the
 # arctangent receiver.
-print(f"GAMP at 6 dB: {gamp[-1]:.1e}, optimum {comrs.ce_ofdm_ber_optimum(1.4, 6.0):.1e}")
+print(f"GAMP at 6 dB: {gamp[-1]:.1e}, optimum {comrs.theory_ce_ofdm_ber_optimum(1.4, 6.0):.1e}")

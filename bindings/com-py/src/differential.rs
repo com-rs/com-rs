@@ -36,10 +36,10 @@ use pyo3::prelude::*;
 ///     >>> import comrs, numpy as np
 ///     >>> dqpsk = comrs.Dpsk(4)
 ///     >>> bits = np.array([0, 1, 1, 1, 0, 0], dtype=np.uint8)
-///     >>> x = dqpsk.modulate(bits)
+///     >>> x = dqpsk.map_bits(bits)
 ///     >>> x.shape
 ///     (4,)
-///     >>> dqpsk.demodulate(x * np.exp(1j * 1.234)).tolist()
+///     >>> dqpsk.demap_bits(x * np.exp(1j * 1.234)).tolist()
 ///     [0, 1, 1, 1, 0, 0]
 #[pyclass(name = "Dpsk", module = "comrs")]
 #[derive(Clone)]
@@ -200,9 +200,9 @@ impl PyDpsk {
     ///
     /// Examples:
     ///     >>> import comrs
-    ///     >>> comrs.Dpsk(2).modulate([1, 0]).real.round(12).tolist()
+    ///     >>> comrs.Dpsk(2).map_bits([1, 0]).real.round(12).tolist()
     ///     [1.0, -1.0, -1.0]
-    fn modulate<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
+    fn map_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.map_bits(&bvec(bits)?).py()?))
     }
 
@@ -221,9 +221,9 @@ impl PyDpsk {
     /// Examples:
     ///     >>> import comrs, numpy as np
     ///     >>> d = comrs.Dpsk(2)
-    ///     >>> d.demodulate(d.modulate([1, 0, 1]) * 1j).tolist()
+    ///     >>> d.demap_bits(d.map_bits([1, 0, 1]) * 1j).tolist()
     ///     [1, 0, 1]
-    fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
+    fn demap_bits<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.demap_bits(&cvec(r)?).py()?.into_pyarray(py))
     }
 
@@ -242,7 +242,7 @@ impl PyDpsk {
     /// Examples:
     ///     >>> import comrs
     ///     >>> d = comrs.Dpsk(4)
-    ///     >>> d.demodulate_coherent(d.modulate([1, 1, 0, 1])).tolist()
+    ///     >>> d.demodulate_coherent(d.map_bits([1, 1, 0, 1])).tolist()
     ///     [1, 1, 0, 1]
     fn demodulate_coherent<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.demodulate_coherent(&cvec(r)?).py()?.into_pyarray(py))
@@ -261,7 +261,7 @@ impl PyDpsk {
 /// probabilities come from the distribution of the phase angle between two vectors of
 /// the same SNR `Es/N0 = Eb/N0 log2 M` perturbed by Gaussian noise (Pawula, Rice &
 /// Roberts, *IEEE Trans. Commun.* 30(8), 1982, Sec. IV; see
-/// `differential_phase_tail`). For DQPSK, `Pb = ½ [P(|dθ| > π/4) + P(|dθ| > 3π/4)]`.
+/// `theory_differential_phase_tail`). For DQPSK, `Pb = ½ [P(|dθ| > π/4) + P(|dθ| > 3π/4)]`.
 ///
 /// With coherent detection and differential decoding (DBPSK only): an isolated symbol
 /// error spoils two differences, so `Pb = 2p(1 - p)` with `p = Q(sqrt(2 Eb/N0))`
@@ -304,7 +304,7 @@ fn theory_ber_dpsk(m: usize, ebn0_db: &Bound<'_, PyAny>, detection: &str) -> PyR
 ///
 /// Args:
 ///     psi (float): the threshold angle (rad).
-///     esn0 (float | array_like): `Es/N0` of each vector (linear).
+///     esn0_lin (float | array_like): `Es/N0` of each vector (linear).
 ///
 /// Returns:
 ///     float | numpy.ndarray: `P(|dθ| > psi)` at every `Es/N0`.
@@ -314,17 +314,17 @@ fn theory_ber_dpsk(m: usize, ebn0_db: &Bound<'_, PyAny>, detection: &str) -> PyR
 ///
 /// Examples:
 ///     >>> import comrs, math
-///     >>> round(comrs.differential_phase_tail(math.pi / 2, 5.0) / (0.5 * math.exp(-5.0)), 8)
+///     >>> round(comrs.theory_differential_phase_tail(math.pi / 2, 5.0) / (0.5 * math.exp(-5.0)), 8)
 ///     1.0
 #[pyfunction]
-fn differential_phase_tail(psi: f64, esn0: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(esn0, |g| Ok(theory::differential_phase_tail(psi, g)))
+fn theory_differential_phase_tail(psi: f64, esn0_lin: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    map_real(esn0_lin, |g| Ok(theory::differential_phase_tail(psi, g)))
 }
 
 /// Register the differential PSK bindings.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDpsk>()?;
     m.add_function(wrap_pyfunction!(theory_ber_dpsk, m)?)?;
-    m.add_function(wrap_pyfunction!(differential_phase_tail, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_differential_phase_tail, m)?)?;
     Ok(())
 }

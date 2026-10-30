@@ -39,12 +39,11 @@ for i, eb in enumerate(points):
         while errors < 200 and total < 4e6:
             rng = comrs.Rng.stream(9, m, i, t)
             n = 20_000
-            h = comrs.mimo_channel(NR, NT, rng, n=n)
-            idx = rng.integers(4, n * NT).reshape(n, NT)
-            y = np.einsum("nij,nj->ni", h, c.points[idx]) + rng.complex_noise(n * NR, s2).reshape(
-                n, NR
-            )
-            d = comrs.mimo_detect(h, y, c, s2, m)
+            h = comrs.mimo_channels(n, NR, NT, rng)
+            idx = rng.integers(4, n * NT).reshape(n, NT).T  # (n_tx, n): stream-major
+            noise = rng.complex_noise(n * NR, s2).reshape(n, NR).T
+            y = np.einsum("nij,jn->in", h, c.points[idx]) + noise  # (n_rx, n)
+            d = comrs.mimo_detect(h, y, c, s2, m)  # (n_tx, n)
             errors += int(np.unpackbits((d ^ idx).astype(np.uint8)[..., None], axis=-1).sum())
             total += idx.size * k
             t += 1
@@ -56,7 +55,7 @@ fig, ax = plt.subplots()
 eb = np.linspace(0, 25, 251)
 ax.semilogy(
     eb,
-    comrs.theory_ber_rayleigh_mrc(eb, 1),
+    comrs.theory_ber_rayleigh_mrc(eb, branches=1),
     color=GREY,
     linewidth=1.2,
     linestyle=":",
@@ -132,10 +131,10 @@ def time_per_vector(method, const, n_ant, eb_db, n_vectors, seed=3):
     rng = comrs.Rng(seed)
     m = const.order
     s2 = 1 / (const.bits_per_symbol * comrs.db2lin(eb_db))
-    h = comrs.mimo_channel(n_ant, n_ant, rng, n=n_vectors)
-    idx = rng.integers(m, n_vectors * n_ant).reshape(n_vectors, n_ant)
-    noise = rng.complex_noise(n_vectors * n_ant, s2).reshape(n_vectors, n_ant)
-    y = np.einsum("nij,nj->ni", h, const.points[idx]) + noise
+    h = comrs.mimo_channels(n_vectors, n_ant, n_ant, rng)
+    idx = rng.integers(m, n_vectors * n_ant).reshape(n_vectors, n_ant).T
+    noise = rng.complex_noise(n_vectors * n_ant, s2).reshape(n_vectors, n_ant).T
+    y = np.einsum("nij,jn->in", h, const.points[idx]) + noise
     best = np.inf
     for _ in range(3):
         t0 = time.perf_counter()

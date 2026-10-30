@@ -80,7 +80,7 @@ def streams(v, k):
 @pytest.mark.parametrize("k", [40, 112, 168, 432])
 def test_lte_turbo_code(k):
     u, x, y, uhat = (get(f"turbo/k{k}/{p}") for p in ("u", "x", "y", "uhat"))
-    code = comrs.TurboCode(k, qpp="lte", iterations=10, exact=True)
+    code = comrs.TurboCode(k, qpp="lte", iterations=10, max_log=False)
     for i in range(len(u)):
         np.testing.assert_array_equal(code.encode(u[i]), streams(x[i], k))
         # the same decisions, the same errors

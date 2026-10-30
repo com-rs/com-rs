@@ -50,7 +50,7 @@ fn entropy(px: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///     >>> import comrs, numpy as np
 ///     >>> m = comrs.Ccdm([2, 1, 1])
 ///     >>> b = np.zeros(m.k, dtype=np.uint8)
-///     >>> m.dematch(m.matched(b)).tolist() == b.tolist()
+///     >>> m.dematch(m.match_bits(b)).tolist() == b.tolist()
 ///     True
 #[pyclass(name = "Ccdm", module = "comrs")]
 pub struct PyCcdm {
@@ -124,7 +124,7 @@ impl PyCcdm {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    fn matched<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
+    fn match_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         let s = self.inner.match_bits(&bvec(bits)?).py()?;
         Ok(iarr(py, s))
     }

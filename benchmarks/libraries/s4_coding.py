@@ -118,14 +118,16 @@ def codec_comrs(case: str, seed: int):
     if case == "conv":
         code = comrs.ConvolutionalCode(K_CONV, generators=CONV_GEN, constraint=7)
     elif case == "nr_ldpc":
-        code = comrs.NrLdpc(K_NR, N_NR, iterations=ITERATIONS, rule="sum_product", layered=False)
+        code = comrs.NrLdpc(
+            K_NR, N_NR, max_iterations=ITERATIONS, rule="sum_product", layered=False
+        )
     else:
         return codec_same_llr_comrs(seed)
     k, n = code.k, code.n
 
     def llrs(f: int, ebn0: float):
         b = comrs.bits(f * k, rng)
-        x = bpsk.modulate(code.encode(b))
+        x = bpsk.map_bits(code.encode(b))
         n0 = n0_of(ebn0, k / n)
         y = x + rng.complex_noise(x.size, n0)
         return b.reshape(f, k), bpsk.llr(y, n0)
@@ -156,7 +158,7 @@ def same_llrs(seed: int):
         b = comrs.bits(f * code.k, rng)
         c = code.encode(b)
         n0 = n0_of(ebn0, code.k / code.n)
-        y = bpsk.modulate(c) + rng.complex_noise(c.size, n0)
+        y = bpsk.map_bits(c) + rng.complex_noise(c.size, n0)
         return c.reshape(f, code.n), bpsk.llr(y, n0).reshape(f, code.n)  # positive for a 0
 
     return code, llrs

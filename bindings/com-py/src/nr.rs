@@ -1,7 +1,7 @@
 //! 5G NR: the numerology, the synchronisation signal block, the cell search and the DMRS
 //! of the PDSCH.
 
-use crate::{CArr, FArr, IntoPy, carr, farr, mat};
+use crate::{CArr, FArr, IntoPy, carr, farr, grid_in, grid_out, mat};
 use comrs::waveform::ofdm::nr::{self, Numerology, PdschDmrs, SSB_SUBCARRIERS, SSB_SYMBOLS, SsbElement};
 use num_complex::Complex64 as C64;
 use numpy::PyArray2;
@@ -19,7 +19,7 @@ use pyo3::types::PyDict;
 ///         128).
 ///
 /// Returns:
-///     dict: ``subcarrier_spacing`` (Hz), ``slots_per_subframe``, ``slots_per_frame``,
+///     dict: ``subcarrier_spacing_hz``, ``slots_per_subframe``, ``slots_per_frame``,
 ///     ``symbols_per_slot``, ``sample_rate`` (Hz), ``cp_lengths`` (samples, the symbols
 ///     of one subframe).
 ///
@@ -36,29 +36,13 @@ use pyo3::types::PyDict;
 fn nr_numerology(py: Python<'_>, mu: u32, extended_cp: bool, n_fft: usize) -> PyResult<Bound<'_, PyDict>> {
     let n = Numerology::new(mu, extended_cp).py()?;
     let d = PyDict::new(py);
-    d.set_item("subcarrier_spacing", n.subcarrier_spacing_hz())?;
+    d.set_item("subcarrier_spacing_hz", n.subcarrier_spacing_hz())?;
     d.set_item("slots_per_subframe", n.slots_per_subframe())?;
     d.set_item("slots_per_frame", n.slots_per_frame())?;
     d.set_item("symbols_per_slot", n.symbols_per_slot())?;
     d.set_item("sample_rate", n.sample_rate(n_fft))?;
     d.set_item("cp_lengths", crate::iarr(py, n.cp_lengths(n_fft).py()?))?;
     Ok(d)
-}
-
-/// The columns of a `(K, L)` grid (subcarriers × symbols), symbol-major.
-fn grid_in(grid: &Bound<'_, PyAny>) -> PyResult<(Vec<C64>, usize)> {
-    let a = crate::carray(grid)?;
-    if a.ndim() != 2 {
-        return Err(PyValueError::new_err("expected a 2-D grid (subcarriers × symbols)"));
-    }
-    let (k, l) = (a.shape()[0], a.shape()[1]);
-    Ok(((0..l).flat_map(|j| (0..k).map(move |i| (i, j))).map(|(i, j)| a[[i, j]]).collect(), k))
-}
-
-/// A symbol-major grid as a `(K, L)` array.
-fn grid_out<'py>(py: Python<'py>, g: &[C64], k: usize) -> PyResult<Bound<'py, PyArray2<C64>>> {
-    let l = g.len() / k;
-    mat(py, (0..k).map(|i| (0..l).map(|j| g[j * k + i]).collect()).collect())
 }
 
 /// OFDM-modulate a grid of NR: the subcarrier `k` at the frequency `(k - K/2) Δf`, the
@@ -144,22 +128,34 @@ fn nr_pbch_dmrs(py: Python<'_>, n_cell_id: u32, i_ssb_bar: u32) -> PyResult<CArr
     Ok(carr(py, nr::pbch_dmrs(n_cell_id, i_ssb_bar).py()?))
 }
 
-/// The linear indices `l · 240 + k` of the resource elements of one kind in the SSB,
-/// frequency first (the order of the mapping; the indices of MATLAB minus one).
+/// The resource elements of one kind in the SSB, as `(k, l)` pairs (subcarrier, symbol)
+/// in the order of the mapping, frequency first: ``grid[idx[:, 0], idx[:, 1]]`` reads them
+/// in a `(240, 4)` grid.
 ///
 /// Args:
 ///     n_cell_id (int): the cell identity (it shifts the PBCH DMRS).
 ///     kind (str): ``"pss"``, ``"sss"``, ``"pbch"`` or ``"pbch_dmrs"``.
 ///
 /// Returns:
-///     numpy.ndarray: the indices (int64).
+///     numpy.ndarray: the pairs `(k, l)`, `(n, 2)` (int64).
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter (the message names it).
+///
+/// Examples:
+///     >>> import comrs
+///     >>> idx = comrs.nr_ssb_indices(0, "pss")
+///     >>> idx.shape, idx[0].tolist()
+///     ((127, 2), [56, 0])
 #[pyfunction]
-fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<crate::IArr<'py>> {
+fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<Bound<'py, PyArray2<i64>>> {
     let k: SsbElement = kind.parse().py()?;
-    Ok(crate::iarr(py, nr::ssb_indices(n_cell_id, k).into_iter().map(|(k, l)| l * SSB_SUBCARRIERS + k).collect()))
+    pairs(py, nr::ssb_indices(n_cell_id, k))
+}
+
+/// `(k, l)` pairs as an `(n, 2)` array.
+fn pairs(py: Python<'_>, kl: impl IntoIterator<Item = (usize, usize)>) -> PyResult<Bound<'_, PyArray2<i64>>> {
+    mat(py, kl.into_iter().map(|(k, l)| vec![k as i64, l as i64]).collect())
 }
 
 /// The SSB of a cell: the PSS and the SSS of unit amplitude, the PBCH DMRS and the 432
@@ -176,7 +172,7 @@ fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (n_cell_id, i_ssb_bar = 0, pbch = None))]
+#[pyo3(signature = (n_cell_id, i_ssb_bar = 0, *, pbch = None))]
 fn nr_ssb_grid<'py>(
     py: Python<'py>,
     n_cell_id: u32,
@@ -223,8 +219,8 @@ fn nr_detect_cell_id(grid: &Bound<'_, PyAny>) -> PyResult<(u32, f64, f64)> {
 ///
 /// Returns:
 ///     dict: ``symbols`` (the DMRS symbols), ``subcarriers``, ``values`` (shape
-///     `(len(subcarriers), len(symbols))`, complex128) and ``indices`` (the linear
-///     indices `l · 12 n_rb + k` of the grid, frequency first).
+///     `(len(subcarriers), len(symbols))`, complex128) and ``indices`` (the `(k, l)`
+///     pairs of the DMRS in the `(12 n_rb, 14)` grid, frequency first, `(n, 2)`).
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter (the message names it).
@@ -242,14 +238,12 @@ fn nr_pdsch_dmrs(
     let d = PdschDmrs { config_type, type_a_position, additional_position, n_id, slot };
     let symbols = d.symbols().py()?;
     let ks = d.subcarriers(n_rb);
-    let k_grid = nr::SUBCARRIERS_PER_RB * n_rb;
     let values: Vec<Vec<C64>> = symbols.iter().map(|&l| d.values(n_rb, l)).collect();
     let out = PyDict::new(py);
     out.set_item("symbols", crate::iarr(py, symbols.clone()))?;
     out.set_item("subcarriers", crate::iarr(py, ks.clone()))?;
     out.set_item("values", mat(py, (0..ks.len()).map(|i| values.iter().map(|v| v[i]).collect()).collect())?)?;
-    let idx: Vec<usize> = symbols.iter().flat_map(|&l| ks.iter().map(move |&k| l * k_grid + k)).collect();
-    out.set_item("indices", crate::iarr(py, idx))?;
+    out.set_item("indices", pairs(py, symbols.iter().flat_map(|&l| ks.iter().map(move |&k| (k, l))))?)?;
     Ok(out)
 }
 

@@ -26,7 +26,7 @@ from _gallery_utils import SPECS
 
 import comrs
 from comrs import blocks as B
-from comrs.plot import BACKGROUND, COBALT, GREY
+from comrs.plot import BACKGROUND, BLUE, GREY
 
 spec = SPECS / "coherent_link.yaml"
 link = comrs.Chain.from_spec(spec)
@@ -43,7 +43,7 @@ stages = {
 fig, axes = plt.subplots(1, 3, figsize=(9, 3.2), sharex=True, sharey=True)
 for ax, (name, title) in zip(axes, stages.items(), strict=True):
     y = frames[name].samples[2560:-256]
-    ax.plot(y.real, y.imag, ".", markersize=1.0, alpha=0.3, color=COBALT)
+    ax.plot(y.real, y.imag, ".", markersize=1.0, alpha=0.3, color=BLUE)
     ax.set(title=title, aspect="equal", xlim=(-1.6, 1.6), ylim=(-1.6, 1.6))
     ax.set_xlabel("in phase")
 axes[0].set_ylabel("quadrature")

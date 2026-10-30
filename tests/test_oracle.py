@@ -121,7 +121,7 @@ def test_modulate_and_demodulate(kind, m):
     rng = comrs.Rng(m)
     c = comrs.Constellation(kind, m)
     b = comrs.bits(c.bits_per_symbol * 300, rng)
-    x = c.modulate(b)
+    x = c.map_bits(b)
     y = x + 0.2 * rng.complex_noise(x.size) * (1 if kind != "pam" else 0)
 
     def compute():
@@ -134,7 +134,7 @@ def test_modulate_and_demodulate(kind, m):
 
     ref = oracle(f"modulate_demodulate_{kind}_{m}", compute, tool=TOOL)
     np.testing.assert_allclose(x, ref["modulated"], atol=1e-12)
-    np.testing.assert_array_equal(c.demodulate(y), ref["demodulated"])
+    np.testing.assert_array_equal(c.demap_bits(y), ref["demodulated"])
 
 
 # -------------------------------------------------------------------------- metrics
@@ -454,9 +454,7 @@ def test_manakov_split_step_with_wdm(amp, gamma, step):
     f = comrs.FiberParams(
         alpha_db_km=0.2, d_ps_nm_km=16.0, gamma_w_km=gamma, span_km=80.0, n_spans=2
     )
-    x, y, _ = comrs.ManakovSsfm(f, step_km=step, amplification=amp).propagate(
-        sig[:, 0], sig[:, 1], fs
-    )
+    x, y = comrs.ManakovSsfm(f, step_km=step, amplification=amp).propagate(sig.T, fs)
     scale = np.abs(ref).max()
     np.testing.assert_allclose(x, ref[:, 0], rtol=1e-8, atol=1e-10 * scale)
     np.testing.assert_allclose(y, ref[:, 1], rtol=1e-8, atol=1e-10 * scale)
@@ -716,7 +714,7 @@ def test_timing_error_detectors_and_interpolator():
     for i, (x3, x4, t) in enumerate(draws):
         assert comrs.gardner_ted(x3) == pytest.approx(ref["gardner"][i], abs=1e-12)
         assert comrs.gardner_ted_nyquist(x3) == pytest.approx(ref["gardner_nyquist"][i], abs=1e-12)
-        assert comrs.interpolate_cubic(x4, t) == pytest.approx(ref["cubic"][i], abs=1e-12)
+        assert comrs.lagrange_cubic(x4, t) == pytest.approx(ref["cubic"][i], abs=1e-12)
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")  # OptiCommPy's drift log on a short signal

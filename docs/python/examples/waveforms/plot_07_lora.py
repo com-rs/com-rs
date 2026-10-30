@@ -9,7 +9,7 @@ sample per chip, the abscissa of the papers.
 1. **Error rate over AWGN.** O. Afisiadis, M. Cotting, A. Burg and A.
    Balatsoukas-Stimming, "On the error rate of the LoRa modulation with interference",
    *IEEE Trans. Wireless Commun.* 19(2), 2020, Fig. 2: the exact SER of their eq. (16)
-   (``css_ser``), its approximation (17), and simulated points.
+   (``theory_css_ser``), its approximation (17), and simulated points.
 2. **FSCM against FSK.** L. Vangelista, "Frequency shift chirp modulation: the LoRa
    modulation", *IEEE Signal Process. Lett.* 24(12), 2017, Fig. 1: SF 7 over AWGN, where
    both are orthogonal signalling, and over the channel
@@ -50,17 +50,18 @@ fig, axes = plt.subplots(2, 2, figsize=(11, 8.2))
 ax = axes[0, 0]
 for sf in range(7, 13):
     snr = np.linspace(-26, -5, 85)
-    (line,) = ax.semilogy(snr, comrs.css_ser(sf, snr), linewidth=1.4, label=f"SF {sf}")
+    (line,) = ax.semilogy(snr, comrs.theory_css_ser(sf, snr), linewidth=1.4, label=f"SF {sf}")
     ax.semilogy(
         snr,
-        comrs.css_ser(sf, snr, approximation="rice"),
+        comrs.theory_css_ser(sf, snr, approximation="rice"),
         ":",
         color=line.get_color(),
         linewidth=1.0,
     )
     points = np.arange(-26, -5)
     points = points[
-        (comrs.css_ser(sf, points * 1.0) > 3e-3) & (comrs.css_ser(sf, points * 1.0) < 0.5)
+        (comrs.theory_css_ser(sf, points * 1.0) > 3e-3)
+        & (comrs.theory_css_ser(sf, points * 1.0) < 0.5)
     ]
     sim = [ser_sim(comrs.Css(sf), p, 3000 if sf < 11 else 1000, sf) for p in points]
     ax.semilogy(points, sim, "o", color=line.get_color(), markersize=4)
@@ -75,7 +76,7 @@ ax.legend(loc="lower left", ncol=2, fontsize=8)
 # 2. FSCM and FSK, flat and frequency-selective
 ax = axes[0, 1]
 snr = np.arange(-12, 0, 1.0)
-flat = comrs.css_ber(7, snr)
+flat = comrs.theory_css_ber(7, snr)
 ax.semilogy(snr, flat, color=MUTED, label="flat (FSCM = FSK)")
 taps = (np.sqrt(0.8), np.sqrt(0.2))
 for waveform, marker in [("vangelista", "s"), ("fsk", "^")]:
@@ -107,8 +108,8 @@ ax.legend()
 # 4. same-SF interference, SF 9, P_I = -3 dB
 ax = axes[1, 1]
 snr = np.arange(-18, -8, 1.0)
-ax.semilogy(snr, comrs.css_ser(9, snr), color=MUTED, linewidth=1.0, label="AWGN only")
-approx = [comrs.css_ser_interference(9, s, -3.0) for s in snr]
+ax.semilogy(snr, comrs.theory_css_ser(9, snr), color=MUTED, linewidth=1.0, label="AWGN only")
+approx = [comrs.theory_css_ser_interference(9, s, -3.0) for s in snr]
 ax.semilogy(snr, approx, label="approximation (63)")
 css = comrs.Css(9)
 rng = comrs.Rng(9)
@@ -138,4 +139,6 @@ fig.tight_layout()
 # within 30 %. Over the frequency-selective channel the chirp loses about 1 dB where
 # FSK loses about 4 dB; the simulated FSCM is about 0.5 dB above the curve of
 # Vangelista's figure, whose AWGN curve the theory reproduces exactly.
-print(f"SF 7 at -8 dB: SER {comrs.css_ser(7, -8.0):.2e} (Fig. 2 of Afisiadis et al.: 1.8e-3)")
+print(
+    f"SF 7 at -8 dB: SER {comrs.theory_css_ser(7, -8.0):.2e} (Fig. 2 of Afisiadis et al.: 1.8e-3)"
+)

@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import comrs
-from comrs.plot import BLUE, GREY_WARM
+from comrs.plot import BLUE, GREY
 
 # %%
 # A recording
@@ -57,7 +57,7 @@ comrs.write_sigmf(
     x,
     FS,
     datatype="ci16_le",
-    frequency=FC,
+    fc_hz=FC,
     annotations=[{"sample_start": 0, "sample_count": x.size, "label": "16-QAM", **edges}],
     global_meta={"core:description": "16-QAM at 270 kBd", "core:hw": "comrs simulation"},
 )
@@ -85,7 +85,7 @@ ax.plot(f, comrs.lin2db(psd / psd.max()), color=BLUE, linewidth=1)
 ax.axvspan(
     ann["core:freq_lower_edge"] / 1e6,
     ann["core:freq_upper_edge"] / 1e6,
-    color=GREY_WARM,
+    color=GREY,
     alpha=0.15,
 )
 ax.set(xlabel="frequency (MHz)", ylabel="PSD (dB)", ylim=(-45, 3))

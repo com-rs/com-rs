@@ -37,7 +37,7 @@ import numpy as np
 from _gallery_utils import SPECS
 
 import comrs
-from comrs.plot import BACKGROUND, COBALT, GREY, INK, RUST
+from comrs.plot import BACKGROUND, BLUE, GREY, INK, RUST
 
 # %%
 # The power of one channel along a span of 100 km, by direction of pumping.
@@ -53,7 +53,7 @@ cases = [
     (
         "counter-pump 500 mW",
         [{"wavelength_nm": 1450, "power_mw": 500, "direction": "counter"}],
-        COBALT,
+        BLUE,
         "-",
     ),
     (
@@ -87,7 +87,7 @@ five = [
 ]
 fig, ax = plt.subplots()
 for label, pumps, color in [("one pump, 1450 nm, 500 mW", one, RUST),
-                            ("five pumps, 1420 to 1490 nm, 686 mW", five, COBALT)]:  # fmt: skip
+                            ("five pumps, 1420 to 1490 nm, 686 mW", five, BLUE)]:  # fmt: skip
     p = comrs.raman_profile(c_band, rel, -3.0, {"pumps": pumps, "step_km": 0.5})
     ax.plot(wavelengths, p["on_off_gain_db"], marker="o", markersize=4, markeredgecolor=BACKGROUND,
             color=color, label=f"{label}: {np.ptp(p['on_off_gain_db']):.1f} dB ripple")  # fmt: skip
@@ -112,7 +112,7 @@ fiber = comrs.FiberParams(
 )
 fig, ax = plt.subplots()
 for pump, color, marker, label in [(0.0, GREY, "s", "EDFA only"),
-                                   (500.0, COBALT, "o", "counter-pump 500 mW + EDFA")]:  # fmt: skip
+                                   (500.0, BLUE, "o", "counter-pump 500 mW + EDFA")]:  # fmt: skip
     raman = {"pumps": [{"wavelength_nm": 1450, "power_mw": pump, "direction": "counter"}]}
     gn = [comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1, raman=raman)["snr_db"] for p in fine]
     ax.plot(fine, gn, color=color, label=f"{label}, GN model")

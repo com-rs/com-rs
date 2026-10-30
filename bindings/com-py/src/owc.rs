@@ -492,7 +492,7 @@ impl PyGammaGamma {
     ///
     /// Raises:
     ///     ValueError: for a negative count.
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+    fn draw<'py>(&self, py: Python<'py>, n: i64, mut rng: PyRefMut<'_, PyRng>) -> PyResult<FArr<'py>> {
         Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 
@@ -591,7 +591,7 @@ impl PyPointingError {
     ///
     /// Raises:
     ///     ValueError: for a negative count.
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+    fn draw<'py>(&self, py: Python<'py>, n: i64, mut rng: PyRefMut<'_, PyRng>) -> PyResult<FArr<'py>> {
         Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 }
@@ -613,7 +613,7 @@ impl PyPointingError {
 /// Examples:
 ///     >>> import comrs
 ///     >>> link = comrs.Fso(3.0, turbulence=comrs.GammaGamma.from_rytov(1.0))
-///     >>> h = link.gains(comrs.Rng(1), 100_000)
+///     >>> h = link.gains(100_000, comrs.Rng(1))
 ///     >>> round(float(h.mean()), 2)  # 10^(-0.3), the turbulence of unit mean
 ///     0.5
 #[pyclass(name = "Fso", module = "comrs")]
@@ -670,7 +670,7 @@ impl PyFso {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter (the message names it).
-    fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+    fn gains<'py>(&self, py: Python<'py>, n: i64, mut rng: PyRefMut<'_, PyRng>) -> PyResult<FArr<'py>> {
         Ok(farr(
             py,
             (0..count(n, "n")?).map(|_| self.inner.gain(&mut rng.inner)).collect::<comrs::Result<Vec<_>>>().py()?,

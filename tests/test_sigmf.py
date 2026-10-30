@@ -44,7 +44,7 @@ def test_comrs_recordings_read_by_sigmf_python(tmp_path, datatype):
         x,
         1e6,
         datatype=datatype,
-        frequency=2.4e9,
+        fc_hz=2.4e9,
         annotations=[{"sample_start": 3, "sample_count": 5, "label": "QPSK"}],
     )
     f = fromfile(str(base) + ".sigmf-meta", skip_checksum=True)
@@ -82,7 +82,7 @@ def test_sigmf_python_recordings_read_by_comrs(tmp_path, datatype):
     meta.tofile(tmp_path / "arch", toarchive=True)
     theirs = fromfile(str(tmp_path / "x.sigmf-meta"), skip_checksum=True).read_samples()
     for name in ["x.sigmf-meta", "arch.sigmf"]:
-        ours, fs, m = comrs.read_sigmf(tmp_path / name, autoscale=True)
+        ours, fs, m = comrs.read_sigmf(tmp_path / name, channel=None, autoscale=True)
         assert fs == 2e6 and ours.shape == (channels, n)
         assert [c["core:frequency"] for c in m["captures"]] == [915e6, 916e6]
         np.testing.assert_allclose(ours.T, theirs, rtol=0, atol=atol(datatype))

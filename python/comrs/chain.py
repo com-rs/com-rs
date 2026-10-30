@@ -48,6 +48,9 @@ from comrs.results import Results, Trace
 
 __all__ = ["Block", "Chain", "Native", "Var", "var"]
 
+#: The confidence level of a specification that does not give one.
+_CONFIDENCE = 0.95
+
 
 class Chain(Block):
     """An ordered, named sequence of blocks; a chain is itself a block.
@@ -337,10 +340,11 @@ class Chain(Block):
 
     def to_spec(
         self,
-        name: str | None = None,
         grid: Mapping[str, Any] | None = None,
+        *,
+        name: str | None = None,
         metrics: list[str] | Mapping[str, Any] | None = None,
-        stop: Mapping[str, Any] | None = None,
+        stop: Mapping[str, Any] | Stop | None = None,
         seed: int | None = None,
         **extra: Any,
     ) -> dict[str, Any]:
@@ -348,14 +352,15 @@ class Chain(Block):
         :attr:`settings`, updated by the arguments given.
 
         Args:
+            grid (dict | None): the grid, ``{variable: values}``.
             name (str | None): the campaign name (it enters the seeds; default
                 ``"chain"``).
-            grid (dict | None): the grid, ``{variable: values}``.
             metrics (list[str] | dict | None): the reported metrics (``["ber",
                 "snr_db"]``) or the full ``metrics`` mapping (``report``,
                 ``skip_start``…).
-            stop (dict | None): the stopping rule (``min_errors``, ``min_trials``,
-                ``max_trials``, ``max_time_s``, ``precision``).
+            stop (dict | Stop | None): the stopping rule (``min_errors``,
+                ``min_trials``, ``max_trials``, ``max_time_s``, ``precision``), or a
+                :class:`comrs.sim.Stop` (written by :meth:`comrs.sim.Stop.to_spec`).
             seed (int | None): the base seed.
             **extra: other fields (``batch``, ``fiber``, ``confidence``…).
 
@@ -364,9 +369,14 @@ class Chain(Block):
 
         Raises:
             TypeError: for a chain with Python blocks.
+            ValueError: for a :class:`comrs.sim.Stop` that a specification cannot
+                write.
         """
         if not self.is_native:
             raise TypeError("a chain with Python blocks has no declarative specification")
+        if isinstance(stop, Stop):
+            confidence = extra.get("confidence", self.settings.get("confidence", _CONFIDENCE))
+            stop = stop.to_spec(confidence=confidence)
         spec = _spec.settings(
             self.settings, name=name, grid=grid, metrics=metrics, stop=stop, seed=seed, **extra
         )
@@ -406,11 +416,11 @@ class Chain(Block):
     def run(
         self,
         grid: Mapping[str, Any] | None = None,
+        *,
         metrics: list[str] | Mapping[str, Any] | None = None,
         stop: Mapping[str, Any] | Stop | None = None,
         seed: int | None = None,
         name: str | None = None,
-        *,
         threads: int | None = None,
         progress: bool = False,
         **extra: Any,
@@ -421,9 +431,10 @@ class Chain(Block):
         Both kinds of chain run on the Rust runner, trial ``t`` of condition ``i``
         drawing from ``Rng.stream(seed, name, i, t)``: a native chain on all cores
         (:func:`comrs.run_spec`), a chain with Python blocks on one thread; the
-        stopping rule (a mapping, or a :class:`comrs.sim.Stop`, which runs a native
-        chain on the one-thread path too), the statistics and the outputs are the
-        same, so a native chain gives the same results on both.
+        stopping rule (a mapping, or a :class:`comrs.sim.Stop`: a native chain runs
+        it on all cores when a specification can write it, :meth:`comrs.sim.Stop.to_spec`,
+        on one thread otherwise), the statistics and the outputs are the same, so a
+        native chain gives the same results on both.
 
         Args:
             grid (dict | None): the grid.
@@ -444,7 +455,8 @@ class Chain(Block):
 
         Raises:
             ValueError: for ``threads`` other than 1 on the one-thread path (Python
-                blocks, or a :class:`comrs.sim.Stop`), which would ignore it.
+                blocks, or a :class:`comrs.sim.Stop` that a specification cannot
+                write), which would ignore it.
         """
         rule, mapping = (stop, None) if isinstance(stop, Stop) else (None, stop)
         spec = _spec.settings(
@@ -457,6 +469,12 @@ class Chain(Block):
             **extra,
         )
         spec.setdefault("metrics", {"report": ["ber"]})
+        if self.is_native and rule is not None:
+            try:  # the rule as a mapping, for the parallel runner
+                spec["stop"] = rule.to_spec(confidence=spec.get("confidence", _CONFIDENCE))
+                rule = None
+            except ValueError:
+                pass  # a rule the format cannot write: the one-thread runner takes it
         if self.is_native and rule is None:
             spec["link"] = self.to_spec()["link"]
             res = run_spec(spec, threads=threads, progress=progress, base_dir=self.base_dir)

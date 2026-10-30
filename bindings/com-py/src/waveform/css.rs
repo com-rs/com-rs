@@ -157,11 +157,11 @@ impl PyCss {
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.css_ser(7, -8.0), 5)
+///     >>> round(comrs.theory_css_ser(7, -8.0), 5)
 ///     0.00161
 #[pyfunction]
-#[pyo3(signature = (sf, snr_db, approximation=None))]
-fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (sf, snr_db, *, approximation=None))]
+fn theory_css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> PyResult<Py<PyAny>> {
     let f: fn(u32, f64) -> comrs::Result<f64> = match approximation {
         None => css_theory::ser,
         Some("rice") => css_theory::ser_rice,
@@ -185,7 +185,7 @@ fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> P
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-fn css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(snr_db, |s| css_theory::ber(sf, s).py())
 }
 
@@ -313,37 +313,45 @@ fn css_interference_pattern<'py>(py: Python<'py>, sf: u32, s1: usize, s2: usize,
 ///
 /// Args:
 ///     sf (int): spreading factor.
-///     snr_db (float): SNR per sample (dB).
+///     snr_db (float | array_like): SNR per sample (dB).
 ///     pi_db (float): power of the interferer (dB).
 ///     frame (int | None): symbols per frame for the frame error rate.
 ///     eps (float): step of the offset (chips).
 ///
 /// Returns:
-///     float: the SER or the FER.
+///     float | numpy.ndarray: the SER or the FER at every SNR.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (sf, snr_db, pi_db, *, frame=None, eps=0.2))]
-fn css_ser_interference(sf: u32, snr_db: f64, pi_db: f64, frame: Option<usize>, eps: f64) -> PyResult<f64> {
-    match frame {
-        None => css_theory::ser_interference(sf, snr_db, pi_db, eps),
-        Some(f) => css_theory::fer_interference(sf, snr_db, pi_db, f, eps),
-    }
-    .py()
+fn theory_css_ser_interference(
+    sf: u32,
+    snr_db: &Bound<'_, PyAny>,
+    pi_db: f64,
+    frame: Option<usize>,
+    eps: f64,
+) -> PyResult<Py<PyAny>> {
+    map_real(snr_db, |s| {
+        match frame {
+            None => css_theory::ser_interference(sf, s, pi_db, eps),
+            Some(f) => css_theory::fer_interference(sf, s, pi_db, f, eps),
+        }
+        .py()
+    })
 }
 
 /// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCss>()?;
-    m.add_function(wrap_pyfunction!(css_ser, m)?)?;
-    m.add_function(wrap_pyfunction!(css_ber, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_css_ser, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_css_ber, m)?)?;
     m.add_function(wrap_pyfunction!(css_cross_correlation, m)?)?;
     m.add_function(wrap_pyfunction!(css_max_cross_correlation, m)?)?;
     m.add_function(wrap_pyfunction!(css_continuous_spectrum, m)?)?;
     m.add_function(wrap_pyfunction!(css_spectral_lines, m)?)?;
     m.add_function(wrap_pyfunction!(css_occupied_bandwidth, m)?)?;
     m.add_function(wrap_pyfunction!(css_interference_pattern, m)?)?;
-    m.add_function(wrap_pyfunction!(css_ser_interference, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_css_ser_interference, m)?)?;
     Ok(())
 }

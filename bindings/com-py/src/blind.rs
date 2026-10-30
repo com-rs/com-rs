@@ -154,7 +154,7 @@ fn snr_m2m4_db(x: &Bound<'_, PyAny>, constellation: &PyConstellation) -> PyResul
 /// Args:
 ///     snr_db (float | array_like): the true SNR (dB).
 ///     n_symbols (int): the symbols of a block.
-///     samples_per_symbol (int): independent samples per symbol.
+///     sps (int): independent samples per symbol.
 ///     real (bool): real AWGN instead of complex.
 ///
 /// Returns:
@@ -168,14 +168,9 @@ fn snr_m2m4_db(x: &Bound<'_, PyAny>, constellation: &PyConstellation) -> PyResul
 ///     >>> round(comrs.snr_crb_nmse(30.0, 64), 4)  # tends to 1/64
 ///     0.0157
 #[pyfunction]
-#[pyo3(signature = (snr_db, n_symbols, *, samples_per_symbol=1, real=false))]
-fn snr_crb_nmse(
-    snr_db: &Bound<'_, PyAny>,
-    n_symbols: usize,
-    samples_per_symbol: usize,
-    real: bool,
-) -> PyResult<Py<PyAny>> {
-    map_real(snr_db, |s| blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real).py())
+#[pyo3(signature = (snr_db, n_symbols, *, sps=1, real=false))]
+fn snr_crb_nmse(snr_db: &Bound<'_, PyAny>, n_symbols: usize, sps: usize, real: bool) -> PyResult<Py<PyAny>> {
+    map_real(snr_db, |s| blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, sps, real).py())
 }
 
 /// The symbol rate of a linearly modulated signal from the strongest line of the
@@ -185,8 +180,8 @@ fn snr_crb_nmse(
 /// Args:
 ///     x (array_like): the samples (complex).
 ///     fs (float): the sampling rate (Hz).
-///     f_min (float): the lowest symbol rate searched (Hz).
-///     f_max (float): the highest symbol rate searched (Hz, at most `fs/2`).
+///     f_min_hz (float): the lowest symbol rate searched (Hz).
+///     f_max_hz (float): the highest symbol rate searched (Hz, at most `fs/2`).
 ///
 /// Returns:
 ///     float: the symbol rate (Hz).
@@ -201,8 +196,8 @@ fn snr_crb_nmse(
 ///     >>> round(comrs.estimate_symbol_rate(x, 1.0, 0.05, 0.2), 6)
 ///     0.125
 #[pyfunction]
-fn estimate_symbol_rate(x: &Bound<'_, PyAny>, fs: f64, f_min: f64, f_max: f64) -> PyResult<f64> {
-    cyclo::estimate_symbol_rate(&cvec(x)?, fs, f_min, f_max).py()
+fn estimate_symbol_rate(x: &Bound<'_, PyAny>, fs: f64, f_min_hz: f64, f_max_hz: f64) -> PyResult<f64> {
+    cyclo::estimate_symbol_rate(&cvec(x)?, fs, f_min_hz, f_max_hz).py()
 }
 
 /// The cyclic autocorrelation `R^α(τ) = mean x[n+τ] x*[n] e^{-j2π α n/f_s}`.
@@ -222,10 +217,10 @@ fn estimate_symbol_rate(x: &Bound<'_, PyAny>, fs: f64, f_min: f64, f_max: f64) -
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> x = np.ones(100, dtype=complex)
-///     >>> abs(comrs.cyclic_autocorrelation(x, 0.0, 0, 1.0))
+///     >>> abs(comrs.cyclic_autocorrelation(x, 0.0, lag=0, fs=1.0))
 ///     1.0
 #[pyfunction]
-#[pyo3(signature = (x, alpha, lag=0, fs=1.0))]
+#[pyo3(signature = (x, alpha, *, lag=0, fs=1.0))]
 fn cyclic_autocorrelation(x: &Bound<'_, PyAny>, alpha: f64, lag: usize, fs: f64) -> PyResult<C64> {
     Ok(cyclo::cyclic_autocorrelation(&cvec(x)?, alpha, lag, fs))
 }

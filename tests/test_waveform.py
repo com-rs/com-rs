@@ -26,7 +26,7 @@ def test_msk_round_trip_is_exact_without_noise():
     np.testing.assert_array_equal(msk.msk_detect(msk.modulate(comrs.msk_precode(bits))), bits)
     # symbol conventions: indices below M, levels ±1, ±3, …
     np.testing.assert_array_equal(msk.levels([0, 1]), [-1.0, 1.0])
-    quat = comrs.Cpm("1/4", "rc", length=2, sps=4, order=4)
+    quat = comrs.Cpm("1/4", pulse="rc", length=2, sps=4, order=4)
     np.testing.assert_array_equal(quat.levels([0, 1, 2, 3]), [-3.0, -1.0, 1.0, 3.0])
     a = [0, 3, 1, 2, 2, 0, 1, 3, 3, 0]
     np.testing.assert_array_equal(quat.ml_detect(quat.modulate(a)), a)
@@ -34,7 +34,7 @@ def test_msk_round_trip_is_exact_without_noise():
 
 
 def test_cpm_parameters_and_errors():
-    c = comrs.Cpm((2, 8), "rec", sps=4)
+    c = comrs.Cpm((2, 8), pulse="rec", sps=4)
     assert c.h == 0.25 and c.h_fraction == (1, 4) and c.pulse == "rec" and c.bt is None
     np.testing.assert_allclose(c.phase_states, np.pi * np.arange(8) / 4)
     g = comrs.Cpm.gmsk(0.3, length=3, sps=8)
@@ -74,24 +74,24 @@ def test_msk_power_spectrum_of_proakis():
     # Proakis & Salehi, Sec. 3.4-3 (Fig. 3.4-5): the closed form integrates to one,
     # its first null is at fT = 0.75 and its 3 dB bandwidth is about 0.59/T
     f = np.linspace(-20.0, 20.0, 400_001)
-    p = comrs.msk_psd(f)
+    p = comrs.theory_msk_psd(f)
     assert np.trapezoid(p, f) == pytest.approx(1.0, abs=1e-3)
-    assert comrs.msk_psd(0.0) == pytest.approx(16 / np.pi**2)
-    assert comrs.msk_psd(0.25) == pytest.approx(1.0, abs=1e-6)
-    assert comrs.msk_psd(0.75) == pytest.approx(0.0, abs=1e-12)
+    assert comrs.theory_msk_psd(0.0) == pytest.approx(16 / np.pi**2)
+    assert comrs.theory_msk_psd(0.25) == pytest.approx(1.0, abs=1e-6)
+    assert comrs.theory_msk_psd(0.75) == pytest.approx(0.0, abs=1e-12)
     lobe = (f > 0.6) & (f < 0.9)
     assert f[lobe][np.argmin(p[lobe])] == pytest.approx(0.75, abs=1e-4)
     half = f[(f >= 0) & (p < p[f.size // 2] / 2)][0]
     assert 2 * half == pytest.approx(0.59, abs=0.01)
-    assert comrs.msk_psd(0.295) / comrs.msk_psd(0.0) == pytest.approx(0.5, abs=0.01)
+    assert comrs.theory_msk_psd(0.295) / comrs.theory_msk_psd(0.0) == pytest.approx(0.5, abs=0.01)
     # the Welch spectrum of a random MSK signal follows the closed form within 1 dB
     # on the main lobe, with a null deeper than 25 dB at 0.75/T
     sps = 8
     msk = comrs.Cpm.msk(sps)
     s = msk.modulate(comrs.bits(400 * 64, comrs.Rng(77)))
     freqs, d = comrs.psd(s, fs=sps, nfft=64 * sps)
-    want = comrs.msk_psd(freqs)
-    main = want > 1e-2 * comrs.msk_psd(0.0)
+    want = comrs.theory_msk_psd(freqs)
+    main = want > 1e-2 * comrs.theory_msk_psd(0.0)
     err_db = 10 * np.log10(d[main] / want[main])
     assert np.abs(err_db).max() < 1.0 and np.sqrt(np.mean(err_db**2)) < 0.3
     peak = d[freqs.size // 2]
@@ -160,8 +160,10 @@ def test_ce_ofdm_linear_regime_snr_and_rates():
     assert cp.snr(20.0) == pytest.approx(0.8 * g, rel=1e-12)
     assert cp.noise_variance(20.0) == pytest.approx(cp.block_len / 32 / 100.0)
     ebn0_db = 10 * np.log10(g / 4)
-    assert ce.ser(16, 20.0) == pytest.approx(comrs.theory_ser(16, ebn0_db, "qam"), rel=1e-9)
-    assert ce.ber(4, 20.0, "psk") == pytest.approx(comrs.theory_ber(4, 10 * np.log10(g / 2), "psk"))
+    assert ce.ser_esn0(16, 20.0) == pytest.approx(comrs.theory_ser(16, ebn0_db, "qam"), rel=1e-9)
+    assert ce.ber_esn0(4, 20.0, "psk") == pytest.approx(
+        comrs.theory_ber(4, 10 * np.log10(g / 2), "psk")
+    )
     # eq. (15) of the paper with 4-PAM per real subcarrier (16-QAM), at a BER below
     # 1e-2 its nearest-neighbour term is within 1 % of the exact Gray BER
     h, ebn0 = 0.1, 14.0
@@ -170,8 +172,8 @@ def test_ce_ofdm_linear_regime_snr_and_rates():
     arg = 2 * np.pi * h * np.sqrt(6 * 2 / 15 * comrs.db2lin(ebn0))
     paper = 2 * 3 / (4 * 2) * comrs.qfunc(arg)
     assert 1e-4 < paper < 1e-2
-    assert ce.ber(16, esn0_db) == pytest.approx(paper, rel=0.01)
-    assert ce.ber(16, esn0_db) >= paper * (1 - 1e-12)
+    assert ce.ber_esn0(16, esn0_db) == pytest.approx(paper, rel=0.01)
+    assert ce.ber_esn0(16, esn0_db) >= paper * (1 - 1e-12)
 
 
 def test_ce_ofdm_16qam_link_follows_eq_15_of_thompson_2008():
@@ -187,7 +189,7 @@ def test_ce_ofdm_16qam_link_follows_eq_15_of_thompson_2008():
     errors = int((c.decide(e) != c.decide(d)).sum())
     assert errors > 1000
     ser = errors / d.size
-    assert ser == pytest.approx(ce.ser(16, 20.0), rel=0.15)
+    assert ser == pytest.approx(ce.ser_esn0(16, 20.0), rel=0.15)
 
 
 def test_ce_ofdm_low_complexity_receivers_follow_the_bussgang_analysis():
@@ -209,7 +211,7 @@ def test_ce_ofdm_low_complexity_receivers_follow_the_bussgang_analysis():
         assert ber == pytest.approx(ce.ber_receiver(4, esn0_db, receiver=receiver), rel=0.1)
         rates[receiver] = ber
     assert rates["enhanced"] < 0.8 * rates["linear"]
-    snr = ce.subcarrier_snr(esn0_db, "enhanced")
+    snr = ce.subcarrier_snr(esn0_db, receiver="enhanced")
     assert snr.shape == (32,) and snr.min() > 0
     with pytest.raises(ValueError, match="receiver"):
         ce.demodulate(r, receiver="pll")
@@ -240,8 +242,8 @@ def test_ce_ofdm_spectrum_gain_and_cycle_slips():
     # theory of QPSK
     assert 10 * np.log10(comrs.ce_ofdm_optimum_gain(1.5)) == pytest.approx(3.52, abs=0.01)
     assert comrs.ce_ofdm_optimum_gain(1.5, np.pi) < comrs.ce_ofdm_optimum_gain(1.5)
-    lin = comrs.CeOfdm(32, h=0.6 / (2 * np.pi)).ber(4, 6.0 + 10 * np.log10(2))
-    assert comrs.ce_ofdm_ber_optimum(0.6, 6.0) == pytest.approx(lin, rel=1e-9)
+    lin = comrs.CeOfdm(32, h=0.6 / (2 * np.pi)).ber_esn0(4, 6.0 + 10 * np.log10(2))
+    assert comrs.theory_ce_ofdm_ber_optimum(0.6, 6.0) == pytest.approx(lin, rel=1e-9)
     # Pacheco and Hatzinakos 2006: σ = 1.1 doubles the band of the message
     assert comrs.pm_occupied_bandwidth(1.1) == pytest.approx(2.0, abs=0.1)
     # a cycle slip weighs as 1/k on the subcarriers (Ahmed et al. 2012)
@@ -281,8 +283,8 @@ def test_css_round_trip_orthogonality_and_simulated_ser():
     y = css.modulate(sym)
     y = y + rng.complex_noise(y.size, 1 / comrs.db2lin(-9.0))
     ser = float(np.mean(css.demodulate(y) != sym))
-    assert ser == pytest.approx(comrs.css_ser(7, -9.0), rel=0.15)
-    assert comrs.css_ber(7, -9.0) == pytest.approx(comrs.css_ser(7, -9.0) * 128 / 254)
+    assert ser == pytest.approx(comrs.theory_css_ser(7, -9.0), rel=0.15)
+    assert comrs.theory_css_ber(7, -9.0) == pytest.approx(comrs.theory_css_ser(7, -9.0) * 128 / 254)
     with pytest.raises(ValueError, match="one sample per chip"):
         comrs.Css(7, oversampling=2, waveform="fsk")
 
@@ -298,9 +300,9 @@ def test_css_waveforms_spectrum_and_interference():
     # Afisiadis et al. 2020: the strongest interference bin is -round(τ) mod M
     r = comrs.css_interference_pattern(7, 40, 0, 10.4)
     assert int(np.argmax(np.abs(r))) == 128 - 10
-    ser = comrs.css_ser_interference(9, -12.0, -3.0)
-    assert comrs.css_ser(9, -12.0) < ser < 1e-2
-    assert comrs.css_ser_interference(9, -12.0, -3.0, frame=10) > ser
+    ser = comrs.theory_css_ser_interference(9, -12.0, -3.0)
+    assert comrs.theory_css_ser(9, -12.0) < ser < 1e-2
+    assert comrs.theory_css_ser_interference(9, -12.0, -3.0, frame=10) > ser
 
 
 # ------------------------------------------------------------ filtered multicarrier, OTFS
@@ -354,8 +356,10 @@ def test_information_rates_over_fading():
     gray = comrs.Constellation("qam", 16)
     # one kernel, one default quadrature: the capacity of a constellation object is
     # theory_mi of its family
-    assert comrs.cm_capacity(gray, 10.0, "rayleigh") == pytest.approx(rayleigh, abs=1e-12)
-    assert comrs.cm_capacity(gray, 10.0, "rayleigh", points=16) == pytest.approx(
+    assert comrs.theory_cm_capacity(gray, 10.0, fading="rayleigh") == pytest.approx(
+        rayleigh, abs=1e-12
+    )
+    assert comrs.theory_cm_capacity(gray, 10.0, fading="rayleigh", points=16) == pytest.approx(
         comrs.theory_mi(16, 10.0, fading="rayleigh", points=16), abs=1e-9
     )
     assert comrs.theory_gmi(16, 10.0, fading="rayleigh") <= rayleigh + 1e-9

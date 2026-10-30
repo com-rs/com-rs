@@ -57,8 +57,10 @@ def test_ssb_against_py3gpp():
         np.testing.assert_array_equal(comrs.nr_sss(c // 3, c % 3), r["sss"])
         for i in (0, 3, 7):
             np.testing.assert_allclose(comrs.nr_pbch_dmrs(c, i), r["pbch_dmrs"][str(i)], atol=1e-15)
-        np.testing.assert_array_equal(comrs.nr_ssb_indices(c, "pbch_dmrs"), r["pbch_dmrs_indices"])
-        np.testing.assert_array_equal(comrs.nr_ssb_indices(c, "pbch"), r["pbch_indices"])
+        # the (k, l) pairs as the linear indices l · 240 + k of MATLAB (minus one)
+        for kind in ("pbch_dmrs", "pbch"):
+            kl = comrs.nr_ssb_indices(c, kind)
+            np.testing.assert_array_equal(kl[:, 1] * 240 + kl[:, 0], r[f"{kind}_indices"])
 
 
 DMRS_CASES = [
@@ -108,7 +110,8 @@ def test_pdsch_dmrs_against_py3gpp():
             slot=slot,
         )
         np.testing.assert_allclose(d["values"].T.ravel(), r["values"], atol=1e-15)
-        np.testing.assert_array_equal(d["indices"], r["indices"])
+        kl = d["indices"]
+        np.testing.assert_array_equal(kl[:, 1] * 12 * N_RB + kl[:, 0], r["indices"])
 
 
 OFDM_CASES = [(0, 6, 128), (1, 8, 256)]

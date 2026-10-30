@@ -280,7 +280,7 @@ fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 ///
 /// Args:
 ///     x (array_like): the signal.
-///     delta_f (float): the shift `Δf` (Hz).
+///     offset_hz (float): the shift `Δf` (Hz).
 ///     fs (float): sampling rate (Hz).
 ///
 /// Returns:
@@ -289,8 +289,8 @@ fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 /// Raises:
 ///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
-fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64) -> PyResult<CArr<'py>> {
-    Ok(carr(py, signal::freq_shift(&cvec(x)?, delta_f, fs)))
+fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, offset_hz: f64, fs: f64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, signal::freq_shift(&cvec(x)?, offset_hz, fs)))
 }
 
 /// Centred moving average over `n` samples with zeros outside (OptiCommPy
@@ -314,7 +314,7 @@ fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResu
 ///
 /// Args:
 ///     x (array_like): the block.
-///     delay (float): the delay (s), fractional delays included.
+///     delay_s (float): the delay (s), fractional delays included.
 ///     fs (float): sampling rate (Hz).
 ///
 /// Returns:
@@ -323,8 +323,8 @@ fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResu
 /// Raises:
 ///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
-fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -> PyResult<CArr<'py>> {
-    Ok(carr(py, resample::delay_fft(&cvec(x)?, delay, fs)))
+fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay_s: f64, fs: f64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, resample::delay_fft(&cvec(x)?, delay_s, fs)))
 }
 
 /// Compensate the dispersion of `length_km` of `fiber` on a block sampled at `fs`
@@ -412,7 +412,7 @@ fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
 /// Raises:
 ///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
-#[pyo3(signature = (fiber, length_km, fs, n_taps = None))]
+#[pyo3(signature = (fiber, length_km, fs, *, n_taps = None))]
 fn cd_savory_taps<'py>(
     py: Python<'py>,
     fiber: &PyFiber,
@@ -756,13 +756,7 @@ fn ddpll<'py>(
     let x = cvec(x)?;
     let pts = constellation.inner.normalized().points().to_vec();
     let pilots = match (pilot_indices, pilot_symbols) {
-        (Some(i), Some(s)) => {
-            let (i, s) = (uvec(i)?, cvec(s)?);
-            if i.len() != s.len() || i.iter().any(|&k| k >= x.len()) {
-                return Err(PyValueError::new_err("pilot indices and symbols must match and lie in the signal"));
-            }
-            Some((i, s))
-        }
+        (Some(i), Some(s)) => Some((uvec(i)?, cvec(s)?)),
         (None, None) => None,
         _ => return Err(PyValueError::new_err("give both pilot_indices and pilot_symbols, or neither")),
     };
@@ -822,7 +816,7 @@ fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 /// Raises:
 ///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
-fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
+fn lagrange_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
     Ok(comrs::dsp::interpolation::lagrange_cubic(&array::<4>(x)?, mu))
 }
 
@@ -906,7 +900,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ddpll, m)?)?;
     m.add_function(wrap_pyfunction!(gardner_ted, m)?)?;
     m.add_function(wrap_pyfunction!(gardner_ted_nyquist, m)?)?;
-    m.add_function(wrap_pyfunction!(interpolate_cubic, m)?)?;
+    m.add_function(wrap_pyfunction!(lagrange_cubic, m)?)?;
     m.add_function(wrap_pyfunction!(gardner_clock_recovery, m)?)?;
     m.add_function(wrap_pyfunction!(chebyshev_window, m)?)?;
     Ok(())

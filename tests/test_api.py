@@ -99,8 +99,8 @@ CORE = [
             "decode",
             "detect",
             "detect_coherent",
-            "modulate",
-            "demodulate",
+            "map_bits",
+            "demap_bits",
             "demodulate_coherent",
         )
     ],
@@ -172,8 +172,8 @@ def test_every_public_routine_documents_its_arguments(name, obj):
 
 
 BINDINGS = ROOT / "bindings" / "com-py" / "src"
-# the files of the runner and of the specifications are reviewed in their own batch
-RAISES_PENDING = {"sim.rs", "spec.rs"}
+# binding files whose Raises: sections are still to be written (none)
+RAISES_PENDING: set[str] = set()
 
 
 def fallible_bindings(lines):
@@ -322,7 +322,7 @@ def test_functions_that_draw_advance_the_generator():
 
 def test_array_likes_are_converted():
     c = comrs.Constellation("qam", 4)
-    assert c.modulate([0, 1, 1, 0]).dtype == np.complex128
+    assert c.map_bits([0, 1, 1, 0]).dtype == np.complex128
     np.testing.assert_allclose(comrs.pnorm([1.0, -1.0]), [1.0, -1.0])
     np.testing.assert_allclose(comrs.fir_filter([1.0], np.arange(4)), np.arange(4))
     # a strided view is copied, not misread
@@ -338,21 +338,21 @@ def test_array_likes_are_converted():
         (lambda x: comrs.theory_mi(4, x), 5.0),
         (lambda x: comrs.theory_gmi(4, x), 5.0),
         (lambda x: comrs.theory_ber_dpsk(4, x), 6.0),
-        (lambda x: comrs.theory_ber_rayleigh_mrc(x, 2), 10.0),
+        (lambda x: comrs.theory_ber_rayleigh_mrc(x, branches=2), 10.0),
         (lambda x: comrs.theory_papr_ccdf(64, x), 8.0),
         (lambda x: comrs.theory_rs_wer(255, 8, x), 1e-2),
         (lambda x: comrs.theory_rs_ser(255, 8, x), 1e-2),
         (lambda x: comrs.theory_rs_ber(255, 8, 8, x), 1e-2),
-        (lambda x: comrs.biawgn_capacity(x, 0.5), 1.0),
-        (lambda x: comrs.normal_approximation(128, 64, x), 2.0),
-        (comrs.shannon_limit_ebn0_db, 0.5),
+        (lambda x: comrs.theory_biawgn_capacity(x, 0.5), 1.0),
+        (lambda x: comrs.theory_normal_approximation(128, 64, x), 2.0),
+        (comrs.theory_shannon_limit_ebn0_db, 0.5),
         (comrs.qfunc, 1.0),
         (comrs.db2lin, 3.0),
         (comrs.lin2db, 2.0),
         (comrs.dbm2w, 0.0),
         (comrs.w2dbm, 1e-3),
-        (comrs.msk_psd, 0.1),
-        (lambda x: comrs.differential_phase_tail(math.pi / 4, x), 3.0),
+        (comrs.theory_msk_psd, 0.1),
+        (lambda x: comrs.theory_differential_phase_tail(math.pi / 4, x), 3.0),
     ],
 )
 def test_closed_forms_take_scalars_and_arrays(f, arg):
@@ -373,10 +373,10 @@ def test_the_mrc_closed_form_is_bound(branches):
         expected = ((1 - mu) / 2) ** branches * sum(
             math.comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
         )
-        got = comrs.theory_ber_rayleigh_mrc(ebn0_db, branches)
+        got = comrs.theory_ber_rayleigh_mrc(ebn0_db, branches=branches)
         assert got == pytest.approx(expected, rel=1e-12)
     with pytest.raises(ValueError, match="branch"):
-        comrs.theory_ber_rayleigh_mrc(10.0, 0)
+        comrs.theory_ber_rayleigh_mrc(10.0, branches=0)
 
 
 def test_one_estimate_has_one_shape():
@@ -477,7 +477,7 @@ INVALID = {
     "max_time_negative": ("max_time", lambda: comrs.sim.Stop.max_time(-1.0)),
     "qam_order": ("power of two", lambda: comrs.Constellation("qam", 12)),
     "constellation_kind": (None, lambda: comrs.Constellation("bogus", 4)),
-    "bits_not_binary": ("bits", lambda: comrs.Constellation("qam", 4).modulate([0, 2, 1, 0])),
+    "bits_not_binary": ("bits", lambda: comrs.Constellation("qam", 4).map_bits([0, 2, 1, 0])),
     "pulse_kind": (None, lambda: comrs.pulse_shape("sinc", 2)),
     "ber_lengths": (None, lambda: comrs.ber([0, 1], [0, 1, 1])),
     "edfa_noise_figure": (
@@ -492,8 +492,8 @@ INVALID = {
         "pilot",
         lambda: comrs.ddpll(np.ones(4), comrs.Constellation("qam", 4), pilot_indices=[0]),
     ),
-    "cubic_length": ("4 samples", lambda: comrs.interpolate_cubic([1, 2, 3], 0.0)),
-    "manakov_pmd_rng": ("rng", lambda: comrs.Manakov(comrs.FiberParams(), pmd_ps_sqrt_km=0.1)),
+    "cubic_length": ("4 samples", lambda: comrs.lagrange_cubic([1, 2, 3], 0.0)),
+    "manakov_pmd_rng": ("rng", lambda: comrs.ManakovPmd(comrs.FiberParams(), pmd_ps_sqrt_km=0.1)),
     "bits_negative": ("non-negative", lambda: comrs.bits(-1, comrs.Rng(0))),
     # aborted the process on the allocation of 2^40 words
     "gray_code_size": ("at most 24", lambda: comrs.gray_code(40)),
@@ -510,9 +510,9 @@ def test_negative_counts_are_value_errors_and_wrong_types_type_errors():
     rng = comrs.Rng(0)
     for call in (
         lambda: comrs.Scrambler(7).sequence(-1),
-        lambda: comrs.GammaGamma(2.0, 1.5).draw(rng, -1),
-        lambda: comrs.PointingError(0.1, 0.05, 0.02).draw(rng, -1),
-        lambda: comrs.Fso(1.0).gains(rng, -1),
+        lambda: comrs.GammaGamma(2.0, 1.5).draw(-1, rng),
+        lambda: comrs.PointingError(0.1, 0.05, 0.02).draw(-1, rng),
+        lambda: comrs.Fso(1.0).gains(-1, rng),
         lambda: comrs.Interleaver.random(-4),
         lambda: comrs.wdm_grid(-3, 50e9),
         lambda: comrs.chebyshev_window(-1, 40.0),
@@ -561,7 +561,7 @@ def test_tuning_parameters_are_keyword_only():
     with pytest.raises(TypeError):
         comrs.pulse_shape("rrc", 4, 1025)
     with pytest.raises(TypeError):
-        comrs.mimo_channel(2, 2, comrs.Rng(0), 10)
+        comrs.mimo_channel(2, 2, comrs.Rng(0), 0.5)
     with pytest.raises(TypeError):
         comrs.CdlChannel("CDL-A", 1e-7, 1e6, 2, 2)
 
@@ -581,10 +581,11 @@ def test_pulse_shape_defaults_are_those_of_the_block():
 def test_kbest_keeps_the_paths_of_the_mimo_rx_block():
     rng = comrs.Rng(5)
     c = comrs.Constellation("qam", 16).normalized()
-    h4 = comrs.mimo_channel(4, 4, rng, n=50)
-    y = np.einsum(
-        "nij,nj->ni", h4, c.points[rng.integers(16, 200).reshape(50, 4)]
-    ) + 0.3 * rng.complex_noise(200).reshape(50, 4)
+    h4 = comrs.mimo_channels(50, 4, 4, rng)
+    y = (
+        np.einsum("nij,jn->in", h4, c.points[rng.integers(16, 200).reshape(50, 4).T])
+        + 0.3 * rng.complex_noise(200).reshape(50, 4).T
+    )
     k = int(comrs.spec_blocks()["mimo_rx"]["params"]["k"]["default"])
     np.testing.assert_array_equal(
         comrs.mimo_detect(h4, y, c, 0.09, "kbest"), comrs.mimo_detect(h4, y, c, 0.09, "kbest", k=k)
@@ -720,8 +721,8 @@ def test_python_runner_with_setup_and_record_type_checks():
 
     def trial(cond, rng, rec, c):
         b = comrs.bits(c.bits_per_symbol * 200, rng)
-        y = comrs.awgn_ebn0(c.modulate(b), 12.0, c.bits_per_symbol, rng)
-        rec.errors("ber", int((c.demodulate(y) != b).sum()), b.size)
+        y = comrs.awgn_ebn0(c.map_bits(b), 12.0, c.bits_per_symbol, rng)
+        rec.errors("ber", int((c.demap_bits(y) != b).sum()), b.size)
 
     res = sim.run(
         trial, sim.grid(m=[4, 16]), name="qam", setup=setup, stop=sim.Stop.max_trials(10), batch=5

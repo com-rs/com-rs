@@ -49,7 +49,7 @@ fig, ax = plt.subplots()
 (l1,) = ax.semilogy(eb, comrs.theory_ber(2, eb, "psk"), linewidth=1.4, label="AWGN, theory")
 # (1 - sqrt(g / (1 + g))) / 2, the maximal-ratio combining of one branch
 (l2,) = ax.semilogy(
-    eb, comrs.theory_ber_rayleigh_mrc(eb, 1), linewidth=1.4, label="Rayleigh, theory"
+    eb, comrs.theory_ber_rayleigh_mrc(eb, branches=1), linewidth=1.4, label="Rayleigh, theory"
 )
 ax.semilogy(
     eb,
@@ -90,7 +90,7 @@ fig.tight_layout()
 # At a BER of 1e-4, fading costs about 25 dB.
 for name, f in [
     ("AWGN", lambda e: comrs.theory_ber(2, e, "psk")),
-    ("Rayleigh", lambda e: comrs.theory_ber_rayleigh_mrc(e, 1)),
+    ("Rayleigh", lambda e: comrs.theory_ber_rayleigh_mrc(e, branches=1)),
 ]:
     lo, hi = 0.0, 60.0
     for _ in range(60):

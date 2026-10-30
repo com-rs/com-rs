@@ -18,10 +18,10 @@ use super::*;
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.biawgn_capacity(comrs.shannon_limit_ebn0_db(0.5), 0.5), 6)
+///     >>> round(comrs.theory_biawgn_capacity(comrs.theory_shannon_limit_ebn0_db(0.5), 0.5), 6)
 ///     0.5
 #[pyfunction]
-fn biawgn_capacity(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>> {
+fn theory_biawgn_capacity(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>> {
     map_real(ebn0_db, |e| Ok(bounds::biawgn_capacity(bounds::bpsk_noise_variance(e, rate))))
 }
 
@@ -41,11 +41,11 @@ fn biawgn_capacity(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>>
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> p = comrs.normal_approximation(256, 128, [1.0, 3.0])
+///     >>> p = comrs.theory_normal_approximation(256, 128, [1.0, 3.0])
 ///     >>> bool(p[0] > p[1])
 ///     True
 #[pyfunction]
-fn normal_approximation(n: usize, k: usize, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_normal_approximation(n: usize, k: usize, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(ebn0_db, |e| Ok(bounds::normal_approximation(n, k, e)))
 }
 
@@ -62,10 +62,10 @@ fn normal_approximation(n: usize, k: usize, ebn0_db: &Bound<'_, PyAny>) -> PyRes
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.shannon_limit_ebn0_db(0.5), 3)
+///     >>> round(comrs.theory_shannon_limit_ebn0_db(0.5), 3)
 ///     0.187
 #[pyfunction]
-fn shannon_limit_ebn0_db(rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_shannon_limit_ebn0_db(rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(rate, |r| Ok(bounds::shannon_limit_ebn0_db(r)))
 }
 
@@ -116,10 +116,10 @@ fn bpsk_llr<'py>(py: Python<'py>, y: &Bound<'py, PyAny>, noise_var: f64) -> PyRe
 
 /// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(biawgn_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_biawgn_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(bpsk_noise_variance, m)?)?;
     m.add_function(wrap_pyfunction!(bpsk_llr, m)?)?;
-    m.add_function(wrap_pyfunction!(normal_approximation, m)?)?;
-    m.add_function(wrap_pyfunction!(shannon_limit_ebn0_db, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_normal_approximation, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_shannon_limit_ebn0_db, m)?)?;
     Ok(())
 }

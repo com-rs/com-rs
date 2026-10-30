@@ -24,7 +24,7 @@ use comrs::math::Jacobian;
 ///     >>> round(c.energy, 12)
 ///     1.0
 ///     >>> bits = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.uint8)
-///     >>> c.demodulate(c.modulate(bits)).tolist()
+///     >>> c.demap_bits(c.map_bits(bits)).tolist()
 ///     [0, 0, 0, 0, 1, 1, 1, 1]
 #[pyclass(name = "Constellation", module = "comrs")]
 #[derive(Clone)]
@@ -194,7 +194,7 @@ impl PyConstellation {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    fn modulate<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
+    fn map_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.map_bits(&bvec(bits)?).py()?))
     }
 
@@ -255,7 +255,7 @@ impl PyConstellation {
     ///
     /// Raises:
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
-    fn demodulate<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
+    fn demap_bits<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.demap_bits(&cvec(z)?).into_pyarray(py))
     }
 
@@ -279,7 +279,7 @@ impl PyConstellation {
     /// Examples:
     ///     >>> import comrs
     ///     >>> c = comrs.Constellation("qam", 4).normalized()
-    ///     >>> llr = c.llr(c.modulate([0, 1]), 0.1)
+    ///     >>> llr = c.llr(c.map_bits([0, 1]), 0.1)
     ///     >>> bool(llr[0] > 0 and llr[1] < 0)
     ///     True
     #[pyo3(signature = (z, noise_var, *, px = None, max_log = false))]

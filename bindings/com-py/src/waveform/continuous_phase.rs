@@ -44,7 +44,7 @@ fn modulation_index(h: &Bound<'_, PyAny>) -> PyResult<(u32, u32)> {
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
-///     >>> msk = comrs.Cpm("1/2", "rec", sps=4)
+///     >>> msk = comrs.Cpm("1/2", pulse="rec", sps=4)
 ///     >>> a = np.array([1, 0, 0, 1, 1, 0])
 ///     >>> s = msk.modulate(a)
 ///     >>> np.allclose(np.abs(s), 1.0)
@@ -67,7 +67,7 @@ impl PyCpm {
 #[pymethods]
 impl PyCpm {
     #[new]
-    #[pyo3(signature = (h=None, pulse="rec", *, length=1, bt=0.3, sps=4, order=2))]
+    #[pyo3(signature = (h=None, *, pulse="rec", length=1, bt=0.3, sps=4, order=2))]
     fn new(
         h: Option<&Bound<'_, PyAny>>,
         pulse: &str,
@@ -413,12 +413,12 @@ fn msk_bits<'py>(py: Python<'py>, phase_states: &Bound<'py, PyAny>) -> PyResult<
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.msk_psd(0.0), 6)
+///     >>> round(comrs.theory_msk_psd(0.0), 6)
 ///     1.621139
-///     >>> comrs.msk_psd([0.25, 0.75]).round(6).tolist()
+///     >>> comrs.theory_msk_psd([0.25, 0.75]).round(6).tolist()
 ///     [1.0, 0.0]
 #[pyfunction]
-fn msk_psd(ft: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_msk_psd(ft: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(ft, |f| Ok(cpm::msk_psd(f)))
 }
 
@@ -427,6 +427,6 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCpm>()?;
     m.add_function(wrap_pyfunction!(msk_precode, m)?)?;
     m.add_function(wrap_pyfunction!(msk_bits, m)?)?;
-    m.add_function(wrap_pyfunction!(msk_psd, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_msk_psd, m)?)?;
     Ok(())
 }

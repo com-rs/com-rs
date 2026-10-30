@@ -21,7 +21,7 @@ N = 4000
 rng = comrs.Rng(17)
 fig, ax = plt.subplots()
 for n in [1, 2, 4]:
-    h = comrs.mimo_channel(n, n, rng, n=N)
+    h = comrs.mimo_channels(N, n, n, rng)
     (line,) = ax.plot(snr, [comrs.mimo_capacity(h, s).mean() for s in snr], label=f"{n} × {n}")
     if n == 4:
         ax.plot(
@@ -32,7 +32,7 @@ for n in [1, 2, 4]:
             linewidth=1.4,
             label="4 × 4, water-filling",
         )
-        hc = comrs.mimo_channel(4, 4, rng, n=N, rx_correlation=0.9, tx_correlation=0.9)
+        hc = comrs.mimo_channels(N, 4, 4, rng, rx_correlation=0.9, tx_correlation=0.9)
         ax.plot(
             snr,
             [comrs.mimo_capacity(hc, s).mean() for s in snr],
@@ -53,6 +53,6 @@ fig.tight_layout()
 
 # %%
 # At 20 dB, the capacity of 4 × 4 is close to four times that of a single antenna.
-h1, h4 = comrs.mimo_channel(1, 1, rng, n=N), comrs.mimo_channel(4, 4, rng, n=N)
+h1, h4 = comrs.mimo_channels(N, 1, 1, rng), comrs.mimo_channels(N, 4, 4, rng)
 c1, c4 = comrs.mimo_capacity(h1, 20.0).mean(), comrs.mimo_capacity(h4, 20.0).mean()
 print(f"1 × 1: {c1:.2f} bit/s/Hz, 4 × 4: {c4:.2f} bit/s/Hz, ratio {c4 / c1:.2f}")

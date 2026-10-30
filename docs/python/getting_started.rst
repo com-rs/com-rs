@@ -70,10 +70,10 @@ A first link
    c = comrs.Constellation("qam", 16).normalized()   # Gray labels, unit energy
 
    bits = comrs.bits(4 * 200_000, rng)                # 4 bits per symbol
-   x = c.modulate(bits)
+   x = c.map_bits(bits)
    y = comrs.awgn_ebn0(x, 10.0, 4, rng)               # Eb/N0 = 10 dB, 4 bits/symbol
 
-   print(comrs.ber(c.demodulate(y), bits))            # 1.80e-3
+   print(comrs.ber(c.demap_bits(y), bits))            # 1.80e-3
    print(comrs.theory_ber(16, 10.0, "qam"))           # 1.75e-3
 
 The :doc:`gallery <auto_examples/index>` turns such snippets into the classical curves,

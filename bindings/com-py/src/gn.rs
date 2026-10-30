@@ -224,14 +224,14 @@ fn raman_profile<'py>(
 ///     fiber (FiberParams): the link.
 ///     n_channels (int): number of channels.
 ///     symbol_rate (float): symbol rate of every channel (Bd).
-///     spacing (float): channel spacing (Hz).
+///     spacing_hz (float): channel spacing (Hz).
 ///     power_dbm (float): launch power per channel (dBm).
 ///
 /// Returns:
 ///     float: the NLI power spectral density (W/Hz).
 #[pyfunction]
-fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing: f64, power_dbm: f64) -> f64 {
-    closed_form_nli_psd(&fiber.inner, n_channels, symbol_rate, spacing, dbm2w(power_dbm))
+fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing_hz: f64, power_dbm: f64) -> f64 {
+    closed_form_nli_psd(&fiber.inner, n_channels, symbol_rate, spacing_hz, dbm2w(power_dbm))
 }
 
 /// The centre frequencies of ``n`` WDM channels, relative to the carrier: the grid of
@@ -239,7 +239,7 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 ///
 /// Args:
 ///     n (int): number of channels.
-///     spacing (float): channel spacing (Hz).
+///     spacing_hz (float): channel spacing (Hz).
 ///
 /// Returns:
 ///     numpy.ndarray: the ``n`` frequencies (Hz, float64).
@@ -252,8 +252,8 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 ///     >>> comrs.wdm_grid(3, 50e9).tolist()
 ///     [-50000000000.0, 0.0, 50000000000.0]
 #[pyfunction]
-fn wdm_grid(py: Python<'_>, n: i64, spacing: f64) -> PyResult<FArr<'_>> {
-    Ok(farr(py, comrs::dsp::signal::wdm_grid(count(n, "n")?, spacing)))
+fn wdm_grid(py: Python<'_>, n: i64, spacing_hz: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, comrs::dsp::signal::wdm_grid(count(n, "n")?, spacing_hz)))
 }
 
 /// Register the bindings of this module.

@@ -211,6 +211,10 @@ fn load_spec<'py>(py: Python<'py>, spec: &Bound<'py, PyAny>) -> PyResult<(Bound<
 /// Returns:
 ///     list[dict]: one dict per condition, the last grid axis varying fastest.
 ///
+/// Raises:
+///     FileNotFoundError: for a string that is neither a file nor a specification.
+///     ValueError: for an invalid specification (the message names the field).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.spec_conditions({"name": "c", "grid": {"m": [4, 16], "snr_db": [0, 10]},
@@ -223,6 +227,30 @@ fn spec_conditions<'py>(py: Python<'py>, spec: &Bound<'py, PyAny>) -> PyResult<B
     PyList::new(py, items)
 }
 
+/// The conditions of a grid (``comrs.sim.grid``): the Cartesian product of its axes, the
+/// last one varying fastest, expanded by the parser of the specifications.
+///
+/// Args:
+///     axes (dict): ``{variable: axis}``, an axis being a list, ``{"from", "to",
+///         "step"}``, ``{"linspace": [start, stop, count]}`` or one value.
+///
+/// Returns:
+///     list[dict]: the conditions.
+///
+/// Raises:
+///     ValueError: for an invalid axis (the message names it).
+///
+/// Examples:
+///     >>> from comrs._comrs import _grid_conditions
+///     >>> _grid_conditions({"m": [4, 16], "snr_db": {"from": 0, "to": 10, "step": 10}})
+///     [{'m': 4, 'snr_db': 0}, {'m': 4, 'snr_db': 10}, {'m': 16, 'snr_db': 0}, {'m': 16, 'snr_db': 10}]
+#[pyfunction]
+fn _grid_conditions<'py>(py: Python<'py>, axes: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyList>> {
+    let conds = comrs::spec::grid_conditions(&json(py, axes)?).py()?;
+    let items = conds.iter().map(|c| condition_dict(py, c)).collect::<PyResult<Vec<_>>>()?;
+    PyList::new(py, items)
+}
+
 /// The blocks of the declarative links, their parameters and their ports.
 ///
 /// Returns:
@@ -231,6 +259,10 @@ fn spec_conditions<'py>(py: Python<'py>, spec: &Bound<'py, PyAny>) -> PyResult<B
 ///     ``symbols``, ``constellation``, ``noise``, ``llr``…) and its ``params``
 ///     (``{name: {default, doc, unit, choices, type, minimum, exclusive_minimum,
 ///     maximum, required}}``, ``type`` being a JSON Schema).
+///
+/// Raises:
+///     ValueError: for a default that has no JSON form (not expected from the
+///         registry).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -272,6 +304,10 @@ fn spec_blocks(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
 ///
 /// Returns:
 ///     dict: the schema (draft 2020-12).
+///
+/// Raises:
+///     ValueError: for a schema that has no Python form (not expected from the
+///         registry).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -452,8 +488,8 @@ fn search_spec<'py>(
 /// Args:
 ///     path (str | os.PathLike): the `.sigmf-meta` or `.sigmf-data` file, their base
 ///         name, or a `.sigmf` archive.
-///     channel (int | None): the channel to read; None: every channel (an array of
-///         shape `(num_channels, n)` when there are several).
+///     channel (int | None): the channel to read (the first by default, a 1-D array);
+///         None: every channel, an array `(num_channels, n)`.
 ///     autoscale (bool): divide integer samples by their full scale `2^(b-1)` (the
 ///         values of `sigmf-python`); otherwise integers are converted without scaling
 ///         (unsigned types centred by `2^(b-1)`).
@@ -463,16 +499,21 @@ fn search_spec<'py>(
 ///     rate `fs` (Hz) and the metadata (``meta["captures"]``,
 ///     ``meta["annotations"]``…).
 ///
+/// Raises:
+///     OSError: if a file cannot be read.
+///     ValueError: for invalid metadata, an unknown data type or a channel beyond
+///         those of the recording.
+///
 /// Examples:
 ///     >>> import comrs, numpy as np, tempfile, os
 ///     >>> base = os.path.join(tempfile.mkdtemp(), "x")
-///     >>> comrs.write_sigmf(base, np.array([1, 1j]), 1e6, frequency=2.4e9,
+///     >>> comrs.write_sigmf(base, np.array([1, 1j]), 1e6, fc_hz=2.4e9,
 ///     ...                   annotations=[{"sample_start": 1, "label": "QPSK"}])
 ///     >>> x, fs, meta = comrs.read_sigmf(base)
 ///     >>> meta["captures"][0]["core:frequency"], meta["annotations"][0]["core:label"]
 ///     (2400000000.0, 'QPSK')
 #[pyfunction]
-#[pyo3(signature = (path, *, channel = None, autoscale = false))]
+#[pyo3(signature = (path, *, channel = Some(0), autoscale = false))]
 fn read_sigmf(
     py: Python<'_>,
     path: PathBuf,
@@ -484,7 +525,6 @@ fn read_sigmf(
     let get = |k: usize| r.channel(k).into_iter().map(|v| v / scale).collect::<Vec<_>>();
     let x = match channel {
         Some(k) => crate::carr(py, r.try_channel(k).py()?.into_iter().map(|v| v / scale).collect()).into_any().unbind(),
-        None if r.num_channels == 1 => crate::carr(py, get(0)).into_any().unbind(),
         None => crate::mat(py, (0..r.num_channels).map(get).collect())?.into_any().unbind(),
     };
     let meta = from_json(py, &r.meta)?;
@@ -501,12 +541,16 @@ fn read_sigmf(
 ///         default), ``cf32`` or ``ci16``; every SigMF type is accepted
 ///         (``[c|r][f32|f64|i32|i16|i8|u32|u16|u8][_le|_be]``; integers are rounded and
 ///         saturated: scale the samples first).
-///     frequency (float | None): the centre frequency of the capture (Hz).
+///     fc_hz (float | None): the centre frequency of the capture (Hz).
 ///     annotations (list[dict] | None): annotations, with the keys ``sample_start``,
 ///         and optionally ``sample_count``, ``label``, ``comment``,
 ///         ``freq_lower_edge``, ``freq_upper_edge``.
 ///     global_meta (dict, optional): keys added to the ``global`` object of the
 ///         metadata (a description, the symbol rate, …).
+///
+/// Raises:
+///     OSError: if a file cannot be written.
+///     ValueError: for an unknown data type or an invalid annotation.
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np, tempfile, os
@@ -516,7 +560,7 @@ fn read_sigmf(
 ///     >>> x.tolist(), fs, meta["global"]["core:datatype"]
 ///     ([(1+0j), 1j], 1000000.0, 'cf64_le')
 #[pyfunction]
-#[pyo3(signature = (base, samples, fs, *, datatype = "cf64", frequency = None, annotations = None, global_meta = None))]
+#[pyo3(signature = (base, samples, fs, *, datatype = "cf64", fc_hz = None, annotations = None, global_meta = None))]
 #[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
 fn write_sigmf(
     py: Python<'_>,
@@ -524,7 +568,7 @@ fn write_sigmf(
     samples: &Bound<'_, PyAny>,
     fs: f64,
     datatype: &str,
-    frequency: Option<f64>,
+    fc_hz: Option<f64>,
     annotations: Option<&Bound<'_, PyList>>,
     global_meta: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<()> {
@@ -538,7 +582,7 @@ fn write_sigmf(
         .flat_map(|l| l.iter())
         .map(|a| comrs::io::Annotation::from_mapping(&json(py, &a)?).py())
         .collect::<PyResult<Vec<_>>>()?;
-    comrs::io::write_sigmf_annotated(&base, &crate::cvec(samples)?, dt, fs, frequency, extra.as_ref(), &ann).py()
+    comrs::io::write_sigmf_annotated(&base, &crate::cvec(samples)?, dt, fs, fc_hz, extra.as_ref(), &ann).py()
 }
 
 /// Register the declarative functions.
@@ -546,6 +590,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_spec, m)?)?;
     m.add_function(wrap_pyfunction!(load_spec, m)?)?;
     m.add_function(wrap_pyfunction!(spec_conditions, m)?)?;
+    m.add_function(wrap_pyfunction!(_grid_conditions, m)?)?;
     m.add_function(wrap_pyfunction!(spec_blocks, m)?)?;
     m.add_function(wrap_pyfunction!(spec_schema, m)?)?;
     m.add_function(wrap_pyfunction!(spec_check_link, m)?)?;

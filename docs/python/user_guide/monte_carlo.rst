@@ -24,8 +24,8 @@ score intervals, or values, estimated as means with normal intervals:
 
    def trial(cond, rng, rec):
        bits = comrs.bits(4 * 4096, rng)
-       y = comrs.awgn_ebn0(c.modulate(bits), cond["ebn0_db"], 4, rng)
-       rec.errors("ber", int((c.demodulate(y) != bits).sum()), bits.size)
+       y = comrs.awgn_ebn0(c.map_bits(bits), cond["ebn0_db"], 4, rng)
+       rec.errors("ber", int((c.demap_bits(y) != bits).sum()), bits.size)
        rec.value("evm", comrs.evm(y, c))
 
 The grid and the stopping rule

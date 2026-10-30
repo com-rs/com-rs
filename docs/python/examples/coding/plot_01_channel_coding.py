@@ -69,7 +69,7 @@ for (name, (code, pts, bits)), marker in zip(codes.items(), ["^", "o", "s", "D"]
     keep = ber > 0
     ax.semilogy(pts[keep], ber[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 for rate, label in [(1 / 3, "R = 1/3"), (1 / 2, "R = 1/2")]:
-    lim = comrs.shannon_limit_ebn0_db(rate)
+    lim = comrs.theory_shannon_limit_ebn0_db(rate)
     ax.axvline(lim, color=GREY, linestyle=":", linewidth=1.0)
     ax.text(lim + 0.1, 2e-6, f"Shannon, {label}", rotation=90, fontsize=8, color=MUTED, va="bottom")
 ax.set(
@@ -86,7 +86,7 @@ fig.tight_layout()
 # Short blocks: n = 256, k = 128, against the normal approximation.
 pts = np.arange(1.0, 3.6, 0.25)
 fig, ax = plt.subplots()
-na = comrs.normal_approximation(256, 128, np.linspace(0, 4, 81))
+na = comrs.theory_normal_approximation(256, 128, np.linspace(0, 4, 81))
 ax.semilogy(np.linspace(0, 4, 81), na, color=GREY, linewidth=1.4, label="normal approximation")
 short = {
     "polar, SC": comrs.PolarCode(256, 128, design_ebn0_db=2.0),

@@ -7,7 +7,7 @@ source:
   locator: "Fig. 2, SF 7, read at -8 and -7 dB (SNR per sample); exact eq. (16)"
   file: modulation/2020_afisiadis_lora-error-rate-interference_twc_arxiv.pdf
 run:
-  function: comrs.css_ser
+  function: comrs.theory_css_ser
 tolerance: {rtol: 0.15}
 why: "values read on the figure"
 cases:

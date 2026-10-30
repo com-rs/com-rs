@@ -45,7 +45,7 @@ def bpsk_awgn_decisions(code: Any, bits: np.ndarray, ebn0_db: float, rng: comrs.
     the complex noise variance :math:`N_0 = 2\\sigma^2`."""
     c = code.encode(bits)
     s2 = 1 / (2 * (code.k / code.n) * comrs.db2lin(ebn0_db))
-    y = BPSK.modulate(c).real + np.sqrt(s2) * rng.gaussian(c.size)
+    y = BPSK.map_bits(c).real + np.sqrt(s2) * rng.gaussian(c.size)
     return code.decode(BPSK.llr(y, 2 * s2))
 
 
@@ -88,8 +88,8 @@ def mimo_ofdm_ser(
         y = y + rng.complex_noise(y.size, s2).reshape(y.shape)
         rx = np.stack([ofdm.demodulate(r) for r in y])  # (n_rx, 4 · k)
         h = taps.frequency_response(0, ofdm.bins, n)  # (k, n_rx, n_tx), static
-        d = comrs.mimo_detect(np.tile(h, (4, 1, 1)), rx.T, constellation, s2 * k / n, method)
-        err += int((d != idx.T).sum())
+        d = comrs.mimo_detect(np.tile(h, (4, 1, 1)), rx, constellation, s2 * k / n, method)
+        err += int((d != idx).sum())
         tot += idx.size
     return err / tot
 

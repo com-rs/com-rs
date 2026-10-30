@@ -12,7 +12,7 @@
 use crate::chain::PyFrame;
 use crate::rng::PyRng;
 use crate::spec::{condition_dict, result_with};
-use crate::{IntoPy, json};
+use crate::{IntoPy, from_json, json};
 use comrs::core::rng::Rng;
 use comrs::sim::callbacks::ProgressBar;
 use comrs::sim::grid::{Condition, Grid, Value};
@@ -163,6 +163,10 @@ impl PyStop {
     /// Returns:
     ///     Stop: the rule.
     ///
+    /// Raises:
+    ///     ValueError: for an unknown key or a value out of its domain (the message
+    ///         names it).
+    ///
     /// Examples:
     ///     >>> from comrs.sim import Stop
     ///     >>> Stop.from_spec({"min_trials": 50})
@@ -171,6 +175,31 @@ impl PyStop {
     fn from_spec(py: Python<'_>, stop: &Bound<'_, PyAny>) -> PyResult<Self> {
         let v = serde_json::json!({ "name": "stop", "link": ["source"], "stop": json(py, stop)? });
         Ok(PyStop { inner: Spec::from_json(v).py()?.stop })
+    }
+
+    /// The ``stop`` mapping of a specification whose rule is this one (the inverse of
+    /// :meth:`from_spec`): a specification stops when all its targets (``min_errors``,
+    /// ``precision``, with ``min_trials``) are met, or any of its caps (``max_trials``,
+    /// ``max_time_s``).
+    ///
+    /// Args:
+    ///     confidence (float): the confidence level of the specification, that of
+    ///         every precision target.
+    ///
+    /// Returns:
+    ///     dict: the mapping.
+    ///
+    /// Raises:
+    ///     ValueError: for a rule the format cannot write (targets combined by ``|``, a
+    ///         cap inside an ``&``, a precision target at another confidence level).
+    ///
+    /// Examples:
+    ///     >>> from comrs.sim import Stop
+    ///     >>> (Stop.min_errors("ber", 100) | Stop.max_trials(1000)).to_spec()
+    ///     {'min_errors': {'ber': 100}, 'max_trials': 1000}
+    #[pyo3(signature = (*, confidence = 0.95))]
+    fn to_spec<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyAny>> {
+        from_json(py, &comrs::spec::stop_mapping(&self.inner, confidence).py()?)
     }
 
     /// bool: Whether the rule can stop (a rule made only of lower bounds runs forever).
@@ -576,6 +605,10 @@ impl PyConditionResult {
     ///     dict: ``index``, the condition (its values as given), ``status``,
     ///     ``trials``, ``wall_s``, and for every metric ``m``: ``m``, ``m_lo``,
     ///     ``m_hi``, ``m_count``, ``m_total``.
+    ///
+    /// Raises:
+    ///     ValueError: for a value that has no Python equivalent (not expected from
+    ///         the runner).
     #[pyo3(signature = (confidence = 0.95))]
     fn row<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
@@ -603,6 +636,10 @@ impl PyConditionResult {
     /// Returns:
     ///     dict: ``index``, ``condition``, ``status``, ``trials``, ``wall_s`` and
     ///     ``metrics`` (``{name: {value, lo, hi, kind, count, total}}``).
+    ///
+    /// Raises:
+    ///     ValueError: for a value that has no Python equivalent (not expected from
+    ///         the runner).
     #[pyo3(signature = (confidence = 0.95))]
     fn to_dict<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
         result_with(py, &self.inner, self.condition.bind(py).clone(), confidence)
@@ -771,9 +808,16 @@ fn run_scenario(py: Python<'_>, scenario: &PyScenario, grid: &Grid, runner: Runn
 ///
 /// Returns:
 ///     list[ConditionResult]: one result per condition.
+///
+/// Raises:
+///     ValueError: for a stopping rule that can run forever, a condition that is not a
+///         mapping of numbers, strings and booleans, or an invalid setting. An
+///         exception of a trial or of the setup is raised again with a note naming the
+///         trial and the condition.
+///     OSError: if a report cannot be written.
 #[pyfunction]
 #[pyo3(name = "_sim_run", signature = (trial, conditions, *, name, seed = 0, batch = 32, stop = None, setup = None, confidence = 0.95, progress = false, csv_path = None, json_path = None))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the keyword arguments of comrs.sim.run")]
 fn sim_run(
     py: Python<'_>,
     trial: Py<PyAny>,
@@ -938,6 +982,9 @@ fn metric_columns(name: &str) -> Vec<String> {
 ///
 /// Returns:
 ///     float: the quantile `z`.
+///
+/// Raises:
+///     ValueError: for a level outside `(0, 1)`.
 #[pyfunction]
 fn z_score(confidence: f64) -> PyResult<f64> {
     if !(0.0..1.0).contains(&confidence) {

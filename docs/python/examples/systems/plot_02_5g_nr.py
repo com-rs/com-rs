@@ -38,7 +38,7 @@ for mu in range(5):
     fs, cp = info["sample_rate"], info["cp_lengths"]
     slot = 1e3 / info["slots_per_subframe"]
     print(
-        f"{mu:3d} {info['subcarrier_spacing'] / 1e3:9.0f} {slot:10.1f} {cp[1] / fs * 1e6:12.2f} {cp[0] / fs * 1e6:17.2f}"
+        f"{mu:3d} {info['subcarrier_spacing_hz'] / 1e3:9.0f} {slot:10.1f} {cp[1] / fs * 1e6:12.2f} {cp[0] / fs * 1e6:17.2f}"
     )
 
 # %%
@@ -52,12 +52,13 @@ for mu in range(5):
 
 cell = 417
 kinds = ["pss", "sss", "pbch", "pbch_dmrs"]
-layout = np.zeros(960, int)
+layout = np.zeros((240, 4), int)  # (subcarriers, symbols)
 for i, kind in enumerate(kinds, start=1):
-    layout[comrs.nr_ssb_indices(cell, kind)] = i
+    kl = comrs.nr_ssb_indices(cell, kind)  # (k, l) pairs
+    layout[kl[:, 0], kl[:, 1]] = i
 cmap = ListedColormap([PAPER, CRIMSON, BLUE, SKY, TEAL])
 fig, ax = plt.subplots(figsize=(6.4, 2.6))
-ax.imshow(layout.reshape(4, 240), aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=4)
+ax.imshow(layout.T, aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=4)
 ax.set(xlabel="subcarrier", ylabel="OFDM symbol", yticks=range(4), title=f"SSB of cell {cell}")
 for i, (name, c) in enumerate(
     zip(["PSS", "SSS", "PBCH", "PBCH DMRS"], cmap.colors[1:], strict=True)
@@ -91,8 +92,9 @@ for fading, color, label in [
         for _ in range(trials):
             cid = int(rng.integers(1008, 1)[0])
             h = rng.complex_noise(1, 1.0)[0] if fading else np.exp(2j * np.pi * rng.uniform(1)[0])
-            y = h * comrs.nr_ssb_grid(cid).T.ravel() + rng.complex_noise(960, comrs.db2lin(-snr))
-            ok += comrs.nr_detect_cell_id(y.reshape(4, 240).T)[0] == cid
+            noise = rng.complex_noise(960, comrs.db2lin(-snr)).reshape(4, 240).T
+            y = h * comrs.nr_ssb_grid(cid) + noise  # the (240, 4) grid
+            ok += comrs.nr_detect_cell_id(y)[0] == cid
         p_ok.append(ok / trials)
     ax.plot(snrs, p_ok, "o-", color=color, label=label)
 ax.set(xlabel="SNR per resource element (dB)", ylabel="P(correct cell identity)", ylim=(0, 1.02))
@@ -113,10 +115,10 @@ fig.tight_layout()
 fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.0), sharey=True)
 for ax, (ctype, add) in zip(axes, [(1, 2), (2, 3)], strict=True):
     d = comrs.nr_pdsch_dmrs(4, config_type=ctype, additional_position=add, n_id=cell)
-    m = np.zeros(14 * 48)
-    m[d["indices"]] = 1
+    m = np.zeros((48, 14))  # (subcarriers, symbols)
+    m[d["indices"][:, 0], d["indices"][:, 1]] = 1
     ax.imshow(
-        m.reshape(14, 48).T,
+        m,
         aspect="auto",
         cmap=ListedColormap([PAPER, TEAL]),
         origin="lower",

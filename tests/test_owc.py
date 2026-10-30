@@ -55,7 +55,7 @@ def test_gamma_gamma_parameters_and_draws():
     assert g.scintillation_index() == pytest.approx(1.214, abs=1e-3)
     s = comrs.GammaGamma.from_rytov(5.0 / 0.4, "spherical")
     assert (s.alpha, s.beta) == pytest.approx((2.11, 1.24), abs=0.015)
-    x = g.draw(comrs.Rng(3), 200_000)
+    x = g.draw(200_000, comrs.Rng(3))
     assert x.mean() == pytest.approx(1.0, abs=0.01)
     i = np.linspace(1e-4, 30, 300_000)
     assert np.trapezoid(g.pdf(i), i) == pytest.approx(1.0, abs=3e-3)
@@ -68,7 +68,7 @@ def test_fso_link():
     assert 0 < p.a0() < 1
     assert p.collected(0.0) == pytest.approx(p.a0())
     link = comrs.Fso(3.0, turbulence="lognormal", scintillation_index=0.2, pointing=p)
-    h = link.gains(comrs.Rng(1), 50_000)
+    h = link.gains(50_000, comrs.Rng(1))
     assert np.all(h > 0)
     assert link.scintillation_index() == pytest.approx(0.2)
     assert comrs.fog_attenuation_db_per_km(1.0, 1550) < comrs.fog_attenuation_db_per_km(1.0, 785)

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import comrs
-from comrs.plot import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
+from comrs.plot import BLUE, CRIMSON, GREY, LABEL, TEAL
 
 RS, SPS = 32e9, 2
 FS = RS * SPS
@@ -101,7 +101,7 @@ def err_db(taps, b=FS1 / 2):
 
 lengths = np.arange(101, 352, 10)
 curves = {
-    "Savory, whole band": [err_db(comrs.cd_savory_taps(fib, SPAN, FS1, n)) for n in lengths],
+    "Savory, whole band": [err_db(comrs.cd_savory_taps(fib, SPAN, FS1, n_taps=n)) for n in lengths],
     "frequency sampling, whole band": [
         err_db(comrs.cd_fir_taps(fib, SPAN, FS1, n)) for n in lengths
     ],
@@ -113,10 +113,10 @@ curves = {
 }
 fig, ax = plt.subplots(figsize=(6.4, 3.8))
 for (name, e), color, marker in zip(
-    curves.items(), [CRIMSON, GREY_WARM, BLUE, TEAL], "sdo^", strict=True
+    curves.items(), [CRIMSON, GREY, BLUE, TEAL], "sdo^", strict=True
 ):
     ax.plot(lengths, e, marker=marker, color=color, markersize=4, label=name)
-ax.axvline(251, color=GREY_WARM, linewidth=0.8, linestyle=":")
+ax.axvline(251, color=GREY, linewidth=0.8, linestyle=":")
 ax.set(xlabel="number of taps", ylabel="error energy E (dB)", ylim=(-165, 5))
 ax.grid(alpha=0.3)
 ax.legend(fontsize=8)
@@ -187,7 +187,7 @@ for (name, taps), color in zip(list(filters.items())[1:], [CRIMSON, BLUE, TEAL],
     resp = np.exp(-2j * np.pi * np.outer(f, np.arange(taps.size) - taps.size // 2)) @ taps
     ax.plot(f, 20 * np.log10(np.abs(resp)), color=color, label=name)
 for s in (-1, 1):
-    ax.axvline(s * band / FS1, color=GREY_WARM, linewidth=0.8, linestyle=":")
+    ax.axvline(s * band / FS1, color=GREY, linewidth=0.8, linestyle=":")
 ax.set(xlabel="frequency / $f_s$", ylabel="$|H|$ (dB)")
 ax.grid(alpha=0.3)
 ax.legend(fontsize=8)

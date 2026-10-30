@@ -96,14 +96,15 @@ impl PyDvbs2 {
         PyConstellation { inner: self.inner.constellation().clone() }
     }
 
-    /// int: LDPC iterations (sum-product, layered; read and write).
+    /// int: The cap of the LDPC iterations (sum-product, layered, stopping on a
+    /// codeword; read and write).
     #[getter]
-    fn get_iterations(&self) -> usize {
+    fn get_max_iterations(&self) -> usize {
         self.inner.fec().ldpc().decoder.max_iterations
     }
 
     #[setter]
-    fn set_iterations(&mut self, n: usize) {
+    fn set_max_iterations(&mut self, n: usize) {
         self.inner.fec_mut().ldpc_mut().decoder.max_iterations = n;
     }
 

@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import comrs
-from comrs.plot import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
+from comrs.plot import BLUE, CRIMSON, GREY, LABEL, TEAL
 
 rng = comrs.Rng(32)
 
@@ -61,7 +61,7 @@ def simulate_16qam(ebn0_db, rho, n=150_000):
     hh = rho * h + rng.complex_noise(n, 1.0 - rho**2)
     n0 = 1 / (4 * comrs.db2lin(ebn0_db))
     y = h * c16.points[idx] + rng.complex_noise(n, n0)
-    dec = c16.demodulate(y / hh)
+    dec = c16.demap_bits(y / hh)
     return np.mean(dec != comrs.unpack_symbols(idx.astype(np.uint16), 4)[: 4 * n])
 
 
@@ -74,9 +74,7 @@ for rho, color in [(1.0, LABEL), (0.99999, TEAL), (0.9999, BLUE), (0.999, CRIMSO
     pts = np.arange(10.0, 41.0, 10.0)
     ax.semilogy(pts, [simulate_16qam(e, rho) for e in pts], "o", color=color, markersize=4)
 read = {1.0: 5e-6, 0.999999: 9e-6, 0.99999: 4e-5, 0.9999: 3.5e-4, 0.999: 3.5e-3}
-ax.semilogy(
-    [50] * len(read), list(read.values()), "x", color=GREY_WARM, label="read on Fig. 4 (50 dB)"
-)
+ax.semilogy([50] * len(read), list(read.values()), "x", color=GREY, label="read on Fig. 4 (50 dB)")
 ax.set(
     xlabel="mean $E_b/N_0$ (dB)",
     ylabel="BER",
@@ -173,7 +171,7 @@ for ibo, color, pts in [
     obo = comrs.lin2db(g / (1 - np.exp(-g)))
     ax.semilogy(x_app, ber, color=color, label=f"IBO {ibo:.0f} dB (OBO {obo:.2f} dB)")
     ax.semilogy(*zip(*pts, strict=True), "x", color=color, markersize=7)
-ax.semilogy(x_app, comrs.theory_ber_dpsk(4, x_app), "--", color=GREY_WARM, label="linear amplifier")
+ax.semilogy(x_app, comrs.theory_ber_dpsk(4, x_app), "--", color=GREY, label="linear amplifier")
 ax.set(xlabel="$(E_b/N_0)_{app}$ (dB)", ylabel="BER", ylim=(1e-7, 1e-2))
 ax.grid(alpha=0.3, which="both")
 ax.legend(fontsize=8)

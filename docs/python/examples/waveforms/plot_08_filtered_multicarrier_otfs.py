@@ -38,11 +38,11 @@ qpsk = comrs.Constellation("psk", 4).normalized()
 
 
 def symbols(n):
-    return qpsk.modulate(comrs.bits(2 * n, rng))
+    return qpsk.map_bits(comrs.bits(2 * n, rng))
 
 
 def density_db(x):
-    f, p = comrs.psd(x, 1.0, nfft=512)
+    f, p = comrs.psd(x, fs=1.0, nfft=512)
     return f * N, comrs.lin2db(p / p.max())
 
 

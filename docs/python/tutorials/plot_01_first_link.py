@@ -27,7 +27,7 @@ rng = comrs.Rng(2024)
 # closed forms. ``demodulate`` on the points themselves returns the label of each.
 c = comrs.Constellation("qam", 16).normalized()
 k = c.bits_per_symbol
-labels = c.demodulate(c.points).reshape(-1, k)
+labels = c.demap_bits(c.points).reshape(-1, k)
 print(c, "-", k, "bits per symbol, energy", np.mean(np.abs(c.points) ** 2))
 
 fig, ax = plt.subplots(figsize=(4.4, 4.4))
@@ -43,9 +43,9 @@ fig.tight_layout()
 # :math:`E_b/N_0` in dB, given the bits per symbol; ``demodulate`` decides the nearest
 # point and returns its bits; :func:`comrs.ber` counts the differences.
 bits = comrs.bits(k * 100_000, rng)
-x = c.modulate(bits)
+x = c.map_bits(bits)
 y = comrs.awgn_ebn0(x, 10.0, k, rng)
-decided = c.demodulate(y)
+decided = c.demap_bits(y)
 print(f"BER {comrs.ber(decided, bits):.2e}, closed form {comrs.theory_ber(16, 10.0, 'qam'):.2e}")
 
 fig, ax = plt.subplots(figsize=(4.4, 4.4))
@@ -62,8 +62,8 @@ ebn0 = np.arange(0.0, 15.0, 1.0)
 ber_loop = []
 for e in ebn0:
     bits = comrs.bits(k * 50_000, rng)
-    y = comrs.awgn_ebn0(c.modulate(bits), e, k, rng)
-    errors = int((c.demodulate(y) != bits).sum())
+    y = comrs.awgn_ebn0(c.map_bits(bits), e, k, rng)
+    errors = int((c.demap_bits(y) != bits).sum())
     ber_loop.append(errors / bits.size if errors >= 20 else np.nan)
 
 # %%

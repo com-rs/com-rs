@@ -97,7 +97,7 @@ fn cdl_k_factor_db(name: &str) -> PyResult<Option<f64>> {
 ///     fs (float): sampling rate (Hz).
 ///     n_rx (int): elements of the receive array (pairs when `dual_polarized`).
 ///     n_tx (int): elements of the transmit array (pairs when `dual_polarized`).
-///     spacing (float): element spacing of both arrays (wavelengths).
+///     spacing_wavelengths (float): element spacing of both arrays (wavelengths).
 ///     velocity_mps (float): speed of the receiver along the array axis (m/s).
 ///     fc_hz (float): carrier frequency (Hz), the wavelength of the Doppler.
 ///     dual_polarized (bool): cross-polarised pairs (slants ±45°) instead of vertical
@@ -120,7 +120,7 @@ pub struct PyCdl {
 #[pymethods]
 impl PyCdl {
     #[new]
-    #[pyo3(signature = (profile, delay_spread_s, fs, *, n_rx=1, n_tx=1, spacing=0.5, velocity_mps=0.0, fc_hz=3.5e9, dual_polarized=false))]
+    #[pyo3(signature = (profile, delay_spread_s, fs, *, n_rx=1, n_tx=1, spacing_wavelengths=0.5, velocity_mps=0.0, fc_hz=3.5e9, dual_polarized=false))]
     #[allow(clippy::too_many_arguments, reason = "the profile, the arrays and the motion, by keyword")]
     fn new(
         profile: &str,
@@ -128,15 +128,19 @@ impl PyCdl {
         fs: f64,
         n_rx: usize,
         n_tx: usize,
-        spacing: f64,
+        spacing_wavelengths: f64,
         velocity_mps: f64,
         fc_hz: f64,
         dual_polarized: bool,
     ) -> PyResult<Self> {
-        if spacing <= 0.0 {
-            return Err(PyValueError::new_err(format!("the element spacing must be positive, got {spacing}")));
+        // the spacing is an argument of this constructor (`CdlParams` holds the arrays)
+        if spacing_wavelengths <= 0.0 {
+            return Err(PyValueError::new_err(format!(
+                "the element spacing must be positive, got {spacing_wavelengths} wavelengths"
+            )));
         }
-        let array = |n: usize| if dual_polarized { Array::linear_dual(n, spacing) } else { Array::linear(n, spacing) };
+        let s = spacing_wavelengths;
+        let array = |n: usize| if dual_polarized { Array::linear_dual(n, s) } else { Array::linear(n, s) };
         let params = CdlParams {
             delay_spread_s,
             sample_rate: fs,

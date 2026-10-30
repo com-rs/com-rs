@@ -38,7 +38,7 @@ use pyo3::prelude::*;
 ///     >>> round(p, 4)          # the error floor of Chang & Su's Fig. 4
 ///     0.0034
 #[pyfunction]
-#[pyo3(signature = (modulation, ebn0_db, rho1, rho2 = 0.0, sigma_ratio = 1.0))]
+#[pyo3(signature = (modulation, ebn0_db, rho1, *, rho2 = 0.0, sigma_ratio = 1.0))]
 fn theory_ber_imperfect_csi(
     modulation: &str,
     ebn0_db: &Bound<'_, PyAny>,

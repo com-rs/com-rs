@@ -4,7 +4,8 @@
 use crate::ofdm::PyOfdm;
 use crate::rng::PyRng;
 use crate::{
-    CArr, FArr, FMat, IArr, IntoPy, carr, cvec, farr, fvec, iarr, mat, streams_in, streams_out, taps_in, taps_out, uvec,
+    CArr, CMat, FArr, FMat, IArr, IntoPy, carr, cvec, farr, fvec, grid_out, iarr, mat, streams_in, streams_out,
+    taps_in, taps_out, uvec,
 };
 use comrs::channel::fading::Fading;
 use comrs::channel::multipath::{Profile, Taps, Tdl, TdlParams, rms_delay_spread};
@@ -14,6 +15,7 @@ use comrs::waveform::ofdm::estimation::{FrequencyInterpolation, PowerDelayProfil
 use comrs::waveform::ofdm::grid::{PilotPattern, ResourceGrid};
 use comrs::waveform::ofdm::sync;
 use ndarray::Array3;
+use num_complex::Complex64 as C64;
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -217,26 +219,22 @@ impl PyTaps {
     ///     fft_len (int): the size of the transform.
     ///
     /// Returns:
-    ///     numpy.ndarray: `(len(bins),)` for SISO, `(len(bins), n_rx, n_tx)` otherwise
-    ///     (complex128).
+    ///     numpy.ndarray: `(len(bins), n_rx, n_tx)` (complex128), a channel matrix per bin.
     ///
     /// Raises:
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
-    fn frequency_response(
+    fn frequency_response<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         n: usize,
-        bins: &Bound<'_, PyAny>,
+        bins: &Bound<'py, PyAny>,
         fft_len: usize,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyResult<Bound<'py, numpy::PyArray3<C64>>> {
         let bins = uvec(bins)?;
         let h = self.inner.frequency_response(n, &bins, fft_len);
-        if self.n_rx == 1 && self.n_tx == 1 {
-            return Ok(carr(py, h).into_any().unbind());
-        }
         let a = Array3::from_shape_vec((bins.len(), self.n_rx, self.n_tx), h)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        Ok(a.into_pyarray(py).into_any().unbind())
+        Ok(a.into_pyarray(py))
     }
 
     fn __repr__(&self) -> String {
@@ -251,8 +249,9 @@ impl PyTaps {
 }
 
 /// An OFDM resource grid of `n_subcarriers` × `n_symbols` with pilots (Coleri et al.
-/// 2002). The grid is stored symbol after symbol, so that
-/// `Ofdm.modulate(grid.map(data))` sends it.
+/// 2002). A grid is a `(n_subcarriers, n_symbols)` array, a column per OFDM symbol, so
+/// that `Ofdm.modulate(grid.map(data))` sends it; the methods that read a grid also take
+/// the symbols of `Ofdm.demodulate` (1-D, symbol after symbol).
 ///
 /// Args:
 ///     n_subcarriers (int): subcarriers of the grid.
@@ -277,6 +276,27 @@ impl PyTaps {
 #[pyclass(name = "ResourceGrid", module = "comrs")]
 pub struct PyGrid {
     pub(crate) inner: ResourceGrid,
+}
+
+impl PyGrid {
+    /// The resource elements of a grid, symbol after symbol (the order of the crate):
+    /// a `(n_subcarriers, n_symbols)` array or a 1-D array already in that order; and
+    /// whether the grid was 2-D.
+    fn res_in(&self, x: &Bound<'_, PyAny>) -> PyResult<(Vec<C64>, bool)> {
+        let a = crate::carray(x)?;
+        let shape = [self.inner.n_subcarriers, self.inner.n_symbols];
+        match a.ndim() {
+            1 => Ok((a.iter().copied().collect(), false)),
+            2 if a.shape() == shape => Ok((a.t().iter().copied().collect(), true)),
+            _ => Err(PyValueError::new_err(format!(
+                "expected a grid of shape ({}, {}) or its {} symbols, got the shape {:?}",
+                shape[0],
+                shape[1],
+                shape[0] * shape[1],
+                a.shape()
+            ))),
+        }
+    }
 }
 
 #[pymethods]
@@ -347,24 +367,25 @@ impl PyGrid {
         self.inner.is_pilot(k, l)
     }
 
-    /// The grid (symbol after symbol) with `data` and the pilots.
+    /// The grid with `data` and the pilots.
     ///
     /// Args:
     ///     data (array_like): `n_data` data symbols.
     ///
     /// Returns:
-    ///     numpy.ndarray: `n_subcarriers · n_symbols` symbols (complex128).
+    ///     numpy.ndarray: the grid `(n_subcarriers, n_symbols)` (complex128).
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    fn map<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.inner.map(&cvec(data)?).py()?))
+    fn map<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CMat<'py>> {
+        grid_out(py, &self.inner.map(&cvec(data)?).py()?, self.inner.n_subcarriers)
     }
 
     /// The data resource elements of a grid.
     ///
     /// Args:
-    ///     grid (array_like): a whole grid, symbol after symbol.
+    ///     grid (array_like): a whole grid `(n_subcarriers, n_symbols)`, or its symbols
+    ///         as `Ofdm.demodulate` gives them (symbol after symbol).
     ///
     /// Returns:
     ///     numpy.ndarray: the `n_data` data symbols (complex128).
@@ -372,10 +393,7 @@ impl PyGrid {
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     fn extract<'py>(&self, py: Python<'py>, grid: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-        let g = cvec(grid)?;
-        if g.len() != self.inner.n_subcarriers * self.inner.n_symbols {
-            return Err(PyValueError::new_err("not a whole grid"));
-        }
+        let (g, _) = self.res_in(grid)?;
         Ok(carr(py, self.inner.extract(&g).py()?))
     }
 
@@ -396,8 +414,8 @@ impl PyGrid {
 ///
 /// Args:
 ///     grid (ResourceGrid): the grid and its pilots.
-///     rx (array_like): the received grid (the demodulated active subcarriers, symbol
-///         after symbol).
+///     rx (array_like): the received grid `(n_subcarriers, n_symbols)`, or the symbols
+///         of `Ofdm.demodulate` (symbol after symbol).
 ///     noise_var (float): noise variance per resource element.
 ///     method (str): `"linear"`, `"lmmse"`, or the interpolations compared by Coleri et
 ///         al. (2002): `"second_order"`, `"spline"`, `"lowpass"` (MATLAB `interp`) and
@@ -410,7 +428,8 @@ impl PyGrid {
 ///         and `powers` or `max_delay`).
 ///
 /// Returns:
-///     numpy.ndarray: the channel estimate at every resource element (complex128).
+///     numpy.ndarray: the channel estimate at every resource element (complex128), in
+///     the layout of `rx`.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
@@ -427,7 +446,7 @@ fn ofdm_estimate<'py>(
     powers: Option<&Bound<'py, PyAny>>,
     max_delay: Option<usize>,
     n_fft: Option<usize>,
-) -> PyResult<CArr<'py>> {
+) -> PyResult<Py<PyAny>> {
     let pdp = match (delays, powers, max_delay, n_fft) {
         (None, None, None, None) => None,
         (Some(d), Some(p), None, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n).py()?),
@@ -439,8 +458,13 @@ fn ofdm_estimate<'py>(
         }
     };
     let m = FrequencyInterpolation::from_name(method, pdp).py()?;
-    let r = cvec(rx)?;
-    Ok(carr(py, py.detach(|| estimate(&grid.inner, &r, noise_var, &m)).py()?))
+    let (r, two_d) = grid.res_in(rx)?;
+    let h = py.detach(|| estimate(&grid.inner, &r, noise_var, &m)).py()?;
+    if two_d {
+        Ok(grid_out(py, &h, grid.inner.n_subcarriers)?.into_any().unbind())
+    } else {
+        Ok(carr(py, h).into_any().unbind())
+    }
 }
 
 /// The preamble of Schmidl & Cox (1997): two identical halves.

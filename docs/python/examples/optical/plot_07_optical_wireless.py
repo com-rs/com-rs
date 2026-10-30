@@ -116,7 +116,7 @@ for rytov in [0.2, 1.0, 3.5, 25.0]:
         i, g.pdf(i), linewidth=1.4, label=f"σ₁² = {rytov:g}: α = {g.alpha:.2f}, β = {g.beta:.2f}"
     )
 g = comrs.GammaGamma.from_rytov(25.0)
-draws = g.draw(comrs.Rng(2001), 200_000)
+draws = g.draw(200_000, comrs.Rng(2001))
 ax.hist(
     draws,
     bins=np.linspace(0, 3.5, 71),

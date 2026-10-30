@@ -34,7 +34,7 @@ from _gallery_utils import SPECS, bicm_chain
 
 import comrs
 from comrs import blocks as B
-from comrs.plot import BACKGROUND, COBALT, GREY, RUST
+from comrs.plot import BACKGROUND, BLUE, GREY, RUST
 
 
 def rate(results, metric, **condition):
@@ -62,12 +62,16 @@ for scheme, branches, marker, label in [
     )  # fmt: skip
     ax.semilogy(
         fine,
-        comrs.theory_ber_rayleigh_mrc(fine - comrs.lin2db(2), branches),
+        comrs.theory_ber_rayleigh_mrc(fine - comrs.lin2db(2), branches=branches),
         ":",
         color=line.get_color(),
     )
 ax.semilogy(
-    fine, comrs.theory_ber_rayleigh_mrc(fine, 1), color=GREY, linewidth=1.2, label="SISO Rayleigh"
+    fine,
+    comrs.theory_ber_rayleigh_mrc(fine, branches=1),
+    color=GREY,
+    linewidth=1.2,
+    label="SISO Rayleigh",
 )
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", ylim=(1e-6, 0.5), xlim=(0, 16),
@@ -102,7 +106,7 @@ for est, marker, label in [
         eb, rate(res, "ber", estimation=est), marker=marker, markeredgecolor=BACKGROUND,
         label=label,
     )  # fmt: skip
-ax.semilogy(fine := np.linspace(0, 25, 101), comrs.theory_ber_rayleigh_mrc(fine, 1), ":",
+ax.semilogy(fine := np.linspace(0, 25, 101), comrs.theory_ber_rayleigh_mrc(fine, branches=1), ":",
             color=GREY, label="Rayleigh, closed form")  # fmt: skip
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", xlim=(0, 25),
@@ -119,7 +123,7 @@ fig.tight_layout()
 
 fig, ax = plt.subplots()
 for fading, eb, color, name in [
-    (False, np.arange(2.0, 5.6, 0.5), COBALT, "AWGN"),
+    (False, np.arange(2.0, 5.6, 0.5), BLUE, "AWGN"),
     (True, np.arange(5.0, 10.6, 0.5), RUST, "fast Rayleigh"),
 ]:
     res = bicm_chain(fading).run(

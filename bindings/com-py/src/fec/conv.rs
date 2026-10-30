@@ -164,7 +164,7 @@ impl PyConv {
 /// Args:
 ///     k (int): information bits per block.
 ///     iterations (int): decoding iterations.
-///     exact (bool): log-MAP (else max-log-MAP).
+///     max_log (bool): max-log-MAP (else log-MAP, the exact Jacobian logarithm).
 ///     qpp (str | tuple[int, int] | None): the QPP interleaver `(f1, f2)`, or `"lte"`.
 ///     seed (int): seed of the random interleaver.
 ///     puncture (str | list[list[int]] | None): the puncturing pattern (three rows).
@@ -224,11 +224,11 @@ impl PyTurbo {
     }
 
     #[new]
-    #[pyo3(signature = (k, *, iterations=8, exact=true, qpp=None, seed=7, puncture=None))]
+    #[pyo3(signature = (k, *, iterations=8, max_log=false, qpp=None, seed=7, puncture=None))]
     fn new(
         k: usize,
         iterations: usize,
-        exact: bool,
+        max_log: bool,
         qpp: Option<&Bound<'_, PyAny>>,
         seed: u64,
         puncture: Option<&Bound<'_, PyAny>>,
@@ -244,7 +244,7 @@ impl PyTurbo {
         };
         let mut code = TurboCode::with_interleaver(il).py()?;
         code.decoder.iterations = iterations;
-        code.decoder.jacobian = if exact { Jacobian::Exact } else { Jacobian::MaxLog };
+        code.decoder.jacobian = Jacobian::from_max_log(max_log);
         let inner = match puncture {
             Some(p) => Turbo::Punctured(PuncturedTurbo::new(code, puncturer(p)?).py()?),
             None => Turbo::Plain(code),

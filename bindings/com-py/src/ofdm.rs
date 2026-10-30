@@ -8,7 +8,6 @@ use comrs::waveform::ofdm::correction;
 use comrs::waveform::ofdm::{NoReduction, Ofdm, PaprReduction};
 use comrs::waveform::papr::{self, Ace, Clip, ClipFilter, Companding, Partition, Pts, Slm, ToneReservation};
 use num_complex::Complex64 as C64;
-use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -45,7 +44,7 @@ pub struct PyOfdm {
     pub(crate) inner: Ofdm,
 }
 
-/// A PAPR reduction technique for `Ofdm.modulate` and `Ofdm.demodulate`; build it with
+/// A PAPR reduction technique for `Ofdm.modulate_with` and `Ofdm.demodulate_with`; build it with
 /// one of the static methods (`clip`, `clip_filter`, `slm`, `pts`, `tone_reservation`,
 /// `ace`, `mu_law`, `exponential`).
 ///
@@ -53,10 +52,10 @@ pub struct PyOfdm {
 ///     >>> import comrs, numpy as np
 ///     >>> ofdm = comrs.Ofdm(64, 64)
 ///     >>> d = np.exp(2j * np.pi * comrs.Rng(1).uniform(64 * 20))
-///     >>> x, side = ofdm.modulate(d, comrs.PaprReduction.slm(8))
+///     >>> x, side = ofdm.modulate_with(d, comrs.PaprReduction.slm(8))
 ///     >>> bool(np.median(ofdm.papr_db(x)) < np.median(ofdm.papr_db(ofdm.modulate(d))))
 ///     True
-///     >>> np.allclose(ofdm.demodulate(x, comrs.PaprReduction.slm(8), side=side), d)
+///     >>> np.allclose(ofdm.demodulate_with(x, comrs.PaprReduction.slm(8), side=side), d)
 ///     True
 #[pyclass(name = "PaprReduction", module = "comrs")]
 pub struct PyPaprReduction {
@@ -68,6 +67,30 @@ fn reduction<'a>(r: &'a Option<PyRef<'_, PyPaprReduction>>) -> &'a (dyn PaprRedu
     match r {
         Some(r) => r.inner.as_ref(),
         None => &NoReduction,
+    }
+}
+
+impl PyOfdm {
+    /// The data symbols, block after block, of a 1-D array or of a grid
+    /// `(data_len, n_blocks)` (a column per block).
+    fn data_in(&self, data: &Bound<'_, PyAny>, reduction: &Option<PyRef<'_, PyPaprReduction>>) -> PyResult<Vec<C64>> {
+        let a = crate::carray(data)?;
+        match a.ndim() {
+            1 => Ok(a.iter().copied().collect()),
+            2 => {
+                let k = self::reduction(reduction).data_len(&self.inner);
+                if a.shape()[0] != k {
+                    return Err(PyValueError::new_err(format!(
+                        "a grid of {} rows for {k} data symbols per block",
+                        a.shape()[0]
+                    )));
+                }
+                Ok(a.t().iter().copied().collect())
+            }
+            d => Err(PyValueError::new_err(format!(
+                "the data are 1-D or a grid (data_len, n_blocks), got {d} dimensions"
+            ))),
+        }
     }
 }
 
@@ -147,36 +170,62 @@ impl PyOfdm {
     /// Modulate data symbols (whole blocks).
     ///
     /// Args:
-    ///     data (array_like): a multiple of `data_len(reduction)` data symbols.
-    ///     reduction (PaprReduction, optional): a PAPR reduction technique.
+    ///     data (array_like): a multiple of `data_len()` data symbols, block after
+    ///         block, or a grid `(data_len(), n_blocks)` (a column per block, as
+    ///         `ResourceGrid.map` gives it).
     ///
     /// Returns:
-    ///     numpy.ndarray | tuple[numpy.ndarray, numpy.ndarray]: the samples
-    ///     (complex128); with a reduction technique, the samples and the side
+    ///     numpy.ndarray: the samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    fn modulate<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
+        let d = self.data_in(data, &None)?;
+        let (x, _) = py.detach(|| self.inner.modulate_with(&d, &NoReduction)).py()?;
+        Ok(carr(py, x))
+    }
+
+    /// Modulate data symbols (whole blocks) with a PAPR reduction technique.
+    ///
+    /// Args:
+    ///     data (array_like): a multiple of `data_len(reduction)` data symbols, or a
+    ///         grid `(data_len(reduction), n_blocks)`.
+    ///     reduction (PaprReduction): the technique.
+    ///
+    /// Returns:
+    ///     tuple[numpy.ndarray, numpy.ndarray]: the samples (complex128) and the side
     ///     information of every block (the SLM or PTS candidate, int64).
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (data, reduction=None))]
-    fn modulate(
+    fn modulate_with<'py>(
         &self,
-        py: Python<'_>,
-        data: &Bound<'_, PyAny>,
-        reduction: Option<PyRef<'_, PyPaprReduction>>,
-    ) -> PyResult<Py<PyAny>> {
-        let d = cvec(data)?;
-        let with = reduction.is_some();
+        py: Python<'py>,
+        data: &Bound<'py, PyAny>,
+        reduction: PyRef<'py, PyPaprReduction>,
+    ) -> PyResult<(CArr<'py>, IArr<'py>)> {
+        let reduction = Some(reduction);
+        let d = self.data_in(data, &reduction)?;
         let r = self::reduction(&reduction);
         let (x, side) = py.detach(|| self.inner.modulate_with(&d, r)).py()?;
-        if with {
-            let side: Vec<i64> = side.into_iter().map(|s| s as i64).collect();
-            Ok((carr(py, x), side.into_pyarray(py)).into_pyobject(py)?.into_any().unbind())
-        } else {
-            Ok(carr(py, x).into_any().unbind())
-        }
+        Ok((carr(py, x), iarr(py, side)))
     }
 
     /// Demodulate whole blocks.
+    ///
+    /// Args:
+    ///     samples (array_like): a multiple of `block_len` samples.
+    ///
+    /// Returns:
+    ///     numpy.ndarray: the data symbols, block after block (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    fn demodulate<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
+        self.demodulate_with(py, samples, None, None)
+    }
+
+    /// Demodulate whole blocks sent with a PAPR reduction technique.
     ///
     /// Args:
     ///     samples (array_like): a multiple of `block_len` samples.
@@ -185,12 +234,12 @@ impl PyOfdm {
     ///     side (array_like, optional): the side information of SLM and PTS.
     ///
     /// Returns:
-    ///     numpy.ndarray: the data symbols (complex128).
+    ///     numpy.ndarray: the data symbols, block after block (complex128).
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, reduction=None, *, side=None))]
-    fn demodulate<'py>(
+    fn demodulate_with<'py>(
         &self,
         py: Python<'py>,
         samples: &Bound<'py, PyAny>,
@@ -413,26 +462,49 @@ impl PyPaprReduction {
     }
 }
 
-/// The PAPR of a block, or of every block of `block_len` samples.
+/// The PAPR of a block of samples, `max |x|² / mean |x|²`.
 ///
 /// Args:
 ///     x (array_like): the samples.
-///     block_len (int, optional): the length of a block.
 ///
 /// Returns:
-///     float | numpy.ndarray: the PAPR (dB), of `x` or of every block.
+///     float: the PAPR (dB).
 ///
 /// Raises:
-///     ValueError: for an invalid parameter or input (the message names it).
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> round(comrs.papr_db([1, 1, 1, 3]), 4)
+///     4.7712
 #[pyfunction]
-#[pyo3(signature = (x, *, block_len=None))]
-fn papr_db(py: Python<'_>, x: &Bound<'_, PyAny>, block_len: Option<usize>) -> PyResult<Py<PyAny>> {
-    let v = cvec(x)?;
-    match block_len {
-        None => Ok(comrs::math::papr_db(&v).into_pyobject(py)?.into_any().unbind()),
-        Some(n) if n > 0 => Ok(farr(py, v.chunks_exact(n).map(comrs::math::papr_db).collect()).into_any().unbind()),
-        Some(_) => Err(PyValueError::new_err("block_len must be positive")),
+fn papr_db(x: &Bound<'_, PyAny>) -> PyResult<f64> {
+    Ok(comrs::math::papr_db(&cvec(x)?))
+}
+
+/// The PAPR of every block of `block_len` samples (a tail shorter than a block is not
+/// a block).
+///
+/// Args:
+///     x (array_like): the samples.
+///     block_len (int): the length of a block.
+///
+/// Returns:
+///     numpy.ndarray: the PAPR of every block (dB).
+///
+/// Raises:
+///     ValueError: for a block length of zero.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> comrs.papr_db_blocks([1, 1, 1, 3, 2, 2, 2, 2], 4).round(4).tolist()
+///     [4.7712, 0.0]
+#[pyfunction]
+fn papr_db_blocks<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, block_len: usize) -> PyResult<FArr<'py>> {
+    if block_len == 0 {
+        return Err(PyValueError::new_err("block_len must be positive"));
     }
+    Ok(farr(py, cvec(x)?.chunks_exact(block_len).map(comrs::math::papr_db).collect()))
 }
 
 /// The empirical complementary distribution `P(X > t)` of `values` at every threshold.
@@ -544,11 +616,11 @@ fn gain_limited_correction<'py>(
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.sdr_gain_limited(25.0, -17.0), 1)
+///     >>> round(comrs.theory_sdr_gain_limited(25.0, -17.0), 1)
 ///     17.7
 #[pyfunction]
 #[pyo3(signature = (sir_db, eps_db, rho = C64::new(1.0, 0.0)))]
-fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResult<Py<PyAny>> {
+fn theory_sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResult<Py<PyAny>> {
     let eps = comrs::math::db2amp(eps_db);
     map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_gain_limited(comrs::math::db2lin(s), eps, rho))))
 }
@@ -565,7 +637,7 @@ fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResul
 /// Raises:
 ///     ValueError: for values that are not real numbers.
 #[pyfunction]
-fn sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_optimum(comrs::math::db2lin(s)))))
 }
 
@@ -574,11 +646,12 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOfdm>()?;
     m.add_class::<PyPaprReduction>()?;
     m.add_function(wrap_pyfunction!(papr_db, m)?)?;
+    m.add_function(wrap_pyfunction!(papr_db_blocks, m)?)?;
     m.add_function(wrap_pyfunction!(ccdf, m)?)?;
     m.add_function(wrap_pyfunction!(theory_papr_ccdf, m)?)?;
     m.add_function(wrap_pyfunction!(clipping_bussgang, m)?)?;
     m.add_function(wrap_pyfunction!(gain_limited_correction, m)?)?;
-    m.add_function(wrap_pyfunction!(sdr_gain_limited, m)?)?;
-    m.add_function(wrap_pyfunction!(sdr_optimum_correction, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_sdr_gain_limited, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_sdr_optimum_correction, m)?)?;
     Ok(())
 }

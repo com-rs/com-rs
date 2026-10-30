@@ -23,15 +23,15 @@ use super::*;
 /// per data symbol). Above the threshold of the
 /// phase demodulator (a carrier-to-noise ratio near 10 dB, Sec. III-B), every data
 /// subcarrier sees the SNR `(2πh)² E_s/N_0 N/(N + N_cp)` (:meth:`snr`), and the error
-/// rates are those of the constellation over AWGN at that SNR (:meth:`ser`,
-/// :meth:`ber`). For `M`-PAM on every real subcarrier this is eq. (15) of the paper,
+/// rates are those of the constellation over AWGN at that SNR (:meth:`ser_esn0`,
+/// :meth:`ber_esn0`). For `M`-PAM on every real subcarrier this is eq. (15) of the paper,
 /// `BER = 2(M-1)/(M log₂M) Q(2πh √(6 log₂M E_b/N_0 / (M²-1)))`, the
-/// nearest-neighbour term of the Gray BER; :meth:`ber` uses the exact Gray BER of the
+/// nearest-neighbour term of the Gray BER; :meth:`ber_esn0` uses the exact Gray BER of the
 /// square QAM of order `M²` whose real and imaginary parts are the two PAM symbols
 /// (within 1 % of eq. (15) once the BER is under 1e-2).
 ///
 /// Args:
-///     n_data (int): data subcarriers `K` per block.
+///     n_subcarriers (int): data subcarriers `K` per block.
 ///     h (float): modulation index (phase standard deviation `2πh`).
 ///     oversampling (int): `J`, the DFT has `N = 2J(K+1)` points.
 ///     n_cp (int): cyclic prefix (samples).
@@ -70,16 +70,16 @@ fn receiver(name: &str, unwrap: &str) -> PyResult<Receiver> {
 #[pymethods]
 impl PyCeOfdm {
     #[new]
-    #[pyo3(signature = (n_data, h, *, oversampling=4, n_cp=0))]
-    fn new(n_data: usize, h: f64, oversampling: usize, n_cp: usize) -> PyResult<Self> {
-        let inner = CeOfdm { n_cp, ..CeOfdm::new(n_data, oversampling, h).py()? };
+    #[pyo3(signature = (n_subcarriers, h, *, oversampling=4, n_cp=0))]
+    fn new(n_subcarriers: usize, h: f64, oversampling: usize, n_cp: usize) -> PyResult<Self> {
+        let inner = CeOfdm { n_cp, ..CeOfdm::new(n_subcarriers, oversampling, h).py()? };
         inner.check().py()?;
         Ok(PyCeOfdm { inner })
     }
 
     /// int: Data subcarriers `K` per block.
     #[getter]
-    fn n_data(&self) -> usize {
+    fn n_subcarriers(&self) -> usize {
         self.inner.n_subcarriers
     }
 
@@ -270,7 +270,7 @@ impl PyCeOfdm {
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
-    fn ser(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
+    fn ser_esn0(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
         map_real(esn0_db, |e| theory::ser_esn0(&self.inner, k, m, e).py())
     }
@@ -290,7 +290,7 @@ impl PyCeOfdm {
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
-    fn ber(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
+    fn ber_esn0(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
         map_real(esn0_db, |e| theory::ber_esn0(&self.inner, k, m, e).py())
     }
@@ -319,7 +319,7 @@ impl PyCeOfdm {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter (the message names it).
-    #[pyo3(signature = (esn0_db, receiver="arctangent"))]
+    #[pyo3(signature = (esn0_db, *, receiver="arctangent"))]
     fn subcarrier_snr<'py>(&self, py: Python<'py>, esn0_db: f64, receiver: &str) -> PyResult<FArr<'py>> {
         let r = self::receiver(receiver, "none")?;
         Ok(farr(py, theory::subcarrier_snr(&CeOfdm { receiver: r, ..self.inner.clone() }, esn0_db).py()?))
@@ -339,7 +339,7 @@ impl PyCeOfdm {
     ///
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
-    #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
+    #[pyo3(signature = (m, esn0_db, kind="qam", *, receiver="arctangent"))]
     fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
         let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
         let ce = CeOfdm { receiver: r, ..self.inner.clone() };
@@ -426,7 +426,7 @@ fn ce_ofdm_optimum_gain(two_pi_h: f64, theta_max: Option<f64>) -> f64 {
 /// Raises:
 ///     ValueError: for values that are not real numbers.
 #[pyfunction]
-fn ce_ofdm_ber_optimum(two_pi_h: f64, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_ce_ofdm_ber_optimum(two_pi_h: f64, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(ebn0_db, |e| Ok(theory::ber_optimum(two_pi_h, e)))
 }
 
@@ -459,7 +459,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCeOfdm>()?;
     m.add_function(wrap_pyfunction!(ce_ofdm_imp_powers, m)?)?;
     m.add_function(wrap_pyfunction!(ce_ofdm_optimum_gain, m)?)?;
-    m.add_function(wrap_pyfunction!(ce_ofdm_ber_optimum, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_ce_ofdm_ber_optimum, m)?)?;
     m.add_function(wrap_pyfunction!(pm_occupied_bandwidth, m)?)?;
     Ok(())
 }

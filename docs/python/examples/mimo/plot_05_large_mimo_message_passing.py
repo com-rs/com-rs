@@ -71,7 +71,7 @@ for (nr, nt, snr_db), marker in zip([(1024, 512, 6.0), (1024, 1024, 8.0)], ["o",
         h = comrs.mimo_channel(nr, nt, rng) / np.sqrt(nr)
         x = qpsk.points[rng.integers(4, nt)]
         y = h @ x + rng.complex_noise(nr, n0)
-        out = comrs.message_passing(h, y, qpsk, n0, "amp", iterations)
+        out = comrs.message_passing(h, y, qpsk, n0, "amp", iterations=iterations)
         runs.append(np.mean(np.abs(out["estimates"] - x) ** 2, axis=1))
     se = comrs.amp_state_evolution(qpsk, beta, n0, iterations)
     t = np.arange(1, iterations + 1)
@@ -97,12 +97,12 @@ beta = nt / nr
 def ser(method, snr_db, n_vectors=150, correlation=0.0):
     """Symbol error rate of a detector, and its measured time per received vector."""
     n0 = beta / comrs.db2lin(snr_db)
-    h = comrs.mimo_channel(
-        nr, nt, rng, n=n_vectors, rx_correlation=correlation, tx_correlation=correlation
+    h = comrs.mimo_channels(
+        n_vectors, nr, nt, rng, rx_correlation=correlation, tx_correlation=correlation
     ) / np.sqrt(nr)
-    idx = rng.integers(16, n_vectors * nt).reshape(n_vectors, nt)
-    noise = rng.complex_noise(n_vectors * nr, n0).reshape(n_vectors, nr)
-    y = np.einsum("nij,nj->ni", h, q16.points[idx]) + noise
+    idx = rng.integers(16, n_vectors * nt).reshape(n_vectors, nt).T  # (n_tx, n)
+    noise = rng.complex_noise(n_vectors * nr, n0).reshape(n_vectors, nr).T
+    y = np.einsum("nij,jn->in", h, q16.points[idx]) + noise  # (n_rx, n)
     t0 = time.perf_counter()
     d = comrs.mimo_detect(h, y, q16, n0, method, iterations=8)
     return np.mean(d != idx), (time.perf_counter() - t0) / n_vectors
@@ -180,8 +180,8 @@ sizes = [8, 16, 32, 64, 128]
 cost = {name: [] for name in ["MMSE", "LAMA", "OAMP"]}
 for nt_ in sizes:
     nr_ = 2 * nt_
-    h = comrs.mimo_channel(nr_, nt_, rng, n=40) / np.sqrt(nr_)
-    y = np.einsum("nij,nj->ni", h, q16.points[rng.integers(16, 40 * nt_).reshape(40, nt_)])
+    h = comrs.mimo_channels(40, nr_, nt_, rng) / np.sqrt(nr_)
+    y = np.einsum("nij,jn->in", h, q16.points[rng.integers(16, 40 * nt_).reshape(40, nt_).T])
     for name, m in [("MMSE", "mmse"), ("LAMA", "amp"), ("OAMP", "oamp")]:
         best = np.inf
         for _ in range(3):

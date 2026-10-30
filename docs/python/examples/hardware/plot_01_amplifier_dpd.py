@@ -63,7 +63,7 @@ signals = {
 }
 fig, ax = plt.subplots()
 for (name, y), color in zip(signals.items(), [GREY, ORANGE, BLUE], strict=True):
-    f, s = comrs.periodogram(y, fs, nfft=ofdm.fft_len)
+    f, s = comrs.periodogram(y, fs=fs, nfft=ofdm.fft_len)
     # average over 8 bins for readability
     k = 8
     f8, s8 = f.reshape(-1, k).mean(axis=1), s.reshape(-1, k).mean(axis=1)
@@ -106,7 +106,7 @@ for s in scales:
         ("amplifier", comrs.pa_memory_polynomial(xs)),
         ("DPD + amplifier", comrs.pa_memory_polynomial(p.apply(xs))),
     ]:
-        f, sd = comrs.periodogram(y, fs, nfft=ofdm.fft_len)
+        f, sd = comrs.periodogram(y, fs=fs, nfft=ofdm.fft_len)
         res[name][0].append(min(comrs.aclr_db(f, sd, bw, bw), 120.0))
         res[name][1].append(evm_db(y, s))
 drive = 20 * np.log10(scales)

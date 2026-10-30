@@ -44,7 +44,7 @@ for i, p in enumerate(powers):
     rng = comrs.Rng.stream(11, "launch-power", i, 0)
     _, x = comrs.symbols(c, N, rng)
     tx = comrs.pnorm(comrs.fir_filter(h, comrs.upsample(x, SPS))) * np.sqrt(comrs.dbm2w(p))
-    y = link.propagate(tx, FS, rng)
+    y = link.propagate(tx, FS, rng=rng)
     for name, steps in receivers.items():
         r = (
             comrs.cdc(y, fiber, fiber.total_km, FS)

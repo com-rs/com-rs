@@ -76,6 +76,6 @@ fig.tight_layout()
 # The waterfall of a regular (3, 6) code of this length lies about 1.5 dB from the
 # Shannon limit of rate 1/2 (0.19 dB); the paper's Fig. 5 shows the PEG code below
 # MacKay's code and the random graph at every SNR.
-print(f"Shannon limit at rate 1/2: {comrs.shannon_limit_ebn0_db(0.5):.2f} dB")
+print(f"Shannon limit at rate 1/2: {comrs.theory_shannon_limit_ebn0_db(0.5):.2f} dB")
 for e, (ber, bler) in zip(points, rates, strict=True):
     print(f"Eb/N0 = {e:.2f} dB: BER {ber:.2e}, BLER {bler:.2e}")

@@ -58,7 +58,6 @@ INK = "#1f1f1d"  # a curve or a label in black
 LABEL = "#2b2a28"  # axis labels; the darkest curve of a family
 MUTED = "#52514e"  # ticks; closed forms and annotations
 GREY = "#8a8984"  # reference lines: capacity, AWGN, limits, chance
-GREY_WARM = GREY  # values read on a published figure, cut-off lines (was #8a8780)
 EDGE = "#b9b8b3"  # the axes
 RULE = "#d0cfca"  # lines through the origin
 GRID = "#e6e5e1"  # the grid, shaded bands
@@ -80,16 +79,15 @@ SERIES = [BLUE, ORANGE, GREEN, AMBER, PINK, DEEP_GREEN, VIOLET, RED]
 # a second categorical set, for the curves that a figure compares by hand (ColorBrewer
 # Dark2, two more blues and a red)
 # (TEAL is kept apart from GREEN: it is darker, and the curves of this set are drawn
-# next to the cycle; COBALT, once #2a6fdb, is BLUE)
+# next to the cycle)
 TEAL = "#1b9e77"
 RUST = "#d95f02"
 PURPLE = "#7570b3"
-COBALT = BLUE
 SKY = "#8fb8e6"
 CRIMSON = "#c0392b"
 
 #: Colours of the antennas or polarisations, in order.
-STREAM_COLORS = [COBALT, RUST, TEAL, PURPLE]
+STREAM_COLORS = [BLUE, RUST, TEAL, PURPLE]
 
 
 def style() -> None:
@@ -173,8 +171,8 @@ def _label(i: int, n: int, names: tuple[str, ...]) -> str | None:
 
 def constellation(
     x: Any,
-    ax: Axes | None = None,
     *,
+    ax: Axes | None = None,
     stream: int | None = None,
     skip: int = 0,
     max_points: int = 20_000,
@@ -232,8 +230,8 @@ def constellation(
 
 def eye(
     x: Any,
-    ax: Axes | None = None,
     *,
+    ax: Axes | None = None,
     sps: int | None = None,
     n_symbols: int = 2,
     traces: int = 300,
@@ -277,8 +275,8 @@ def eye(
 
 def time(
     x: Any,
-    ax: Axes | None = None,
     *,
+    ax: Axes | None = None,
     part: str = "iq",
     fs: float | None = None,
     start: int = 0,
@@ -322,8 +320,8 @@ def time(
 
 def psd(
     x: Any,
-    ax: Axes | None = None,
     *,
+    ax: Axes | None = None,
     fs: float | None = None,
     nfft: int = 1024,
     names: tuple[str, ...] = ("x", "y"),
@@ -356,7 +354,7 @@ def psd(
             if fs >= s or u == "Hz"
         )  # fmt: skip
     for i, z in enumerate(streams):
-        f, p = _psd(z, fs, nfft=min(nfft, max(16, z.size)))
+        f, p = _psd(z, fs=fs, nfft=min(nfft, max(16, z.size)))
         ax.plot(np.asarray(f) / scale, 10 * np.log10(np.maximum(np.asarray(p), 1e-300)),
                 color=_stream_color(i), label=_label(i, len(streams), names))  # fmt: skip
     xlabel = (

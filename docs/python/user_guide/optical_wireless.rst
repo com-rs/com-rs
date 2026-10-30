@@ -59,7 +59,7 @@ with parameters predicted from the Rytov variance (:func:`~comrs.rytov_variance`
 
    g = comrs.GammaGamma.from_rytov(comrs.rytov_variance(5e-14, 1550e-9, 2000.0))
    link = comrs.Fso(10.0, turbulence=g, pointing=comrs.PointingError(2.0, 0.1, 0.3))
-   h = link.gains(comrs.Rng(1), 10_000)   # one gain per frame
+   h = link.gains(10_000, comrs.Rng(1))   # one gain per frame
    g.alpha, g.beta, g.scintillation_index()
 
 References: J. R. Barry et al., *IEEE J. Sel. Areas Commun.* 11(3), 1993; T. Komine and

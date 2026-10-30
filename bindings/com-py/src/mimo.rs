@@ -1,8 +1,9 @@
 //! MIMO: channels, detection, space-time codes, precoding and capacity.
 //!
 //! Channel matrices are `(n_rx, n_tx)` arrays, or `(n, n_rx, n_tx)` stacks with one
-//! matrix per received vector; received vectors are `(n, n_rx)` arrays (one row per
-//! channel use).
+//! matrix per channel use; the received streams are stream-major `(n_rx, n)` arrays
+//! (one column per channel use), and the decisions `(n_tx, n)`, as every signal of the
+//! package.
 
 use crate::comm::PyConstellation;
 use crate::rng::PyRng;
@@ -50,7 +51,8 @@ fn channels(h: &Bound<'_, PyAny>) -> PyResult<Channels> {
     }
 }
 
-/// The received vectors as `(n, n_rx)` (a 1-D array is one vector).
+/// The received vectors, one row per channel use, from the stream-major `(n_rx, n)`
+/// array (a 1-D array is one vector `(n_rx,)`).
 fn received(y: &Bound<'_, PyAny>) -> PyResult<(Array2<C64>, bool)> {
     let a = carray(y)?;
     match a.ndim() {
@@ -58,8 +60,11 @@ fn received(y: &Bound<'_, PyAny>) -> PyResult<(Array2<C64>, bool)> {
             let n = a.len();
             Ok((a.into_shape_with_order((1, n)).map_err(|e| PyValueError::new_err(e.to_string()))?, true))
         }
-        2 => Ok((a.into_dimensionality().map_err(|e| PyValueError::new_err(e.to_string()))?, false)),
-        d => Err(PyValueError::new_err(format!("the received vectors must be (n, n_rx), got {d} dimensions"))),
+        2 => {
+            let a: Array2<C64> = a.into_dimensionality().map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok((a.reversed_axes().as_standard_layout().into_owned(), false))
+        }
+        d => Err(PyValueError::new_err(format!("the received streams must be (n_rx, n), got {d} dimensions"))),
     }
 }
 
@@ -118,12 +123,28 @@ fn per_vector<T: Send>(
     Ok(out)
 }
 
-fn rows_to_array<T: numpy::Element>(py: Python<'_>, rows: Rows<T>, single: bool) -> PyResult<Py<PyAny>> {
+/// The rows of a per-vector result as a stream-major array: `(width, n)`, one column per
+/// vector (`(width,)` for one vector given as a 1-D array).
+fn rows_to_array<T: numpy::Element + Clone>(py: Python<'_>, rows: Rows<T>, single: bool) -> PyResult<Py<PyAny>> {
     if single {
         return Ok(rows.data.into_pyarray(py).into_any().unbind());
     }
     let n = rows.data.len().checked_div(rows.width).unwrap_or(0);
     let a = Array2::from_shape_vec((n, rows.width), rows.data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(a.reversed_axes().as_standard_layout().into_owned().into_pyarray(py).into_any().unbind())
+}
+
+/// The bit LLRs of every vector (stream after stream, `bits` per symbol) as the LLR
+/// sequence of every stream: `(n_streams, n · bits)` (the `n_streams · bits` LLRs for
+/// one vector given as a 1-D array).
+fn llr_streams(py: Python<'_>, rows: Rows<f64>, bits: usize, single: bool) -> PyResult<Py<PyAny>> {
+    if single || bits == 0 {
+        return Ok(rows.data.into_pyarray(py).into_any().unbind());
+    }
+    let (w, n) = (rows.width, rows.data.len().checked_div(rows.width).unwrap_or(0));
+    let streams = w / bits;
+    let a =
+        ndarray::Array2::from_shape_fn((streams, n * bits), |(s, j)| rows.data[(j / bits) * w + s * bits + j % bits]);
     Ok(a.into_pyarray(py).into_any().unbind())
 }
 
@@ -138,50 +159,87 @@ fn rows_to_array<T: numpy::Element>(py: Python<'_>, rows: Rows<T>, single: bool)
 ///     n_rx (int): receive antennas.
 ///     n_tx (int): transmit antennas.
 ///     rng (Rng): the generator.
-///     n (int, optional): number of independent matrices (one per channel use).
 ///     k_factor (float): Rician factor `K` (linear, 0 for Rayleigh).
 ///     rx_correlation (complex): correlation `ρ` of adjacent receive antennas.
 ///     tx_correlation (complex): correlation `ρ` of adjacent transmit antennas.
 ///
 /// Returns:
-///     numpy.ndarray: `(n_rx, n_tx)`, or `(n, n_rx, n_tx)` with `n`.
+///     numpy.ndarray: one matrix `(n_rx, n_tx)` (complex128); :func:`mimo_channels`
+///     draws one per channel use.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> comrs.mimo_channel(4, 2, comrs.Rng(1), n=10).shape
-///     (10, 4, 2)
+///     >>> comrs.mimo_channel(4, 2, comrs.Rng(1)).shape
+///     (4, 2)
 #[pyfunction]
-#[pyo3(signature = (n_rx, n_tx, rng, *, n=None, k_factor=0.0, rx_correlation=C64::new(0.0, 0.0), tx_correlation=C64::new(0.0, 0.0)))]
-#[allow(clippy::too_many_arguments, reason = "the antennas and the options of the channel, by keyword")]
-fn mimo_channel(
-    py: Python<'_>,
+#[pyo3(signature = (n_rx, n_tx, rng, *, k_factor=0.0, rx_correlation=C64::new(0.0, 0.0), tx_correlation=C64::new(0.0, 0.0)))]
+fn mimo_channel<'py>(
+    py: Python<'py>,
     n_rx: usize,
     n_tx: usize,
-    mut rng: PyRefMut<'_, PyRng>,
-    n: Option<usize>,
+    mut rng: PyRefMut<'py, PyRng>,
     k_factor: f64,
     rx_correlation: C64,
     tx_correlation: C64,
-) -> PyResult<Py<PyAny>> {
+) -> PyResult<Bound<'py, PyArray2<C64>>> {
+    let ch = flat_mimo(n_rx, n_tx, k_factor, rx_correlation, tx_correlation)?;
+    Ok(ch.draw(&mut rng.inner).py()?.into_pyarray(py))
+}
+
+/// Independent flat MIMO channel matrices, one per channel use, as :func:`mimo_channel`.
+///
+/// Args:
+///     n (int): number of matrices.
+///     n_rx (int): receive antennas.
+///     n_tx (int): transmit antennas.
+///     rng (Rng): the generator.
+///     k_factor (float): Rician factor `K` (linear, 0 for Rayleigh).
+///     rx_correlation (complex): correlation `ρ` of adjacent receive antennas.
+///     tx_correlation (complex): correlation `ρ` of adjacent transmit antennas.
+///
+/// Returns:
+///     numpy.ndarray: `(n, n_rx, n_tx)` (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
+/// Examples:
+///     >>> import comrs
+///     >>> comrs.mimo_channels(10, 4, 2, comrs.Rng(1)).shape
+///     (10, 4, 2)
+#[pyfunction]
+#[pyo3(signature = (n, n_rx, n_tx, rng, *, k_factor=0.0, rx_correlation=C64::new(0.0, 0.0), tx_correlation=C64::new(0.0, 0.0)))]
+#[allow(clippy::too_many_arguments, reason = "the antennas and the options of the channel, by keyword")]
+fn mimo_channels<'py>(
+    py: Python<'py>,
+    n: i64,
+    n_rx: usize,
+    n_tx: usize,
+    mut rng: PyRefMut<'py, PyRng>,
+    k_factor: f64,
+    rx_correlation: C64,
+    tx_correlation: C64,
+) -> PyResult<Bound<'py, numpy::PyArray3<C64>>> {
+    let ch = flat_mimo(n_rx, n_tx, k_factor, rx_correlation, tx_correlation)?;
+    let n = count(n, "n")?;
+    let mut out = Array3::<C64>::zeros((n, n_rx, n_tx));
+    for i in 0..n {
+        out.index_axis_mut(Axis(0), i).assign(&ch.draw(&mut rng.inner).py()?);
+    }
+    Ok(out.into_pyarray(py))
+}
+
+/// The flat channel of `mimo_channel`: Rician factor and exponential correlation.
+fn flat_mimo(n_rx: usize, n_tx: usize, k_factor: f64, rx_correlation: C64, tx_correlation: C64) -> PyResult<Mimo> {
     let correlation = if rx_correlation.norm() > 0.0 || tx_correlation.norm() > 0.0 {
         Some(Kronecker::new(exp_corr(n_rx, rx_correlation), exp_corr(n_tx, tx_correlation)).py()?)
     } else {
         None
     };
-    let ch = Mimo { k_factor, correlation, ..Mimo::rayleigh(n_rx, n_tx) };
-    match n {
-        None => Ok(ch.draw(&mut rng.inner).py()?.into_pyarray(py).into_any().unbind()),
-        Some(n) => {
-            let mut out = Array3::<C64>::zeros((n, n_rx, n_tx));
-            for i in 0..n {
-                out.index_axis_mut(Axis(0), i).assign(&ch.draw(&mut rng.inner).py()?);
-            }
-            Ok(out.into_pyarray(py).into_any().unbind())
-        }
-    }
+    Ok(Mimo { k_factor, correlation, ..Mimo::rayleigh(n_rx, n_tx) })
 }
 
 /// The exponential correlation matrix `[R]_ij = ρ^(j-i)` (Hermitian) of `n` antennas.
@@ -215,7 +273,7 @@ fn exponential_correlation<'py>(py: Python<'py>, n: i64, rho: C64) -> PyResult<B
 ///
 /// Args:
 ///     h (array_like): the channel, `(n_rx, n_tx)` for every vector or `(n, n_rx, n_tx)`.
-///     y (array_like): the received vectors, `(n, n_rx)` (or one vector `(n_rx,)`).
+///     y (array_like): the received streams, `(n_rx, n)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
 ///     method (str): the detector.
@@ -223,7 +281,7 @@ fn exponential_correlation<'py>(py: Python<'py>, n: i64, rho: C64) -> PyResult<B
 ///     iterations (int): iterations of `"amp"` and `"oamp"`.
 ///
 /// Returns:
-///     numpy.ndarray: the labels of the decided points, `(n, n_tx)` (or `(n_tx,)`).
+///     numpy.ndarray: the labels of the decided points, `(n_tx, n)` (or `(n_tx,)`).
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
@@ -258,13 +316,13 @@ fn mimo_detect(
 }
 
 /// Bit log-likelihood ratios of a MIMO link (positive for a 0, most significant bit
-/// first, stream after stream): exact per-stream LLRs after the unbiased linear filter
+/// first), the LLR sequence of every transmitted stream: exact per-stream LLRs after the unbiased linear filter
 /// for `"zf"` and `"mmse"`, max-log over all hypotheses for `"ml"`, over the final
 /// list for `"kbest"`, exact LLRs of the decoupled channel for `"amp"` and `"oamp"`.
 ///
 /// Args:
 ///     h (array_like): the channel, `(n_rx, n_tx)` for every vector or `(n, n_rx, n_tx)`.
-///     y (array_like): the received vectors, `(n, n_rx)` (or one vector `(n_rx,)`).
+///     y (array_like): the received streams, `(n_rx, n)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
 ///     method (str): `"zf"`, `"mmse"`, `"ml"`, `"kbest"`, `"amp"` or `"oamp"` (the SIC
@@ -273,7 +331,9 @@ fn mimo_detect(
 ///     iterations (int): iterations of `"amp"` and `"oamp"`.
 ///
 /// Returns:
-///     numpy.ndarray: `(n, n_tx · log2 M)` (or one row), float64.
+///     numpy.ndarray: `(n_tx, n · log2 M)`, the LLRs of the symbols of every stream in
+///     order (for one vector `(n_rx,)`, the `n_tx · log2 M` LLRs stream after stream),
+///     float64.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
@@ -296,7 +356,7 @@ fn mimo_llr(
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
     let d = detector(method, &constellation.inner, k, iterations)?;
     let rows = py.detach(|| per_vector(&hs, &ys, |h, y| d.llr(h, y, noise_var))).py()?;
-    rows_to_array(py, rows, single)
+    llr_streams(py, rows, constellation.inner.bits_per_symbol(), single)
 }
 
 fn prior(c: &PyConstellation, px: Option<&Bound<'_, PyAny>>) -> PyResult<Prior> {
@@ -346,12 +406,12 @@ fn steps<'py>(py: Python<'py>, se: &[mp::StateEvolutionStep]) -> PyResult<Bound<
 ///     >>> rng = comrs.Rng(1)
 ///     >>> h = comrs.mimo_channel(64, 32, rng)
 ///     >>> x = c.points[rng.integers(4, 32)]
-///     >>> out = comrs.message_passing(h, h @ x, c, 1e-4, "amp", 15)
+///     >>> out = comrs.message_passing(h, h @ x, c, 1e-4, "amp", iterations=15)
 ///     >>> bool(np.allclose(out["estimates"][-1], x, atol=1e-3))
 ///     True
 #[pyfunction]
 #[pyo3(signature = (
-    h, y, constellation, noise_var, method="amp", iterations=DetectorKind::DEFAULT_ITERATIONS, *,
+    h, y, constellation, noise_var, method="amp", *, iterations=DetectorKind::DEFAULT_ITERATIONS,
     linear="lmmse", variance="postulated", px=None, real=false
 ))]
 #[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python function")]
@@ -528,14 +588,14 @@ fn oamp_state_evolution<'py>(
 ///
 /// Args:
 ///     h (array_like): the channel, `(n_rx, n_tx)` for every vector or `(n, n_rx, n_tx)`.
-///     y (array_like): the received vectors, `(n, n_rx)` (or one vector `(n_rx,)`).
+///     y (array_like): the received streams, `(n_rx, n)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
 ///     method (str): `"zf"` or `"mmse"`.
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the estimates and their variances, both
-///     `(n, n_tx)` (or `(n_tx,)`).
+///     `(n_tx, n)` (or `(n_tx,)`).
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
@@ -729,35 +789,34 @@ fn water_filling_powers<'py>(
 /// eigenmodes.
 ///
 /// Args:
-///     h (array_like): `(n_rx, n_tx)` or `(n, n_rx, n_tx)`.
+///     h (array_like): `(n, n_rx, n_tx)`, one matrix per realisation (one matrix
+///         `(n_rx, n_tx)` is one realisation).
 ///     snr_db (float): total transmit power over the noise variance per receive antenna
 ///         (dB).
 ///     water_filling (bool): channel knowledge at the transmitter.
 ///
 /// Returns:
-///     float | numpy.ndarray: the capacity of every realisation.
+///     numpy.ndarray: the capacity of every realisation, `(n,)`.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
-///     >>> round(comrs.mimo_capacity(np.eye(2), 10 * np.log10(10.0)), 6)
-///     5.169925
+///     >>> comrs.mimo_capacity(np.eye(2), 10 * np.log10(10.0)).round(6).tolist()
+///     [5.169925]
 #[pyfunction]
 #[pyo3(signature = (h, snr_db, *, water_filling=false))]
-fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_filling: bool) -> PyResult<Py<PyAny>> {
+fn mimo_capacity<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, snr_db: f64, water_filling: bool) -> PyResult<FArr<'py>> {
     let snr = comrs::math::db2lin(snr_db);
     let f = |m: &ArrayView2<'_, C64>| {
         if water_filling { capacity::water_filling(m, snr) } else { capacity::equal_power(m, snr) }
     };
-    match channels(h)? {
-        Channels::One(m) => Ok(f(&m.view()).py()?.into_pyobject(py)?.into_any().unbind()),
-        Channels::Many(hs) => {
-            let c = py.detach(|| hs.outer_iter().map(|m| f(&m)).collect::<comrs::Result<Vec<f64>>>()).py()?;
-            Ok(farr(py, c).into_any().unbind())
-        }
-    }
+    let c = match channels(h)? {
+        Channels::One(m) => vec![f(&m.view()).py()?],
+        Channels::Many(hs) => py.detach(|| hs.outer_iter().map(|m| f(&m)).collect::<comrs::Result<Vec<f64>>>()).py()?,
+    };
+    Ok(farr(py, c))
 }
 
 /// The ergodic capacity (bits per channel use) of the i.i.d. Rayleigh MIMO channel with
@@ -778,10 +837,10 @@ fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_fillin
 ///
 /// Examples:
 ///     >>> import comrs
-///     >>> round(comrs.ergodic_capacity(1, 1, 10.0), 4)   # log2(e) e^0.1 E1(0.1)
+///     >>> round(comrs.theory_ergodic_capacity(1, 1, 10.0), 4)   # log2(e) e^0.1 E1(0.1)
 ///     2.9065
 #[pyfunction]
-fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+fn theory_ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     crate::map_real(snr_db, |s| capacity::ergodic_rayleigh(n_rx, n_tx, comrs::math::db2lin(s)).py())
 }
 
@@ -792,17 +851,17 @@ fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyRe
 /// Args:
 ///     n_rx (int): receive antennas.
 ///     n_tx (int): transmit antennas (`n_rx` or `n_tx` is 1).
-///     snr_db (float): the SNR (dB).
-///     rate (float | array_like): the rate (bits per channel use).
+///     snr_db (float | array_like): the SNR (dB).
+///     rate (float): the rate (bits per channel use).
 ///
 /// Returns:
-///     float | numpy.ndarray: the outage probability at every rate.
+///     float | numpy.ndarray: the outage probability at every SNR.
 ///
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    crate::map_real(rate, |r| capacity::outage_rayleigh(n_rx, n_tx, comrs::math::db2lin(snr_db), r).py())
+fn theory_outage_probability(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>> {
+    crate::map_real(snr_db, |s| capacity::outage_rayleigh(n_rx, n_tx, comrs::math::db2lin(s), rate).py())
 }
 
 /// The ε-capacity (bits per channel use): the rate of outage probability `eps` over a
@@ -820,7 +879,7 @@ fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, Py
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-fn outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64) -> PyResult<Py<PyAny>> {
+fn theory_outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64) -> PyResult<Py<PyAny>> {
     crate::map_real(snr_db, |s| capacity::outage_capacity_rayleigh(n_rx, n_tx, comrs::math::db2lin(s), eps).py())
 }
 
@@ -899,6 +958,7 @@ fn zf_precoder<'py>(
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOstbc>()?;
     m.add_function(wrap_pyfunction!(mimo_channel, m)?)?;
+    m.add_function(wrap_pyfunction!(mimo_channels, m)?)?;
     m.add_function(wrap_pyfunction!(exponential_correlation, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_detect, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_llr, m)?)?;
@@ -909,9 +969,9 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(oamp_state_evolution, m)?)?;
     m.add_function(wrap_pyfunction!(water_filling_powers, m)?)?;
     m.add_function(wrap_pyfunction!(mimo_capacity, m)?)?;
-    m.add_function(wrap_pyfunction!(ergodic_capacity, m)?)?;
-    m.add_function(wrap_pyfunction!(outage_probability, m)?)?;
-    m.add_function(wrap_pyfunction!(outage_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_ergodic_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_outage_probability, m)?)?;
+    m.add_function(wrap_pyfunction!(theory_outage_capacity, m)?)?;
     m.add_function(wrap_pyfunction!(eigenmode, m)?)?;
     m.add_function(wrap_pyfunction!(zf_precoder, m)?)?;
     Ok(())

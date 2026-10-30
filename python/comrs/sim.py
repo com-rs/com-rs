@@ -29,8 +29,8 @@ Example:
     >>> c = comrs.Constellation("qam", 4).normalized()
     >>> def trial(cond, rng, rec):
     ...     b = comrs.bits(2 * 1000, rng)
-    ...     y = comrs.awgn_ebn0(c.modulate(b), cond["ebn0_db"], 2, rng)
-    ...     rec.errors("ber", int((c.demodulate(y) != b).sum()), b.size)
+    ...     y = comrs.awgn_ebn0(c.map_bits(b), cond["ebn0_db"], 2, rng)
+    ...     rec.errors("ber", int((c.demap_bits(y) != b).sum()), b.size)
     >>> res = sim.run(trial, sim.grid(ebn0_db=[4.0, 6.0]), name="qpsk",
     ...               stop=sim.Stop.min_errors("ber", 100) | sim.Stop.max_trials(500))
     >>> [r.status for r in res]
@@ -52,8 +52,8 @@ from comrs._comrs import (
     Mean,
     Record,
     Stop,
+    _grid_conditions,
     _sim_run,
-    spec_conditions,
     z_score,
 )
 
@@ -87,8 +87,8 @@ def grid(**axes: Any) -> list[dict[str, Any]]:
     """
     from comrs.spec import _grid_axes
 
-    # the conditions of a specification with this grid, expanded by the Rust parser
-    return spec_conditions({"name": "grid", "grid": _grid_axes(axes), "link": ["normalize"]})
+    # expanded by the parser of the specifications
+    return _grid_conditions(_grid_axes(axes))
 
 
 def run(

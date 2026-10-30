@@ -8,12 +8,12 @@ source:
   file: mimo/2014_lu_massive-mimo-overview_jstsp.pdf
 description: >
   The ergodic capacity E log2 det(I + rho/N_t H H^H) of eq. (2) over i.i.d. Rayleigh
-  fading (comrs.ergodic_capacity, com_mimo::capacity::ergodic_rayleigh: Telatar's
+  fading (comrs.theory_ergodic_capacity, com_mimo::capacity::ergodic_rayleigh: Telatar's
   integral) at rho = 10 dB, against the bounds of eq. (3), log2(1 + rho N_r) and
   min(N_t, N_r) log2(1 + rho max(N_t, N_r)/N_t), and the limits N_r log2(1 + rho) of
   eq. (5) and N_t log2(1 + rho N_r/N_t) of eq. (6).
 run:
-  function: comrs.ergodic_capacity
+  function: comrs.theory_ergodic_capacity
 note: "the bounds of eq. (3) hold for every channel with Tr(H H^H) = N_t N_r; for the i.i.d. channel, whose trace is random, the upper one holds on average by Jensen's inequality and the lower one is far below the capacity"
 tolerance: {rtol: 0.005}
 why: "the agreement obtained: eqs. (5) and (6) are limits, approached as 1/N (0.27 % at 256 antennas, 0.07 % at 1024 for eq. (5); 0.12 % and 0.025 % for eq. (6))"

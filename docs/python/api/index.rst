@@ -75,10 +75,11 @@ On scalars or arrays.
 
    theory_ber
    theory_ser
+   theory_ser_esn0
    theory_ber_gray
    theory_ber_rayleigh_mrc
    theory_ber_dpsk
-   differential_phase_tail
+   theory_differential_phase_tail
    theory_phase_pdf
    theory_ber_imperfect_csi
    theory_ber_dpsk_jakes
@@ -94,10 +95,10 @@ and cutoff rates of coded modulation and BICM.
 
    theory_mi
    theory_gmi
-   cm_capacity
-   bicm_capacity
-   cm_cutoff_rate
-   bicm_cutoff_rate
+   theory_cm_capacity
+   theory_bicm_capacity
+   theory_cm_cutoff_rate
+   theory_bicm_cutoff_rate
 
 Coding and shaping
 ------------------
@@ -141,11 +142,11 @@ Limits and bounds
 .. autosummary::
    :toctree: generated
 
-   shannon_limit_ebn0_db
-   biawgn_capacity
+   theory_shannon_limit_ebn0_db
+   theory_biawgn_capacity
    bpsk_noise_variance
    bpsk_llr
-   normal_approximation
+   theory_normal_approximation
    theory_rs_wer
    theory_rs_ser
    theory_rs_ber
@@ -169,8 +170,8 @@ synchronisation and the gain correction of OFDM.
    schmidl_cox
    ofdm_synchronize
    gain_limited_correction
-   sdr_gain_limited
-   sdr_optimum_correction
+   theory_sdr_gain_limited
+   theory_sdr_optimum_correction
 
 PAPR
 ~~~~
@@ -180,6 +181,7 @@ PAPR
 
    PaprReduction
    papr_db
+   papr_db_blocks
    ccdf
    theory_papr_ccdf
    clipping_bussgang
@@ -195,11 +197,11 @@ Continuous-phase modulation (CPFSK, MSK, GMSK) and constant-envelope OFDM.
    Cpm
    msk_precode
    msk_bits
-   msk_psd
+   theory_msk_psd
    CeOfdm
    ce_ofdm_imp_powers
    ce_ofdm_optimum_gain
-   ce_ofdm_ber_optimum
+   theory_ce_ofdm_ber_optimum
    pm_occupied_bandwidth
 
 Chirp spread spectrum
@@ -211,15 +213,15 @@ The modulation of LoRa and its theory.
    :toctree: generated
 
    Css
-   css_ser
-   css_ber
+   theory_css_ser
+   theory_css_ber
    css_cross_correlation
    css_max_cross_correlation
    css_continuous_spectrum
    css_spectral_lines
    css_occupied_bandwidth
    css_interference_pattern
-   css_ser_interference
+   theory_css_ser_interference
 
 Filtered multicarrier and OTFS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -237,7 +239,7 @@ Filtered multicarrier and OTFS
 MIMO
 ----
 
-One channel matrix per received vector; received vectors are ``(n, n_rx)`` arrays.
+One channel matrix ``(n_rx, n_tx)`` per channel use, or one for all; the received streams are stream-major ``(n_rx, n)`` arrays and the decisions ``(n_tx, n)``.
 
 Detection
 ~~~~~~~~~
@@ -271,9 +273,9 @@ Space-time codes, precoding and capacity
    zf_precoder
    water_filling_powers
    mimo_capacity
-   ergodic_capacity
-   outage_probability
-   outage_capacity
+   theory_ergodic_capacity
+   theory_outage_probability
+   theory_outage_capacity
 
 Wireless channels
 -----------------
@@ -287,6 +289,7 @@ Noise and flat fading
    awgn
    awgn_ebn0
    mimo_channel
+   mimo_channels
    exponential_correlation
 
 Multipath
@@ -318,7 +321,7 @@ Fibre and amplification
    FiberParams
    linear_fiber_channel
    Ssfm
-   Manakov
+   ManakovPmd
    ManakovSsfm
    Edfa
    raman_profile
@@ -445,7 +448,7 @@ Clock recovery
 
    gardner_ted
    gardner_ted_nyquist
-   interpolate_cubic
+   lagrange_cubic
    gardner_clock_recovery
 
 Equalisation and compensation
