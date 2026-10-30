@@ -27,7 +27,10 @@
 //!   symmetric filter introduces no delay; long filters use the FFT;
 //! - [`low_pass_fir`] designs a windowless sinc (`Rect`) or Gaussian low-pass FIR of
 //!   cut-off `fc`;
-//! - [`moving_average`] (centred, zeros outside).
+//! - [`moving_average`] (centred, zeros outside);
+//! - [`normalize_energy`] scales taps to unit energy, $\sum_{l} h_{l}^{2} = 1$;
+//! - [`response_at`] evaluates the frequency response
+//!   $H(f) = \sum_{l} h_{l}\, e^{-j 2\pi f l}$ at $f = k/n$ cycles per sample.
 //!
 //! # Examples
 //! ```
@@ -257,6 +260,44 @@ pub fn fir_filter_complex(h: &[C64], x: &[C64]) -> Vec<C64> {
 pub fn fir_filter(h: &[f64], x: &[C64]) -> Vec<C64> {
     let hc: Vec<C64> = h.iter().map(|&v| C64::new(v, 0.0)).collect();
     fir_filter_complex(&hc, x)
+}
+
+/// Scale the taps `h` in place to unit energy, $h_{l} / \sqrt{\sum_{i} h_{i}^{2}}$ (taps
+/// that are all zero are left unchanged).
+///
+/// # Examples
+/// ```
+/// use com_dsp::filter::normalize_energy;
+/// let mut h = vec![3.0, 4.0];
+/// normalize_energy(&mut h);
+/// assert_eq!(h, vec![0.6, 0.8]);
+/// ```
+pub fn normalize_energy(h: &mut [f64]) {
+    let norm = h.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        for v in h {
+            *v /= norm;
+        }
+    }
+}
+
+/// The frequency response of the FIR filter `h` at the frequency $f = k/n$ cycles per
+/// sample (the subcarrier $k$ of a grid of $n$; $k$ need not be an integer):
+///
+/// $$
+/// H(k/n) = \sum_{l} h_{l}\, e^{-j 2\pi k l / n}.
+/// $$
+///
+/// # Examples
+/// ```
+/// use com_dsp::filter::response_at;
+/// use com_math::C64;
+/// let h = [C64::new(0.5, 0.0), C64::new(0.5, 0.0)];
+/// assert!((response_at(&h, 0.0, 8.0) - C64::new(1.0, 0.0)).norm() < 1e-15);
+/// assert!(response_at(&h, 4.0, 8.0).norm() < 1e-15);   // the null at half the rate
+/// ```
+pub fn response_at(h: &[C64], k: f64, n: f64) -> C64 {
+    h.iter().enumerate().map(|(l, v)| v * com_math::cis(-std::f64::consts::TAU * k * l as f64 / n)).sum()
 }
 
 /// Low-pass FIR filter types of [`low_pass_fir`].
