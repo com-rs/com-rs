@@ -785,6 +785,18 @@
   not_covered: "the integer offset from the second training symbol (eqs. (39)-(46)); the frequency-selective channels and Table II"
   remarks:
     - "eq. (43) holds at high SNR: the product of the noises of the two halves multiplies the variance by 1 + 1/(2 SNR), 1.5 at 0 dB"
+- id: rife1974
+  area: Receiver DSP
+  ref: "D. C. Rife, R. R. Boorstyn, Single-tone parameter estimation from discrete-time observations, IT 20(5), 1974"
+  module: com_dsp::sync::carrier
+  tested: "Fig. 3: the SNR at an outlier probability of 1e-3 (N = 16 to 512) and 1e-7 (N = 16, 64, 256) of eq. (59) within 0.15 dB; Fig. 4: the RMS error of the maximum-likelihood estimator (fourth_power_foe_refined, M = 1) against the simulation points within a factor 1.3 and the bound of eq. (46) above the threshold within 10 %"
+  tests:
+    - validation/tests/rife1974.rs::rife_boorstyn_1974_fig_3
+    - validation/tests/rife1974.rs::rife_boorstyn_1974_fig_4
+  badge: green
+  not_covered: "the phase and amplitude estimates and their bounds (eqs. (16), (18)-(20)); the dependence on the time of the first sample (Figs. 5-6)"
+  remarks:
+    - "Fig. 4 at N = 16 and -5.2 dB: the simulation point (491 Hz) lies 15 % below eq. (50) (573 Hz), the paper's simulations searching a DFT of 4N points"
 - id: moose1994
   area: Receiver DSP
   ref: "P. H. Moose, A technique for orthogonal frequency division multiplexing frequency offset correction, TCOM 42(10), 1994"

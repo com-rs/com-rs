@@ -337,8 +337,8 @@
   name: "Carrier recovery"
   modules: "`com_dsp::sync::carrier`"
   level: A
-  summary: "OptiCommPy outputs"
-  evidence: "OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_fourth_power_foe`, `::test_viterbi_viterbi`, `::test_blind_phase_search`, `::test_decision_directed_pll_with_pilots`; `::test_unwrap_matches_numpy`"
+  summary: "OptiCommPy outputs; Rife & Boorstyn 1974; Fatadin et al. 2009"
+  evidence: "• OptiCommPy 0.11, recorded: `tests/test_oracle.py::test_fourth_power_foe`, `::test_viterbi_viterbi`, `::test_blind_phase_search`, `::test_decision_directed_pll_with_pilots`; `::test_unwrap_matches_numpy`<br>• `validation/tests/rife1974.rs` (Rife & Boorstyn, *IEEE Trans. Inf. Theory* 20(5), 1974: the outlier probability of the DFT search, Fig. 3, and the RMS error of the maximum-likelihood frequency estimate against Fig. 4 and the Cramér–Rao bound)<br>• `validation/tests/fatadin2009.rs` (the decision-directed loop of Fatadin, Ives & Savory, *J. Lightw. Technol.* 27(15), 2009, Figs. 7–8)"
   gaps: "the linewidth tolerance of BPS is not compared with Table I of Pfau et al. (*J. Lightw. Technol.* 27(8), 2009): the table includes a differential decoding the library does not have"
 - theme: Receiver DSP
   name: "Clock recovery"

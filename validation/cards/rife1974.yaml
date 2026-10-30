@@ -1,0 +1,55 @@
+id: rife1974
+title: Frequency of a complex tone from discrete samples - the bound, the outliers and the threshold
+literature: rife1974
+source:
+  kind: paper
+  reference: "D. C. Rife, R. R. Boorstyn, Single-tone parameter estimation from discrete-time observations, IEEE Trans. Inf. Theory 20(5), 591-598, 1974"
+  locator: "eqs. (17), (46), (50), (57)-(59); Figs. 3 and 4"
+  file: synchronisation/1974_rife_single-tone-parameter-estimation_it.pdf
+description: >
+  The outlier probability of the coarse DFT search (comrs::dsp::sync::carrier::
+  tone_outlier_probability, eq. (59)) against Fig. 3, and the RMS frequency error of
+  the maximum-likelihood estimator (fourth_power_foe_refined with M = 1: the largest
+  DFT bin, then the maximum of the periodogram next to it) simulated with a tone at
+  2000 Hz sampled at 4000 Hz, random phase, against the simulation points and the bound
+  of Fig. 4; SNR = b0^2/(2 sigma^2) per sample.
+run:
+  test: validation/tests/rife1974.rs
+tier: campaign
+duration: "about 5 s on an Apple M6"
+findings:
+  - "Fig. 4 at N = 16 and -5.2 dB: the simulation point of the paper (491 Hz) lies 15 % below its own eq. (50) (573 Hz); the paper's simulations searched a DFT of 4N points where eq. (59) assumes N"
+cases:
+  - {inputs: {part: outliers, n: 16, probability: 1.0e-3}, expected: 0.5, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 32, probability: 1.0e-3}, expected: -2.3, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 64, probability: 1.0e-3}, expected: -5.1, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 128, probability: 1.0e-3}, expected: -7.9, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 256, probability: 1.0e-3}, expected: -10.7, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 512, probability: 1.0e-3}, expected: -13.4, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 16, probability: 1.0e-7}, expected: 3.6, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 64, probability: 1.0e-7}, expected: -2.1, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - {inputs: {part: outliers, n: 256, probability: 1.0e-7}, expected: -7.9, tolerance: {atol: 0.3}, why: "Fig. 3 read to about 0.2 dB"}
+  - inputs: {part: rms, n: 16, snr_db: -10.3}
+    expected: 953.0
+    tolerance: {factor: 1.3}
+    why: "a simulation point of Fig. 4 read to 5 %; in the threshold region a few outliers set the RMS, and neither the trials of the paper nor the 2000 of the test fix it better than 10 %"
+  - inputs: {part: rms, n: 16, snr_db: -5.2}
+    expected: 491.0
+    tolerance: {factor: 1.3}
+    why: "a simulation point of Fig. 4 read to 5 %; the threshold region (see the findings)"
+  - inputs: {part: rms, n: 16, snr_db: 0.0}
+    expected: 70.0
+    tolerance: {factor: 1.3}
+    why: "a simulation point of Fig. 4 read to 5 %; the threshold region"
+  - inputs: {part: rms, n: 16, snr_db: 5.0}
+    expected: 13.1
+    tolerance: {factor: 1.3}
+    why: "a simulation point of Fig. 4 read to 5 %"
+  - inputs: {part: rms, n: 128, snr_db: -10.2}
+    expected: 236.0
+    tolerance: {factor: 1.3}
+    why: "a simulation point of Fig. 4 read to 5 %; the threshold region"
+  - inputs: {part: rms, n: 64, snr_db: 10.0}
+    expected: 0.97
+    tolerance: {rtol: 0.1}
+    why: "the bound of Fig. 4 (eq. (46)) read to 5 %; above the threshold the estimator meets it, and 2000 trials give the RMS to 2 %"

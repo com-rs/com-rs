@@ -241,7 +241,7 @@ Receiver DSP
      - OptiCommPy outputs
    * - Carrier recovery
      - A
-     - OptiCommPy outputs
+     - OptiCommPy outputs; Rife & Boorstyn 1974; Fatadin et al. 2009
    * - Clock recovery
      - A
      - OptiCommPy outputs

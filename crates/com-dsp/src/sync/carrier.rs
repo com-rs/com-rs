@@ -125,6 +125,62 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>,
     Ok((freq_shift(x, -fo, fs), fo))
 }
 
+/// The Cramér–Rao bound of the variance of an unbiased estimate of the frequency of a
+/// complex tone of unknown phase from $N$ samples at the SNR $\rho = b_{0}^{2}/(2\sigma^{2})$
+/// per sample (`snr`, linear; $\sigma^{2}$ the noise variance of each of the real and
+/// imaginary parts), in cycles per sample squared: Rife & Boorstyn (1974), eq. (17),
+/// $12\sigma^{2}/(b_{0}^{2} N (N^{2} - 1))$ rad² per sample², that is
+/// $3/(2\pi^{2} \rho N (N^{2} - 1))$ (multiply by $f_{s}^{2}$ for Hz²).
+///
+/// [`fourth_power_foe_refined`] with $M = 1$ is their maximum-likelihood estimator (the
+/// largest bin of the DFT, then the maximum of $|A(\omega)|$ next to it), which meets the
+/// bound above the threshold.
+pub fn tone_frequency_crb(n: usize, snr: f64) -> f64 {
+    let nf = n as f64;
+    3.0 / (2.0 * PI * PI * snr * nf * (nf * nf - 1.0))
+}
+
+/// The probability that the largest bin of the $N$-point DFT of a complex tone in noise
+/// is not the bin of the tone (an outlier of the coarse search), at the SNR $\rho$ per
+/// sample (`snr`, linear): Rife & Boorstyn (1974), eqs. (57)–(59), the magnitude of the
+/// bin of the tone Rician and the $N - 1$ others Rayleigh,
+///
+/// $$
+/// 1 - q = \int_{0}^{\infty} \left[1 - e^{-N x^{2}/2\sigma^{2}}\right]^{N-1}
+/// \frac{N x}{\sigma^{2}} e^{-N (x^{2} + b_{0}^{2})/2\sigma^{2}}
+/// I_{0}\!\left(\frac{N b_{0} x}{\sigma^{2}}\right) dx,
+/// $$
+///
+/// by Simpson's rule ([`com_math::simpson`], with [`com_math::bessel_i0e`] against the
+/// overflow of $I_{0}$), accurate to about $10^{-13}$ absolute.
+pub fn tone_outlier_probability(n: usize, snr: f64) -> f64 {
+    // b0 = 1, sigma^2 = 1/(2 rho): N/sigma^2 = 2 rho N
+    let nf = n as f64;
+    let a = 2.0 * snr * nf;
+    let s = 1.0 / a.sqrt();
+    let hit = com_math::simpson(
+        |x| {
+            // 1 - e^{-y}, without cancellation for a small y
+            let others = (-(-(0.5 * a * x * x)).exp_m1()).powi(n as i32 - 1);
+            others * a * x * (-(0.5 * a) * (x - 1.0) * (x - 1.0)).exp() * com_math::bessel_i0e(a * x)
+        },
+        0.0,
+        1.0 + 12.0 * s,
+        4000,
+    );
+    (1.0 - hit).clamp(0.0, 1.0)
+}
+
+/// The RMS error (Hz) of the maximum-likelihood frequency of a tone at half the sampling
+/// rate `fs`, from $N$ samples at the SNR $\rho$ (`snr`, linear), with its outliers:
+/// Rife & Boorstyn (1974), eq. (50), $q f_{s}^{2}/12$ (an outlier is uniform over the
+/// band) plus $(1 - q)$ times the bound of [`tone_frequency_crb`], $q$ by
+/// [`tone_outlier_probability`].
+pub fn tone_frequency_rms(n: usize, snr: f64, fs: f64) -> f64 {
+    let q = tone_outlier_probability(n, snr);
+    (fs * fs * (q / 12.0 + (1.0 - q) * tone_frequency_crb(n, snr))).sqrt()
+}
+
 /// Viterbi–Viterbi phase estimates (radians, to be applied with `derotate(…, +1)`).
 pub fn viterbi_viterbi(x: &[C64], n: usize, m: u32) -> Vec<f64> {
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
@@ -217,6 +273,20 @@ pub fn ddpll(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tone_bounds_have_their_limits() {
+        use com_math::db2lin;
+        // eq. (46): N = 16, 10 dB, f_s = 4000 Hz: 7.72 Hz
+        assert!((4000.0 * tone_frequency_crb(16, 10.0).sqrt() - 7.7201).abs() < 1e-3);
+        // no signal: every bin is equally likely; a strong one: never an outlier
+        let q = tone_outlier_probability(16, 1e-6);
+        assert!((q - 15.0 / 16.0).abs() < 1e-3, "{q}");
+        assert!(tone_outlier_probability(64, db2lin(10.0)) < 1e-12);
+        let rms = tone_frequency_rms(64, db2lin(10.0), 4000.0);
+        // above the threshold, the bound (q is accurate to about 1e-13 absolute)
+        assert!((rms / (4000.0 * tone_frequency_crb(64, db2lin(10.0)).sqrt()) - 1.0).abs() < 1e-6);
+    }
 
     #[test]
     fn unwrap_matches_numpy() {
