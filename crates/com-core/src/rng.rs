@@ -78,6 +78,23 @@ impl Rng {
         Rng { s }
     }
 
+    /// The 256 bits of the state, to save a generator and resume it with
+    /// [`Rng::from_state`] (the pickling of the Python generator).
+    pub fn state(&self) -> [u64; 4] {
+        self.s
+    }
+
+    /// The generator of a state saved by [`Rng::state`]: it continues the draws of the
+    /// saved generator.
+    ///
+    /// # Errors
+    /// [`crate::Error::Config`] for the all-zero state, a fixed point of xoshiro256\*\*
+    /// that no seed gives.
+    pub fn from_state(s: [u64; 4]) -> crate::Result<Rng> {
+        crate::ensure(s != [0; 4], || "the all-zero state is not a state of xoshiro256**".into())?;
+        Ok(Rng { s })
+    }
+
     /// Next 64 random bits.
     #[inline]
     pub fn next_u64(&mut self) -> u64 {
@@ -251,6 +268,15 @@ pub fn stream(base_seed: u64, experiment: &str, condition: u64, trial: u64) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_state_resumes_the_draws() {
+        let mut a = Rng::new(42);
+        a.next_u64();
+        let mut b = Rng::from_state(a.state()).unwrap();
+        assert_eq!((0..5).map(|_| a.next_u64()).collect::<Vec<_>>(), (0..5).map(|_| b.next_u64()).collect::<Vec<_>>());
+        assert!(Rng::from_state([0; 4]).is_err());
+    }
 
     #[test]
     fn reference_values() {
