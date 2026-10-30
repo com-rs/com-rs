@@ -81,7 +81,7 @@
   level: A
   summary: "AFF3CT, SC and CA-SCL"
   evidence: "• AFF3CT, recorded, on the frozen sets of com-rs: `validation/tests/aff3ct.rs::polar_256_sc_matches_aff3ct`, `::polar_1024_sc_matches_aff3ct` (ignored), `::polar_256_ca_scl_matches_aff3ct` (L = 8, CRC11 of 5G NR, ignored)<br>• `crates/com-fec/src/polar.rs::the_list_and_the_crc_lower_the_block_error_rate`"
-  gaps: "• the Gaussian-approximation construction is not compared with a reference (AFF3CT reads the frozen sets of com-rs)<br>• Fig. 1 of Tal & Vardy (*IEEE Trans. Inf. Theory* 61(5), 2015) reproduced within a factor 1.6 (`validation/tests/tal2015.rs`, ignored), but SC and list decoding cost O(L n² log n) per frame, not O(L n log n); the NR polar sequence and rate matching (TS 38.212 Secs. 5.3.1, 5.4.1) are not implemented (status next)"
+  gaps: "• the Gaussian-approximation construction is not compared with a reference (AFF3CT reads the frozen sets of com-rs)<br>• Fig. 1 of Tal & Vardy (*IEEE Trans. Inf. Theory* 61(5), 2015) reproduced within a factor 1.6 for SC and lists of 8 and 32 (`validation/tests/tal2015.rs`, ignored), with another construction; the NR polar sequence and rate matching (TS 38.212 Secs. 5.3.1, 5.4.1) are not implemented (status next)"
 - theme: Coding and shaping
   name: "5G NR channel codes: LDPC and polar with rate matching"
   modules: "`com_fec::nr`"

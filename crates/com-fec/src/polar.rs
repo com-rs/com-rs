@@ -25,6 +25,9 @@
 //!   not coding gain: on short blocks a short CRC (6 bits) pays off, a long one costs
 //!   more rate than it brings.
 //!
+//! Both run on the per-layer LLR and partial-sum arrays of Tal & Vardy (2015, Sec. IV),
+//! shared between the paths and copied on write, in $O(L n \log n)$ per frame.
+//!
 //! # Examples
 //! ```
 //! use com_fec::block::{BlockCode, bpsk_llr};
@@ -111,26 +114,322 @@ fn transform(u: &mut [u8]) {
     }
 }
 
+/// The min-sum $f(a, b) = \operatorname{sgn}(a)\operatorname{sgn}(b)\min(|a|, |b|)$.
+#[inline]
 fn f(a: f64, b: f64) -> f64 {
     a.signum() * b.signum() * a.abs().min(b.abs())
 }
 
-/// The LLR of leaf `i` given the channel LLRs `ch` and the decisions `u[..i]`.
-fn leaf_llr(i: usize, ch: &[f64], u: &[u8]) -> f64 {
-    let n = ch.len();
-    if n == 1 {
-        return ch[0];
+/// The update $g(a, b, \hat u) = b + (1 - 2\hat u) a$.
+#[inline]
+fn g(a: f64, b: f64, u: u8) -> f64 {
+    b + if u == 0 { a } else { -a }
+}
+
+/// The arrays of one layer of the list decoder, shared between the paths with
+/// reference counts and copied on write (the lazy copy of Tal & Vardy 2015, Sec. IV).
+struct Pool<T> {
+    /// The length of an array.
+    len: usize,
+    /// The arrays, one after the other.
+    data: Vec<T>,
+    /// `of[path]`: the array of a path.
+    of: Vec<usize>,
+    /// `refs[array]`: the number of paths that use an array.
+    refs: Vec<usize>,
+    /// The arrays no path uses.
+    free: Vec<usize>,
+}
+
+impl<T: Copy + Default> Pool<T> {
+    fn new(len: usize, arrays: usize, paths: usize) -> Pool<T> {
+        Pool {
+            len,
+            data: vec![T::default(); len * arrays],
+            of: vec![0; paths],
+            refs: vec![0; arrays],
+            free: Vec::new(),
+        }
     }
-    let h = n / 2;
-    let (a, b) = ch.split_at(h);
-    if i < h {
-        let v: Vec<f64> = a.iter().zip(b).map(|(x, y)| f(*x, *y)).collect();
-        leaf_llr(i, &v, u)
-    } else {
-        let mut x = u[..h].to_vec();
-        transform(&mut x);
-        let v: Vec<f64> = a.iter().zip(b).zip(&x).map(|((p, q), &xb)| q + if xb == 0 { *p } else { -p }).collect();
-        leaf_llr(i - h, &v, &u[h..])
+
+    /// Path 0 alone, on array 0.
+    fn reset(&mut self) {
+        self.refs.fill(0);
+        self.refs[0] = 1;
+        self.of[0] = 0;
+        self.free.clear();
+        self.free.extend((1..self.refs.len()).rev());
+    }
+
+    /// Path `to` shares the array of path `from`.
+    fn share(&mut self, from: usize, to: usize) {
+        let a = self.of[from];
+        self.of[to] = a;
+        self.refs[a] += 1;
+    }
+
+    /// Path `path` stops using its array.
+    fn release(&mut self, path: usize) {
+        let a = self.of[path];
+        self.refs[a] -= 1;
+        if self.refs[a] == 0 {
+            self.free.push(a);
+        }
+    }
+
+    /// The array of `path`, made its own before it writes into it: a shared array is
+    /// replaced by a free one that receives the first `keep` values of the shared one.
+    fn writable(&mut self, path: usize, keep: usize) -> usize {
+        let a = self.of[path];
+        if self.refs[a] == 1 {
+            return a;
+        }
+        self.refs[a] -= 1;
+        let b = self.free.pop().unwrap_or_else(|| unreachable!("at most one array per path"));
+        self.refs[b] = 1;
+        self.of[path] = b;
+        self.data.copy_within(a * self.len..a * self.len + keep, b * self.len);
+        b
+    }
+
+    fn array(&self, path: usize) -> &[T] {
+        let a = self.of[path];
+        &self.data[a * self.len..(a + 1) * self.len]
+    }
+
+    fn array_mut(&mut self, a: usize) -> &mut [T] {
+        &mut self.data[a * self.len..(a + 1) * self.len]
+    }
+}
+
+/// The SC list decoder on the arrays of Tal & Vardy (2015, Sec. IV), in the LLR form of
+/// Balatsoukas-Stimming, Bastani Parizi & Burg (2015): layer $\lambda = 0, \dots, m$ of
+/// the decoding tree holds, for every path, the LLRs of its current node
+/// ($2^{m - \lambda}$ values, the channel at $\lambda = 0$) and the partial sums of the
+/// codeword under construction below it. Leaf $\varphi$ recomputes the layers from the one where
+/// its branch turns right ($m$ minus the trailing zeros of $\varphi$) down, which is
+/// $O(n \log n)$ per path and frame instead of $O(n^{2} \log n)$ for a leaf computed from
+/// the channel; the paths share the arrays they have not written since they split.
+struct ListDecoder {
+    m: usize,
+    list: usize,
+    /// `llr[λ]`, λ = 0 (the channel, a single array) to m (the leaf LLR).
+    llr: Vec<Pool<f64>>,
+    /// `bits[λ]`, λ = 0 to m − 1: the codeword of the node of the layer, its left half
+    /// written when its left child is decided, its right half then.
+    bits: Vec<Pool<u8>>,
+    /// The slots of the active paths, by rank: the order of the sorted candidates,
+    /// which breaks the ties of the metrics.
+    order: Vec<usize>,
+    /// The unused path slots.
+    free: Vec<usize>,
+    /// Path metric, per slot.
+    pm: Vec<f64>,
+    /// The parity-check register of every slot after the decisions of its path.
+    reg: Vec<[u8; 5]>,
+    /// The candidates of a leaf: metric, rank of the parent path, bit.
+    cand: Vec<(f64, usize, u8)>,
+    /// The leaf LLR of every path, by rank.
+    lam: Vec<f64>,
+    /// Whether a parent rank already gave its slot to a child.
+    claimed: Vec<bool>,
+    /// The slots of the next paths, by rank.
+    next: Vec<usize>,
+    /// The decisions: (rank of the parent, bit), `start[φ]..start[φ + 1]` for leaf φ.
+    hist: Vec<(u32, u8)>,
+    start: Vec<usize>,
+}
+
+impl ListDecoder {
+    fn new(n: usize, list: usize) -> ListDecoder {
+        let m = n.trailing_zeros() as usize;
+        let llr = (0..=m).map(|l| Pool::new(n >> l, if l == 0 { 1 } else { list }, list)).collect();
+        let bits = (0..m).map(|l| Pool::new(n >> l, list, list)).collect();
+        ListDecoder {
+            m,
+            list,
+            llr,
+            bits,
+            order: Vec::with_capacity(list),
+            free: Vec::with_capacity(list),
+            pm: vec![0.0; list],
+            reg: vec![[0; 5]; list],
+            cand: Vec::with_capacity(2 * list),
+            lam: Vec::with_capacity(list),
+            claimed: Vec::with_capacity(list),
+            next: Vec::with_capacity(list),
+            hist: Vec::with_capacity(n * list),
+            start: Vec::with_capacity(n + 1),
+        }
+    }
+
+    /// The LLR of leaf `phi` for the path in slot `path`.
+    fn leaf_llr(&mut self, path: usize, phi: usize) -> f64 {
+        let m = self.m;
+        let first = if phi == 0 { 1 } else { m - phi.trailing_zeros() as usize };
+        for layer in first..=m {
+            let half = 1usize << (m - layer);
+            let (above, below) = self.llr.split_at_mut(layer);
+            let (a, b) = above[layer - 1].array(path).split_at(half);
+            let pool = &mut below[0];
+            let dst = pool.writable(path, 0);
+            let child = pool.array_mut(dst);
+            if (phi >> (m - layer)) & 1 == 0 {
+                for ((c, x), y) in child.iter_mut().zip(a).zip(b) {
+                    *c = f(*x, *y);
+                }
+            } else {
+                let partial = &self.bits[layer - 1].array(path)[..half];
+                for (((c, x), y), &s) in child.iter_mut().zip(a).zip(b).zip(partial) {
+                    *c = g(*x, *y, s);
+                }
+            }
+        }
+        self.llr[m].array(path)[0]
+    }
+
+    /// Record the decision `bit` of leaf `phi` in the partial sums of slot `path`.
+    fn set_bit(&mut self, path: usize, phi: usize, bit: u8) {
+        let m = self.m;
+        let mut side = phi & 1;
+        let pool = &mut self.bits[m - 1];
+        let a = pool.writable(path, side);
+        pool.array_mut(a)[side] = bit;
+        // a completed right child completes its parent: x = (x_left ⊕ x_right, x_right)
+        let (mut layer, mut len) = (m - 1, 1);
+        while side == 1 && layer > 0 {
+            let (above, below) = self.bits.split_at_mut(layer);
+            let pool = &mut below[0];
+            let a = pool.of[path];
+            let node = pool.array_mut(a);
+            let (l, r) = node.split_at_mut(len);
+            for (x, y) in l.iter_mut().zip(r.iter()) {
+                *x ^= y;
+            }
+            side = (phi >> (m - layer)) & 1;
+            let parent = &mut above[layer - 1];
+            let b = parent.writable(path, side * 2 * len);
+            parent.array_mut(b)[side * 2 * len..(side + 1) * 2 * len].copy_from_slice(node);
+            layer -= 1;
+            len *= 2;
+        }
+    }
+
+    /// The decisions $u$ and the metrics of the surviving paths, the most likely first.
+    fn decode(&mut self, llr: &[f64], info: &[bool], pc: &[bool]) -> Vec<(Vec<u8>, f64)> {
+        let n = llr.len();
+        for p in &mut self.llr {
+            p.reset();
+        }
+        for p in &mut self.bits {
+            p.reset();
+        }
+        self.llr[0].data.copy_from_slice(llr);
+        self.order.clear();
+        self.order.push(0);
+        self.free.clear();
+        self.free.extend((1..self.list).rev());
+        self.pm[0] = 0.0;
+        self.reg[0] = [0; 5];
+        self.hist.clear();
+        self.start.clear();
+        for phi in 0..n {
+            self.lam.clear();
+            for r in 0..self.order.len() {
+                let lam = self.leaf_llr(self.order[r], phi);
+                self.lam.push(lam);
+            }
+            self.cand.clear();
+            for (r, (&slot, &lam)) in self.order.iter().zip(&self.lam).enumerate() {
+                let pm = self.pm[slot];
+                let cost = |bit: u8| {
+                    let s = if bit == 0 { lam } else { -lam };
+                    pm + ln_1p_exp(-s)
+                };
+                if pc[phi] {
+                    // the register before u_φ, rotated once more: its second cell
+                    let bit = self.reg[slot][1];
+                    self.cand.push((cost(bit), r, bit));
+                } else if info[phi] {
+                    self.cand.push((cost(0), r, 0));
+                    self.cand.push((cost(1), r, 1));
+                } else {
+                    self.cand.push((cost(0), r, 0));
+                }
+            }
+            // a stable sort by metric: the ties keep the order (rank, bit)
+            self.cand.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then((x.1, x.2).cmp(&(y.1, y.2))));
+            self.cand.truncate(self.list);
+            // the paths without a surviving child free their slot and arrays, then a
+            // parent with two children shares its arrays with the second one
+            self.claimed.clear();
+            self.claimed.resize(self.order.len(), false);
+            for c in &self.cand {
+                self.claimed[c.1] = true;
+            }
+            for r in 0..self.order.len() {
+                if !self.claimed[r] {
+                    let slot = self.order[r];
+                    for p in &mut self.llr {
+                        p.release(slot);
+                    }
+                    for p in &mut self.bits {
+                        p.release(slot);
+                    }
+                    self.free.push(slot);
+                }
+            }
+            self.claimed.fill(false);
+            self.next.clear();
+            for k in 0..self.cand.len() {
+                let r = self.cand[k].1;
+                let parent = self.order[r];
+                let slot = if self.claimed[r] {
+                    let slot = self.free.pop().unwrap_or_else(|| unreachable!("at most L paths"));
+                    for p in &mut self.llr {
+                        p.share(parent, slot);
+                    }
+                    for p in &mut self.bits {
+                        p.share(parent, slot);
+                    }
+                    self.reg[slot] = self.reg[parent];
+                    slot
+                } else {
+                    self.claimed[r] = true;
+                    parent
+                };
+                self.next.push(slot);
+            }
+            self.start.push(self.hist.len());
+            for k in 0..self.cand.len() {
+                let (metric, r, bit) = self.cand[k];
+                let slot = self.next[k];
+                self.pm[slot] = metric;
+                let reg = &mut self.reg[slot];
+                reg.rotate_left(1);
+                if info[phi] && !pc[phi] {
+                    reg[0] ^= bit;
+                }
+                self.hist.push((r as u32, bit));
+                if phi + 1 < n {
+                    self.set_bit(slot, phi, bit);
+                }
+            }
+            std::mem::swap(&mut self.order, &mut self.next);
+        }
+        self.start.push(self.hist.len());
+        (0..self.order.len())
+            .map(|rank| {
+                let mut u = vec![0u8; n];
+                let mut r = rank;
+                for phi in (0..n).rev() {
+                    let (parent, bit) = self.hist[self.start[phi] + r];
+                    u[phi] = bit;
+                    r = parent as usize;
+                }
+                (u, self.pm[self.order[rank]])
+            })
+            .collect()
     }
 }
 
@@ -311,41 +610,13 @@ impl PolarCode {
         (info, pc)
     }
 
+    /// The decisions $u$ and the metrics of the surviving paths of the list decoder, the
+    /// most likely first.
     fn decode_paths(&self, llr: &[f64]) -> Vec<(Vec<u8>, f64)> {
         let (info, pc) = self.masks();
-        let mut paths: Vec<(Vec<u8>, f64)> = vec![(Vec::with_capacity(self.n), 0.0)];
-        for i in 0..self.n {
-            let mut next = Vec::with_capacity(paths.len() * 2);
-            for (u, pm) in &paths {
-                let mut full = u.clone();
-                full.resize(self.n, 0);
-                let lam = leaf_llr(i, llr, &full);
-                let cost = |bit: u8| {
-                    let s = if bit == 0 { lam } else { -lam };
-                    pm + ln_1p_exp(-s)
-                };
-                if pc[i] {
-                    let mut v = u.clone();
-                    let bit = pc_register(&full, &info, &pc, i);
-                    v.push(bit);
-                    next.push((v, cost(bit)));
-                } else if info[i] {
-                    for bit in 0..2u8 {
-                        let mut v = u.clone();
-                        v.push(bit);
-                        next.push((v, cost(bit)));
-                    }
-                } else {
-                    let mut v = u.clone();
-                    v.push(0);
-                    next.push((v, cost(0)));
-                }
-            }
-            next.sort_by(|a, b| a.1.total_cmp(&b.1));
-            next.truncate(self.list.max(1));
-            paths = next;
-        }
-        paths
+        // the workspace (about L n values) costs less than the noise of the timing to
+        // allocate per frame; `BlockCode` takes `&self` and cannot keep it
+        ListDecoder::new(self.n, self.list.max(1)).decode(llr, &info, &pc)
     }
 }
 
@@ -462,6 +733,105 @@ mod tests {
         assert_eq!(BlockCode::k(&twice), 64);
         assert_eq!(twice.info_positions().len(), 64 + 6);
         assert_eq!(twice.crc().map(Crc::width), Some(6));
+    }
+
+    /// The decoder before the arrays of Tal & Vardy: every leaf computed from the channel
+    /// with the decisions of its path, $O(L n^{2} \log n)$, and the paths copied whole.
+    fn reference_paths(code: &PolarCode, llr: &[f64]) -> Vec<(Vec<u8>, f64)> {
+        fn leaf_llr(i: usize, ch: &[f64], u: &[u8]) -> f64 {
+            let n = ch.len();
+            if n == 1 {
+                return ch[0];
+            }
+            let h = n / 2;
+            let (a, b) = ch.split_at(h);
+            if i < h {
+                let v: Vec<f64> = a.iter().zip(b).map(|(x, y)| f(*x, *y)).collect();
+                leaf_llr(i, &v, u)
+            } else {
+                let mut x = u[..h].to_vec();
+                transform(&mut x);
+                let v: Vec<f64> =
+                    a.iter().zip(b).zip(&x).map(|((p, q), &xb)| q + if xb == 0 { *p } else { -p }).collect();
+                leaf_llr(i - h, &v, &u[h..])
+            }
+        }
+        let (info, pc) = code.masks();
+        let mut paths: Vec<(Vec<u8>, f64)> = vec![(Vec::with_capacity(code.n), 0.0)];
+        for i in 0..code.n {
+            let mut next = Vec::with_capacity(paths.len() * 2);
+            for (u, pm) in &paths {
+                let mut full = u.clone();
+                full.resize(code.n, 0);
+                let lam = leaf_llr(i, llr, &full);
+                let cost = |bit: u8| {
+                    let s = if bit == 0 { lam } else { -lam };
+                    pm + ln_1p_exp(-s)
+                };
+                let bits: &[u8] = if pc[i] {
+                    &[pc_register(&full, &info, &pc, i)]
+                } else if info[i] {
+                    &[0, 1]
+                } else {
+                    &[0]
+                };
+                for &bit in bits {
+                    let mut v = u.clone();
+                    v.push(bit);
+                    next.push((v, cost(bit)));
+                }
+            }
+            next.sort_by(|a, b| a.1.total_cmp(&b.1));
+            next.truncate(code.list.max(1));
+            paths = next;
+        }
+        paths
+    }
+
+    #[test]
+    fn the_list_decoder_matches_the_leaf_by_leaf_reference() {
+        let mut r = Rng::new(2015);
+        let mut cases = 0;
+        for m in 3..=10 {
+            let n = 1usize << m;
+            for list in [1, 2, 8, 32] {
+                let frames = 3;
+                for frame in 0..frames {
+                    let k = 1 + r.below(n - 1);
+                    let code = match frame % 3 {
+                        0 => PolarCode::new(n, k, -1.0 + 4.0 * r.uniform()).unwrap(),
+                        1 if k + 6 <= n => PolarCode::new(n, k, 2.0).unwrap().with_crc(Crc::crc6()).unwrap(),
+                        _ => {
+                            // a table code with parity-check positions
+                            let mut pos: Vec<usize> = (0..n).collect();
+                            r.shuffle(&mut pos);
+                            let n_pc = (n / 8).min(n - k);
+                            PolarCode::with_positions(n, &pos[..k], &pos[k..k + n_pc]).unwrap()
+                        }
+                    }
+                    .with_list(list);
+                    let info: Vec<u8> = (0..code.k).map(|_| r.bit()).collect();
+                    let c = code.encode_block(&info).unwrap();
+                    let s2 = 0.3 + 1.5 * r.uniform();
+                    let mut llr = awgn_llr(&c, s2, &mut r);
+                    if frame == 1 {
+                        // integer LLRs and zeros: ties between the paths
+                        for l in &mut llr {
+                            *l = (*l / 2.0).round();
+                        }
+                    }
+                    let got = code.decode_paths(&llr);
+                    let want = reference_paths(&code, &llr);
+                    assert_eq!(got.len(), want.len(), "n {n}, L {list}");
+                    for ((gu, gm), (wu, wm)) in got.iter().zip(&want) {
+                        assert_eq!(gu, wu, "n {n}, K {k}, L {list}, frame {frame}");
+                        assert_eq!(gm.to_bits(), wm.to_bits(), "n {n}, K {k}, L {list}, frame {frame}");
+                    }
+                    cases += 1;
+                }
+            }
+        }
+        assert!(cases > 40);
     }
 
     #[test]

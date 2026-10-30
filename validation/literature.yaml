@@ -220,11 +220,11 @@
   area: Coding and shaping
   ref: "I. Tal, A. Vardy, List decoding of polar codes, IT 61(5), 2015"
   module: com_fec::polar
-  tested: "Fig. 1: the word error rate of a (2048, 1024) polar code designed at 2 dB, SC at 1.5, 2 and 2.5 dB and a list of 8 at 1.5 and 2 dB, within a factor 1.6 (another construction), and the gain of the list over SC"
+  tested: "Fig. 1: the word error rate of a (2048, 1024) polar code designed at 2 dB, SC at 1.5, 2 and 2.5 dB and lists of 8 and 32 at 1.5 and 2 dB, within a factor 1.6 (another construction), the gain of the list of 8 over SC and of the list of 32 over the list of 8"
   tests:
     - validation/tests/tal2015.rs::tal_vardy_2015_fig_1
   badge: orange
-  not_covered: "the decoders are O(L n^2 log n) per frame, not the O(L n log n) of Sec. IV (the list of 32 is too slow to check at 2 dB); the construction of Tal & Vardy 2013; Figs. 2, 6 and 7 (CRC-aided lists)"
+  not_covered: "the construction of Tal & Vardy 2013; Figs. 2, 6 and 7 (CRC-aided lists)"
 - id: yasuda1984
   area: Coding and shaping
   ref: "Y. Yasuda, K. Kashiki, Y. Hirata, High-rate punctured convolutional codes, TCOM 32(3), 1984"
