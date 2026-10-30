@@ -2088,7 +2088,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `fn Otfs::transform_channel(&self, h: &CMat) -> Result<CMat>` — The effective channel $(F_{N} \otimes I_{M}) H (F_{N}^{H} \otimes I_{M})$ of a
 - `struct EffectiveChannel` — The effective delay–Doppler channel of [`Otfs::effective_channel`]: an $MN \times MN$
 - `fn EffectiveChannel::size(&self) -> usize` — The size $MN$ of the square matrix.
-- `fn EffectiveChannel::paths(&self) -> usize` — The number $P$ of entries per row (the paths).
+- `fn EffectiveChannel::n_paths(&self) -> usize` — The number $P$ of entries per row (the paths).
 - `fn EffectiveChannel::row(&self, p: usize) -> impl Iterator<Item = (usize, C64)> + '_` — The entries `(column, value)` of row `p`, one per path.
 - `fn EffectiveChannel::apply(&self, x: &[C64]) -> Result<Vec<C64>>` — $\mathbf{y} = H_{\mathrm{eff}} \mathbf{x}$, in $O(MNP)$ operations.
 - `fn EffectiveChannel::to_dense(&self) -> CMat` — The dense $MN \times MN$ matrix ($16 (MN)^{2}$ bytes: 16 MB at $32 \times 32$), for

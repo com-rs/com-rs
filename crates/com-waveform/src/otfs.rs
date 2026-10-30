@@ -198,7 +198,7 @@ impl Otfs {
     /// // M N = 32 samples at 32 kHz: one Doppler bin is 1 kHz
     /// let o = Otfs { sample_rate: Hertz(32e3), ..Otfs::new(8, 4)? };
     /// let h = o.effective_channel(&[Path { gain: C64::new(1.0, 0.0), delay: 1, doppler_hz: 1e3 }])?;
-    /// assert_eq!((h.size(), h.paths()), (32, 1));
+    /// assert_eq!((h.size(), h.n_paths()), (32, 1));
     /// let x: Vec<C64> = (0..32).map(|i| C64::new(i as f64, 0.0)).collect();
     /// let y = h.apply(&x)?;
     /// let dense = h.to_dense();
@@ -286,7 +286,7 @@ impl EffectiveChannel {
     }
 
     /// The number $P$ of entries per row (the paths).
-    pub fn paths(&self) -> usize {
+    pub fn n_paths(&self) -> usize {
         self.n_paths
     }
 
