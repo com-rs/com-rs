@@ -207,7 +207,8 @@ impl Runner {
         self
     }
 
-    /// Confidence level of the intervals reported by the loggers (default 0.95).
+    /// Confidence level of the intervals reported by the loggers (default 0.95), in
+    /// $(0, 1)$ ([`Runner::run`] refuses another value).
     pub fn confidence(mut self, c: f64) -> Runner {
         self.confidence = c;
         self
@@ -234,12 +235,16 @@ impl Runner {
     /// Run the scenario on every condition of the grid.
     ///
     /// # Errors
-    /// [`Error::Config`] for a stopping rule that can never stop, or whose target is a
+    /// [`Error::Config`] for a confidence level outside $(0, 1)$ (of the runner or of a
+    /// precision target, see [`check_confidence`](crate::stopping::check_confidence));
+    /// for a stopping rule that can never stop, or whose target is a
     /// metric that the first batch of a condition does not record (or `min_errors` on a
     /// mean, see [`Stop::check_metrics`]); the first error of a `setup` or of a trial, of
     /// the same kind, with the condition and the trial in the message; the errors of the
     /// loggers.
     pub fn run<S: Scenario>(mut self, scenario: &S, grid: &Grid) -> Result<Vec<ConditionResult>> {
+        crate::stopping::check_confidence(self.confidence, "the runner")?;
+        self.stop.check_confidences()?;
         if !self.fast_dev_run && !self.stop.is_bounded() {
             return Err(Error::Config(format!(
                 "the stopping rule `{}` can run forever: add Stop::max_trials or Stop::max_time with `or`",
@@ -433,6 +438,19 @@ mod tests {
         // a dev run (`comrs check`) checks it too
         let rule = Stop::precision("evm", 0.1).or(Stop::max_trials(10));
         assert!(Runner::new().fast_dev_run(true).stop(rule).run(&coin(), &grid).is_err());
+    }
+
+    #[test]
+    fn a_confidence_outside_zero_one_is_an_error() {
+        let grid = Grid::new();
+        for c in [95.0, 0.0, 1.0, f64::NAN] {
+            let e = Runner::new().confidence(c).stop(Stop::max_trials(1)).run(&coin(), &grid).unwrap_err();
+            assert!(e.to_string().contains("between 0 and 1"), "{c}: {e}");
+        }
+        let rule = Stop::precision_at("u", 0.1, 95.0).or(Stop::max_trials(4));
+        assert!(Runner::new().stop(rule).run(&coin(), &grid).is_err());
+        let rule = Stop::precision_at("u", 1e-9, 0.5).or(Stop::max_trials(4));
+        assert_eq!(Runner::new().batch(2).stop(rule).run(&coin(), &grid).unwrap()[0].trials, 4);
     }
 
     #[test]

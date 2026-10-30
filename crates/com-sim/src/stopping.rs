@@ -108,7 +108,19 @@ impl Stop {
 
     /// Stop when the 95 % interval of `metric` is within `±relative` of its value.
     pub fn precision(metric: &str, relative: f64) -> Stop {
-        Stop::Precision { metric: metric.to_string(), relative, confidence: 0.95 }
+        Stop::precision_at(metric, relative, 0.95)
+    }
+
+    /// Stop when the interval of level `confidence` of `metric` is within `±relative` of
+    /// its value (the runner refuses a level outside $(0, 1)$, see [`check_confidence`]).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::stopping::Stop;
+    /// assert_eq!(Stop::precision_at("snr_db", 0.01, 0.99).to_string(), "precision(snr_db) ≤ 0.01 at 0.99");
+    /// ```
+    pub fn precision_at(metric: &str, relative: f64, confidence: f64) -> Stop {
+        Stop::Precision { metric: metric.to_string(), relative, confidence }
     }
 
     /// Stop after `d` of wall time on the condition.
@@ -184,6 +196,19 @@ impl Stop {
         }
     }
 
+    /// Check the confidence levels of the precision targets of the rule
+    /// ([`check_confidence`]).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a level outside $(0, 1)$.
+    pub fn check_confidences(&self) -> Result<()> {
+        match self {
+            Stop::Precision { confidence, .. } => check_confidence(*confidence, &format!("the stopping rule `{self}`")),
+            Stop::Any(v) | Stop::All(v) => v.iter().try_for_each(Stop::check_confidences),
+            Stop::MaxTrials(_) | Stop::MinTrials(_) | Stop::MinErrors { .. } | Stop::MaxTime(_) => Ok(()),
+        }
+    }
+
     /// Check that every target of the rule can be met by the metrics of `record` (the
     /// record of a first batch of trials).
     ///
@@ -221,6 +246,27 @@ impl Stop {
             }
         }
         Ok(())
+    }
+}
+
+/// Check a confidence level: a probability strictly between 0 and 1 (`0.95`, not `95`),
+/// `what` naming where it was given.
+///
+/// # Errors
+/// [`Error::Config`] for a level outside $(0, 1)$ or not a number.
+///
+/// # Examples
+/// ```
+/// use com_sim::stopping::check_confidence;
+/// assert!(check_confidence(0.95, "confidence").is_ok());
+/// let e = check_confidence(95.0, "confidence").unwrap_err().to_string();
+/// assert!(e.contains("between 0 and 1"), "{e}");
+/// ```
+pub fn check_confidence(c: f64, what: &str) -> Result<()> {
+    if c > 0.0 && c < 1.0 {
+        Ok(())
+    } else {
+        Err(Error::Config(format!("{what}: the confidence level must be between 0 and 1 (0.95 for 95 %), got {c}")))
     }
 }
 
