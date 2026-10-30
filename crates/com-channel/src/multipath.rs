@@ -211,13 +211,39 @@ pub fn rms_delay_spread(taps: &[(f64, f64)]) -> f64 {
 
 /// The channel taps of a realisation: for every tap its delay (samples) and its
 /// coefficients, `[tap][sample][rx][tx]` flattened.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// A time-invariant realisation ([`Taps::time_invariant`], a [`Tdl`] without Doppler, a
+/// static [`crate::cdl::Rays`]) stores one `n_rx × n_tx` matrix per tap instead of one per
+/// sample: the accessors give the same coefficient at every sample. Equality compares
+/// the coefficients, whatever the storage.
+#[derive(Clone, Debug)]
 pub struct Taps {
     delays: Vec<usize>,
     n_rx: usize,
     n_tx: usize,
     n_samples: usize,
+    // `[sample][rx][tx]` per tap, or `[rx][tx]` when `invariant`
     coeffs: Vec<Vec<C64>>,
+    invariant: bool,
+}
+
+impl PartialEq for Taps {
+    fn eq(&self, other: &Taps) -> bool {
+        let same_shape = self.delays == other.delays
+            && (self.n_rx, self.n_tx, self.n_samples) == (other.n_rx, other.n_tx, other.n_samples);
+        if !same_shape {
+            return false;
+        }
+        if self.invariant == other.invariant {
+            return self.coeffs == other.coeffs;
+        }
+        (0..self.delays.len()).all(|l| {
+            (0..self.n_samples).all(|n| {
+                (0..self.n_rx)
+                    .all(|r| (0..self.n_tx).all(|t| self.coefficient(l, n, r, t) == other.coefficient(l, n, r, t)))
+            })
+        })
+    }
 }
 
 impl Taps {
@@ -233,7 +259,44 @@ impl Taps {
         for c in &coeffs {
             same_len(c.len(), n_samples * n_rx * n_tx, "coefficients of a tap and samples × antennas")?;
         }
-        Ok(Taps { delays, n_rx, n_tx, n_samples, coeffs })
+        Ok(Taps { delays, n_rx, n_tx, n_samples, coeffs, invariant: false })
+    }
+
+    /// The taps of a channel constant over its `n_samples` samples: `coeffs[l]` holds the
+    /// `n_rx × n_tx` coefficients of tap `l`, `[rx][tx]` flattened, stored once
+    /// ($n_{\mathrm{samples}}$ times less memory than [`Taps::new`]).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `coeffs` has not one entry per delay, or an entry of the
+    /// wrong length.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_channel::multipath::Taps;
+    /// use com_math::C64;
+    /// let h = Taps::time_invariant(vec![0, 2], 1, 1, 1000, vec![vec![C64::new(1.0, 0.0)], vec![C64::new(0.0, 0.5)]])?;
+    /// assert!(h.is_time_invariant());
+    /// assert_eq!(h.coefficient(1, 999, 0, 0), C64::new(0.0, 0.5));
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn time_invariant(
+        delays: Vec<usize>,
+        n_rx: usize,
+        n_tx: usize,
+        n_samples: usize,
+        coeffs: Vec<Vec<C64>>,
+    ) -> Result<Taps> {
+        same_len(coeffs.len(), delays.len(), "coefficients and delays")?;
+        for c in &coeffs {
+            same_len(c.len(), n_rx * n_tx, "coefficients of a tap and antennas")?;
+        }
+        Ok(Taps { delays, n_rx, n_tx, n_samples, coeffs, invariant: true })
+    }
+
+    /// Whether the coefficients are stored once for every sample (a channel constant
+    /// over the realisation, [`Taps::time_invariant`]).
+    pub fn is_time_invariant(&self) -> bool {
+        self.invariant
     }
 
     /// Delays of the taps (samples).
@@ -316,8 +379,15 @@ impl Taps {
         for (r, row) in out.iter_mut().enumerate() {
             for (l, &d) in self.delays.iter().enumerate() {
                 for (t, xs) in x.iter().enumerate() {
-                    for i in d..n {
-                        row[i] += self.coefficient(l, i, r, t) * xs[i - d];
+                    if self.invariant {
+                        let h = self.coeffs[l][r * self.n_tx + t];
+                        for i in d..n {
+                            row[i] += h * xs[i - d];
+                        }
+                    } else {
+                        for i in d..n {
+                            row[i] += self.coefficient(l, i, r, t) * xs[i - d];
+                        }
                     }
                 }
             }
@@ -327,8 +397,16 @@ impl Taps {
 
     /// Coefficient of tap `l` at sample `n` between transmit antenna `t` and receive
     /// antenna `r`.
+    ///
+    /// # Panics
+    /// If `l` is not a tap or `n` not a sample of the realisation.
     pub fn coefficient(&self, l: usize, n: usize, r: usize, t: usize) -> C64 {
-        self.coeffs[l][(n * self.n_rx + r) * self.n_tx + t]
+        if self.invariant {
+            assert!(n < self.n_samples, "sample {n} of a realisation of {}", self.n_samples);
+            self.coeffs[l][r * self.n_tx + t]
+        } else {
+            self.coeffs[l][(n * self.n_rx + r) * self.n_tx + t]
+        }
     }
 
     /// The frequency response $H_{k} = \sum_{l} h_{l}\[n\] e^{-j 2\pi k d_{l} / N}$ at sample
@@ -420,23 +498,28 @@ impl Tdl {
         com_dsp::estimation::frequency_correlation(&delays, &self.powers, delta as f64, fft_len)
     }
 
-    /// Draw the taps for `n_samples` samples.
+    /// Draw the taps for `n_samples` samples (stored once for all of them without
+    /// Doppler, [`Taps::is_time_invariant`]).
     pub fn draw(&self, n_samples: usize, rng: &mut SimRng) -> Taps {
         let m = self.sinusoids.max(1);
         let links = self.n_rx * self.n_tx;
+        if self.doppler_hz == 0.0 {
+            let coeffs = self.powers.iter().map(|&p| (0..links).map(|_| rng.complex_gaussian() * p.sqrt()).collect());
+            return Taps {
+                delays: self.delays.clone(),
+                n_rx: self.n_rx,
+                n_tx: self.n_tx,
+                n_samples,
+                coeffs: coeffs.collect(),
+                invariant: true,
+            };
+        }
         let coeffs = self
             .powers
             .iter()
             .map(|&p| {
                 let mut c = vec![C64::new(0.0, 0.0); n_samples * links];
                 for link in 0..links {
-                    if self.doppler_hz == 0.0 {
-                        let g = rng.complex_gaussian() * p.sqrt();
-                        for n in 0..n_samples {
-                            c[n * links + link] = g;
-                        }
-                        continue;
-                    }
                     // Zheng & Xiao: angles (2πi - π + θ)/(4M), independent phases on I and Q
                     let theta = rng.uniform() * 2.0 * PI - PI;
                     let comps: Vec<(f64, f64, f64)> = (0..m)
@@ -460,7 +543,7 @@ impl Tdl {
                 c
             })
             .collect();
-        Taps { delays: self.delays.clone(), n_rx: self.n_rx, n_tx: self.n_tx, n_samples, coeffs }
+        Taps { delays: self.delays.clone(), n_rx: self.n_rx, n_tx: self.n_tx, n_samples, coeffs, invariant: false }
     }
 
     /// Apply the channel to `x` (`n_tx` streams), the samples before the signal being
@@ -572,7 +655,7 @@ impl DelayDoppler {
                     .collect()
             })
             .collect();
-        Taps { delays, n_rx: 1, n_tx: 1, n_samples, coeffs }
+        Taps { delays, n_rx: 1, n_tx: 1, n_samples, coeffs, invariant: false }
     }
 }
 
@@ -654,6 +737,40 @@ impl Propagate for Tdl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // without Doppler the taps are stored once, with the coefficients (and the output)
+    // of the dense storage: EVA 4 × 4 over 10^6 samples takes 2.3 kB instead of 2.3 GB
+    #[test]
+    fn static_taps_are_stored_once_with_the_dense_coefficients() {
+        let ch = Tdl::new(&Profile::Eva.taps(), 0.0, 15.36e6, 2, 3).unwrap();
+        let t = ch.draw(40, &mut SimRng::new(4));
+        assert!(t.is_time_invariant());
+        assert!(t.coeffs.iter().all(|c| c.len() == 6));
+        let dense: Vec<Vec<C64>> = (0..t.delays().len())
+            .map(|l| {
+                (0..40)
+                    .flat_map(|n| (0..2).flat_map(move |r| (0..3).map(move |s| (n, r, s))))
+                    .map(|(n, r, s)| t.coefficient(l, n, r, s))
+                    .collect()
+            })
+            .collect();
+        let d = Taps::new(t.delays().to_vec(), 2, 3, 40, dense).unwrap();
+        assert!(!d.is_time_invariant());
+        assert_eq!(t, d);
+        let x: Vec<Vec<C64>> = (0..3).map(|k| (0..40).map(|n| C64::new(n as f64, k as f64)).collect()).collect();
+        assert_eq!(t.apply(&x).unwrap(), d.apply(&x).unwrap());
+        assert_eq!(t.frequency_response(39, &[0, 5], 64), d.frequency_response(39, &[0, 5], 64));
+        let moving = Tdl { doppler_hz: 10.0, ..ch };
+        assert!(!moving.draw(40, &mut SimRng::new(4)).is_time_invariant());
+        assert!(Taps::time_invariant(vec![0], 2, 2, 10, vec![vec![C64::new(0.0, 0.0); 3]]).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "sample 40 of a realisation of 40")]
+    fn static_taps_reject_a_sample_beyond_the_realisation() {
+        let t = Tdl::new(&Profile::Epa.taps(), 0.0, 15.36e6, 1, 1).unwrap().draw(40, &mut SimRng::new(1));
+        let _ = t.coefficient(0, 40, 0, 0);
+    }
 
     #[test]
     fn profiles_have_their_published_delay_spreads() {

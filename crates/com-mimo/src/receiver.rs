@@ -208,12 +208,16 @@ impl Receiver {
             out.symbols.extend(z);
             out.noise_var.extend(var);
         } else {
-            let labels = self.detector.detect(&hv, y, noise_var)?;
+            // the decisions and the LLRs of one search
+            let labels = if self.llr {
+                let (labels, llr) = self.detector.detect_llr(&hv, y, noise_var)?;
+                out.llr.extend(llr);
+                labels
+            } else {
+                self.detector.detect(&hv, y, noise_var)?
+            };
             out.symbols.extend(labels.iter().map(|&i| self.constellation.points()[i]));
             out.noise_var.extend(std::iter::repeat_n(noise_var, labels.len()));
-            if self.llr {
-                out.llr.extend(self.detector.llr(&hv, y, noise_var)?);
-            }
         }
         Ok(())
     }

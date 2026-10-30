@@ -20,8 +20,10 @@
 //!   $10 \log_{10}(\tfrac{3}{2}\, 4^{N}) = 6.02 N + 1.76$ dB ([`sqnr_sine_db`]).
 //! - **Gaussian inputs.** For $X \sim \mathcal{N}(0, \sigma^{2})$ (an OFDM signal, per
 //!   dimension), the loading factor $\lambda = A/\sigma$ trades the granular noise against
-//!   the clipping (overload) noise; [`gaussian_mse`] is their exact sum, cell by cell,
-//!   with the overload cells in closed form
+//!   the clipping (overload) noise; [`gaussian_mse`] is their exact sum, the granular
+//!   cells summed in closed form (an Euler–Maclaurin expansion, of a cost independent of
+//!   the number of bits) or by quadrature for coarse steps, with the overload cells in
+//!   closed form
 //!   $\int_{c}^{\infty} (u - y)^{2} \varphi(u)\\, du = (1 + y^{2}) Q(c) + (c - 2y) \varphi(c)$,
 //!   and [`optimal_loading`] the $\lambda$ that minimises it.
 //! - **Effective number of bits.** An ADC of $\mathrm{ENOB} < N$ bits has the SINAD
@@ -156,18 +158,41 @@ fn normal(u: f64) -> (f64, f64) {
     (com_math::qfunc(-u), com_math::normal_pdf(u))
 }
 
-/// The exact mean squared error of `q` (one dimension) for $X \sim \mathcal{N}(0, \sigma^{2})$:
-/// the granular cells by Gauss–Legendre quadrature, the two overload cells in closed
-/// form (see the module).
-pub fn gaussian_mse(q: &Quantizer, sigma: f64) -> f64 {
-    // five-point Gauss–Legendre on [-1, 1]: exact up to degree 9
+/// The largest step (in units of $\sigma$) at which [`gaussian_mse`] sums the granular
+/// cells by their Euler–Maclaurin expansion; coarser quantisers (at most $2A/(0.05
+/// \sigma)$ levels) are integrated cell by cell.
+const SERIES_MAX_STEP: f64 = 0.05;
+
+/// The granular error $\sum_{k} \int_{\mathrm{cell}\\, k} (u - m_{k})^{2} \varphi(u)\\, du$ of
+/// the `levels - 2` inner cells of a quantiser of step `d` and full scale `a`
+/// ($\sigma = 1$), of midpoints $m_{k}$, covering $[-c, c]$ with $c = A - \Delta$.
+///
+/// With $(u - m_{k})^{2} = \Delta^{2} (\tfrac{1}{12} + \tilde B_{2}(u))$, $\tilde B_{2}$ the
+/// periodic Bernoulli polynomial of the cells, integrating by parts against its periodic
+/// antiderivatives (which vanish or equal $\Delta^{k} \frac{2 B_{k+2}}{(k+2)!}$ on the
+/// edges of the cells) gives
+///
+/// $$
+/// \frac{\Delta^{2}}{12} \operatorname{erf}\\!\left(\frac{c}{\sqrt{2}}\right) -
+///   \Delta^{2} \varphi(c) \left(\frac{\Delta^{2}}{180} \mathrm{He}_{1}(c) -
+///   \frac{\Delta^{4}}{7560} \mathrm{He}_{3}(c) + \frac{\Delta^{6}}{302400} \mathrm{He}_{5}(c)\right),
+/// $$
+///
+/// $\mathrm{He}_{n}$ the probabilists' Hermite polynomials, with a remainder below
+/// $10^{-5} \Delta^{8}$ relative: $10^{-15}$ for $\Delta \le 0.05 \sigma$ (the error
+/// function of `com_math`, through `erfc` beyond $c = 2\sqrt{2}$, limits it to about
+/// $10^{-11}$). Coarser cells are integrated one by one by five-point Gauss–Legendre
+/// quadrature (exact up to degree 9 in $u$), at the same accuracy.
+fn granular_mse(d: f64, a: f64, levels: usize) -> f64 {
+    if d <= SERIES_MAX_STEP {
+        let c = a - d;
+        let c2 = c * c;
+        let (he1, he3, he5) = (c, c * (c2 - 3.0), c * (c2 * (c2 - 10.0) + 15.0));
+        let d2 = d * d;
+        let boundary = d2 * (he1 / 180.0 - d2 * (he3 / 7560.0 - d2 * he5 / 302_400.0));
+        return d2 * (com_math::erf(c / std::f64::consts::SQRT_2) / 12.0 - boundary * com_math::normal_pdf(c));
+    }
     let (nodes, weights) = com_math::gauss_legendre(5);
-    let (d, a) = (q.step() / sigma, q.full_scale / sigma);
-    let levels = 1usize << q.bits;
-    // the overload cells beyond ±(A - Δ), of level ±(A - Δ/2), are symmetric
-    let (c, y) = (a - d, a - d / 2.0);
-    let (phi_c, pdf_c) = normal(c);
-    let tail = (1.0 + y * y) * (1.0 - phi_c) + (c - 2.0 * y) * pdf_c;
     let mut inner = 0.0;
     for k in 1..levels - 1 {
         let lo = -a + k as f64 * d;
@@ -180,6 +205,22 @@ pub fn gaussian_mse(q: &Quantizer, sigma: f64) -> f64 {
             * d
             / 2.0;
     }
+    inner
+}
+
+/// The exact mean squared error of `q` (one dimension) for $X \sim \mathcal{N}(0, \sigma^{2})$:
+/// the granular cells summed in closed form (an Euler–Maclaurin expansion, or by
+/// quadrature for steps above $0.05 \sigma$, at most a few hundred cells), the two overload
+/// cells in closed form (see the module). Its cost does not depend on the number of
+/// bits.
+pub fn gaussian_mse(q: &Quantizer, sigma: f64) -> f64 {
+    let (d, a) = (q.step() / sigma, q.full_scale / sigma);
+    let levels = 1usize << q.bits;
+    // the overload cells beyond ±(A - Δ), of level ±(A - Δ/2), are symmetric
+    let (c, y) = (a - d, a - d / 2.0);
+    let (phi_c, pdf_c) = normal(c);
+    let tail = (1.0 + y * y) * (1.0 - phi_c) + (c - 2.0 * y) * pdf_c;
+    let inner = if levels > 2 { granular_mse(d, a, levels) } else { 0.0 };
     let tails = if levels == 2 {
         // one bit: the two cells are the half-lines, of levels ±Δ/2
         let y = d / 2.0;
@@ -331,6 +372,36 @@ mod tests {
         assert!((gaussian_mse(&one, 1.0) - (1.0 - 2.0 / PI)).abs() < 1e-12);
         // the optimal loading grows with the resolution
         assert!(optimal_loading(4) < optimal_loading(8));
+    }
+
+    // the Euler–Maclaurin sum of the fine quantisers against the cell-by-cell quadrature
+    // (its accuracy is that of erf beyond √2·2, 1.2e-7 relative on erfc)
+    #[test]
+    fn the_granular_series_is_the_cell_by_cell_quadrature() {
+        let (nodes, weights) = com_math::gauss_legendre(5);
+        for bits in 6..=16u32 {
+            for a in [0.5, 1.5, 2.5, 4.0, 6.0, 9.0] {
+                let levels = 1usize << bits;
+                let d = 2.0 * a / levels as f64;
+                let quadrature: f64 = (1..levels - 1)
+                    .map(|k| {
+                        let mid = -a + k as f64 * d + d / 2.0;
+                        let cell: f64 = nodes
+                            .iter()
+                            .zip(&weights)
+                            .map(|(x, w)| w * (x * d / 2.0).powi(2) * com_math::normal_pdf(mid + x * d / 2.0))
+                            .sum();
+                        cell * d / 2.0
+                    })
+                    .sum();
+                let series = granular_mse(d, a, levels);
+                assert!((series / quadrature - 1.0).abs() < 1e-10, "{bits} bits, A = {a}: {series} vs {quadrature}");
+            }
+        }
+        // 24 bits in closed form: Bennett's Δ²/12 over the probability of the range ±6σ
+        let d = Quantizer::new(24, 6.0).unwrap().step();
+        let bennett = d * d / 12.0 * (1.0 - 2.0 * com_math::qfunc(6.0 - d));
+        assert!((granular_mse(d, 6.0, 1 << 24) / bennett - 1.0).abs() < 1e-9);
     }
 
     #[test]

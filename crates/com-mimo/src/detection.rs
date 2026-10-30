@@ -90,8 +90,18 @@ pub trait MimoDetector {
         Err(Error::Config("this detector has no soft output".into()))
     }
 
+    /// The labels and the bit LLRs of one channel use, those of
+    /// [`MimoDetector::detect`] and [`MimoDetector::llr`]; the detectors with soft
+    /// output get both from one search.
+    ///
+    /// # Errors
+    /// As [`MimoDetector::llr`].
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+        Ok((self.detect(h, y, noise_var)?, self.llr(h, y, noise_var)?))
+    }
+
     /// Detect every column of `y` (`n_rx × T`) with the same channel: the labels,
-    /// `n_tx × T`.
+    /// `n_tx × T`. The detectors of this module factor the channel once for the block.
     ///
     /// # Errors
     /// As [`MimoDetector::detect`].
@@ -118,8 +128,29 @@ fn tall(h: &ArrayView2<'_, C64>, what: &str) -> Result<()> {
     })
 }
 
-fn distance2(h: &ArrayView2<'_, C64>, y: &[C64], x: &[C64]) -> f64 {
-    matvec(h, x).iter().zip(y).map(|(a, b)| (b - a).norm_sqr()).sum()
+/// The checks of a block `y` (`n_rx × T`) detected with one channel.
+fn check_block(h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<()> {
+    if y.nrows() != h.nrows() {
+        return Err(Error::Shape(format!("{} received streams for {} receive antennas", y.nrows(), h.nrows())));
+    }
+    check(h, &vec![C64::new(0.0, 0.0); h.nrows()], noise_var)
+}
+
+/// Detect every column of `y` with `detect` into the `n_tx × T` labels.
+fn by_column(
+    nt: usize,
+    y: &ArrayView2<'_, C64>,
+    mut detect: impl FnMut(&mut [C64]) -> Result<Vec<usize>>,
+) -> Result<Array2<usize>> {
+    let mut out = Array2::zeros((nt, y.ncols()));
+    let mut col = vec![C64::new(0.0, 0.0); y.nrows()];
+    for (t, c) in y.columns().into_iter().enumerate() {
+        col.iter_mut().zip(c).for_each(|(a, b)| *a = *b);
+        for (o, l) in out.column_mut(t).iter_mut().zip(detect(&mut col)?) {
+            *o = l;
+        }
+    }
+    Ok(out)
 }
 
 /// Zero-forcing or MMSE.
@@ -212,11 +243,13 @@ impl MimoDetector for Linear {
         self.constellation.llr_with_variances(&z, &var, None, false)
     }
 
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+        let (z, var) = self.estimate(h, y, noise_var)?;
+        Ok((self.constellation.decide(&z), self.constellation.llr_with_variances(&z, &var, None, false)?))
+    }
+
     fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
-        if y.nrows() != h.nrows() {
-            return Err(Error::Shape(format!("{} received streams for {} receive antennas", y.nrows(), h.nrows())));
-        }
-        check(h, &vec![C64::new(0.0, 0.0); h.nrows()], noise_var)?;
+        check_block(h, y, noise_var)?;
         let f = filter(h, self.criterion, self.constellation.energy(), noise_var)?;
         let z = f.w.dot(y);
         Ok(Array2::from_shape_fn(z.dim(), |(k, t)| self.constellation.nearest(z[[k, t]] / f.bias[k])))
@@ -247,13 +280,21 @@ impl Sic {
     }
 }
 
-impl MimoDetector for Sic {
-    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        check(h, y, noise_var)?;
+/// One stage of [`Sic`]: the stream detected, the row of its filter, its bias and its
+/// column of the channel (the filters depend on the channel only).
+struct SicStage {
+    stream: usize,
+    w: Vec<C64>,
+    bias: f64,
+    column: Vec<C64>,
+}
+
+impl Sic {
+    /// The stages of the cancellation for the channel `h`, in their order.
+    fn stages(&self, h: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Vec<SicStage>> {
         let es = self.constellation.energy();
         let mut remaining: Vec<usize> = (0..h.ncols()).collect();
-        let mut residual = y.to_vec();
-        let mut out = vec![0; h.ncols()];
+        let mut stages = Vec::with_capacity(h.ncols());
         while !remaining.is_empty() {
             let hc = Array2::from_shape_fn((h.nrows(), remaining.len()), |(i, j)| h[[i, remaining[j]]]);
             let f = filter(&hc.view(), self.criterion, es, noise_var)?;
@@ -262,16 +303,44 @@ impl MimoDetector for Sic {
             } else {
                 0
             };
-            let z: C64 = f.w.row(k).iter().zip(&residual).map(|(w, v)| w * v).sum::<C64>() / f.bias[k];
-            let idx = self.constellation.nearest(z);
-            let s = self.constellation.points()[idx];
-            for (r, hk) in residual.iter_mut().zip(hc.column(k)) {
-                *r -= hk * s;
-            }
-            out[remaining[k]] = idx;
+            stages.push(SicStage {
+                stream: remaining[k],
+                w: f.w.row(k).to_vec(),
+                bias: f.bias[k],
+                column: hc.column(k).to_vec(),
+            });
             remaining.remove(k);
         }
-        Ok(out)
+        Ok(stages)
+    }
+
+    /// Detect, subtract and repeat along the stages; `residual` starts as $y$.
+    fn cancel(&self, stages: &[SicStage], residual: &mut [C64]) -> Vec<usize> {
+        let mut out = vec![0; stages.len()];
+        for s in stages {
+            let z: C64 = s.w.iter().zip(residual.iter()).map(|(w, v)| w * v).sum::<C64>() / s.bias;
+            let idx = self.constellation.nearest(z);
+            let p = self.constellation.points()[idx];
+            for (r, hk) in residual.iter_mut().zip(&s.column) {
+                *r -= hk * p;
+            }
+            out[s.stream] = idx;
+        }
+        out
+    }
+}
+
+impl MimoDetector for Sic {
+    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
+        check(h, y, noise_var)?;
+        let stages = self.stages(h, noise_var)?;
+        Ok(self.cancel(&stages, &mut y.to_vec()))
+    }
+
+    fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
+        check_block(h, y, noise_var)?;
+        let stages = self.stages(h, noise_var)?;
+        by_column(h.ncols(), y, |col| Ok(self.cancel(&stages, col)))
     }
 }
 
@@ -288,32 +357,66 @@ impl Ml {
         Ml { constellation }
     }
 
-    /// Visit every hypothesis with its distance $\lVert y - H x \rVert^{2}$.
-    fn search(&self, h: &ArrayView2<'_, C64>, y: &[C64], mut visit: impl FnMut(&[usize], f64)) -> Result<()> {
-        let (m, nt) = (self.constellation.order(), h.ncols());
+    /// The products $h_{rk} s_{i}$ of every channel coefficient with every point, at
+    /// `[(k M + i) n_r + r]`: the terms of $H x$ for every hypothesis, computed once
+    /// per channel.
+    ///
+    /// # Errors
+    /// [`Error::Config`] when $M^{n_{t}}$ exceeds [`ML_MAX_HYPOTHESES`].
+    fn products(&self, h: &ArrayView2<'_, C64>) -> Result<Vec<C64>> {
+        let (m, nt, nr) = (self.constellation.order(), h.ncols(), h.nrows());
         let total = (0..nt).try_fold(1usize, |acc, _| acc.checked_mul(m)).filter(|t| *t <= ML_MAX_HYPOTHESES);
         ensure(total.is_some(), || format!("{m}^{nt} hypotheses exceed the limit of the exhaustive search"))?;
         let pts = self.constellation.points();
+        let mut prod = Vec::with_capacity(nt * m * nr);
+        for k in 0..nt {
+            for p in pts {
+                prod.extend((0..nr).map(|r| h[[r, k]] * p));
+            }
+        }
+        Ok(prod)
+    }
+
+    /// Visit every hypothesis with its distance $\lVert y - H x \rVert^{2}$, with the
+    /// products of [`Ml::products`] (the sums of [`matvec`], term by term: the same
+    /// bits).
+    fn search(&self, prod: &[C64], nt: usize, y: &[C64], mut visit: impl FnMut(&[usize], f64)) {
+        let (m, nr) = (self.constellation.order(), y.len());
         let mut idx = vec![0usize; nt];
-        let mut x = vec![pts[0]; nt];
         loop {
-            visit(&idx, distance2(h, y, &x));
+            let d: f64 = (0..nr)
+                .map(|r| {
+                    let a: C64 = idx.iter().enumerate().map(|(k, &i)| prod[(k * m + i) * nr + r]).sum();
+                    (y[r] - a).norm_sqr()
+                })
+                .sum();
+            visit(&idx, d);
             // odometer over the hypotheses
             let mut k = 0;
             loop {
                 if k == nt {
-                    return Ok(());
+                    return;
                 }
                 idx[k] += 1;
                 if idx[k] < m {
-                    x[k] = pts[idx[k]];
                     break;
                 }
                 idx[k] = 0;
-                x[k] = pts[0];
                 k += 1;
             }
         }
+    }
+
+    /// The labels of the smallest distance (the first one found among equals).
+    fn best(&self, prod: &[C64], nt: usize, y: &[C64]) -> Vec<usize> {
+        let mut best = (f64::INFINITY, vec![0; nt]);
+        self.search(prod, nt, y, |idx, d| {
+            if d < best.0 {
+                best.0 = d;
+                best.1.copy_from_slice(idx);
+            }
+        });
+        best.1
     }
 }
 
@@ -345,33 +448,58 @@ fn update_bits(best: &mut [[f64; 2]], idx: &[usize], bits: usize, d: f64) {
 impl MimoDetector for Ml {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         check(h, y, noise_var)?;
-        let mut best = (f64::INFINITY, vec![0; h.ncols()]);
-        self.search(h, y, |idx, d| {
-            if d < best.0 {
-                best = (d, idx.to_vec());
-            }
-        })?;
-        Ok(best.1)
+        Ok(self.best(&self.products(h)?, h.ncols(), y))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
+        Ok(self.detect_llr(h, y, noise_var)?.1)
+    }
+
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
         check(h, y, noise_var)?;
-        let bits = self.constellation.bits_per_symbol();
-        let mut best = vec![[f64::INFINITY; 2]; h.ncols() * bits];
-        self.search(h, y, |idx, d| update_bits(&mut best, idx, bits, d))?;
-        Ok(max_log(&best, noise_var, f64::INFINITY))
+        let prod = self.products(h)?;
+        let (nt, bits) = (h.ncols(), self.constellation.bits_per_symbol());
+        let mut best = (f64::INFINITY, vec![0; nt]);
+        let mut per_bit = vec![[f64::INFINITY; 2]; nt * bits];
+        self.search(&prod, nt, y, |idx, d| {
+            if d < best.0 {
+                best.0 = d;
+                best.1.copy_from_slice(idx);
+            }
+            update_bits(&mut per_bit, idx, bits, d);
+        });
+        Ok((best.1, max_log(&per_bit, noise_var, f64::INFINITY)))
+    }
+
+    fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
+        check_block(h, y, noise_var)?;
+        let prod = self.products(h)?;
+        by_column(h.ncols(), y, |col| Ok(self.best(&prod, h.ncols(), col)))
     }
 }
 
-/// The QR form of the search: $\lVert y - H x\rVert^{2} = \lVert z - R x\rVert^{2} + c$.
-fn triangular(h: &ArrayView2<'_, C64>, y: &[C64], what: &str) -> Result<(CMat, Vec<C64>)> {
-    tall(h, what)?;
-    let (q, r) = qr(h)?;
-    if (0..r.nrows()).any(|i| r[[i, i]].re <= 0.0) {
-        return Err(Error::Numerical("the channel is rank deficient".into()));
+/// The QR form of the search for one channel:
+/// $\lVert y - H x\rVert^{2} = \lVert Q^{H} y - R x\rVert^{2} + c$.
+struct Triangular {
+    r: CMat,
+    qh: CMat,
+}
+
+impl Triangular {
+    /// The factors of `h`; `what` names the detector in the errors.
+    fn new(h: &ArrayView2<'_, C64>, what: &str) -> Result<Triangular> {
+        tall(h, what)?;
+        let (q, r) = qr(h)?;
+        if (0..r.nrows()).any(|i| r[[i, i]].re <= 0.0) {
+            return Err(Error::Numerical("the channel is rank deficient".into()));
+        }
+        Ok(Triangular { r, qh: hermitian(&q.view()) })
     }
-    let z = matvec(&hermitian(&q.view()).view(), y);
-    Ok((r, z))
+
+    /// The rotated observation $z = Q^{H} y$.
+    fn rotate(&self, y: &[C64]) -> Vec<C64> {
+        matvec(&self.qh.view(), y)
+    }
 }
 
 /// One level of the depth-first search: the candidates sorted by partial distance,
@@ -394,56 +522,71 @@ impl Sphere {
     pub fn new(constellation: Constellation) -> Sphere {
         Sphere { constellation }
     }
-}
 
-impl MimoDetector for Sphere {
-    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        check(h, y, noise_var)?;
-        let (r, z) = triangular(h, y, "the sphere decoder")?;
+    /// The search of one rotated observation $z = Q^{H} y$.
+    fn search(&self, r: &CMat, z: &[C64]) -> Vec<usize> {
         let n = r.ncols();
         let pts = self.constellation.points();
         let mut best = (f64::INFINITY, vec![0usize; n]);
         let mut x = vec![C64::new(0.0, 0.0); n];
         let mut idx = vec![0usize; n];
-        // one frame per level: the candidates sorted by partial distance, the next to try
+        // one frame per level: the candidates sorted by partial distance, the next to try;
+        // the candidate lists of the frames left are reused
         let mut frames: Vec<Frame> = Vec::with_capacity(n);
-        let candidates = |k: usize, x: &[C64]| -> Vec<(f64, usize)> {
+        let mut spare: Vec<Vec<(f64, usize)>> = Vec::with_capacity(n);
+        let candidates = |k: usize, x: &[C64], mut c: Vec<(f64, usize)>| -> Vec<(f64, usize)> {
             let mut b = z[k];
             for j in k + 1..n {
                 b -= r[[k, j]] * x[j];
             }
-            let mut c: Vec<(f64, usize)> =
-                pts.iter().enumerate().map(|(i, p)| ((b - r[[k, k]] * p).norm_sqr(), i)).collect();
+            c.clear();
+            c.extend(pts.iter().enumerate().map(|(i, p)| ((b - r[[k, k]] * p).norm_sqr(), i)));
             c.sort_by(|a, b| a.0.total_cmp(&b.0));
             c
         };
-        frames.push((candidates(n - 1, &x), 0, 0.0));
+        frames.push((candidates(n - 1, &x, Vec::with_capacity(pts.len())), 0, 0.0));
         while !frames.is_empty() {
             let k = n - frames.len();
             let Some(f) = frames.last_mut() else { break };
             let candidate = f.0.get(f.1).copied();
             f.1 += 1;
             let base = f.2;
-            let Some((d, i)) = candidate else {
-                frames.pop();
+            let next = match candidate {
+                Some((d, i)) if base + d < best.0 => Some((base + d, i)),
+                // no candidate left, or (sorted) none of this level can do better
+                _ => None,
+            };
+            let Some((partial, i)) = next else {
+                if let Some(f) = frames.pop() {
+                    spare.push(f.0);
+                }
                 continue;
             };
-            let partial = base + d;
-            if partial >= best.0 {
-                // the candidates are sorted: no other point of this level can do better
-                frames.pop();
-                continue;
-            }
             x[k] = pts[i];
             idx[k] = i;
             if k == 0 {
-                best = (partial, idx.clone());
+                best.0 = partial;
+                best.1.copy_from_slice(&idx);
             } else {
-                let c = candidates(k - 1, &x);
+                let c = candidates(k - 1, &x, spare.pop().unwrap_or_default());
                 frames.push((c, 0, partial));
             }
         }
-        Ok(best.1)
+        best.1
+    }
+}
+
+impl MimoDetector for Sphere {
+    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
+        check(h, y, noise_var)?;
+        let t = Triangular::new(h, "the sphere decoder")?;
+        Ok(self.search(&t.r, &t.rotate(y)))
+    }
+
+    fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
+        check_block(h, y, noise_var)?;
+        let t = Triangular::new(h, "the sphere decoder")?;
+        by_column(h.ncols(), y, |col| Ok(self.search(&t.r, &t.rotate(col))))
     }
 }
 
@@ -459,62 +602,106 @@ pub struct KBest {
     pub llr_clip: f64,
 }
 
+/// The surviving paths of [`KBest`], best first: the labels of path `p` (in the order
+/// of the streams) are `labels[p n_t .. (p + 1) n_t]`, its distance `dist[p]`.
+struct Paths {
+    labels: Vec<usize>,
+    dist: Vec<f64>,
+}
+
+impl Paths {
+    fn iter(&self, nt: usize) -> impl Iterator<Item = (&[usize], f64)> {
+        // `max(1)`: with no stream, the one path has no label
+        self.labels.chunks_exact(nt.max(1)).zip(self.dist.iter().copied())
+    }
+
+    fn first(&self, nt: usize) -> Vec<usize> {
+        self.labels.get(..nt).map(<[usize]>::to_vec).unwrap_or_default()
+    }
+}
+
 impl KBest {
     /// The search keeping `k` paths.
     pub fn new(constellation: Constellation, k: usize) -> KBest {
         KBest { constellation, k, llr_clip: 30.0 }
     }
 
-    /// The surviving paths (labels, distance), best first.
-    fn list(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<(Vec<usize>, f64)>> {
-        check(h, y, noise_var)?;
+    /// The factors of the channel, after the checks of one channel use.
+    fn prepare(&self, h: &ArrayView2<'_, C64>) -> Result<Triangular> {
         ensure(self.k >= 1, || "K-best needs k ≥ 1".into())?;
-        let (r, z) = triangular(h, y, "K-best")?;
+        Triangular::new(h, "K-best")
+    }
+
+    /// The surviving paths of one rotated observation $z = Q^{H} y$.
+    fn search(&self, r: &CMat, z: &[C64]) -> Paths {
         let n = r.ncols();
         let pts = self.constellation.points();
-        // a path holds the labels of the streams k..n-1, stored from stream n-1 down
-        let mut paths: Vec<(Vec<usize>, f64)> = vec![(Vec::new(), 0.0)];
-        for k in (0..n).rev() {
-            let mut next = Vec::with_capacity(paths.len() * pts.len());
-            for (labels, d) in &paths {
+        // during the search, a path holds the labels of the streams k..n-1, stored from
+        // stream n-1 down, `depth` labels each
+        let mut labels: Vec<usize> = Vec::new();
+        let mut next_labels: Vec<usize> = Vec::new();
+        let mut dist = vec![0.0];
+        // the children (distance, parent, label), in the order of the parents then of
+        // the points: the stable sort keeps the first of equal distances
+        let mut children: Vec<(f64, usize, usize)> = Vec::new();
+        for (depth, k) in (0..n).rev().enumerate() {
+            children.clear();
+            for (p, d) in dist.iter().enumerate() {
                 let mut b = z[k];
-                for (depth, &l) in labels.iter().enumerate() {
-                    let j = n - 1 - depth;
+                for (level, &l) in labels[p * depth..(p + 1) * depth].iter().enumerate() {
+                    let j = n - 1 - level;
                     b -= r[[k, j]] * pts[l];
                 }
-                for (i, p) in pts.iter().enumerate() {
-                    let mut l = labels.clone();
-                    l.push(i);
-                    next.push((l, d + (b - r[[k, k]] * p).norm_sqr()));
-                }
+                children.extend(pts.iter().enumerate().map(|(i, s)| (d + (b - r[[k, k]] * s).norm_sqr(), p, i)));
             }
-            next.sort_by(|a, b| a.1.total_cmp(&b.1));
-            next.truncate(self.k);
-            paths = next;
+            children.sort_by(|a, b| a.0.total_cmp(&b.0));
+            children.truncate(self.k);
+            next_labels.clear();
+            dist.clear();
+            for &(d, p, i) in &children {
+                next_labels.extend_from_slice(&labels[p * depth..(p + 1) * depth]);
+                next_labels.push(i);
+                dist.push(d);
+            }
+            std::mem::swap(&mut labels, &mut next_labels);
         }
-        Ok(paths
-            .into_iter()
-            .map(|(mut l, d)| {
-                l.reverse();
-                (l, d)
-            })
-            .collect())
+        labels.chunks_exact_mut(n.max(1)).for_each(<[usize]>::reverse);
+        Paths { labels, dist }
+    }
+
+    /// The max-log LLRs of the surviving paths.
+    fn soft(&self, paths: &Paths, nt: usize, noise_var: f64) -> Vec<f64> {
+        let bits = self.constellation.bits_per_symbol();
+        let mut best = vec![[f64::INFINITY; 2]; nt * bits];
+        for (labels, d) in paths.iter(nt) {
+            update_bits(&mut best, labels, bits, d);
+        }
+        max_log(&best, noise_var, self.llr_clip)
     }
 }
 
 impl MimoDetector for KBest {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        let list = self.list(h, y, noise_var)?;
-        Ok(list.into_iter().next().map(|p| p.0).unwrap_or_default())
+        check(h, y, noise_var)?;
+        let t = self.prepare(h)?;
+        Ok(self.search(&t.r, &t.rotate(y)).first(h.ncols()))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
-        let bits = self.constellation.bits_per_symbol();
-        let mut best = vec![[f64::INFINITY; 2]; h.ncols() * bits];
-        for (labels, d) in self.list(h, y, noise_var)? {
-            update_bits(&mut best, &labels, bits, d);
-        }
-        Ok(max_log(&best, noise_var, self.llr_clip))
+        Ok(self.detect_llr(h, y, noise_var)?.1)
+    }
+
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+        check(h, y, noise_var)?;
+        let t = self.prepare(h)?;
+        let paths = self.search(&t.r, &t.rotate(y));
+        Ok((paths.first(h.ncols()), self.soft(&paths, h.ncols(), noise_var)))
+    }
+
+    fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
+        check_block(h, y, noise_var)?;
+        let t = self.prepare(h)?;
+        by_column(h.ncols(), y, |col| Ok(self.search(&t.r, &t.rotate(col)).first(h.ncols())))
     }
 }
 
@@ -621,6 +808,42 @@ mod tests {
             let block = d.detect_block(&h.view(), &y.view(), 0.1).unwrap();
             for t in 0..20 {
                 assert_eq!(block.column(t).to_vec(), d.detect(&h.view(), &y.column(t).to_vec(), 0.1).unwrap());
+            }
+        }
+    }
+
+    // the channel factored once for a block, and the decisions and LLRs of one search,
+    // give the bits of the detection use after use
+    #[test]
+    fn block_and_joint_outputs_match_the_detection_of_every_use() {
+        let c = Constellation::qam(16).unwrap().normalized();
+        let mut rng = Rng::new(8);
+        let dets: Vec<Box<dyn MimoDetector>> = vec![
+            Box::new(Sic::zf(c.clone())),
+            Box::new(Sic::mmse(c.clone())),
+            Box::new(Sic { constellation: c.clone(), criterion: Criterion::Mmse, ordered: false }),
+            Box::new(Ml::new(c.clone())),
+            Box::new(Sphere::new(c.clone())),
+            Box::new(KBest::new(c.clone(), 1)),
+            Box::new(KBest::new(c.clone(), 12)),
+        ];
+        for _ in 0..10 {
+            let h = channel(4, 3, &mut rng);
+            let y = Array2::from_shape_fn((4, 8), |_| rng.complex_gaussian());
+            for d in &dets {
+                let block = d.detect_block(&h.view(), &y.view(), 0.2).unwrap();
+                for t in 0..8 {
+                    let col = y.column(t).to_vec();
+                    let labels = d.detect(&h.view(), &col, 0.2).unwrap();
+                    assert_eq!(block.column(t).to_vec(), labels);
+                    if let Ok(llr) = d.llr(&h.view(), &col, 0.2) {
+                        let (l, v) = d.detect_llr(&h.view(), &col, 0.2).unwrap();
+                        assert_eq!(
+                            (l, v.iter().map(|x| x.to_bits()).collect::<Vec<_>>()),
+                            (labels, llr.iter().map(|x| x.to_bits()).collect())
+                        );
+                    }
+                }
             }
         }
     }

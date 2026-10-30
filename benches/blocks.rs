@@ -31,6 +31,17 @@ fn dsp(c: &mut Criterion) {
     let mut g = c.benchmark_group("dsp");
     g.throughput(Throughput::Elements(x.len() as u64));
     g.bench_function("rrc_fir_257_taps", |b| b.iter(|| fir_filter(black_box(&h), black_box(&x))));
+    // 64 OFDM symbols of 1024 bins, there and back: the per-call cost of the cached plans
+    let plan = comrs::math::fft::plan(1024);
+    let mut y = x.clone();
+    g.bench_function("fft_ifft_1024_x64", |b| {
+        b.iter(|| {
+            for s in y.chunks_exact_mut(1024) {
+                plan.forward(black_box(s));
+                plan.inverse(black_box(s));
+            }
+        });
+    });
     g.finish();
 }
 

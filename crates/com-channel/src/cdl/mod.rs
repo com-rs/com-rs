@@ -444,14 +444,21 @@ impl Rays {
     /// assert_eq!(whole.coefficient(3, 40, 1, 0), second_half.coefficient(3, 8, 1, 0));
     /// # Ok::<(), com_core::Error>(())
     /// ```
+    ///
+    /// Without Doppler (every ray of zero shift, a receiver at rest) the taps are the
+    /// same at every sample and are stored once ([`Taps::is_time_invariant`]).
     pub fn taps(&self, start: usize, n_samples: usize) -> Taps {
         let links = self.n_rx * self.n_tx;
+        // a zero shift gives the phase factor 1 at every time: the coefficients of the
+        // first sample are those of every sample, bit for bit
+        let invariant = self.clusters.iter().flatten().all(|ray| ray.doppler == 0.0);
+        let stored = if invariant { n_samples.min(1) } else { n_samples };
         let coeffs = self
             .clusters
             .iter()
             .map(|rays| {
-                let mut c = vec![C64::new(0.0, 0.0); n_samples * links];
-                for k in 0..n_samples {
+                let mut c = vec![C64::new(0.0, 0.0); stored * links];
+                for k in 0..stored {
                     let t = (start + k) as f64 / self.sample_rate;
                     for ray in rays {
                         let e = cis(2.0 * PI * ray.doppler * t);
@@ -464,7 +471,12 @@ impl Rays {
             })
             .collect();
         // the sizes are consistent by construction
-        Taps::new(self.delays.clone(), self.n_rx, self.n_tx, n_samples, coeffs).unwrap_or_else(|_| {
+        let taps = if invariant && n_samples > 0 {
+            Taps::time_invariant(self.delays.clone(), self.n_rx, self.n_tx, n_samples, coeffs)
+        } else {
+            Taps::new(self.delays.clone(), self.n_rx, self.n_tx, n_samples, coeffs)
+        };
+        taps.unwrap_or_else(|_| {
             unreachable!("the taps of a realisation have one coefficient vector per cluster of the right length")
         })
     }
@@ -663,6 +675,9 @@ mod tests {
             assert!((y.stream(0)[i] - want[i]).norm() < 1e-12);
         }
         assert!(taps.delays().contains(&13), "{:?}", taps.delays()); // 12.525 µs
+        // stored once, the same coefficient at every sample
+        assert!(taps.is_time_invariant());
+        assert_eq!(taps.coefficient(2, 0, 0, 1), taps.coefficient(2, 39, 0, 1));
     }
 }
 

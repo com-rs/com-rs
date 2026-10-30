@@ -286,14 +286,19 @@ pub fn posterior_rates(
     let (_, p) = shaped(c, px)?;
     let lp = log_priors(&p);
     let h = entropy(&p);
-    // distances d[k][j] = |z_k - x_j|² / σ̂², computed once
-    let d: Vec<f64> =
-        z.iter().flat_map(|zk| cn.points().iter().map(move |p| (zk - p).norm_sqr() / noise_var)).collect();
+    // the distances |z_k - x_j|² / σ̂² of a symbol, recomputed at every scale rather
+    // than stored for the whole sequence (N × M values: 2 GB for 10⁶ symbols of 256-QAM)
+    let distances = |zk: C64, row: &mut [f64]| {
+        for (r, p) in row.iter_mut().zip(cn.points()) {
+            *r = (zk - p).norm_sqr() / noise_var;
+        }
+    };
     let air_at = |s: f64| -> f64 {
         let mut terms = vec![0.0; m];
+        let mut row = vec![0.0; m];
         let mut acc = 0.0;
-        for (k, &i) in indices.iter().enumerate() {
-            let row = &d[k * m..(k + 1) * m];
+        for (&zk, &i) in z.iter().zip(indices) {
+            distances(zk, &mut row);
             for j in 0..m {
                 terms[j] = lp[j] - lp[i] - s * (row[j] - row[i]);
             }
@@ -309,13 +314,14 @@ pub fn posterior_rates(
             let has = |j: &usize| (j >> (b - 1 - bit)) & 1 == val;
             com_math::log_sum_exp_iter((0..m).filter(has).map(|j| lp[j] - s * row[j]))
         };
-        for k in 0..z.len() {
-            let row = &d[k * m..(k + 1) * m];
+        let mut row = vec![0.0; m];
+        for (k, &zk) in z.iter().enumerate() {
+            distances(zk, &mut row);
             for bit in 0..b {
                 let own = bits[k * b + bit] as usize;
                 // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own})
-                let l_own = lse(row, bit, own);
-                let l_other = lse(row, bit, 1 - own);
+                let l_own = lse(&row, bit, own);
+                let l_other = lse(&row, bit, 1 - own);
                 acc += ln_1p_exp(l_other - l_own);
             }
         }

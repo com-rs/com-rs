@@ -4,7 +4,9 @@
 //! [`Fft::forward`] computes `X_k = Σ_n x_n e^{-j2πkn/N}` (unnormalised) and
 //! [`Fft::inverse`] `x_n = (1/N) Σ_k X_k e^{+j2πkn/N}`, the conventions of `numpy.fft`
 //! and of OptiCommPy. Plans are cached per thread by [`plan`], so creating an `Fft` for
-//! a length already seen costs nothing. [`fftfreq`] and [`angular_frequencies`] give
+//! a length already seen costs nothing, and the work space of the transforms is kept per
+//! thread next to them: a transform allocates nothing once its length has been seen.
+//! [`fftfreq`] and [`angular_frequencies`] give
 //! the frequency of every bin in the same order, [`fftshift`] reorders a spectrum by
 //! increasing frequency and [`centred_bin`] maps centred subcarriers to bins. The
 //! unitary transforms are [`fft_unitary_in_place`] and [`ifft_unitary_in_place`].
@@ -31,6 +33,9 @@ pub struct Fft {
     n: usize,
     fwd: Arc<dyn rustfft::Fft<f64>>,
     inv: Arc<dyn rustfft::Fft<f64>>,
+    // the in-place work space of each plan (`get_inplace_scratch_len`)
+    fwd_scratch: usize,
+    inv_scratch: usize,
 }
 
 impl std::fmt::Debug for Fft {
@@ -41,6 +46,25 @@ impl std::fmt::Debug for Fft {
 
 thread_local! {
     static PLANS: RefCell<(FftPlanner<f64>, HashMap<usize, Fft>)> = RefCell::new((FftPlanner::new(), HashMap::new()));
+    // the work space of the transforms of this thread, grown to the largest length seen
+    static SCRATCH: RefCell<Vec<C64>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Run `f` on `len` values of the work space of this thread (grown, never shrunk). The
+/// `f32` solver `nlse::SplitStepF32` keeps its own work space for a whole run.
+fn with_scratch(len: usize, f: impl FnOnce(&mut [C64])) {
+    SCRATCH.with(|c| {
+        // a transform never calls back into another one, so the cell is free; a nested
+        // borrow (impossible today) would fall back to a buffer of its own
+        if let Ok(mut s) = c.try_borrow_mut() {
+            if s.len() < len {
+                s.resize(len, C64::new(0.0, 0.0));
+            }
+            f(&mut s[..len]);
+        } else {
+            f(&mut vec![C64::new(0.0, 0.0); len]);
+        }
+    });
 }
 
 /// The (cached) plans of length `n ≥ 1`.
@@ -52,7 +76,9 @@ pub fn plan(n: usize) -> Fft {
         if let Some(p) = cache.get(&n) {
             return p.clone();
         }
-        let p = Fft { n, fwd: planner.plan_fft_forward(n), inv: planner.plan_fft_inverse(n) };
+        let (fwd, inv) = (planner.plan_fft_forward(n), planner.plan_fft_inverse(n));
+        let (fwd_scratch, inv_scratch) = (fwd.get_inplace_scratch_len(), inv.get_inplace_scratch_len());
+        let p = Fft { n, fwd, inv, fwd_scratch, inv_scratch };
         cache.insert(n, p.clone());
         p
     })
@@ -75,7 +101,7 @@ impl Fft {
     /// If `x.len() != self.len()`.
     pub fn forward(&self, x: &mut [C64]) {
         assert_eq!(x.len(), self.n, "FFT length mismatch");
-        self.fwd.process(x);
+        with_scratch(self.fwd_scratch, |s| self.fwd.process_with_scratch(x, s));
     }
 
     /// In-place inverse transform, divided by `N`.
@@ -84,7 +110,7 @@ impl Fft {
     /// If `x.len() != self.len()`.
     pub fn inverse(&self, x: &mut [C64]) {
         assert_eq!(x.len(), self.n, "FFT length mismatch");
-        self.inv.process(x);
+        with_scratch(self.inv_scratch, |s| self.inv.process_with_scratch(x, s));
         let s = 1.0 / self.n as f64;
         for v in x.iter_mut() {
             *v *= s;
@@ -221,6 +247,29 @@ pub fn angular_frequencies(n: usize, fs: f64) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // the transforms with the work space of the thread give the bits of rustfft's own
+    // `process` (which allocates its work space), for powers of two, primes (Bluestein,
+    // Rader) and mixed radices, in any order of lengths
+    #[test]
+    fn the_shared_work_space_gives_the_bits_of_rustfft_process() {
+        let mut planner = FftPlanner::<f64>::new();
+        for &n in &[1, 2, 7, 64, 97, 360, 1024, 1031, 12, 4093, 3] {
+            let x: Vec<C64> = (0..n).map(|k| C64::new((k as f64 * 0.37).sin(), (k as f64 * 1.3).cos())).collect();
+            let p = plan(n);
+            let (mut a, mut b) = (x.clone(), x.clone());
+            p.forward(&mut a);
+            planner.plan_fft_forward(n).process(&mut b);
+            assert!(
+                a.iter().zip(&b).all(|(u, v)| u.re.to_bits() == v.re.to_bits() && u.im.to_bits() == v.im.to_bits())
+            );
+            let (mut a, mut b) = (x.clone(), x.clone());
+            p.inverse(&mut a);
+            planner.plan_fft_inverse(n).process(&mut b);
+            let s = 1.0 / n as f64;
+            assert!(a.iter().zip(&b).all(|(u, v)| *u == v * s));
+        }
+    }
 
     #[test]
     #[should_panic(expected = "fewer response values")]
