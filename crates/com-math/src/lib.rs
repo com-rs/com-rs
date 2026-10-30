@@ -21,7 +21,7 @@
 //! | [`gf2m`] | the Galois fields $\mathrm{GF}(2^{m})$ of the BCH and Reed–Solomon codes |
 //! | [`bigint`] | unsigned integers of arbitrary size, for enumerative coding |
 //! | [`bits`] | the Gray code [`gray`], [`gray_inverse`], and the conversions [`bits_to_index`], [`index_to_bits`] (most significant bit first) |
-//! | [`search`] | [`bisect`], [`golden_max`] and [`gcd`] |
+//! | [`search`] | [`bisect`], [`golden_max`], [`argmax`] and [`gcd`] |
 //! | [`sequences`] | linear-feedback shift registers and the Gold sequence of 3GPP |
 //!
 //! At the root (the functions of [`special`], [`quadrature`] and [`log_domain`] are
@@ -47,7 +47,7 @@
 //!   Simpson's rule), [`gauss_hermite`] (`∫ f(t) e^{-t²} dt`) and [`gauss_legendre`]
 //!   (`∫_{-1}^{1} f(t) dt`);
 //! - physical constants [`PLANCK`], [`BOLTZMANN`], [`ELEMENTARY_CHARGE`],
-//!   [`SPEED_OF_LIGHT`].
+//!   [`SPEED_OF_LIGHT`], and [`ZERO_CELSIUS`], the origin of the Celsius scale in kelvin.
 //!
 //! # Examples
 //! ```
@@ -79,7 +79,7 @@ pub use bits::{bits_to_index, gray, gray_inverse, index_to_bits};
 pub use com_core::units::{amp2db, db2amp, db2lin, db2np, dbm2w, lin2db, np2db, w2dbm};
 pub use log_domain::{ln_1p_exp, log_sum_exp, log_sum_exp_iter, max_star};
 pub use quadrature::{gauss_hermite, gauss_legendre, gaussian_nodes, simpson, simpson_weight, try_simpson};
-pub use search::{bisect, gcd, golden_max};
+pub use search::{argmax, bisect, gcd, golden_max};
 pub use special::{
     bessel_i0e, bessel_j0, bessel_k, erf, erfc, erfcinv, expint_e1, fresnel, gamma_p, ln_bessel_k, ln_gamma,
     normal_pdf, qfunc, qfuncinv,
@@ -95,6 +95,8 @@ pub const BOLTZMANN: f64 = 1.380_649e-23;
 pub const ELEMENTARY_CHARGE: f64 = 1.602_176_634e-19;
 /// Speed of light in vacuum (m/s).
 pub const SPEED_OF_LIGHT: f64 = 299_792_458.0;
+/// The temperature of 0 °C (K): $T_{\mathrm{K}} = T_{\mathrm{°C}} + 273.15$.
+pub const ZERO_CELSIUS: f64 = 273.15;
 
 /// `e^{jθ} = cos θ + j sin θ`.
 #[inline]

@@ -84,7 +84,8 @@ fn nr_ofdm_modulate<'py>(
 ) -> PyResult<CArr<'py>> {
     let (g, k) = grid_in(grid)?;
     let n = Numerology::new(mu, extended_cp).py()?;
-    Ok(carr(py, nr::modulate(&n, &g, k, n_fft, first_symbol).py()?))
+    let carrier = nr::Carrier { numerology: n, n_subcarriers: k, n_fft, first_symbol };
+    Ok(carr(py, carrier.modulate(&g).py()?))
 }
 
 /// The NR primary synchronisation signal of `N_ID2` (TS 38.211, Sec. 7.4.2.2): the BPSK

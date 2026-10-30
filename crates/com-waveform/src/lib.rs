@@ -17,9 +17,15 @@
 //!
 //! # Conventions
 //!
-//! A modem is a configuration with public fields, built by `new` and checked by `check`
-//! when it is used (FBMC samples its prototype once and reads its fields through
-//! getters). The vocabulary is shared: `n_fft` the size of the transform (the
+//! A modem is a configuration with public fields, built by a constructor (`new`, or
+//! `Css::lora`), changed by struct update and checked by `check` when it is used, with
+//! two exceptions: FBMC samples its prototype once in `new` and reads its fields through
+//! getters, and CPM tabulates its phase response in `CpmConfig::build`. The modems that
+//! map complex symbols to samples (OFDM, UFMC, OTFS, CE-OFDM, FBMC) implement
+//! `Modulate` and `Demodulate` of `com-core`, at their `sample_rate` (1 Hz by default,
+//! time in samples), and refuse an input at another rate; CSS and CPM carry symbol
+//! indices, which `Symbols` cannot (`docs/adr/0012-index-symbol-waveforms.md`). The
+//! vocabulary is shared: `n_fft` the size of the transform (the
 //! subcarriers of the grid), `n_active` the modulated subcarriers, `n_cp` the cyclic
 //! prefix, `block_len()` the samples of a block, prefix included. `oversampling` is the
 //! number of samples per Nyquist-rate sample (OFDM, its prefix counted at the Nyquist

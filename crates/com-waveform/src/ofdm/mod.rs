@@ -80,15 +80,28 @@ pub struct Ofdm {
     pub dc_null: bool,
     /// DFT spreading of the data (localised SC-FDMA).
     pub dft_spread: bool,
+    /// The rate of the modulated samples, $L N \Delta f$ ($\Delta f$ the subcarrier
+    /// spacing): the rate of the [`Signal`] of [`Modulate`], and the rate [`Demodulate`]
+    /// expects; 1 Hz by default (time in samples).
+    pub sample_rate: Hertz,
 }
 
 impl Ofdm {
-    /// $K$ active subcarriers out of $N$, oversampling 4, no prefix.
+    /// $K$ active subcarriers out of $N$, oversampling 4, no prefix, at the sample rate
+    /// 1 Hz.
     ///
     /// # Errors
     /// [`com_core::Error::Config`] unless $1 \le K \le N$.
     pub fn new(n_fft: usize, n_active: usize) -> Result<Ofdm> {
-        let o = Ofdm { n_fft, n_active, oversampling: 4, n_cp: 0, dc_null: false, dft_spread: false };
+        let o = Ofdm {
+            n_fft,
+            n_active,
+            oversampling: 4,
+            n_cp: 0,
+            dc_null: false,
+            dft_spread: false,
+            sample_rate: Hertz(1.0),
+        };
         o.check()?;
         Ok(o)
     }
@@ -96,12 +109,14 @@ impl Ofdm {
     /// Validate the configuration.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] for an empty or overfull grid, or a zero oversampling.
+    /// [`com_core::Error::Config`] for an empty or overfull grid, a zero oversampling or a
+    /// sample rate that is not positive and finite.
     pub fn check(&self) -> Result<()> {
         ensure(self.n_active >= 1 && self.n_active + usize::from(self.dc_null) <= self.n_fft, || {
             format!("{} active subcarriers do not fit a grid of {}", self.n_active, self.n_fft)
         })?;
-        ensure(self.oversampling >= 1, || "the oversampling factor must be at least 1".into())
+        ensure(self.oversampling >= 1, || "the oversampling factor must be at least 1".into())?;
+        check_rate(self.sample_rate)
     }
 
     /// Size of the IFFT, $L N$.
@@ -312,19 +327,37 @@ impl PaprReduction for NoReduction {
     }
 }
 
+/// `Ok` for a sample rate that is positive and finite.
+pub(crate) fn check_rate(rate: Hertz) -> Result<()> {
+    ensure(rate.0 > 0.0 && rate.0.is_finite(), || format!("the sample rate must be positive, got {} Hz", rate.0))
+}
+
+/// `Ok` if the signal `y` has one stream at the sample rate `rate` of the modem `what`:
+/// the input check of the [`Demodulate`] blocks.
+pub(crate) fn check_input(y: &Signal, rate: Hertz, what: &str) -> Result<()> {
+    ensure(y.n_streams() == 1, || format!("{what} demodulates one stream, not {}", y.n_streams()))?;
+    ensure(y.sample_rate() == rate, || {
+        format!("a signal at {} Hz for a {what} demodulator at {} Hz", y.sample_rate().0, rate.0)
+    })
+}
+
 /// OFDM as a [`Modulate`] block: one stream of data symbols into one stream of samples
-/// at the rate of the oversampled grid (unit Nyquist-rate sample rate × $L$).
+/// at [`Ofdm::sample_rate`].
 impl Modulate for Ofdm {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OFDM modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&Ofdm::modulate(self, x.stream_slice(0))?, Hertz(self.oversampling as f64));
+        out.set_stream(&Ofdm::modulate(self, x.stream_slice(0))?, self.sample_rate);
         Ok(())
     }
 }
 
+/// OFDM as a [`Demodulate`] block: one stream of samples at [`Ofdm::sample_rate`].
 impl Demodulate for Ofdm {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
+    /// and the errors of [`Ofdm::demodulate`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
-        ensure(y.n_streams() == 1, || format!("OFDM demodulates one stream, not {}", y.n_streams()))?;
+        check_input(y, self.sample_rate, "OFDM")?;
         out.set_stream(&Ofdm::demodulate(self, y.stream(0))?);
         Ok(())
     }
@@ -385,9 +418,15 @@ mod tests {
         let o = Ofdm::new(32, 20).unwrap();
         let d = Symbols::from_stream(vec![C64::new(1.0, 0.0); 40]).unwrap();
         let x = Modulate::modulate(&o, &d).unwrap();
-        assert_eq!(x.n_samples(), 2 * 128);
+        assert_eq!((x.n_samples(), x.sample_rate()), (2 * 128, Hertz(1.0)));
         let mut o2 = o.clone();
         let back = Demodulate::demodulate(&mut o2, &x).unwrap();
         assert!(back.as_slice().iter().all(|v| (v - C64::new(1.0, 0.0)).norm() < 1e-12));
+        // a real rate: 15 kHz subcarriers, L N = 128 samples per symbol
+        let mut lte = Ofdm { sample_rate: Hertz(128.0 * 15e3), ..o };
+        let y = Modulate::modulate(&lte, &d).unwrap();
+        assert_eq!(y.sample_rate(), Hertz(1.92e6));
+        assert!(Demodulate::demodulate(&mut lte, &x).is_err() && Demodulate::demodulate(&mut lte, &y).is_ok());
+        assert!(Ofdm { sample_rate: Hertz(0.0), ..o2 }.check().is_err());
     }
 }

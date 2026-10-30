@@ -1,5 +1,5 @@
-//! One-dimensional searches: bisection and golden-section maximisation, and the
-//! greatest common divisor.
+//! One-dimensional searches: bisection and golden-section maximisation, the largest
+//! element of a sequence, and the greatest common divisor.
 //!
 //! # Model
 //!
@@ -116,9 +116,46 @@ pub fn gcd(a: usize, b: usize) -> usize {
     a
 }
 
+/// The index and the value of the largest element of `values`, the first one on ties
+/// (`None` for an empty sequence or one of NaN only; NaN elements are skipped): the
+/// decision of the detectors that pick the strongest candidate.
+///
+/// # Examples
+/// ```
+/// use com_math::argmax;
+/// assert_eq!(argmax([0.5, 2.0, -1.0, 2.0]), Some((1, 2.0)));
+/// assert_eq!(argmax([f64::NAN, -3.0]), Some((1, -3.0)));
+/// assert_eq!(argmax(std::iter::empty()), None);
+/// ```
+pub fn argmax(values: impl IntoIterator<Item = f64>) -> Option<(usize, f64)> {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, v) in values.into_iter().enumerate() {
+        if !v.is_nan() && best.is_none_or(|(_, b)| v > b) {
+            best = Some((i, v));
+        }
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The folds the detectors wrote before they called `argmax`, with an initial value
+    /// that no element beats: the same index on ties and on every sequence.
+    #[test]
+    fn argmax_is_the_former_fold() {
+        let fold = |v: &[f64]| {
+            v.iter().enumerate().fold((0, f64::NEG_INFINITY), |b, (k, &x)| if x > b.1 { (k, x) } else { b })
+        };
+        let mut r = com_core::rng::Rng::new(3);
+        for n in 1..40 {
+            let v: Vec<f64> = (0..n).map(|_| (r.gaussian() * 3.0).round()).collect();
+            assert_eq!(argmax(v.iter().copied()), Some(fold(&v)), "{v:?}");
+        }
+        assert_eq!(argmax([f64::NAN, f64::NAN]), None);
+        assert_eq!(argmax([f64::NEG_INFINITY]), Some((0, f64::NEG_INFINITY)));
+    }
 
     #[test]
     fn bisection_and_golden_section_reach_their_targets() {

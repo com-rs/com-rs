@@ -100,7 +100,7 @@ fn phase_noise<'py>(
         return Err(PyValueError::new_err(format!("the sampling rate must be positive, got {fs}")));
     }
     let n = count(n, "n")?;
-    Ok(farr(py, comrs::hardware::oscillator::phase_noise(linewidth_hz, n, 1.0 / fs, &mut rng.inner)))
+    Ok(farr(py, comrs::hardware::oscillator::phase_noise(linewidth_hz, n, 1.0 / fs, &mut rng.inner).py()?))
 }
 
 /// The field of a laser: power, Wiener phase noise, relative intensity noise and
@@ -131,7 +131,7 @@ fn laser<'py>(
     freq_shift_hz: f64,
 ) -> PyResult<CArr<'py>> {
     let n = count(n, "n")?;
-    Ok(carr(py, Laser { power_dbm, linewidth_hz, rin_var, freq_shift_hz }.field(n, fs, &mut rng.inner)))
+    Ok(carr(py, Laser { power_dbm, linewidth_hz, rin_var, freq_shift_hz }.field(n, fs, &mut rng.inner).py()?))
 }
 
 /// Phase modulator `E e^{jπu/V_π}` (OptiCommPy `pm`).

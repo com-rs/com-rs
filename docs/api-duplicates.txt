@@ -17,6 +17,7 @@ bit_map
 bits
 bits_per_symbol
 block_len
+bussgang
 check
 coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 conditions

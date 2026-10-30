@@ -46,11 +46,12 @@
 //! 2. F. J. Harris, "On the use of windows for harmonic analysis with the discrete
 //!    Fourier transform," *Proc. IEEE*, 66(1), 51–83, 1978.
 
+use crate::ofdm::{check_input, check_rate};
 use com_core::signal::{Signal, Symbols};
 use com_core::traits::{Demodulate, Modulate};
 use com_core::units::Hertz;
 use com_core::{Result, ensure, ensure_shape};
-use com_dsp::filter::convolve_full;
+use com_dsp::filter::{convolve_full, normalize_energy, response_at};
 use com_dsp::window::chebyshev;
 use com_math::{C64, cis, fft};
 
@@ -67,12 +68,15 @@ pub struct Ufmc {
     pub filter_len: usize,
     /// Attenuation of the sidelobes of the Dolph–Chebyshev filters (dB).
     pub sidelobe_db: f64,
+    /// The rate of the samples, $N \Delta f$: the rate of the [`Signal`] of [`Modulate`]
+    /// and the rate [`Demodulate`] expects; 1 Hz by default (time in samples).
+    pub sample_rate: Hertz,
 }
 
 impl Ufmc {
     /// `n_subbands` sub-bands of `subband_size` subcarriers on a grid of `n_fft`,
     /// filtered by Dolph–Chebyshev filters of `filter_len` taps whose sidelobes are
-    /// `sidelobe_db` below their main lobe.
+    /// `sidelobe_db` below their main lobe, at the sample rate 1 Hz.
     ///
     /// # Errors
     /// As [`Ufmc::check`].
@@ -83,7 +87,7 @@ impl Ufmc {
         filter_len: usize,
         sidelobe_db: f64,
     ) -> Result<Ufmc> {
-        let u = Ufmc { n_fft, n_subbands, subband_size, filter_len, sidelobe_db };
+        let u = Ufmc { n_fft, n_subbands, subband_size, filter_len, sidelobe_db, sample_rate: Hertz(1.0) };
         u.check()?;
         Ok(u)
     }
@@ -91,16 +95,17 @@ impl Ufmc {
     /// Check the configuration.
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] if the sub-bands do not fit the grid, or if the
-    /// filter has no tap or is longer than $N + 1$ taps (a symbol must fit the DFT of
-    /// $2N$ of the receiver).
+    /// [`com_core::Error::Config`] if the sub-bands do not fit the grid, if the filter has
+    /// no tap or is longer than $N + 1$ taps (a symbol must fit the DFT of $2N$ of the
+    /// receiver), or for a sample rate that is not positive and finite.
     pub fn check(&self) -> Result<()> {
         let (b, q, n) = (self.n_subbands, self.subband_size, self.n_fft);
         ensure(b >= 1 && q >= 1 && b * q <= n, || format!("{b} sub-bands of {q} do not fit a grid of {n}"))?;
         ensure(self.filter_len >= 1 && self.filter_len <= n + 1, || {
             format!("a filter of {} taps for a grid of {n}: between 1 and N + 1", self.filter_len)
         })?;
-        ensure(self.sidelobe_db.is_finite(), || "the sidelobe attenuation must be finite".into())
+        ensure(self.sidelobe_db.is_finite(), || "the sidelobe attenuation must be finite".into())?;
+        check_rate(self.sample_rate)
     }
 
     /// The number of active subcarriers $K = BQ$.
@@ -120,9 +125,9 @@ impl Ufmc {
 
     /// The Dolph–Chebyshev window of unit energy.
     fn window(&self) -> Vec<f64> {
-        let w = chebyshev(self.filter_len, self.sidelobe_db);
-        let norm = w.iter().map(|v| v * v).sum::<f64>().sqrt();
-        w.into_iter().map(|v| v / norm).collect()
+        let mut w = chebyshev(self.filter_len, self.sidelobe_db);
+        normalize_energy(&mut w);
+        w
     }
 
     /// The taps of the filter of sub-band `b`: the window shifted to the centre of the
@@ -150,8 +155,7 @@ impl Ufmc {
     }
 
     fn response_of(&self, taps: &[C64], i: usize) -> C64 {
-        let k = self.subcarrier(i) as f64;
-        taps.iter().enumerate().map(|(l, f)| f * cis(-std::f64::consts::TAU * k * l as f64 / self.n_fft as f64)).sum()
+        response_at(taps, self.subcarrier(i) as f64, self.n_fft as f64)
     }
 
     /// Modulate the symbols `data`, $K$ per UFMC symbol.
@@ -214,17 +218,23 @@ impl Ufmc {
     }
 }
 
+/// UFMC as a [`Modulate`] block: one stream of symbols into one stream of samples at
+/// [`Ufmc::sample_rate`].
 impl Modulate for Ufmc {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("UFMC modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&Ufmc::modulate(self, x.stream_slice(0))?, Hertz(1.0));
+        out.set_stream(&Ufmc::modulate(self, x.stream_slice(0))?, self.sample_rate);
         Ok(())
     }
 }
 
+/// UFMC as a [`Demodulate`] block: one stream of samples at [`Ufmc::sample_rate`].
 impl Demodulate for Ufmc {
+    /// # Errors
+    /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
+    /// and the errors of [`Ufmc::demodulate`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
-        ensure(y.n_streams() == 1, || format!("UFMC demodulates one stream, not {}", y.n_streams()))?;
+        check_input(y, self.sample_rate, "UFMC")?;
         out.set_stream(&Ufmc::demodulate(self, y.stream(0))?);
         Ok(())
     }
@@ -234,6 +244,25 @@ impl Demodulate for Ufmc {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    /// The window was normalised and the responses evaluated by hand before
+    /// `com_dsp::filter::{normalize_energy, response_at}`: the same taps, gains and
+    /// symbols to the last bit.
+    #[test]
+    fn the_shared_filter_helpers_are_the_former_code() {
+        let u = Ufmc::new(64, 4, 12, 16, 40.0).unwrap();
+        let w = chebyshev(16, 40.0);
+        let norm = w.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let old: Vec<f64> = w.into_iter().map(|v| v / norm).collect();
+        assert_eq!(u.window(), old);
+        for i in 0..u.n_active() {
+            let taps = u.subband_taps(i / u.subband_size);
+            let k = u.subcarrier(i) as f64;
+            let former: C64 =
+                taps.iter().enumerate().map(|(l, f)| f * cis(-std::f64::consts::TAU * k * l as f64 / 64.0)).sum();
+            assert_eq!(u.response(i), former);
+        }
+    }
 
     #[test]
     fn the_sub_bands_are_orthogonal_and_the_filters_unit_energy() {

@@ -98,6 +98,24 @@ fn input_moments(prior: &Prior, r: f64, tr: f64) -> (f64, f64) {
     (m.re, v)
 }
 
+/// The concentration $c$ of the likelihood from which its branches are Gaussian
+/// (Laplace's approximation) instead of integrated numerically.
+const LAPLACE_CONCENTRATION: f64 = 25.0;
+
+/// The half-width, in standard deviations of the message and the branch, of the window
+/// of branches summed by Laplace's approximation.
+const LAPLACE_SPREAD: f64 = 8.0;
+
+/// The half-width, in standard deviations of the message, of the midpoint rule (the
+/// Gaussian beyond holds $2Q(7) = 2.6 \cdot 10^{-12}$ of it).
+const QUADRATURE_HALF_WIDTH: f64 = 7.0;
+
+/// The points of the midpoint rule per width of a branch of the likelihood.
+const POINTS_PER_BRANCH: f64 = 4.0;
+
+/// The largest number of points of the midpoint rule.
+const MAX_QUADRATURE_POINTS: usize = 4096;
+
 /// The mean and variance of `x` under the message `N(p, tp)` and the likelihood
 /// `exp(c cos(κx - ψ))` (see the module).
 fn output_moments(p: f64, tp: f64, c: f64, psi: f64, kappa: f64, points: usize) -> (f64, f64) {
@@ -107,10 +125,10 @@ fn output_moments(p: f64, tp: f64, c: f64, psi: f64, kappa: f64, points: usize) 
     }
     // width of one branch of the likelihood
     let wl = 1.0 / (kappa * c.sqrt());
-    if c >= 25.0 {
+    if c >= LAPLACE_CONCENTRATION {
         // Laplace: a Gaussian of variance v around every branch (ψ + 2πm)/κ
         let v = wl * wl;
-        let spread = 8.0 * (tp + v).sqrt();
+        let spread = LAPLACE_SPREAD * (tp + v).sqrt();
         let m_lo = ((kappa * (p - spread) - psi) / TAU).floor() as i64;
         let m_hi = ((kappa * (p + spread) - psi) / TAU).ceil() as i64;
         let (mut s0, mut s1, mut s2) = (0.0, 0.0, 0.0);
@@ -133,11 +151,11 @@ fn output_moments(p: f64, tp: f64, c: f64, psi: f64, kappa: f64, points: usize) 
     }
     // the midpoint rule over ±7 standard deviations of the message, fine enough for the
     // likelihood
-    let span = 14.0 * sd;
-    let step = (span / points as f64).min(wl / 4.0);
-    let n = ((span / step).ceil() as usize).clamp(points, 4096);
+    let span = 2.0 * QUADRATURE_HALF_WIDTH * sd;
+    let step = (span / points as f64).min(wl / POINTS_PER_BRANCH);
+    let n = ((span / step).ceil() as usize).clamp(points, MAX_QUADRATURE_POINTS);
     let h = span / n as f64;
-    let z0 = p - 7.0 * sd;
+    let z0 = p - QUADRATURE_HALF_WIDTH * sd;
     let logw = |z: f64| -(z - p).powi(2) / (2.0 * tp) + c * (kappa * z - psi).cos();
     let top = (0..n).map(|i| logw(z0 + (i as f64 + 0.5) * h)).fold(f64::NEG_INFINITY, f64::max);
     let (mut s0, mut s1, mut s2) = (0.0, 0.0, 0.0);
@@ -168,7 +186,7 @@ impl Gamp {
     /// use com_mapping::constellation::Constellation;
     /// use com_core::rng::Rng;
     /// // 2πh = 1.4: the phase leaves (-π, π] and the arctangent receiver fails
-    /// let ce = CeOfdm { n_data: 63, oversampling: 4, h: 1.4 / std::f64::consts::TAU, n_cp: 0 };
+    /// let ce = CeOfdm::new(63, 4, 1.4 / std::f64::consts::TAU).unwrap();
     /// let c = Constellation::qam(4).unwrap().normalized();
     /// let (_, d) = com_mapping::source::symbols(&c, 63, None, &mut Rng::new(1)).unwrap();
     /// let r = ce.modulate(&d).unwrap();
@@ -287,7 +305,7 @@ mod tests {
         // 2πh = 1.4 (López Morales et al. 2022, Fig. 3): the phase wraps, the arctangent
         // receiver floors at a SER of 0.1 and more, GAMP decodes
         let c = Constellation::qam(4).unwrap().normalized();
-        let ce = CeOfdm { n_data: 63, oversampling: 4, h: 1.4 / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(63, 4, 1.4 / TAU).unwrap();
         let mut rng = Rng::new(3);
         let (_, d) = com_mapping::source::symbols(&c, 63 * 8, None, &mut rng).unwrap();
         for ebn0 in [8.0, 30.0] {

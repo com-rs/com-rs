@@ -16,8 +16,9 @@
 //! (an offset of $\varepsilon$ rotates the second half by $\pi\varepsilon$).
 //!
 //! [`schmidl_cox`] returns the metric; [`synchronize`] the timing (the middle of the
-//! points above 90 % of the peak, which lies in the cyclic prefix when data follow the
-//! preamble) and the offset.
+//! points above [`PLATEAU_FRACTION`] of the peak, which lies in the cyclic prefix when
+//! data follow the preamble) and the offset, the phase of the correlation $P$ that the
+//! metric was computed from.
 //!
 //! # A repeated symbol (Moose 1994)
 //!
@@ -78,8 +79,8 @@
 //! rx.extend(&p);
 //! rx.extend(ofdm.modulate(&data)?);
 //! // an offset of 0.2 subcarrier spacing
-//! let m = ofdm.fft_len() as f64;
-//! let rx: Vec<C64> = rx.iter().enumerate().map(|(n, v)| v * cis(2.0 * std::f64::consts::PI * 0.2 * n as f64 / m)).collect();
+//! let mut rx = rx;
+//! com_dsp::signal::rotate(&mut rx, std::f64::consts::TAU * 0.2 / ofdm.fft_len() as f64, 0.0);
 //! let e = synchronize(&rx, &ofdm)?;
 //! assert!((e.cfo - 0.2).abs() < 1e-6);
 //! assert!(e.timing >= 100 && e.timing <= 100 + 4 * 16);       // within the prefix
@@ -111,7 +112,7 @@ use std::f64::consts::TAU;
 /// subcarriers (scaled by $\sqrt{2}$ to keep the unit power), nothing on the odd ones.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if the prefix is longer than the block.
+/// [`com_core::Error::Shape`] if the prefix is longer than the block.
 pub fn preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
     let mut r = Rng::new(seed);
     let active: Vec<C64> = (0..ofdm.n_active)
@@ -126,16 +127,28 @@ pub fn preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
 /// The timing metric $M(d)$ for every start $d$ (halves of `half` samples), on
 /// [`delayed_correlation`] and [`windowed_energy`].
 pub fn schmidl_cox(r: &[C64], half: usize) -> Vec<f64> {
+    metric(r, half).0
+}
+
+/// The metric $M(d)$ and the correlation $P(d)$ it is computed from.
+fn metric(r: &[C64], half: usize) -> (Vec<f64>, Vec<C64>) {
     let p = delayed_correlation(r, half, half);
     let e = windowed_energy(r, half);
-    p.iter()
+    let m = p
+        .iter()
         .enumerate()
         .map(|(d, p)| {
             let e = e[d + half];
             if e > 0.0 { p.norm_sqr() / (e * e) } else { 0.0 }
         })
-        .collect()
+        .collect();
+    (m, p)
 }
+
+/// The fraction of the peak of the metric above which [`synchronize`] counts the points
+/// of its plateau (Schmidl & Cox 1997 average the two times, on either side of the
+/// maximum, at 90 % of it).
+pub const PLATEAU_FRACTION: f64 = 0.9;
 
 /// A synchronisation estimate.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -160,10 +173,10 @@ pub fn synchronize(r: &[C64], ofdm: &Ofdm) -> Result<Estimate> {
     ensure_shape(r.len() >= 2 * half, || {
         format!("the received block of {} samples is shorter than the preamble of {}", r.len(), 2 * half)
     })?;
-    let m = schmidl_cox(r, half);
-    let (imax, peak) = m.iter().enumerate().fold((0, 0.0), |acc, (i, v)| if *v > acc.1 { (i, *v) } else { acc });
-    // the plateau: the points above 90 % of the peak around it
-    let thr = 0.9 * peak;
+    let (m, p) = metric(r, half);
+    let (imax, peak) = com_math::argmax(m.iter().copied()).unwrap_or((0, 0.0));
+    // the plateau: the points above PLATEAU_FRACTION of the peak around it
+    let thr = PLATEAU_FRACTION * peak;
     let mut a = imax;
     while a > 0 && m[a - 1] >= thr {
         a -= 1;
@@ -173,8 +186,7 @@ pub fn synchronize(r: &[C64], ofdm: &Ofdm) -> Result<Estimate> {
         b += 1;
     }
     let d = (a + b) / 2;
-    let p: C64 = (0..half).map(|k| r[d + k].conj() * r[d + k + half]).sum();
-    Ok(Estimate { timing: d, cfo: p.arg() / std::f64::consts::PI, peak })
+    Ok(Estimate { timing: d, cfo: p[d].arg() / std::f64::consts::PI, peak })
 }
 
 /// The constant of Moose's bound of the interference, eq. (13): $E|I_{k}|^{2} \le 0.5947
@@ -185,7 +197,7 @@ pub const MOOSE_ICI_BOUND: f64 = 0.5947;
 /// subcarrier, sent twice in a row, $L(N_{\mathrm{cp}} + 2N)$ samples.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if the prefix is longer than the block.
+/// [`com_core::Error::Shape`] if the prefix is longer than the block.
 pub fn repeated_preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
     let mut r = Rng::new(seed);
     let active: Vec<C64> = (0..ofdm.n_active).map(|_| qpsk(&mut r)).collect();
@@ -275,21 +287,47 @@ pub fn cp_ml(r: &[C64], ofdm: &Ofdm, snr: f64) -> Result<Estimate> {
     // P(θ) = Σ r*(k) r(k + N) = γ(θ)*
     let p = delayed_correlation(r, n, l);
     let e = windowed_energy(r, l);
-    let (theta, peak) = p.iter().enumerate().fold((0, f64::NEG_INFINITY), |best, (t, pt)| {
-        let lambda = pt.norm() - rho * 0.5 * (e[t] + e[t + n]);
-        if lambda > best.1 { (t, lambda) } else { best }
-    });
+    let lambda = p.iter().enumerate().map(|(t, pt)| pt.norm() - rho * 0.5 * (e[t] + e[t + n]));
+    let (theta, peak) = com_math::argmax(lambda).unwrap_or((0, f64::NEG_INFINITY));
     Ok(Estimate { timing: theta, cfo: p[theta].arg() / TAU, peak })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use com_math::cis;
 
     /// `r` rotated by an offset of `eps` subcarrier spacings on a grid of `n`.
     fn offset(r: &[C64], eps: f64, n: usize) -> Vec<C64> {
-        r.iter().enumerate().map(|(k, v)| v * cis(TAU * eps * k as f64 / n as f64)).collect()
+        let mut y = r.to_vec();
+        com_dsp::signal::rotate(&mut y, TAU * eps / n as f64, 0.0);
+        y
+    }
+
+    /// The offset was the phase of a correlation summed again after the metric, and the
+    /// peaks were found by folds, before the correlation of the metric and
+    /// `com_math::argmax`: the same estimates to the last bit.
+    #[test]
+    fn synchronize_reuses_the_correlation_of_the_metric() {
+        let ofdm = Ofdm { n_cp: 16, ..Ofdm::new(128, 100).unwrap() };
+        let half = ofdm.fft_len() / 2;
+        let mut rng = Rng::new(12);
+        let mut rx: Vec<C64> = (0..300).map(|_| rng.complex_gaussian() * 0.3).collect();
+        rx.extend(preamble(&ofdm, 5).unwrap().iter().map(|v| v + rng.complex_gaussian() * 0.3));
+        rx.extend((0..ofdm.block_len()).map(|_| rng.complex_gaussian()));
+        let rx = offset(&rx, 0.17, ofdm.fft_len());
+        let e = synchronize(&rx, &ofdm).unwrap();
+        let m = schmidl_cox(&rx, half);
+        let (imax, peak) = m.iter().enumerate().fold((0, 0.0), |acc, (i, v)| if *v > acc.1 { (i, *v) } else { acc });
+        let (mut a, mut b) = (imax, imax);
+        while a > 0 && m[a - 1] >= 0.9 * peak {
+            a -= 1;
+        }
+        while b + 1 < m.len() && m[b + 1] >= 0.9 * peak {
+            b += 1;
+        }
+        let d = (a + b) / 2;
+        let p: C64 = (0..half).map(|k| rx[d + k].conj() * rx[d + k + half]).sum();
+        assert_eq!(e, Estimate { timing: d, cfo: p.arg() / std::f64::consts::PI, peak });
     }
 
     /// The direct sums of the former metric: the windowed sums of the shared kernel are
@@ -370,9 +408,7 @@ mod tests {
             rx.extend(p.iter().map(|v| v + rng.complex_gaussian() * 0.1f64.sqrt()));
             // a data symbol follows the preamble
             rx.extend((0..ofdm.block_len()).map(|_| rng.complex_gaussian() * 1.1f64.sqrt()));
-            let m = ofdm.fft_len() as f64;
-            let rx: Vec<C64> =
-                rx.iter().enumerate().map(|(n, v)| v * cis(2.0 * std::f64::consts::PI * eps * n as f64 / m)).collect();
+            let rx = offset(&rx, eps, ofdm.fft_len());
             let e = synchronize(&rx, &ofdm).unwrap();
             assert!(e.timing >= 200 && e.timing <= 200 + cp + 8, "timing {}", e.timing);
             err += (e.cfo - eps).powi(2);

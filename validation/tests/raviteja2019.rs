@@ -24,8 +24,8 @@ use comrs::waveform::otfs::Otfs;
 #[test]
 fn raviteja_2019_theorem_1_through_the_channel() {
     let (m, n, cp) = (16usize, 8usize, 4usize);
-    let o = Otfs { n_cp: cp, ..Otfs::new(m, n).unwrap() };
     let fs = 1.0e6;
+    let o = Otfs { n_cp: cp, sample_rate: Hertz(fs), ..Otfs::new(m, n).unwrap() };
     let bin = fs / (m * n) as f64; // one Doppler bin, 1/(NT)
     let paths = vec![
         Path { gain: C64::new(0.8, 0.1), delay: 0, doppler_hz: 0.0 },
@@ -38,11 +38,9 @@ fn raviteja_2019_theorem_1_through_the_channel() {
     let s = o.modulate(&x).unwrap();
     let r = ch.taps(s.len()).apply(std::slice::from_ref(&s)).unwrap().remove(0);
     let y = o.demodulate(&r).unwrap();
-    let spec: Vec<(C64, usize, f64)> = paths.iter().map(|p| (p.gain, p.delay, p.doppler_hz)).collect();
-    let h = o.effective_channel(&spec, fs).unwrap();
-    for p in 0..m * n {
-        let hx: C64 = (0..m * n).map(|q| h[[p, q]] * x[q]).sum();
-        assert!((hx - y[p]).norm() < 1e-10, "{p}: {hx} against {}", y[p]);
+    let hx = o.effective_channel(&paths).unwrap().apply(&x).unwrap();
+    for (p, (a, b)) in hx.iter().zip(&y).enumerate() {
+        assert!((a - b).norm() < 1e-10, "{p}: {a} against {b}");
     }
 }
 

@@ -231,7 +231,9 @@ name = "com-systems"
 version = "0.2.0"
 dependencies = [
  "com-core",
+ "com-dsp",
  "com-fec",
+ "com-hardware",
  "com-mapping",
  "com-math",
 ]

@@ -573,17 +573,9 @@ fn discretise(taps: &[(f64, f64)], sample_rate: f64) -> Result<Vec<(usize, f64)>
     Ok(taps.iter().map(|&(d, db)| ((d * sample_rate).round() as usize, db2lin(db) / total)).collect())
 }
 
-/// One path of a [`DelayDoppler`] channel: a complex gain, a delay (samples) and a
-/// single Doppler shift.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Path {
-    /// Complex gain $h_{i}$.
-    pub gain: C64,
-    /// Delay $l_{i}$ (samples).
-    pub delay: usize,
-    /// Doppler shift $\nu_{i}$ (Hz).
-    pub doppler_hz: f64,
-}
+/// One path of a [`DelayDoppler`] channel (defined in `com-core`, shared with the
+/// waveforms that take a realisation).
+pub use com_core::channel::Path;
 
 /// A realisation of a doubly-dispersive channel of a few discrete paths, each with its
 /// own delay and a single Doppler shift: the channel of OTFS (Raviteja et al. 2019,

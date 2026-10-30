@@ -12,8 +12,9 @@
 //! for the first symbol of every half subframe ($l = 0$ and $l = 7 \cdot 2^{\mu}$), so
 //! that a half subframe lasts exactly 0.5 ms; the extended prefix is $512
 //! N_{\mathrm{FFT}}/2048$ (TS 38.211, Sec. 5.3.1): 4.7 µs and 16.7 µs at $\mu = 0$, the
-//! prefixes of LTE. [`modulate`] maps a grid of $K = 12 N_{\mathrm{RB}}$ subcarriers, the
-//! subcarrier $k$ at the frequency $(k - K/2)\Delta f$, and prepends the prefixes.
+//! prefixes of LTE. [`Carrier::modulate`] maps a grid of $K = 12 N_{\mathrm{RB}}$
+//! subcarriers, the subcarrier $k$ at the frequency $(k - K/2)\Delta f$, and prepends the
+//! prefixes; [`Carrier::demodulate`] removes them and gives the grid back.
 //!
 //! # Synchronisation signal block
 //!
@@ -81,7 +82,7 @@
 
 use super::Ofdm;
 use super::grid::PilotTable;
-use com_core::{Result, ensure};
+use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::sequences::{gold_3gpp, lfsr};
 use std::f64::consts::FRAC_1_SQRT_2;
@@ -165,27 +166,116 @@ impl Numerology {
     }
 }
 
-/// OFDM-modulate `symbols` OFDM symbols of a grid of `k` subcarriers (`grid[l * k + i]`
-/// for subcarrier `i` of symbol `l`), starting at the symbol `first_symbol` of a
-/// subframe, at the FFT size `n_fft` (see the module). Every symbol is the block of
-/// [`Ofdm::to_time`] of $K$ subcarriers out of $N_{\mathrm{FFT}}$ without oversampling,
-/// scaled by $1/\sqrt{K}$ (a grid of unit-energy symbols gives a unit mean power), and
-/// takes the prefix of its position in the subframe.
+/// An NR carrier: a grid of `n_subcarriers` $K$ subcarriers of the numerology
+/// `numerology`, at the FFT size `n_fft`, whose first OFDM symbol is the symbol
+/// `first_symbol` of a subframe (see the module).
 ///
-/// # Errors
-/// [`com_core::Error::Config`] for an odd or too large `k`, a grid that is not a whole number of
-/// symbols, or an FFT size that [`Numerology::cp_lengths`] refuses.
-pub fn modulate(nr: &Numerology, grid: &[C64], k: usize, n_fft: usize, first_symbol: usize) -> Result<Vec<C64>> {
-    ensure(k > 0 && k % 2 == 0 && k <= n_fft, || format!("the grid needs an even K ≤ N_FFT subcarriers, got {k}"))?;
-    ensure(grid.len() % k == 0, || format!("{} values is not a whole number of symbols of {k}", grid.len()))?;
-    let cp = nr.cp_lengths(n_fft)?;
-    let ofdm = Ofdm { oversampling: 1, ..Ofdm::new(n_fft, k)? };
-    let mut out = Vec::new();
-    for (s, sym) in grid.chunks_exact(k).enumerate() {
-        let ncp = cp[(first_symbol + s) % cp.len()];
-        com_dsp::signal::extend_with_prefix(&mut out, &ofdm.to_time(sym)?, ncp)?;
+/// Every symbol is the block of [`Ofdm::to_time`] of $K$ subcarriers out of
+/// $N_{\mathrm{FFT}}$ without oversampling, scaled by $1/\sqrt{K}$ (a grid of unit-energy
+/// symbols gives a unit mean power), and takes the prefix of its position in the
+/// subframe.
+///
+/// # Examples
+/// ```
+/// use com_waveform::ofdm::nr::{Carrier, Numerology};
+/// use com_math::C64;
+/// let carrier = Carrier { numerology: Numerology::new(1, false)?, n_subcarriers: 48, n_fft: 128, first_symbol: 0 };
+/// let grid: Vec<C64> = (0..3 * 48).map(|i| C64::new((i % 3) as f64 - 1.0, 1.0)).collect();
+/// let x = carrier.modulate(&grid)?;
+/// assert_eq!(x.len(), 3 * 128 + 11 + 9 + 9);              // (144 + 32)/16, then 144/16
+/// assert!(carrier.demodulate(&x)?.iter().zip(&grid).all(|(a, b)| (a - b).norm() < 1e-12));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Carrier {
+    /// The numerology.
+    pub numerology: Numerology,
+    /// Subcarriers $K$ of the grid (even, at most $N_{\mathrm{FFT}}$).
+    pub n_subcarriers: usize,
+    /// FFT size $N_{\mathrm{FFT}}$ (a multiple of 128).
+    pub n_fft: usize,
+    /// The position in the subframe of the first OFDM symbol of the grid.
+    pub first_symbol: usize,
+}
+
+impl Carrier {
+    /// Validate the carrier.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an odd or too large $K$, or an FFT size that
+    /// [`Numerology::cp_lengths`] refuses.
+    pub fn check(&self) -> Result<()> {
+        let k = self.n_subcarriers;
+        ensure(k > 0 && k % 2 == 0 && k <= self.n_fft, || {
+            format!("the grid needs an even K ≤ N_FFT subcarriers, got {k}")
+        })?;
+        self.numerology.cp_lengths(self.n_fft).map(|_| ())
     }
-    Ok(out)
+
+    /// The modulator of one symbol and the prefixes of a subframe.
+    fn modem(&self) -> Result<(Ofdm, Vec<usize>)> {
+        self.check()?;
+        let cp = self.numerology.cp_lengths(self.n_fft)?;
+        Ok((Ofdm { oversampling: 1, ..Ofdm::new(self.n_fft, self.n_subcarriers)? }, cp))
+    }
+
+    /// The prefix of the symbol `s` of the grid.
+    fn prefix(cp: &[usize], first: usize, s: usize) -> usize {
+        cp[(first + s) % cp.len()]
+    }
+
+    /// OFDM-modulate the symbols of a grid (`grid[l * K + i]` for subcarrier `i` of symbol
+    /// `l`), every one with the prefix of its position in the subframe.
+    ///
+    /// # Errors
+    /// The errors of [`Carrier::check`]; [`com_core::Error::Shape`] for a grid that is
+    /// not a whole number of symbols.
+    pub fn modulate(&self, grid: &[C64]) -> Result<Vec<C64>> {
+        let (ofdm, cp) = self.modem()?;
+        let k = self.n_subcarriers;
+        ensure_shape(grid.len() % k == 0, || format!("{} values is not a whole number of symbols of {k}", grid.len()))?;
+        let mut out = Vec::new();
+        for (s, sym) in grid.chunks_exact(k).enumerate() {
+            com_dsp::signal::extend_with_prefix(
+                &mut out,
+                &ofdm.to_time(sym)?,
+                Carrier::prefix(&cp, self.first_symbol, s),
+            )?;
+        }
+        Ok(out)
+    }
+
+    /// The grid of the samples of whole OFDM symbols, every prefix of its position in the
+    /// subframe removed: the inverse of [`Carrier::modulate`].
+    ///
+    /// # Errors
+    /// The errors of [`Carrier::check`]; [`com_core::Error::Shape`] if the samples do not
+    /// end with a whole symbol.
+    pub fn demodulate(&self, samples: &[C64]) -> Result<Vec<C64>> {
+        let (ofdm, cp) = self.modem()?;
+        let mut out = Vec::new();
+        let (mut at, mut s) = (0, 0);
+        while at < samples.len() {
+            let len = Carrier::prefix(&cp, self.first_symbol, s) + self.n_fft;
+            ensure_shape(at + len <= samples.len(), || {
+                format!(
+                    "{} samples do not end with a whole OFDM symbol (symbol {s} ends at {})",
+                    samples.len(),
+                    at + len
+                )
+            })?;
+            let block = com_dsp::signal::strip_prefix(&samples[at..at + len], len - self.n_fft)?;
+            out.extend(ofdm.to_active(block)?);
+            at += len;
+            s += 1;
+        }
+        Ok(out)
+    }
+
+    /// The sampling rate $N_{\mathrm{FFT}}\Delta f$ of the carrier (Hz).
+    pub fn sample_rate(&self) -> f64 {
+        self.numerology.sample_rate(self.n_fft)
+    }
 }
 
 /// $1 - 2x$ as $\pm 1$.
@@ -282,8 +372,8 @@ pub fn ssb_indices(n_cell_id: u32, kind: SsbElement) -> Vec<(usize, usize)> {
 /// 432 PBCH symbols `pbch` (zeros when `None`).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for a cell identity above 1007, an SSB index above 7, or a PBCH
-/// of another length than 432.
+/// [`com_core::Error::Config`] for a cell identity above 1007 or an SSB index above 7;
+/// [`com_core::Error::Shape`] for a PBCH of another length than 432.
 pub fn ssb_grid(n_cell_id: u32, i_ssb_bar: u32, pbch: Option<&[C64]>) -> Result<Vec<C64>> {
     let mut g = vec![C64::new(0.0, 0.0); SSB_SYMBOLS * SSB_SUBCARRIERS];
     let (n_id1, n_id2) = (n_cell_id / 3, n_cell_id % 3);
@@ -299,7 +389,7 @@ pub fn ssb_grid(n_cell_id: u32, i_ssb_bar: u32, pbch: Option<&[C64]>) -> Result<
     }
     if let Some(d) = pbch {
         let idx = ssb_indices(n_cell_id, SsbElement::Pbch);
-        ensure(d.len() == idx.len(), || format!("the PBCH carries {} symbols, got {}", idx.len(), d.len()))?;
+        ensure_shape(d.len() == idx.len(), || format!("the PBCH carries {} symbols, got {}", idx.len(), d.len()))?;
         for ((k, l), v) in idx.into_iter().zip(d) {
             g[l * SSB_SUBCARRIERS + k] = *v;
         }
@@ -312,9 +402,9 @@ pub fn ssb_grid(n_cell_id: u32, i_ssb_bar: u32, pbch: Option<&[C64]>) -> Result<
 /// the identity and the normalised correlations $|\langle y, d \rangle| / (\|y\| \|d\|)$ of the PSS and of the SSS.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for a grid of another size.
+/// [`com_core::Error::Shape`] for a grid of another size.
 pub fn detect_cell_id(grid: &[C64]) -> Result<(u32, f64, f64)> {
-    ensure(grid.len() == SSB_SYMBOLS * SSB_SUBCARRIERS, || {
+    ensure_shape(grid.len() == SSB_SYMBOLS * SSB_SUBCARRIERS, || {
         format!("an SSB grid has {} values, got {}", SSB_SYMBOLS * SSB_SUBCARRIERS, grid.len())
     })?;
     let at = |l: usize| &grid[l * SSB_SUBCARRIERS + SYNC_FIRST_SUBCARRIER..][..SYNC_LENGTH];
@@ -322,24 +412,15 @@ pub fn detect_cell_id(grid: &[C64]) -> Result<(u32, f64, f64)> {
     let energy = |y: &[C64]| y.iter().map(C64::norm_sqr).sum::<f64>().sqrt().max(1e-300);
     let norm = (SYNC_LENGTH as f64).sqrt();
     let corr = |y: &[C64], d: &[f64]| y.iter().zip(d).map(|(a, b)| a * *b).sum::<C64>();
-    let mut best2 = (0, C64::new(0.0, 0.0));
-    for n2 in 0..3 {
-        let c = corr(yp, &pss(n2)?);
-        if c.norm() > best2.1.norm() {
-            best2 = (n2, c);
-        }
-    }
+    let c2 = (0..3).map(|n2| Ok(corr(yp, &pss(n2)?))).collect::<Result<Vec<C64>>>()?;
+    let n2 = com_math::argmax(c2.iter().map(|c| c.norm())).map_or(0, |(i, _)| i);
     // the flat channel estimated on the PSS, then a coherent correlation of the SSS
-    let h = best2.1 / SYNC_LENGTH as f64;
-    let mut best1 = (0, f64::NEG_INFINITY);
-    for n1 in 0..336 {
-        let c = (h.conj() * corr(ys, &sss(n1, best2.0)?)).re;
-        if c > best1.1 {
-            best1 = (n1, c);
-        }
-    }
-    let rs = corr(ys, &sss(best1.0, best2.0)?).norm() / (energy(ys) * norm);
-    Ok((3 * best1.0 + best2.0, best2.1.norm() / (energy(yp) * norm), rs))
+    let h = c2[n2] / SYNC_LENGTH as f64;
+    let n2 = n2 as u32;
+    let c1 = (0..336).map(|n1| Ok((h.conj() * corr(ys, &sss(n1, n2)?)).re)).collect::<Result<Vec<f64>>>()?;
+    let n1 = com_math::argmax(c1.iter().copied()).map_or(0, |(i, _)| i) as u32;
+    let rs = corr(ys, &sss(n1, n2)?).norm() / (energy(ys) * norm);
+    Ok((3 * n1 + n2, c2[n2 as usize].norm() / (energy(yp) * norm), rs))
 }
 
 /// The DMRS of a PDSCH of mapping type A over a slot of 14 symbols (see the module).
@@ -480,11 +561,17 @@ mod tests {
         let (n_rb, n_fft) = (24, 512);
         let k = SUBCARRIERS_PER_RB * n_rb;
         let grid: Vec<C64> = (0..14 * k).map(|i| C64::new(((i * 7) % 3) as f64 - 1.0, 1.0) * FRAC_1_SQRT_2).collect();
-        let x = modulate(&nr, &grid, k, n_fft, 0).unwrap();
+        let carrier = Carrier { numerology: nr, n_subcarriers: k, n_fft, first_symbol: 0 };
+        let x = carrier.modulate(&grid).unwrap();
         let cp = nr.cp_lengths(n_fft).unwrap();
         assert_eq!(x.len(), 14 * n_fft + cp[..14].iter().sum::<usize>());
         // the prefix repeats the end of its symbol
         assert!((0..cp[0]).all(|i| (x[i] - x[i + n_fft]).norm() < 1e-12));
+        // the demodulator gives the grid back, and refuses a partial symbol
+        let back = carrier.demodulate(&x).unwrap();
+        assert!(back.iter().zip(&grid).all(|(a, b)| (a - b).norm() < 1e-12));
+        assert!(carrier.demodulate(&x[..x.len() - 1]).is_err());
+        assert!(matches!(carrier.modulate(&grid[1..]), Err(com_core::Error::Shape(_))));
         let dmrs = PdschDmrs { config_type: 1, type_a_position: 2, additional_position: 2, n_id: 1, slot: 3 };
         assert_eq!(dmrs.symbols().unwrap(), vec![2, 7, 11]);
         let t = dmrs.pilot_table(n_rb).unwrap();
@@ -512,7 +599,10 @@ mod tests {
             let t: Vec<C64> = com_math::fft::ifft(&bins).into_iter().map(|v| v * scale).collect();
             com_dsp::signal::extend_with_prefix(&mut expected, &t, cp[(first + s) % cp.len()]).unwrap();
         }
-        assert_eq!(modulate(&nr, &grid, k, n_fft, first).unwrap(), expected);
-        assert!(modulate(&nr, &grid, 35, n_fft, 0).is_err() && modulate(&nr, &grid, 256, n_fft, 0).is_err());
+        let carrier = Carrier { numerology: nr, n_subcarriers: k, n_fft, first_symbol: first };
+        assert_eq!(carrier.modulate(&grid).unwrap(), expected);
+        let odd = Carrier { n_subcarriers: 35, ..carrier };
+        assert!(odd.modulate(&grid).is_err() && Carrier { n_subcarriers: 256, ..carrier }.modulate(&grid).is_err());
+        assert!(matches!(detect_cell_id(&grid[..10]), Err(com_core::Error::Shape(_))));
     }
 }

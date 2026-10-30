@@ -1,6 +1,6 @@
 [package]
 name = "com-hardware"
-description = "Hardware impairments of com-rs: power amplifiers and predistortion, phase noise, lasers, optical modulators, photodiodes, PIN-FET receiver, coherent receiver"
+description = "Hardware impairments of com-rs: power amplifiers, phase noise, lasers, optical modulators, photodiodes, PIN-FET receiver, coherent receiver"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

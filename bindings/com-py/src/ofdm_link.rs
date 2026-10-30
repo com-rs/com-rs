@@ -336,7 +336,7 @@ impl PyGrid {
         if g.len() != self.inner.n_subcarriers * self.inner.n_symbols {
             return Err(PyValueError::new_err("not a whole grid"));
         }
-        Ok(carr(py, self.inner.extract(&g)))
+        Ok(carr(py, self.inner.extract(&g).py()?))
     }
 
     fn __repr__(&self) -> String {
@@ -386,8 +386,8 @@ fn ofdm_estimate<'py>(
     n_fft: Option<usize>,
 ) -> PyResult<CArr<'py>> {
     let pdp = match (delays, powers, max_delay, n_fft) {
-        (Some(d), Some(p), _, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n)),
-        (_, _, Some(m), Some(n)) => Some(PowerDelayProfile::uniform(m, n)),
+        (Some(d), Some(p), _, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n).py()?),
+        (_, _, Some(m), Some(n)) => Some(PowerDelayProfile::uniform(m, n).py()?),
         _ => None,
     };
     let m = FrequencyInterpolation::from_name(method, pdp).py()?;

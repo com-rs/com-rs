@@ -46,7 +46,7 @@ fn ser_channel(css: &Css, h: &[f64], snr_db: f64, n_sym: usize, seed: u64) -> f6
 
 /// SER under a same-SF interferer of power `pi_db`, random offsets (integer and phase-aligned if `aligned`).
 fn ser_interferer(sf: u32, snr_db: f64, pi_db: f64, aligned: bool, n_sym: usize, seed: u64) -> f64 {
-    let css = Css::lora(sf);
+    let css = Css::lora(sf).unwrap();
     let m = css.m();
     let mut rng = Rng::new(seed);
     let sigma = (1.0 / comrs::math::db2lin(snr_db)).sqrt();
@@ -107,7 +107,7 @@ fn afisiadis2020_fig2_monte_carlo() {
     for sf in 7u32..=12 {
         // the SNR of a SER of 1e-2: 200 errors expected
         let snr = comrs::math::bisect(|s| theory::ser(sf, s).unwrap() > 1e-2, -35.0, 0.0, 60);
-        let css = Css::lora(sf);
+        let css = Css::lora(sf).unwrap();
         let sim = ser_channel(&css, &[1.0], snr, 20_000, u64::from(sf));
         let want = theory::ser(sf, snr).unwrap();
         assert!((sim / want - 1.0).abs() < 0.15, "SF {sf} {snr} dB: {sim} vs {want}");

@@ -53,11 +53,7 @@ impl TxIq {
 
 impl Impair for TxIq {
     fn impair_into(&mut self, x: &Signal, _rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        x.map_streams(out, |_, xs| {
-            let mut y = xs.to_vec();
-            self.apply(&mut y);
-            y
-        });
+        x.map_streams_in_place(out, |_, y| self.apply(y));
         Ok(())
     }
 }
@@ -81,11 +77,7 @@ impl RxIq {
 
 impl Impair for RxIq {
     fn impair_into(&mut self, x: &Signal, _rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        x.map_streams(out, |_, xs| {
-            let mut y = xs.to_vec();
-            self.apply(&mut y);
-            y
-        });
+        x.map_streams_in_place(out, |_, y| self.apply(y));
         Ok(())
     }
 }

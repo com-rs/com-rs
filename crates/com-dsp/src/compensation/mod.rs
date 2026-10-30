@@ -5,7 +5,7 @@
 //! - [`dbp`]: digital back-propagation, the split-step solver of `com_math::nlse` run
 //!   with the coefficients of the link negated;
 //! - [`dpd`]: digital predistortion of a power amplifier, memory polynomials trained
-//!   by indirect learning.
+//!   by indirect learning, and the static predistorter of a memoryless model.
 
 pub mod cd;
 pub mod dbp;

@@ -32,20 +32,36 @@
 //! # Ok::<(), com_core::Error>(())
 //! ```
 
+use com_core::ensure;
 use com_core::prelude::*;
 use com_math::cis;
 use std::f64::consts::PI;
 
 /// Wiener phase noise of linewidth `linewidth_hz` over `n` samples spaced by `ts`
-/// seconds (radians, `φ[0] = 0`).
-pub fn phase_noise(linewidth_hz: f64, n: usize, ts: f64, rng: &mut Rng) -> Vec<f64> {
-    wiener_phase((2.0 * PI * linewidth_hz * ts).sqrt(), n, PhaseOrigin::Zero, rng)
+/// seconds (radians, `φ[0] = 0`): [`wiener_phase`] with the increments of
+/// [`increment_sd`] at $f_{s} = 1/T_{s}$.
+///
+/// # Errors
+/// [`Error::Config`] for a negative or non-finite linewidth, or a sample spacing that is
+/// not positive and finite.
+pub fn phase_noise(linewidth_hz: f64, n: usize, ts: f64, rng: &mut Rng) -> Result<Vec<f64>> {
+    ensure(ts > 0.0 && ts.is_finite(), || format!("the sample spacing must be positive, got {ts} s"))?;
+    let sd = increment_sd(linewidth_hz, 1.0 / ts)?;
+    Ok(wiener_phase(sd, n, PhaseOrigin::Zero, rng))
 }
 
 /// The standard deviation $\sqrt{2\pi \Delta\nu / f_{s}}$ of the increments of the
 /// Wiener phase of linewidth `linewidth_hz` sampled at `fs`.
-pub fn increment_sd(linewidth_hz: f64, fs: f64) -> f64 {
-    (2.0 * PI * linewidth_hz / fs).sqrt()
+///
+/// # Errors
+/// [`Error::Config`] for a negative or non-finite linewidth, or a sampling rate that is
+/// not positive and finite.
+pub fn increment_sd(linewidth_hz: f64, fs: f64) -> Result<f64> {
+    ensure(linewidth_hz >= 0.0 && linewidth_hz.is_finite(), || {
+        format!("the linewidth must be non-negative, got {linewidth_hz} Hz")
+    })?;
+    ensure(fs > 0.0 && fs.is_finite(), || format!("the sampling rate must be positive, got {fs} Hz"))?;
+    Ok((2.0 * PI * linewidth_hz / fs).sqrt())
 }
 
 /// Where a Wiener phase starts.
@@ -107,11 +123,16 @@ pub struct PhaseNoise {
 }
 
 impl Impair for PhaseNoise {
+    /// # Errors
+    /// The errors of [`increment_sd`] (a negative linewidth, a signal without a positive
+    /// sampling rate).
     fn impair_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        let ts = x.sample_rate().period().0;
-        x.map_streams(out, |_, xs| {
-            let phi = phase_noise(self.linewidth.0, xs.len(), ts, rng);
-            xs.iter().zip(phi).map(|(v, p)| v * cis(p)).collect()
+        let sd = increment_sd(self.linewidth.0, x.sample_rate().0)?;
+        x.map_streams_in_place(out, |_, y| {
+            let phi = wiener_phase(sd, y.len(), PhaseOrigin::Zero, rng);
+            for (v, p) in y.iter_mut().zip(phi) {
+                *v *= cis(p);
+            }
         });
         Ok(())
     }
@@ -131,11 +152,7 @@ pub struct Cfo {
 impl Impair for Cfo {
     fn impair_into(&mut self, x: &Signal, _rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         let w = 2.0 * PI * self.offset.0 / x.sample_rate().0;
-        x.map_streams(out, |_, xs| {
-            let mut y = xs.to_vec();
-            frequency_offset(&mut y, w, self.centred);
-            y
-        });
+        x.map_streams_in_place(out, |_, y| frequency_offset(y, w, self.centred));
         Ok(())
     }
 }
@@ -146,7 +163,7 @@ mod tests {
 
     #[test]
     fn wiener_increments_have_the_linewidth_variance() {
-        let phi = phase_noise(1e6, 100_001, 1e-9, &mut Rng::new(2));
+        let phi = phase_noise(1e6, 100_001, 1e-9, &mut Rng::new(2)).unwrap();
         let inc: Vec<f64> = phi.windows(2).map(|w| w[1] - w[0]).collect();
         let v = inc.iter().map(|d| d * d).sum::<f64>() / inc.len() as f64;
         assert!((v / (2.0 * PI * 1e6 * 1e-9) - 1.0).abs() < 0.02);
@@ -158,7 +175,7 @@ mod tests {
         let step = wiener_phase(0.1, 50, PhaseOrigin::Step, &mut Rng::new(3));
         assert_eq!(zero[0], 0.0);
         assert!(step[0] != 0.0);
-        let pn = phase_noise(0.01 / (2.0 * PI), 50, 1.0, &mut Rng::new(3));
+        let pn = phase_noise(0.01 / (2.0 * PI), 50, 1.0, &mut Rng::new(3)).unwrap();
         assert!(zero.iter().zip(&pn).all(|(a, b)| (a - b).abs() < 1e-12));
         let mut x = vec![C64::new(1.0, 0.0); 8];
         frequency_offset(&mut x, 0.3, true);
@@ -176,5 +193,37 @@ mod tests {
         assert_eq!(PhaseNoise { linewidth: Hertz(0.0) }.impair(&x, &mut rng).unwrap(), x);
         assert_eq!(Cfo { offset: Hertz(0.0), centred: false }.impair(&x, &mut rng).unwrap(), x);
         assert_eq!(Cfo { offset: Hertz(0.0), centred: true }.impair(&x, &mut rng).unwrap(), x);
+        assert!(PhaseNoise { linewidth: Hertz(-1.0) }.impair(&x, &mut rng).is_err());
+        assert!(phase_noise(1e3, 4, 0.0, &mut rng).is_err() && increment_sd(f64::NAN, 1.0).is_err());
+    }
+
+    /// The blocks rotated a copy of every stream before they rotated the output in place,
+    /// and the phase noise took the increments of `phase_noise` (the deviation
+    /// $\sqrt{2\pi\Delta\nu T_{s}}$) before those of `increment_sd`
+    /// ($\sqrt{2\pi\Delta\nu / f_{s}}$): the same draws, rotations within the rounding of
+    /// the deviation.
+    #[test]
+    fn the_in_place_blocks_are_the_former_ones() {
+        let x = Signal::from_streams(
+            &[(0..500).map(|n| C64::new(f64::from(n).sin(), 1.0)).collect(), vec![C64::new(0.5, -0.5); 500]],
+            Hertz(3e9),
+        )
+        .unwrap();
+        let (lw, ts) = (2e6, x.sample_rate().period().0);
+        let mut rng = Rng::new(4);
+        let former: Vec<Vec<C64>> = (0..2)
+            .map(|s| {
+                let phi = wiener_phase((2.0 * PI * lw * ts).sqrt(), 500, PhaseOrigin::Zero, &mut rng);
+                x.stream(s).iter().zip(phi).map(|(v, p)| v * cis(p)).collect()
+            })
+            .collect();
+        let y = PhaseNoise { linewidth: Hertz(lw) }.impair(&x, &mut Rng::new(4)).unwrap();
+        for (s, f) in former.iter().enumerate() {
+            let err = y.stream(s).iter().zip(f).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max);
+            assert!(err < 1e-13, "{err}");
+        }
+        let mut cfo = x.stream(1).to_vec();
+        frequency_offset(&mut cfo, 2.0 * PI * 1e6 / 3e9, true);
+        assert_eq!(Cfo { offset: Hertz(1e6), centred: true }.impair(&x, &mut rng).unwrap().stream(1), &cfo[..]);
     }
 }

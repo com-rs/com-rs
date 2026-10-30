@@ -69,7 +69,7 @@ fn phase_detector(ce: &CeOfdm, r: &[C64], _: f64) -> Vec<C64> {
 #[ignore = "statistical validation: run with --ignored"]
 fn guerreiro2016_fig1_phase_detector() {
     // N = 512 subcarriers with Hermitian symmetry: K = 255 data subcarriers, M = J = 4
-    let link = |two_pi_h: f64| CeOfdm { n_data: 255, oversampling: 4, h: two_pi_h / TAU, n_cp: 0 };
+    let link = |two_pi_h: f64| CeOfdm::new(255, 4, two_pi_h / TAU).unwrap();
     for (two_pi_h, paper, grid) in [(0.75, 10.8, [10.0, 10.8, 11.6, 12.4]), (1.0, 11.6, [11.0, 11.8, 12.6, 13.4])] {
         let ce = link(two_pi_h);
         let points: Vec<(f64, f64)> = grid.iter().map(|&e| (e, ber(&ce, e, 2000, 11, &[&phase_detector])[0])).collect();
@@ -90,7 +90,7 @@ fn guerreiro2016_fig1_phase_detector() {
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn lopez2022_fig3_gamp_reaches_the_optimum() {
-    let ce = CeOfdm { n_data: 255, oversampling: 4, h: 1.4 / TAU, n_cp: 0 };
+    let ce = CeOfdm::new(255, 4, 1.4 / TAU).unwrap();
     let gamp = |ce: &CeOfdm, r: &[C64], s2: f64| {
         Gamp::default().detect(ce, r, &Constellation::qam(4).unwrap().normalized(), s2).unwrap()
     };
@@ -117,7 +117,7 @@ fn pacheco2006_fig1_simulated_bandwidth() {
     let k = 104;
     let c = Constellation::qam(4).unwrap().normalized();
     for sigma in [0.5, 1.1, 2.0] {
-        let ce = CeOfdm { n_data: k, oversampling: 8, h: sigma / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(k, 8, sigma / TAU).unwrap();
         let n = ce.n_fft();
         let blocks = 1000;
         let (_, d) = comrs::mapping::source::symbols(&c, k * blocks, None, &mut Rng::new(3)).unwrap();
@@ -145,7 +145,7 @@ fn pacheco2006_fig1_simulated_bandwidth() {
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn ahmed2015_fig6_low_complexity_receivers() {
-    let link = |two_pi_h: f64| CeOfdm { n_data: 32, oversampling: 2, h: two_pi_h / TAU, n_cp: 0 };
+    let link = |two_pi_h: f64| CeOfdm::new(32, 2, two_pi_h / TAU).unwrap();
     let with = |r: Receiver| move |ce: &CeOfdm, x: &[C64], _: f64| ce.demodulate_with(x, r).unwrap();
     let (lin, enh) = (with(Receiver::Linear), with(Receiver::Enhanced));
     let detectors: [Detector; 3] = [&phase_detector, &lin, &enh];

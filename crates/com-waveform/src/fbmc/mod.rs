@@ -31,6 +31,11 @@
 //! The modulator and the demodulator are polyphase: one FFT of size $M$ per
 //! half-symbol and $L$ products.
 //!
+//! As [`Modulate`] and [`Demodulate`] blocks, [`Fbmc`] takes complex QAM symbols and
+//! returns them: the OQAM staggering ([`oqam_stagger`]) and its inverse on the real parts
+//! of the projections ([`oqam_destagger`]) are inside the traits, at
+//! [`Fbmc::sample_rate`].
+//!
 //! [`Prototype::Phydyas`] is the filter of the PHYDYAS project (Bellanger 2010),
 //! sampled from its frequency response $H_{0} = 1$, $H_{1}, \dots, H_{K-1}$:
 //! $h\[k\] = H_{0} + 2\sum_{i=1}^{K-1} (-1)^{i} H_{i} \cos\left(\frac{2\pi i (k+1)}{KM}\right)$,
@@ -68,8 +73,18 @@
 //!    calculating the bit error probability," *IEEE Commun. Lett.*, 21(6), 1297–1300,
 //!    2017.
 
+use crate::ofdm::{check_input, check_rate};
+use com_core::signal::{Signal, Symbols};
+use com_core::traits::{Demodulate, Modulate};
+use com_core::units::Hertz;
 use com_core::{Error, Result, ensure, ensure_shape};
+use com_dsp::filter::normalize_energy;
 use com_math::{C64, cis, fft};
+
+/// The OQAM phase $j^{q} = e^{j \pi q / 2}$ of the pulse of index $q = m + n$.
+fn oqam_phase(q: usize) -> C64 {
+    cis(std::f64::consts::FRAC_PI_2 * (q % 4) as f64)
+}
 
 /// The prototype filter of an [`Fbmc`].
 #[non_exhaustive]
@@ -97,7 +112,7 @@ impl Prototype {
             }
         };
         let km = (overlap * subcarriers) as f64;
-        let h: Vec<f64> = (0..overlap * subcarriers - 1)
+        let mut h: Vec<f64> = (0..overlap * subcarriers - 1)
             .map(|k| {
                 let tail: f64 = freq
                     .iter()
@@ -111,8 +126,8 @@ impl Prototype {
                 freq[0] + tail
             })
             .collect();
-        let norm = h.iter().map(|v| v * v).sum::<f64>().sqrt();
-        Ok(h.into_iter().map(|v| v / norm).collect())
+        normalize_energy(&mut h);
+        Ok(h)
     }
 }
 
@@ -122,12 +137,13 @@ pub struct Fbmc {
     n_fft: usize,
     overlap: usize,
     taps: Vec<f64>,
+    sample_rate: Hertz,
 }
 
 impl Fbmc {
     /// `n_fft` subcarriers $M$ (even) with the PHYDYAS prototype of overlapping factor
-    /// `overlap`. The prototype is sampled once here: the fields are read through
-    /// getters.
+    /// `overlap`, at the sample rate 1 Hz ([`Fbmc::with_sample_rate`]). The prototype is
+    /// sampled once here: the fields are read through getters.
     ///
     /// # Errors
     /// [`Error::Config`] for an odd or zero number of subcarriers or an unknown
@@ -142,7 +158,31 @@ impl Fbmc {
     /// As [`Fbmc::new`].
     pub fn with_prototype(n_fft: usize, overlap: usize, prototype: Prototype) -> Result<Fbmc> {
         ensure(n_fft >= 2 && n_fft % 2 == 0, || format!("FBMC/OQAM needs an even number of subcarriers, got {n_fft}"))?;
-        Ok(Fbmc { n_fft, overlap, taps: prototype.taps(n_fft, overlap)? })
+        Ok(Fbmc { n_fft, overlap, taps: prototype.taps(n_fft, overlap)?, sample_rate: Hertz(1.0) })
+    }
+
+    /// The modem at the sample rate `sample_rate` ($M \Delta f$), the rate of the
+    /// [`Signal`] of [`Modulate`] and the rate [`Demodulate`] expects.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a rate that is not positive and finite.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::fbmc::Fbmc;
+    /// use com_core::units::Hertz;
+    /// let f = Fbmc::new(64, 4)?.with_sample_rate(Hertz(64.0 * 15e3))?;
+    /// assert_eq!(f.sample_rate(), Hertz(960e3));
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn with_sample_rate(self, sample_rate: Hertz) -> Result<Fbmc> {
+        check_rate(sample_rate)?;
+        Ok(Fbmc { sample_rate, ..self })
+    }
+
+    /// The sample rate of the modem.
+    pub fn sample_rate(&self) -> Hertz {
+        self.sample_rate
     }
 
     /// The number of subcarriers $M$.
@@ -186,7 +226,7 @@ impl Fbmc {
     pub fn pulse(&self, m: usize, n: usize) -> (usize, Vec<C64>) {
         let mm = self.n_fft as f64;
         let centre = (self.taps.len() - 1) as f64 / 2.0;
-        let phase = cis(std::f64::consts::FRAC_PI_2 * ((m + n) % 4) as f64);
+        let phase = oqam_phase(m + n);
         let values = self
             .taps
             .iter()
@@ -234,7 +274,7 @@ impl Fbmc {
         let mut v = vec![C64::new(0.0, 0.0); m];
         for (n, row) in a.chunks_exact(m).enumerate() {
             for (k, (vk, ak)) in v.iter_mut().zip(row).enumerate() {
-                *vk = cis(std::f64::consts::FRAC_PI_2 * ((k + n) % 4) as f64) * *ak;
+                *vk = oqam_phase(k + n) * *ak;
             }
             // Σ_m c_m e^{j2πmj/M}: the inverse FFT divides by M
             plan.inverse(&mut v);
@@ -267,10 +307,37 @@ impl Fbmc {
             }
             plan.forward(&mut w);
             for (k, wk) in w.iter().enumerate() {
-                y.push(wk * cis(-std::f64::consts::FRAC_PI_2 * ((k + n) % 4) as f64));
+                y.push(wk * oqam_phase(k + n).conj());
             }
         }
         Ok(y)
+    }
+}
+
+/// FBMC/OQAM as a [`Modulate`] block: one stream of complex symbols, `M` per symbol
+/// ($c\[k M + m\]$), staggered into real symbols ([`oqam_stagger`]) and modulated at
+/// [`Fbmc::sample_rate`].
+impl Modulate for Fbmc {
+    fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
+        ensure(x.n_streams() == 1, || format!("FBMC modulates one stream, not {}", x.n_streams()))?;
+        let a = oqam_stagger(x.stream_slice(0), self.n_fft)?;
+        out.set_stream(&Fbmc::modulate(self, &a)?, self.sample_rate);
+        Ok(())
+    }
+}
+
+/// FBMC/OQAM as a [`Demodulate`] block: the complex symbols of the real parts of the
+/// projections ([`oqam_destagger`]), the intrinsic interference dropped.
+impl Demodulate for Fbmc {
+    /// # Errors
+    /// [`Error::Config`] for several streams or a signal at another sample rate; the
+    /// errors of [`Fbmc::demodulate`] and of [`oqam_destagger`] (an odd number of
+    /// half-symbols).
+    fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
+        check_input(y, self.sample_rate, "FBMC")?;
+        let re: Vec<f64> = Fbmc::demodulate(self, y.stream(0))?.iter().map(|v| v.re).collect();
+        out.set_stream(&oqam_destagger(&re, self.n_fft)?);
+        Ok(())
     }
 }
 
@@ -320,6 +387,61 @@ pub fn oqam_destagger(a: &[f64], m: usize) -> Result<Vec<C64>> {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    /// The OQAM phases were written three times with `cis(±π/2 · q)` and the taps
+    /// normalised by hand before `oqam_phase` and `com_dsp::filter::normalize_energy`:
+    /// the taps, the samples and the projections are bit-identical.
+    #[test]
+    fn the_shared_phase_and_normalisation_are_the_former_ones() {
+        let f = Fbmc::new(16, 4).unwrap();
+        let mut r = Rng::new(6);
+        let a: Vec<f64> = (0..16 * 10).map(|_| r.gaussian()).collect();
+        let (m, shift) = (16usize, (f.taps().len() - 1) / 2);
+        let plan = fft::plan(m);
+        let mut s = vec![C64::new(0.0, 0.0); f.n_samples(10)];
+        for (n, row) in a.chunks_exact(m).enumerate() {
+            let mut v: Vec<C64> = row
+                .iter()
+                .enumerate()
+                .map(|(k, ak)| cis(std::f64::consts::FRAC_PI_2 * ((k + n) % 4) as f64) * *ak)
+                .collect();
+            plan.inverse(&mut v);
+            for (i, h) in f.taps().iter().enumerate() {
+                s[n * m / 2 + i] += v[(i + m * 4 - shift) % m] * (h * m as f64);
+            }
+        }
+        assert_eq!(f.modulate(&a).unwrap(), s);
+        let y = f.demodulate(&s).unwrap();
+        for n in 0..10 {
+            let mut w = vec![C64::new(0.0, 0.0); m];
+            for (i, h) in f.taps().iter().enumerate() {
+                w[(i + m * 4 - shift) % m] += s[n * m / 2 + i] * *h;
+            }
+            plan.forward(&mut w);
+            for (k, wk) in w.iter().enumerate() {
+                assert_eq!(y[n * m + k], wk * cis(-std::f64::consts::FRAC_PI_2 * ((k + n) % 4) as f64));
+            }
+        }
+        let raw = Prototype::Phydyas.taps(16, 4).unwrap();
+        let norm = raw.iter().map(|v| v * v).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn the_traits_stagger_inside() {
+        let f = Fbmc::new(16, 4).unwrap().with_sample_rate(Hertz(1e6)).unwrap();
+        let c: Vec<C64> = (0..16 * 6)
+            .map(|i| C64::new(if i % 3 == 0 { 1.0 } else { -1.0 }, if i % 5 == 0 { -1.0 } else { 1.0 }))
+            .collect();
+        let x = Modulate::modulate(&f, &Symbols::from_stream(c.clone()).unwrap()).unwrap();
+        assert_eq!((x.n_samples(), x.sample_rate()), (f.n_samples(12), Hertz(1e6)));
+        assert_eq!(x.stream(0), &f.modulate(&oqam_stagger(&c, 16).unwrap()).unwrap()[..]);
+        let mut g = f.clone();
+        let back = Demodulate::demodulate(&mut g, &x).unwrap();
+        assert!(back.as_slice().iter().zip(&c).all(|(a, b)| (a - b).norm() < 1e-2));
+        let other = Signal::from_stream(x.stream(0).to_vec(), Hertz(2e6)).unwrap();
+        assert!(Demodulate::demodulate(&mut g, &other).is_err() && f.clone().with_sample_rate(Hertz(-1.0)).is_err());
+    }
 
     #[test]
     fn distant_pulses_do_not_interfere() {

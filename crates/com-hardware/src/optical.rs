@@ -21,6 +21,9 @@
 //! - [`hybrid_2x4`]: the 90° optical hybrid of OptiCommPy (`opticalHybrid2x4`);
 //! - [`coherent_receiver`]: hybrid and two balanced photodiode pairs; with ideal
 //!   photodiodes its output is exactly `R E_s E_LO*`;
+//! - [`Photodiode::detect_signal`] and [`coherent_receiver_signal`]: the receivers on a
+//!   [`Signal`] (the polarisations of a `DualPol` as its streams), the sampling rate read
+//!   from the signal;
 //! - [`PinFetReceiver`]: the p-i-n photodiode and FET transimpedance amplifier of the
 //!   optical wireless receivers, the variances of its shot noise (signal and ambient
 //!   light) and thermal noise (feedback resistor and FET channel), and the SNR of on–off
@@ -44,12 +47,12 @@
 //! assert!(null[0].norm() < 1e-15);
 //! ```
 
-use crate::oscillator::{PhaseOrigin, increment_sd, phase_noise, wiener_phase};
+use crate::oscillator::{PhaseOrigin, increment_sd, wiener_phase};
 use com_core::rng::Rng;
-use com_core::{Result, ensure, same_len};
+use com_core::signal::Signal;
+use com_core::{Result, ensure, ensure_shape, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
-use com_dsp::signal::freq_shift;
-use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, cis, db2lin, dbm2w};
+use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, ZERO_CELSIUS, cis, db2lin, dbm2w};
 use std::f64::consts::PI;
 
 /// A continuous-wave laser.
@@ -74,16 +77,51 @@ impl Default for Laser {
 }
 
 impl Laser {
-    /// `n` samples of the field at the sampling rate `fs`.
-    pub fn field(&self, n: usize, fs: f64, rng: &mut Rng) -> Vec<C64> {
+    /// The unit-amplitude carrier of the laser, `n` samples at the sampling rate `fs`:
+    /// the Wiener phase of its linewidth ([`wiener_phase`] with the increments of
+    /// [`increment_sd`], $\phi_{0} = 0$) and its frequency offset,
+    /// $e^{j(\phi_{k} + 2\pi \Delta f k / f_{s})}$. A zero linewidth draws nothing from
+    /// `rng`.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a negative linewidth or a sampling rate that is not
+    /// positive.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_hardware::optical::Laser;
+    /// use com_core::rng::Rng;
+    /// let laser = Laser { linewidth_hz: 0.0, freq_shift_hz: 1e9, ..Laser::default() };
+    /// let c = laser.carrier(8, 8e9, &mut Rng::new(1))?;
+    /// assert!((c[2] - com_math::cis(std::f64::consts::FRAC_PI_2)).norm() < 1e-15);   // a quarter turn
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn carrier(&self, n: usize, fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
+        let sd = increment_sd(self.linewidth_hz, fs)?;
+        let phi = if sd > 0.0 { wiener_phase(sd, n, PhaseOrigin::Zero, rng) } else { vec![0.0; n] };
+        Ok(phi.iter().enumerate().map(|(k, p)| cis(p + 2.0 * PI * self.freq_shift_hz * k as f64 / fs)).collect())
+    }
+
+    /// `n` samples of the field at the sampling rate `fs`: the [`Laser::carrier`] times
+    /// $\sqrt{P (1 + r_{k})}$, the relative intensity noise $r_{k}$ drawn after the
+    /// phase.
+    ///
+    /// # Errors
+    /// As [`Laser::carrier`]; [`com_core::Error::Config`] for a negative or non-finite
+    /// intensity-noise variance.
+    pub fn field(&self, n: usize, fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
+        ensure(self.rin_var >= 0.0 && self.rin_var.is_finite(), || {
+            format!("the intensity-noise variance must be non-negative, got {}", self.rin_var)
+        })?;
         let p = dbm2w(self.power_dbm);
-        let phi = phase_noise(self.linewidth_hz, n, 1.0 / fs, rng);
-        (0..n)
-            .map(|k| {
+        let carrier = self.carrier(n, fs, rng)?;
+        Ok(carrier
+            .into_iter()
+            .map(|c| {
                 let r = if self.rin_var > 0.0 { (1.0 + self.rin_var.sqrt() * rng.gaussian()).max(0.0) } else { 1.0 };
-                cis(phi[k] + 2.0 * PI * self.freq_shift_hz * k as f64 / fs) * (p * r).sqrt()
+                c * (p * r).sqrt()
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -91,12 +129,24 @@ fn check_drive(e: &[C64], u: &[f64]) -> Result<()> {
     same_len(e.len(), u.len(), "optical field and driving signal")
 }
 
+/// `Ok` for a half-wave voltage that is positive and finite.
+fn check_vpi(vpi: f64) -> Result<()> {
+    ensure(vpi > 0.0 && vpi.is_finite(), || format!("the half-wave voltage must be positive, got {vpi} V"))
+}
+
+/// `Ok` for an extinction ratio that is non-negative (infinite for an ideal modulator).
+fn check_er(er_db: f64) -> Result<()> {
+    ensure(er_db >= 0.0, || format!("the extinction ratio must be non-negative, got {er_db} dB"))
+}
+
 /// Phase modulator `E e^{jπu/V_π}`.
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+/// [`com_core::Error::Shape`] if the field and the drive have different lengths;
+/// [`com_core::Error::Config`] for a half-wave voltage that is not positive.
 pub fn phase_modulator(e: &[C64], u: &[f64], vpi: f64) -> Result<Vec<C64>> {
     check_drive(e, u)?;
+    check_vpi(vpi)?;
     Ok(e.iter().zip(u).map(|(&x, &v)| x * cis(PI * v / vpi)).collect())
 }
 
@@ -120,6 +170,17 @@ impl Default for Mzm {
 }
 
 impl Mzm {
+    /// Validate the parameters.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a half-wave voltage that is not positive and finite,
+    /// a bias that is not finite, or a negative (or NaN) extinction ratio.
+    pub fn check(&self) -> Result<()> {
+        check_vpi(self.vpi)?;
+        ensure(self.vb.is_finite(), || format!("the bias must be finite, got {} V", self.vb))?;
+        check_er(self.er_db)
+    }
+
     /// The arm coefficients `(c_I, c_Q)` of the extinction ratio.
     pub fn coefficients(&self) -> (f64, f64) {
         if self.er_db.is_infinite() {
@@ -133,9 +194,11 @@ impl Mzm {
     /// Modulate the field `e` with the driving voltage `u`.
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+    /// [`com_core::Error::Shape`] if the field and the drive have different lengths; the
+    /// errors of [`Mzm::check`].
     pub fn modulate(&self, e: &[C64], u: &[f64]) -> Result<Vec<C64>> {
         check_drive(e, u)?;
+        self.check()?;
         let (ci, cq) = self.coefficients();
         Ok(e.iter()
             .zip(u)
@@ -176,8 +239,11 @@ impl Iqm {
     /// Modulate `e` with the complex driving signal `u` (`Re u` on I, `Im u` on Q).
     ///
     /// # Errors
-    /// [`com_core::Error::Shape`] if the field and the drive have different lengths.
+    /// [`com_core::Error::Shape`] if the field and the drive have different lengths;
+    /// [`com_core::Error::Config`] for the parameters [`Mzm::check`] refuses (and a
+    /// phase bias that is not finite).
     pub fn modulate(&self, e: &[C64], u: &[C64]) -> Result<Vec<C64>> {
+        ensure(self.vphi.is_finite(), || format!("the phase bias must be finite, got {} V", self.vphi))?;
         same_len(e.len(), u.len(), "optical field and driving signal")?;
         let half: Vec<C64> = e.iter().map(|v| v * std::f64::consts::FRAC_1_SQRT_2).collect();
         let ui: Vec<f64> = u.iter().map(|v| v.re).collect();
@@ -250,6 +316,28 @@ impl Photodiode {
         self.detect_power(&e.iter().map(C64::norm_sqr).collect::<Vec<_>>(), fs, rng)
     }
 
+    /// Photocurrent of the field `x` summed over its streams (the polarisations of a
+    /// [`com_core::signal::DualPol`], `to_signal`), at the sampling rate of the signal:
+    /// [`Photodiode::detect_power`] of $\sum_{s} |x_{s}\[k\]|^{2}$.
+    ///
+    /// # Errors
+    /// As [`Photodiode::detect_power`].
+    ///
+    /// # Examples
+    /// ```
+    /// use com_hardware::optical::Photodiode;
+    /// use com_core::prelude::*;
+    /// let x = Signal::from_streams(&[vec![C64::new(0.3, 0.4); 4], vec![C64::new(0.0, 0.5); 4]], Hertz(64e9))?;
+    /// let i = Photodiode::ideal().detect_signal(&x, &mut Rng::new(1))?;
+    /// assert!((i[0] - 0.5).abs() < 1e-15);                       // |x|² + |y|²
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn detect_signal(&self, x: &Signal, rng: &mut Rng) -> Result<Vec<f64>> {
+        let p: Vec<f64> =
+            (0..x.n_samples()).map(|k| (0..x.n_streams()).map(|s| x.stream(s)[k].norm_sqr()).sum()).collect();
+        self.detect_power(&p, x.sample_rate().0, rng)
+    }
+
     /// Photocurrent of an optical power (W per sample), e.g. summed over two polarisations.
     ///
     /// # Errors
@@ -264,13 +352,12 @@ impl Photodiode {
         ensure(fs >= 2.0 * b, || format!("the sampling rate {fs} Hz is below twice the bandwidth {b} Hz"))?;
         if self.shot_noise {
             for v in &mut i {
-                let s2 = 2.0 * ELEMENTARY_CHARGE * (*v + self.dark_current) * b;
+                let s2 = shot_noise_variance(*v + self.dark_current, b);
                 *v += (fs * s2 / (2.0 * b)).max(0.0).sqrt() * rng.gaussian();
             }
         }
         if self.thermal_noise {
-            let t = self.temperature_c + 273.15;
-            let s2 = 4.0 * BOLTZMANN * t * b / self.load_ohm;
+            let s2 = thermal_noise_variance(self.temperature_c + ZERO_CELSIUS, self.load_ohm, b);
             let s = (fs * s2 / (2.0 * b)).sqrt();
             for v in &mut i {
                 *v += s * rng.gaussian();
@@ -358,9 +445,8 @@ impl PinFetReceiver {
     /// The variance of the shot noise (A²) for the received powers `signal_w` and
     /// `isi_w` and the noise bandwidth `bandwidth_hz`.
     pub fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
-        let q = ELEMENTARY_CHARGE;
-        2.0 * q * self.responsivity * (signal_w + isi_w) * bandwidth_hz
-            + 2.0 * q * self.background_current_a * self.i2 * bandwidth_hz
+        shot_noise_variance(self.responsivity * (signal_w + isi_w), bandwidth_hz)
+            + shot_noise_variance(self.background_current_a * self.i2, bandwidth_hz)
     }
 
     /// The variance of the thermal noise (A²) of a photodiode of area `area_m2`.
@@ -379,6 +465,35 @@ impl PinFetReceiver {
             + (self.responsivity * isi_w).powi(2);
         com_math::lin2db(s / n)
     }
+}
+
+/// The variance $2 q I B$ (A²) of the shot noise of the mean current `current_a` $I$ in
+/// the noise bandwidth `bandwidth_hz` $B$, the shot noise of [`Photodiode`] and of
+/// [`PinFetReceiver`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::shot_noise_variance;
+/// let v = shot_noise_variance(1e-3, 1e9);                    // 1 mA over 1 GHz
+/// assert!((v - 2.0 * com_math::ELEMENTARY_CHARGE * 1e-3 * 1e9).abs() < 1e-30);
+/// ```
+pub fn shot_noise_variance(current_a: f64, bandwidth_hz: f64) -> f64 {
+    2.0 * ELEMENTARY_CHARGE * current_a * bandwidth_hz
+}
+
+/// The variance $4 k T B / R$ (A²) of the thermal (Johnson–Nyquist) noise current of a
+/// resistance `resistance_ohm` $R$ at the absolute temperature `temperature_k` $T$ in the
+/// noise bandwidth `bandwidth_hz` $B$, the thermal noise of the load of [`Photodiode`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::thermal_noise_variance;
+/// // 50 Ω at 25 °C over 30 GHz: about 1e-11 A²
+/// let v = thermal_noise_variance(25.0 + com_math::ZERO_CELSIUS, 50.0, 30e9);
+/// assert!((v / 9.88e-12 - 1.0).abs() < 1e-3);
+/// ```
+pub fn thermal_noise_variance(temperature_k: f64, resistance_ohm: f64, bandwidth_hz: f64) -> f64 {
+    4.0 * BOLTZMANN * temperature_k * bandwidth_hz / resistance_ohm
 }
 
 /// Balanced detection `i(E₁) - i(E₂)`.
@@ -424,152 +539,80 @@ pub fn coherent_receiver(es: &[C64], elo: &[C64], pd: &Photodiode, fs: f64, rng:
     Ok(si.iter().zip(&sq).map(|(&a, &b)| C64::new(a, b)).collect())
 }
 
-/// A WDM transmitter: channels of the same symbol rate on the frequencies `freqs`
-/// (relative to the carrier), each shaped by the pulse `taps` at `sps` samples per
-/// symbol, of power `powers_w` (W, both polarisations), on a laser of linewidth
-/// `linewidth_hz` (OptiCommPy's `simpleWDMTx`).
+/// [`coherent_receiver`] on every stream of the field `es` (the polarisations of a
+/// [`com_core::signal::DualPol`]), at its sampling rate, with the local oscillator `elo`:
+/// one stream shared by all, or one per stream.
 ///
-/// A polarisation of a channel is the shaped symbols normalised to unit power, or,
-/// with `mzm_scale`, the field of OptiCommPy's IQ modulator driven by the shaped
-/// symbols normalised to the peak amplitude `mzm_scale · V_π`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct WdmTransmitter {
-    /// Centre frequencies of the channels relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
-    /// Launch power of every channel, both polarisations (W).
-    pub powers_w: Vec<f64>,
-    /// Taps of the pulse.
-    pub taps: Vec<f64>,
-    /// Samples per symbol of the multiplex.
-    pub sps: usize,
-    /// Linewidth of the transmit lasers (Hz).
-    pub linewidth_hz: f64,
-    /// Peak drive of the IQ modulator relative to `V_π`; a linear modulator if `None`.
-    pub mzm_scale: Option<f64>,
-}
-
-impl WdmTransmitter {
-    /// The unit-power waveform of one polarisation of a channel.
-    ///
-    /// # Errors
-    /// The errors of the IQ modulator.
-    pub fn shape(&self, symbols: &[C64]) -> Result<Vec<C64>> {
-        let x = fir_filter(&self.taps, &com_dsp::resample::upsample(symbols, self.sps));
-        Ok(match self.mzm_scale {
-            None => com_dsp::signal::pnorm(&x),
-            Some(scale) => {
-                // OptiCommPy: the drive normalised to the peak amplitude scale·V_π
-                let iqm = Iqm::default();
-                let peak = x.iter().map(|v| v.norm()).fold(0.0, f64::max).max(1e-300);
-                let u: Vec<C64> = x.iter().map(|v| v * (scale * iqm.vpi / peak)).collect();
-                com_dsp::signal::pnorm(&iqm.modulate(&vec![C64::new(1.0, 0.0); u.len()], &u)?)
-            }
-        })
-    }
-
-    /// The multiplex of `pols` polarisations of `n_symbols` symbols per channel at the
-    /// symbol rate `symbol_rate`: `symbols(channel, polarisation, rng)` gives the
-    /// symbols of every polarisation of every channel, drawn after the phase noise of
-    /// the channel's laser.
-    ///
-    /// # Errors
-    /// The errors of [`WdmTransmitter::shape`].
-    pub fn multiplex<F>(
-        &self,
-        pols: usize,
-        n_symbols: usize,
-        symbol_rate: f64,
-        rng: &mut Rng,
-        mut symbols: F,
-    ) -> Result<Vec<Vec<C64>>>
-    where
-        F: FnMut(usize, usize, &mut Rng) -> Vec<C64>,
-    {
-        let n = n_symbols * self.sps;
-        let fs = symbol_rate * self.sps as f64;
-        let mut out = vec![vec![C64::new(0.0, 0.0); n]; pols];
-        for (ch, (&f, &p)) in self.freqs.iter().zip(&self.powers_w).enumerate() {
-            // the carrier of the channel, with the phase noise of its laser
-            let sd = increment_sd(self.linewidth_hz, fs);
-            let phi = if sd > 0.0 { wiener_phase(sd, n, PhaseOrigin::Zero, rng) } else { vec![0.0; n] };
-            let carrier: Vec<C64> =
-                phi.iter().enumerate().map(|(k, p)| cis(2.0 * PI * f * k as f64 / fs + p)).collect();
-            let a = (p / pols as f64).sqrt();
-            for (pol, o) in out.iter_mut().enumerate() {
-                let s = symbols(ch, pol, rng);
-                for ((o, w), e) in o.iter_mut().zip(self.shape(&s)?).zip(&carrier) {
-                    *o += w * e * a;
-                }
-            }
-        }
-        Ok(out)
-    }
-}
-
-/// The channel of centre frequency `f` (Hz) of a multiplex sampled at `fs`, brought to
-/// baseband and band-limited by resampling to `n_out` samples (an ideal coherent
-/// receiver with its local oscillator on the channel).
-pub fn wdm_demultiplex(x: &[C64], f: f64, fs: f64, n_out: usize) -> Vec<C64> {
-    com_dsp::resample::resample_fft(&freq_shift(x, -f, fs), n_out)
-}
-
-/// The centre frequencies of `n` WDM channels spaced by `spacing` (Hz), relative to the
-/// carrier, as OptiCommPy's `simpleWDMTx`: $(k - \lfloor N/2 \rfloor) \Delta f$ for
-/// $k = 0, \dots, N - 1$, shifted by $\Delta f / 2$ when $N$ is even.
-pub fn wdm_grid(n: usize, spacing: f64) -> Vec<f64> {
-    let shift = if n % 2 == 0 { spacing / 2.0 } else { 0.0 };
-    (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing + shift).collect()
+/// # Errors
+/// [`com_core::Error::Shape`] for a local oscillator of another length or number of
+/// streams; [`com_core::Error::Config`] for another sampling rate; the errors of
+/// [`coherent_receiver`].
+///
+/// # Examples
+/// ```
+/// use com_hardware::optical::{coherent_receiver_signal, Photodiode};
+/// use com_core::prelude::*;
+/// let es = Signal::from_streams(&[vec![C64::new(0.3, -0.2); 4], vec![C64::new(0.1, 0.0); 4]], Hertz(64e9))?;
+/// let lo = Signal::from_stream(vec![C64::new(1.0, 0.0); 4], Hertz(64e9))?;
+/// let s = coherent_receiver_signal(&es, &lo, &Photodiode::ideal(), &mut Rng::new(0))?;
+/// assert!((s.stream(1)[0] - C64::new(0.1, 0.0)).norm() < 1e-12);   // R E_s E_LO*
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn coherent_receiver_signal(es: &Signal, elo: &Signal, pd: &Photodiode, rng: &mut Rng) -> Result<Signal> {
+    ensure(es.sample_rate() == elo.sample_rate(), || {
+        format!("a local oscillator at {} Hz for a field at {} Hz", elo.sample_rate().0, es.sample_rate().0)
+    })?;
+    ensure_shape(elo.n_streams() == 1 || elo.n_streams() == es.n_streams(), || {
+        format!("{} local oscillators for {} streams: one, or one per stream", elo.n_streams(), es.n_streams())
+    })?;
+    let mut out = Signal::zeros(0, 0, es.sample_rate());
+    es.try_map_streams(&mut out, |s, x| {
+        let lo = elo.stream(if elo.n_streams() == 1 { 0 } else { s });
+        coherent_receiver(x, lo, pd, es.sample_rate().0, rng)
+    })?;
+    Ok(out)
 }
 
 #[cfg(test)]
-mod wdm_tests {
+mod tests {
     use super::*;
+    use com_core::units::Hertz;
 
     #[test]
-    fn the_demultiplexer_recovers_a_channel_of_the_multiplex() {
-        // three channels of 1 mW; the centre one, demultiplexed, is its shaped symbols
-        let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 8, 1025);
-        let tx = WdmTransmitter {
-            freqs: wdm_grid(3, 50e9),
-            powers_w: vec![1e-3; 3],
-            taps,
-            sps: 8,
-            linewidth_hz: 0.0,
-            mzm_scale: None,
-        };
-        let mut rng = Rng::new(2);
-        let qpsk = |rng: &mut Rng| C64::new(f64::from(rng.bit()) * 2.0 - 1.0, f64::from(rng.bit()) * 2.0 - 1.0);
-        let centre: Vec<C64> = (0..512).map(|_| qpsk(&mut rng)).collect();
-        let x = tx
-            .multiplex(1, 512, 32e9, &mut rng, |ch, _, rng| {
-                if ch == 1 { centre.clone() } else { (0..512).map(|_| qpsk(rng)).collect() }
-            })
-            .unwrap();
-        let p = x[0].iter().map(C64::norm_sqr).sum::<f64>() / x[0].len() as f64;
-        assert!((p / 3e-3 - 1.0).abs() < 0.05, "{p}");
-        // at 2 samples per symbol the band is ±32 GHz: the neighbours (50 ± 17.6 GHz)
-        // are out of it
-        let y = wdm_demultiplex(&x[0], 0.0, 256e9, 512 * 2);
-        let reference = com_dsp::resample::resample_fft(&tx.shape(&centre).unwrap(), 512 * 2);
-        let err: f64 = y.iter().zip(&reference).map(|(a, b)| (a / 1e-3f64.sqrt() - b).norm_sqr()).sum::<f64>();
-        let sig: f64 = reference.iter().map(C64::norm_sqr).sum();
-        assert!(err / sig < 1e-3, "{}", err / sig);
+    fn invalid_modulators_are_refused_instead_of_giving_nan() {
+        let e = [C64::new(1.0, 0.0); 3];
+        assert!(phase_modulator(&e, &[0.0; 3], 0.0).is_err());
+        for m in [
+            Mzm { vpi: 0.0, ..Mzm::default() },
+            Mzm { vb: f64::NAN, ..Mzm::default() },
+            Mzm { er_db: -3.0, ..Mzm::default() },
+        ] {
+            assert!(m.modulate(&e, &[0.0; 3]).is_err(), "{m:?}");
+        }
+        assert!(Mzm { er_db: f64::INFINITY, ..Mzm::default() }.check().is_ok());
+        assert!(Iqm { vpi: -2.0, ..Iqm::default() }.modulate(&e, &e).is_err());
+        assert!(Iqm { vphi: f64::INFINITY, ..Iqm::default() }.modulate(&e, &e).is_err());
     }
 
-    /// The demultiplexer shifted the multiplex itself, with the phase `-2π f k / fs`,
-    /// before it called `com_dsp::signal::freq_shift`, whose phase `(-2π f / fs) k`
-    /// rounds differently: the outputs differ by the rounding of phases up to `2π f n / fs`.
     #[test]
-    fn the_demultiplexer_shifts_as_before_to_the_rounding_of_the_phase() {
-        let mut rng = Rng::new(5);
-        let x: Vec<C64> = (0..8192).map(|_| rng.complex_gaussian()).collect();
-        let (fs, f) = (256e9, 75e9);
-        let shifted: Vec<C64> = x.iter().enumerate().map(|(k, v)| v * cis(-2.0 * PI * f * k as f64 / fs)).collect();
-        let old = com_dsp::resample::resample_fft(&shifted, 2048);
-        let new = wdm_demultiplex(&x, f, fs, 2048);
-        let err = old.iter().zip(&new).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>().sqrt();
-        let sig = old.iter().map(C64::norm_sqr).sum::<f64>().sqrt();
-        // the phase reaches 2π · 75/256 · 8192 ≈ 1.5·10⁴ rad, rounded to about 2·10⁻¹² rad
-        assert!(err / sig < 1e-11, "{}", err / sig);
+    fn the_receivers_on_a_signal_are_those_of_the_slices() {
+        let mut r = Rng::new(4);
+        let pols: Vec<Vec<C64>> = (0..2).map(|_| (0..256).map(|_| r.complex_gaussian() * 1e-2).collect()).collect();
+        let fs = 128e9;
+        let x = Signal::from_streams(&pols, Hertz(fs)).unwrap();
+        let pd = Photodiode::default();
+        let power: Vec<f64> = (0..256).map(|k| pols[0][k].norm_sqr() + pols[1][k].norm_sqr()).collect();
+        assert_eq!(
+            pd.detect_signal(&x, &mut Rng::new(1)).unwrap(),
+            pd.detect_power(&power, fs, &mut Rng::new(1)).unwrap()
+        );
+        let lo = Signal::from_stream(vec![C64::new(0.1, 0.0); 256], Hertz(fs)).unwrap();
+        let (mut a, mut b) = (Rng::new(2), Rng::new(2));
+        let s = coherent_receiver_signal(&x, &lo, &pd, &mut a).unwrap();
+        for (k, p) in pols.iter().enumerate() {
+            assert_eq!(s.stream(k), &coherent_receiver(p, lo.stream(0), &pd, fs, &mut b).unwrap()[..]);
+        }
+        let slow = Signal::from_stream(vec![C64::new(0.1, 0.0); 256], Hertz(fs / 2.0)).unwrap();
+        assert!(coherent_receiver_signal(&x, &slow, &pd, &mut a).is_err());
     }
 }

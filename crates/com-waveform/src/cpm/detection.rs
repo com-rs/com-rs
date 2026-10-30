@@ -3,7 +3,7 @@
 //! distance.
 
 use super::{Cpm, FrequencyPulse};
-use com_core::{Result, ensure, ensure_shape};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
 use com_math::{C64, cis};
 use std::f64::consts::{PI, TAU};
@@ -19,6 +19,9 @@ pub struct MlPath {
 }
 
 impl Cpm {
+    /// The largest number of difference sequences [`Cpm::min_distance2`] visits.
+    pub const MAX_DIFFERENCE_SEQUENCES: usize = 1 << 20;
+
     /// The number of whole symbols of a received signal.
     fn n_symbols(&self, r: &[C64]) -> Result<usize> {
         let sps = self.cfg.sps;
@@ -224,20 +227,27 @@ impl Cpm {
     ///
     /// over the difference sequences $\gamma_{k} = a_{k} - a_{k}^{\prime} \in \\{0, \pm 2,
     /// \dots, \pm 2(M-1)\\}$ with $\gamma_{0} \ne 0$ and $\pi h \sum_{k} \gamma_{k}
-    /// \equiv 0 \pmod{2 \pi}$ (the merge). The integral is evaluated with 256 points per
-    /// symbol; it is infinite if no sequence merges within `max_len` symbols. With this
-    /// normalisation antipodal signalling has $d^{2} = 2$. The search visits
-    /// $(2M - 1)^{N}$ difference sequences for `max_len` $= N$; with `max_len` $= 0$ it
-    /// visits none and returns infinity.
+    /// \equiv 0 \pmod{2 \pi}$ (the merge). The integral is evaluated by Simpson's rule
+    /// with 256 intervals per symbol (within $10^{-9}$ of the closed form $2(1 -
+    /// \operatorname{sinc} 2h)$ of binary CPFSK); it is infinite if no sequence merges
+    /// within `max_len` symbols. With this normalisation antipodal signalling has
+    /// $d^{2} = 2$. The search visits $(2M - 1)^{N}$ difference sequences for `max_len`
+    /// $= N$, at most [`Cpm::MAX_DIFFERENCE_SEQUENCES`]; with `max_len` $= 0$ it visits
+    /// none and returns infinity.
+    ///
+    /// # Errors
+    /// [`Error::Config`] if $(2M - 1)^{N}$ exceeds [`Cpm::MAX_DIFFERENCE_SEQUENCES`] (at
+    /// `max_len` = 20, binary CPM would visit $3.5 \cdot 10^{9}$ sequences).
     ///
     /// # Examples
     /// ```
     /// use com_waveform::cpm::CpmConfig;
     /// let msk = CpmConfig::msk(4).build()?;
-    /// assert!((msk.min_distance2(3) - 2.0).abs() < 1e-3);
+    /// assert!((msk.min_distance2(3)? - 2.0).abs() < 1e-3);
+    /// assert!(msk.min_distance2(20).is_err());
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub fn min_distance2(&self, max_len: usize) -> f64 {
+    pub fn min_distance2(&self, max_len: usize) -> Result<f64> {
         let (m, l) = (self.cfg.order, self.cfg.length);
         let n_diff = 2 * m - 1;
         let res = 256usize;
@@ -245,10 +255,19 @@ impl Cpm {
         let unit = i64::from(self.cfg.h_den) * 2;
         let mut best = f64::INFINITY;
         if max_len == 0 {
-            return best;
+            return Ok(best);
         }
+        let n_codes = u32::try_from(max_len)
+            .ok()
+            .and_then(|e| n_diff.checked_pow(e))
+            .filter(|&n| n <= Cpm::MAX_DIFFERENCE_SEQUENCES)
+            .ok_or_else(|| {
+                Error::Config(format!(
+                    "{n_diff}^{max_len} difference sequences exceed the {} of the search",
+                    Cpm::MAX_DIFFERENCE_SEQUENCES
+                ))
+            })?;
         let mut gamma = vec![0i64; max_len];
-        let n_codes = u32::try_from(max_len).ok().and_then(|e| n_diff.checked_pow(e)).unwrap_or(usize::MAX);
         for code in 0..n_codes {
             let mut c = code;
             for g in &mut gamma {
@@ -263,24 +282,25 @@ impl Cpm {
             if (i64::from(self.cfg.h_num) * 2 * total).rem_euclid(unit) != 0 {
                 continue;
             }
-            let n_samples = (max_len + l - 1) * res;
-            let mut integral = 0.0;
-            for k in 0..=n_samples {
-                let t = k as f64 / res as f64;
-                let dphi: f64 = gamma
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &g)| 2.0 * g as f64 * self.cfg.pulse.phase_response(t - i as f64, l))
-                    .sum::<f64>()
-                    * TAU
-                    * h;
-                let w = if k == 0 || k == n_samples { 0.5 } else { 1.0 };
-                integral += w * (1.0 - dphi.cos());
-            }
-            let d2 = (m as f64).log2() * integral / res as f64;
-            best = best.min(d2);
+            let span = max_len + l - 1;
+            let integral = com_math::simpson(
+                |t| {
+                    let dphi: f64 = gamma
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &g)| 2.0 * g as f64 * self.cfg.pulse.phase_response(t - i as f64, l))
+                        .sum::<f64>()
+                        * TAU
+                        * h;
+                    1.0 - dphi.cos()
+                },
+                0.0,
+                span as f64,
+                span * res,
+            );
+            best = best.min((m as f64).log2() * integral);
         }
-        best
+        Ok(best)
     }
 }
 

@@ -37,20 +37,15 @@
 
 use super::Css;
 use com_core::Result;
-use com_math::{C64, cis, fft, fresnel, qfunc};
+use com_math::{C64, cis, db2lin, fft, fresnel, qfunc};
 use std::f64::consts::{PI, TAU};
-
-/// The SNR per sample (linear) of `snr_db`.
-fn rho(snr_db: f64) -> f64 {
-    com_math::db2lin(snr_db)
-}
 
 /// The number of chirps $M = 2^{\mathrm{SF}}$ of the spreading factor `sf`.
 ///
 /// # Errors
 /// As [`Css::check`]: the spreading factor lies in 1..=16.
 fn chips(sf: u32) -> Result<usize> {
-    Css::lora(sf).check()?;
+    Css::lora(sf)?;
     Ok(1 << sf)
 }
 
@@ -100,7 +95,7 @@ pub fn ser_rice(sf: u32, snr_db: f64) -> Result<f64> {
     let m = chips(sf)?;
     let h = harmonic(m - 1);
     let d = (h * h - PI * PI / 12.0).sqrt();
-    let gamma = m as f64 * rho(snr_db);
+    let gamma = m as f64 * db2lin(snr_db);
     Ok(qfunc((gamma.sqrt() - d.sqrt()) / (h - d + 0.5).sqrt()))
 }
 
@@ -112,7 +107,7 @@ pub fn ser_rice(sf: u32, snr_db: f64) -> Result<f64> {
 /// As [`ser`].
 pub fn ser_gumbel(sf: u32, snr_db: f64) -> Result<f64> {
     const EULER: f64 = 0.577_215_664_901_532_9;
-    let gamma = chips(sf)? as f64 * rho(snr_db);
+    let gamma = chips(sf)? as f64 * db2lin(snr_db);
     Ok(qfunc((2.0 * gamma).sqrt() - (2.0 * (std::f64::consts::LN_2 * f64::from(sf) + EULER)).sqrt()))
 }
 
@@ -356,7 +351,7 @@ pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> Result<f64> {
 /// # Errors
 /// As [`Css::interferer`].
 pub fn interference_pattern(sf: u32, s1: usize, s2: usize, tau: f64) -> Result<Vec<C64>> {
-    let css = Css::lora(sf);
+    let css = Css::lora(sf)?;
     let x = css.interferer(s1, s2, tau)?;
     let reference = css.symbol(0)?;
     Ok(fft::fft(&x.iter().zip(&reference).map(|(a, b)| a * b.conj()).collect::<Vec<_>>()))
@@ -376,8 +371,7 @@ pub fn interference_magnitudes(sf: u32, s1: usize, s2: usize, tau: f64) -> Resul
     let mf = m as f64;
     let c = tau.ceil();
     let (l_int, lambda) = (tau.floor(), tau - tau.floor());
-    // sin(π x len / M) / sin(π x / M), len a whole number of chips
-    let ratio = |x: f64, len: f64| if len == 0.0 { 0.0 } else { len * com_math::diric(TAU * x / mf, len as usize) };
+    let ratio = |x: f64, len: f64| sine_ratio(x, len, mf);
     let (s1f, s2f) = (s1 as f64, s2 as f64);
     Ok((0..m)
         .map(|k| {
@@ -392,6 +386,13 @@ pub fn interference_magnitudes(sf: u32, s1: usize, s2: usize, tau: f64) -> Resul
         .collect())
 }
 
+/// $\sin(\pi x L / M) / \sin(\pi x / M)$ for a whole number of chips $L$ = `len` (0 for
+/// $L = 0$): $L \operatorname{diric}(2\pi x / M, L)$, the amplitudes $A_{k,1}$ and
+/// $A_{k,2}$ of Afisiadis et al. (2020), eqs. (39)–(40).
+fn sine_ratio(x: f64, len: f64, m: f64) -> f64 {
+    if len == 0.0 { 0.0 } else { len * com_math::diric(TAU * x / m, len as usize) }
+}
+
 /// The magnitude $|A_{k,1} + A_{k,2}|$ of the strongest interference bin for `s2 = 0`
 /// and `s1 = si` (Afisiadis et al. 2020, eqs. (58)–(59)), at $k = [-\lfloor\tau\rceil]_{M}$:
 /// the dechirped interferer delayed by $\tau$ is a tone at $-\tau$, where $A_{k,2}$ of
@@ -400,9 +401,7 @@ fn strongest_bin(m: usize, si: usize, tau: f64) -> f64 {
     let mf = m as f64;
     let c = tau.ceil();
     let k = -tau.round();
-    // sin(π x len / M) / sin(π x / M), len a whole number of chips
-    let ratio = |x: f64, len: f64| if len == 0.0 { 0.0 } else { len * com_math::diric(TAU * x / mf, len as usize) };
-    (ratio(si as f64 - k - tau, c) + ratio(-k - tau, mf - c)).abs()
+    (sine_ratio(si as f64 - k - tau, c, mf) + sine_ratio(-k - tau, mf - c, mf)).abs()
 }
 
 /// The probability that the strongest interference bin beats the bin of the symbol,
@@ -414,10 +413,16 @@ fn interference_error(m: usize, si: usize, tau: f64, rho: f64, pi_lin: f64) -> f
     qfunc((mf - pi_lin.sqrt() * strongest_bin(m, si, tau)) / (mf / rho).sqrt())
 }
 
-/// The step (`eps` floored at 1e-3 chip) and the offsets `0, step, 2 step, …` below
-/// `half`.
+/// The step of the offsets of the paper, 1/5 chip, taken for a non-finite `eps`.
+const PAPER_OFFSET_STEP: f64 = 0.2;
+
+/// The smallest step of the offsets (chips): a finer `eps` is raised to it.
+const MIN_OFFSET_STEP: f64 = 1e-3;
+
+/// The step (`eps` floored at [`MIN_OFFSET_STEP`], [`PAPER_OFFSET_STEP`] for a
+/// non-finite `eps`) and the offsets `0, step, 2 step, …` below `half`.
 fn offsets(half: f64, eps: f64) -> (f64, Vec<f64>) {
-    let eps = if eps.is_finite() { eps.max(1e-3) } else { 0.2 };
+    let eps = if eps.is_finite() { eps.max(MIN_OFFSET_STEP) } else { PAPER_OFFSET_STEP };
     let n = (half / eps).ceil().max(0.0) as usize;
     (eps, (0..n).map(|i| i as f64 * eps).filter(|t| *t < half).collect())
 }
@@ -425,13 +430,13 @@ fn offsets(half: f64, eps: f64) -> (f64, Vec<f64>) {
 /// The approximate SER under AWGN and a same-SF interferer of power `pi_db` (dB, relative
 /// to the signal), at the SNR per sample `snr_db`, the offset sampled every `eps` chips
 /// over $[0, (M - 1)/2)$ (Afisiadis et al. 2020, eqs. (62)–(63); the paper takes
-/// `eps` = 1/5).
+/// `eps` = 1/5): a step below 10⁻³ chip is raised to it, a non-finite one is 1/5.
 ///
 /// # Errors
 /// As [`ser`].
 pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> Result<f64> {
     let m = chips(sf)?;
-    let (r, pi) = (rho(snr_db), com_math::db2lin(pi_db));
+    let (r, pi) = (db2lin(snr_db), com_math::db2lin(pi_db));
     let half = (m as f64 - 1.0) / 2.0;
     let (eps, taus) = offsets(half, eps);
     let mut acc = 0.0;
@@ -447,13 +452,14 @@ pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> Result<f6
 
 /// The approximate frame error rate of `frame` uncoded symbols under AWGN and a same-SF
 /// interferer whose frame of the same length overlaps a uniform number of symbols
-/// (Afisiadis et al. 2020, eqs. (64)–(67)), the offset sampled every `eps` chips.
+/// (Afisiadis et al. 2020, eqs. (64)–(67)), the offset sampled every `eps` chips (as
+/// [`ser_interference`]).
 ///
 /// # Errors
 /// As [`ser`].
 pub fn fer_interference(sf: u32, snr_db: f64, pi_db: f64, frame: usize, eps: f64) -> Result<f64> {
     let m = chips(sf)?;
-    let (r, pi) = (rho(snr_db), com_math::db2lin(pi_db));
+    let (r, pi) = (db2lin(snr_db), com_math::db2lin(pi_db));
     let half = (m as f64 - 1.0) / 2.0;
     let (eps, taus) = offsets(half, eps);
     // eq. (65): the SER of an interfered symbol at the offset τ
@@ -563,7 +569,7 @@ mod tests {
     #[test]
     fn the_exact_ser_is_that_of_a_simulated_receiver() {
         // SF 7 at -9 dB: SER 1e-2, about 300 errors
-        let css = Css::lora(7);
+        let css = Css::lora(7).unwrap();
         let mut rng = Rng::new(1);
         let n = 30_000;
         let s: Vec<usize> = (0..n).map(|_| rng.below(128)).collect();
@@ -702,8 +708,7 @@ mod literature {
         let m = 128usize;
         for (si, tau) in [(0usize, 3.0), (40, 10.4), (100, 30.7), (5, 50.2)] {
             let r = interference_pattern(7, si, 0, tau).unwrap();
-            let kmax =
-                r.iter().enumerate().fold((0, 0.0), |b, (k, v)| if v.norm() > b.1 { (k, v.norm()) } else { b }).0;
+            let kmax = com_math::argmax(r.iter().map(|v| v.norm())).unwrap().0;
             assert_eq!(kmax, (m - tau.round() as usize) % m, "τ = {tau}");
             assert!(r[tau.round() as usize].norm() < 0.05 * r[kmax].norm());
             // eq. (59) drops the phase term of eq. (43): within 0.5 %

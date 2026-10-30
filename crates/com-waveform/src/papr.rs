@@ -91,9 +91,10 @@
 use crate::ofdm::{Ofdm, PaprReduction};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
+use com_dsp::nonlinear::limit_envelope;
 use com_dsp::signal::map_envelope;
 use com_mapping::constellation::Constellation;
-use com_math::{C64, cis, db2lin, papr_db};
+use com_math::{C64, cis, db2amp, db2lin, papr_db};
 use std::f64::consts::PI;
 
 // ------------------------------------------------------------------ distribution
@@ -135,15 +136,6 @@ pub fn ccdf_slm_nyquist(n: usize, candidates: usize, papr_db: f64) -> f64 {
 
 // ------------------------------------------------------------------ clipping
 
-/// Limit the envelope to `a`, keeping the phase.
-fn limit(x: &mut [C64], a: f64) {
-    map_envelope(x, |r| C64::new(if r > a { a / r } else { 1.0 }, 0.0));
-}
-
-fn amplitude(ratio_db: f64) -> f64 {
-    com_math::db2amp(ratio_db)
-}
-
 /// Clipping of the envelope at `ratio_db` above the (unit) average power
 /// (Li & Cimini 1998): in-band distortion and out-of-band regrowth.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -155,7 +147,7 @@ pub struct Clip {
 impl PaprReduction for Clip {
     fn reduce(&self, ofdm: &Ofdm, data: &[C64]) -> Result<(Vec<C64>, usize)> {
         let mut x = ofdm.to_time(&ofdm.spread(data))?;
-        limit(&mut x, amplitude(self.ratio_db));
+        limit_envelope(&mut x, db2amp(self.ratio_db));
         Ok((x, 0))
     }
 }
@@ -174,9 +166,9 @@ pub struct ClipFilter {
 impl PaprReduction for ClipFilter {
     fn reduce(&self, ofdm: &Ofdm, data: &[C64]) -> Result<(Vec<C64>, usize)> {
         let mut x = ofdm.to_time(&ofdm.spread(data))?;
-        let a = amplitude(self.ratio_db);
+        let a = db2amp(self.ratio_db);
         for _ in 0..self.iterations {
-            limit(&mut x, a);
+            limit_envelope(&mut x, a);
             x = ofdm.filter(&x)?;
         }
         Ok((x, 0))
@@ -407,10 +399,10 @@ impl PaprReduction for ToneReservation {
             .map(|&r| if r { C64::new(0.0, 0.0) } else { *it.next().unwrap_or(&C64::new(0.0, 0.0)) })
             .collect();
         let mut x = ofdm.to_time(&active)?;
-        let a = amplitude(self.ratio_db);
+        let a = db2amp(self.ratio_db);
         for _ in 0..self.iterations {
             let mut clipped = x.clone();
-            limit(&mut clipped, a);
+            limit_envelope(&mut clipped, a);
             if clipped.iter().zip(&x).all(|(c, v)| c == v) {
                 break;
             }
@@ -462,10 +454,10 @@ impl PaprReduction for Ace {
         let original: Vec<C64> = data.iter().map(|d| pts[self.constellation.nearest(*d)]).collect();
         let mut active = data.to_vec();
         let mut x = ofdm.to_time(&active)?;
-        let a = amplitude(self.ratio_db);
+        let a = db2amp(self.ratio_db);
         for _ in 0..self.iterations {
             let mut clipped = x.clone();
-            limit(&mut clipped, a);
+            limit_envelope(&mut clipped, a);
             let noise: Vec<C64> = clipped.iter().zip(&x).map(|(c, v)| c - v).collect();
             if noise.iter().all(|v| v.norm_sqr() == 0.0) {
                 break;
@@ -498,9 +490,7 @@ pub enum Companding {
     /// $V$ at `peak_db` above the average power, times the gain that keeps the unit
     /// average power of a Rayleigh envelope. The gain is computed once per block, by a
     /// 64-point Gauss–Legendre rule within $10^{-13}$ (relative) of its integral for
-    /// $\mu/V \le 10^{5}$; it differs from that of the former 6000-point Simpson rule,
-    /// computed per sample, by that rule's error: $3 \cdot 10^{-7}$ (relative) at
-    /// $\mu = 4$ and 9 dB, up to $2.6 \cdot 10^{-4}$ at $\mu = 255$ and 0 dB.
+    /// $\mu/V \le 10^{5}$.
     MuLaw {
         /// Compression parameter $\mu$.
         mu: f64,
@@ -568,10 +558,7 @@ impl Companding {
     ///
     /// an entire integrand in $s$, integrated by the 64-point Gauss–Legendre rule up to
     /// $r_{\max} = 7$ (the tail beyond holds $e^{-49}$ of the power): within $10^{-13}$
-    /// (relative) of the integral for $a \le 10^{5}$. The former 6000-point Simpson rule on
-    /// $t = r^{2}$ erred by $6 \cdot 10^{-7}$ at $\mu = 4$, $V$ at 9 dB, and by up to
-    /// $5 \cdot 10^{-4}$ at $\mu = 255$ (the $\sqrt{t}$ of its integrand); the gain differs
-    /// from that of the former rule by half these errors.
+    /// (relative) of the integral for $a \le 10^{5}$.
     fn mu_law_gain(mu: f64, v: f64) -> f64 {
         let a = mu / v;
         let half = (a * 7.0).ln_1p() / 2.0;
@@ -594,7 +581,7 @@ impl Companding {
     fn law(&self) -> Law {
         match *self {
             Companding::MuLaw { mu, peak_db } => {
-                let v = amplitude(peak_db);
+                let v = db2amp(peak_db);
                 Law::MuLaw { mu, v, gain: Companding::mu_law_gain(mu, v) }
             }
             Companding::Exponential { degree } => {
@@ -681,7 +668,7 @@ mod tests {
         let x: Vec<C64> = (0..400_000).map(|_| r.complex_gaussian()).collect();
         for cr in [0.0, 3.0, 6.0] {
             let mut y = x.clone();
-            limit(&mut y, amplitude(cr));
+            limit_envelope(&mut y, db2amp(cr));
             let alpha: C64 = y.iter().zip(&x).map(|(a, b)| a * b.conj()).sum::<C64>() / power(&x) / x.len() as f64;
             let th = com_dsp::nonlinear::clipping_bussgang(cr);
             assert!((alpha - th.gain).norm() < 3e-3, "{cr} dB: {alpha} vs {}", th.gain);
@@ -732,7 +719,7 @@ mod tests {
     /// The μ-law as it was computed before: the gain by Simpson's rule on 6000 intervals
     /// of $t = r^{2}$ for every sample.
     fn mu_law_compress_simpson(mu: f64, peak_db: f64, r: f64) -> f64 {
-        let v = amplitude(peak_db);
+        let v = db2amp(peak_db);
         let c = |t: f64| v * (1.0 + mu * t.sqrt() / v).ln() / (1.0 + mu).ln();
         let gain = 1.0 / com_math::simpson(|t| c(t).powi(2) * (-t).exp(), 0.0, 60.0, 6000).sqrt();
         gain * v * (1.0 + mu * r / v).ln() / (1.0 + mu).ln()
@@ -750,7 +737,7 @@ mod tests {
             (10.0, 6.0, 1.910_143_981_626_004_6, 3e-6),
         ] {
             // the gain g normalises E{(g c(R))²} to 1
-            let gain = Companding::mu_law_gain(mu, amplitude(peak_db));
+            let gain = Companding::mu_law_gain(mu, db2amp(peak_db));
             let e = 1.0 / (gain * gain);
             assert!((e / power - 1.0).abs() < 1e-13, "μ {mu}, {peak_db} dB: {e} vs {power}");
             let law = Companding::MuLaw { mu, peak_db };

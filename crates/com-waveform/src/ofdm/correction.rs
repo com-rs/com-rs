@@ -112,9 +112,8 @@ mod tests {
         let mut r = Rng::new(17);
         let n: usize = 400_000;
         let g = 1.0 / sir;
-        let qpsk = |r: &mut Rng| {
-            C64::new(if r.below(2) == 0 { 1.0 } else { -1.0 }, if r.below(2) == 0 { 1.0 } else { -1.0 }) / 2f64.sqrt()
-        };
+        let c = com_mapping::constellation::Constellation::qam(4).unwrap().normalized();
+        let qpsk = |r: &mut Rng| c.points()[r.below(4)];
         let v: Vec<f64> = (0..n)
             .map(|_| {
                 let (zd, zi, zx) = (r.complex_gaussian(), r.complex_gaussian(), r.complex_gaussian());
@@ -190,10 +189,9 @@ mod literature {
         for (sir, peak, at, low) in
             [(25.0, 17.9, -16.7, 16.2), (20.0, 13.8, -11.6, 11.2), (15.0, 10.1, -7.2, 6.2), (10.0, 6.9, -3.3, 1.2)]
         {
-            let (e, v) = (0..=400)
-                .map(|k| -30.0 + 0.1 * k as f64)
-                .map(|e| (e, curve(sir, e)))
-                .fold((0.0, f64::NEG_INFINITY), |a, b| if b.1 > a.1 { b } else { a });
+            let gains: Vec<f64> = (0..=400).map(|k| -30.0 + 0.1 * k as f64).collect();
+            let (k, v) = com_math::argmax(gains.iter().map(|&e| curve(sir, e))).unwrap();
+            let e = gains[k];
             assert!((v - peak).abs() < 0.3 && (e - at).abs() < 1.0, "SIR {sir}: {v} dB at {e} dB");
             assert!((curve(sir, -30.0) - low).abs() < 0.2, "SIR {sir}");
             // the optimum lies above every gain limit, by less than 1 dB at the peak

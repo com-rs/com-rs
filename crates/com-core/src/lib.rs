@@ -6,6 +6,7 @@
 //!
 //! | Module | Content |
 //! |---|---|
+//! | [`channel`] | [`Path`], one path of a delay–Doppler channel realisation |
 //! | [`signal`] | [`Bits`], [`Llr`], [`Symbols`], [`Signal`] (streams × elements), [`DualPol`] |
 //! | [`traits`] | [`Encode`], [`Decode`], [`Map`], [`Demap`], [`Modulate`], [`Demodulate`], [`Precode`], [`Detect`], [`Propagate`], [`Impair`] |
 //! | [`units`] | [`Db`], [`EbN0`], [`EsN0`], [`Hertz`], [`Seconds`] |
@@ -20,6 +21,7 @@
 //! - There is no global or thread-local generator anywhere: every random block takes a
 //!   `&mut SimRng`, so every simulation is reproducible from its seed.
 //!
+//! [`Path`]: channel::Path
 //! [`Bits`]: signal::Bits
 //! [`Llr`]: signal::Llr
 //! [`Symbols`]: signal::Symbols
@@ -45,6 +47,7 @@
 //! [`stream`]: rng::stream
 //! [`batch_rng`]: rng::batch_rng
 
+pub mod channel;
 pub mod error;
 pub mod rng;
 pub mod signal;

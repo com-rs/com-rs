@@ -3,7 +3,7 @@
 //! distortion (Banelli & Cacopardi 2000).
 //!
 //! - [`bussgang`]: the decomposition $y = K x + d$ of any envelope nonlinearity, and
-//!   [`clipping_bussgang`] its closed form for the envelope limiter;
+//!   [`clipping_bussgang`] its closed form for the envelope limiter [`limit_envelope`];
 //! - [`output_series`] (and [`output_series_sampled`] on [`series_grid`]): the
 //!   coefficients of the output autocorrelation;
 //! - [`distortion_spectrum`]: the spectrum of the useful term and of the distortion.
@@ -106,6 +106,23 @@ impl Bussgang {
     pub fn sdr_db(&self, input_power: f64) -> f64 {
         com_math::lin2db(self.gain.norm_sqr() * input_power / self.distortion)
     }
+}
+
+/// Limit the envelope of `x` in place to the amplitude `a`, keeping the phase: the ideal
+/// envelope limiter $y = \min(|x|, A)\, e^{j \arg x}$ (the clipping of OFDM, the
+/// cascade of an ideally predistorted amplifier), whose decomposition is
+/// [`clipping_bussgang`].
+///
+/// # Examples
+/// ```
+/// use com_dsp::nonlinear::limit_envelope;
+/// use com_math::C64;
+/// let mut x = vec![C64::new(3.0, 4.0), C64::new(0.3, 0.4)];
+/// limit_envelope(&mut x, 1.0);
+/// assert!((x[0] - C64::new(0.6, 0.8)).norm() < 1e-15 && x[1] == C64::new(0.3, 0.4));
+/// ```
+pub fn limit_envelope(x: &mut [C64], a: f64) {
+    crate::signal::map_envelope(x, |r| C64::new(if r > a { a / r } else { 1.0 }, 0.0));
 }
 
 /// The Bussgang decomposition of an envelope limiter at `ratio_db` above the (unit)
