@@ -451,7 +451,7 @@ impl PyManakov {
             (p, Some(mut r)) => PmdLink::random(&f, p, sections_per_span, &mut r.inner).py()?,
             (_, None) => return Err(PyValueError::new_err("a PMD realisation needs an rng")),
         };
-        Ok(PyManakov { inner: Manakov { fiber: f, pmd } })
+        Ok(PyManakov { inner: Manakov::new(f, pmd) })
     }
 
     /// float: RMS differential group delay of the PMD realisation (s).
