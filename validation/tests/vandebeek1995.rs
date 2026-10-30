@@ -27,7 +27,7 @@ fn van_de_beek_1995_fig_7() {
         let trials = 4000;
         let mut sq = 0.0;
         for _ in 0..trials {
-            let data: Vec<C64> = (0..3 * ofdm.n_active).map(|_| rng.qpsk()).collect();
+            let data: Vec<C64> = (0..3 * ofdm.n_active).map(|_| comrs::mapping::source::qpsk(&mut rng)).collect();
             let mut s = ofdm.modulate(&data).unwrap();
             let noise_var = power(&s) / snr;
             add_noise(&mut s, noise_var, &mut rng);

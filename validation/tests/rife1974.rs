@@ -38,7 +38,7 @@ fn rms_error(n: usize, snr_db: f64, trials: usize, rng: &mut Rng) -> f64 {
         let mut x: Vec<C64> = (0..n).map(|k| cis(TAU * f0 * k as f64 / fs + phase)).collect();
         // E|w|² = 2σ² = 1/ρ for b0 = 1
         add_noise(&mut x, 1.0 / db2lin(snr_db), rng);
-        let (_, f) = fourth_power_foe_refined(&x, fs, 1).unwrap();
+        let f = fourth_power_foe_refined(&x, fs, 1).unwrap();
         let e = (f - f0 + fs / 2.0).rem_euclid(fs) - fs / 2.0;
         sq += e * e;
     }

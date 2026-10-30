@@ -21,7 +21,7 @@
 //! (van de Beek et al. 1995); with a comb it interpolates them.
 //!
 //! The LMMSE estimator and the band-limited interpolator are built once per set of pilot
-//! subcarriers (`com_dsp::estimation::Lmmse`, `com_dsp::interpolation::LowPass`) and
+//! subcarriers (`com_dsp::estimation::Lmmse`, `com_dsp::interpolation::LowPassInterpolator`) and
 //! applied to every pilot symbol that shares it.
 //!
 //! # Examples
@@ -52,7 +52,7 @@
 use super::grid::ResourceGrid;
 use com_core::{Error, Result, ensure_shape};
 use com_dsp::estimation::{Lmmse, frequency_correlation};
-use com_dsp::interpolation::{self, LowPass};
+use com_dsp::interpolation::{self, LowPassInterpolator};
 use com_dsp::resample::resample_fft;
 use com_math::C64;
 use ndarray::Array2;
@@ -182,7 +182,7 @@ pub fn estimate_port(
     // the channel of every subcarrier at every pilot-carrying symbol; the LMMSE and
     // band-limited interpolators are built once per set of pilots (and pilot energy)
     let mut per_symbol = Vec::with_capacity(symbols.len());
-    let mut lowpass_plans: Vec<(Vec<usize>, LowPass)> = Vec::new();
+    let mut lowpass_plans: Vec<(Vec<usize>, LowPassInterpolator)> = Vec::new();
     let mut lmmse_plans: Vec<((Vec<usize>, u64), Lmmse)> = Vec::new();
     for &l in &symbols {
         let ks = grid.port_pilots(l, port, n_ports);
@@ -196,7 +196,7 @@ pub fn estimate_port(
             FrequencyInterpolation::SecondOrder => interpolation::quadratic(&ks, &hp, k_n)?,
             FrequencyInterpolation::Spline => interpolation::spline(&ks, &hp, k_n)?,
             FrequencyInterpolation::LowPass { half, alpha } => {
-                cached(&mut lowpass_plans, &ks, || LowPass::new(&ks, k_n, *half, *alpha))?.apply(&hp)?
+                cached(&mut lowpass_plans, &ks, || LowPassInterpolator::new(&ks, k_n, *half, *alpha))?.apply(&hp)?
             }
             FrequencyInterpolation::TimeDomain => {
                 let spacing = k_n / ks.len();

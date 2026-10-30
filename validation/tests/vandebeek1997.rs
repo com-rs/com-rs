@@ -36,7 +36,7 @@ fn mse(cp: usize, snr_db: f64, trials: usize, rng: &mut Rng) -> (f64, f64) {
     let (mut et, mut ef) = (0.0, 0.0);
     for _ in 0..trials {
         // three symbols; the window starts theta samples before the prefix of the second
-        let data: Vec<C64> = (0..3 * ofdm.n_active).map(|_| rng.qpsk()).collect();
+        let data: Vec<C64> = (0..3 * ofdm.n_active).map(|_| comrs::mapping::source::qpsk(rng)).collect();
         let mut s = ofdm.modulate(&data).unwrap();
         frequency_offset(&mut s, TAU * eps / n as f64, false);
         // the SNR of the figure plus 3.01 dB: the convention that reproduces it (card)

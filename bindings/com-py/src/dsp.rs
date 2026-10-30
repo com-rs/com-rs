@@ -514,7 +514,9 @@ fn fourth_power_foe<'py>(
     let x = cvec(x)?;
     let (y, fo) = py
         .detach(|| {
-            if refined { carrier::fourth_power_foe_refined(&x, fs, m) } else { carrier::fourth_power_foe(&x, fs, m) }
+            let fo =
+                if refined { carrier::fourth_power_foe_refined(&x, fs, m) } else { carrier::fourth_power_foe(&x, fs, m) }?;
+            Ok::<_, comrs::Error>((comrs::dsp::signal::freq_shift(&x, -fo, fs), fo))
         })
         .py()?;
     Ok((carr(py, y), fo))
@@ -533,7 +535,7 @@ fn fourth_power_foe<'py>(
 #[pyfunction]
 #[pyo3(signature = (x, *, n = 35, m = 4))]
 fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize, m: u32) -> PyResult<FArr<'py>> {
-    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, n, m)))
+    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, n, m).py()?))
 }
 
 /// Blind phase search (Pfau, Hoffmann and Noé 2009; OptiCommPy `bps`).
@@ -613,7 +615,8 @@ fn ddpll<'py>(
         return Err(PyValueError::new_err(format!("the sampling rate must be positive, got {fs}")));
     }
     let theta =
-        carrier::ddpll(&x, 1.0 / fs, kv, tau1, tau2, &pts, pilots.as_ref().map(|(i, s)| (i.as_slice(), s.as_slice())));
+        carrier::ddpll(&x, 1.0 / fs, kv, tau1, tau2, &pts, pilots.as_ref().map(|(i, s)| (i.as_slice(), s.as_slice())))
+            .py()?;
     Ok(farr(py, theta))
 }
 

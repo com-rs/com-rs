@@ -651,7 +651,7 @@ impl PyDpd {
     /// numpy.ndarray: The coefficients, order after order, tap after tap (complex128).
     #[getter]
     fn coefficients<'py>(&self, py: Python<'py>) -> CArr<'py> {
-        carr(py, self.inner.coefficients.clone())
+        carr(py, self.inner.coefficients())
     }
 
     /// Predistort a block.
