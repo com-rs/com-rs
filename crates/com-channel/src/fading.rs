@@ -227,7 +227,9 @@ impl Mimo {
             })?;
         }
         if let Some(l) = &self.los {
-            ensure(l.dim() == (self.n_rx, self.n_tx), || "the line-of-sight matrix does not match the antennas".into())?;
+            ensure(l.dim() == (self.n_rx, self.n_tx), || {
+                "the line-of-sight matrix does not match the antennas".into()
+            })?;
         }
         Ok(())
     }
@@ -321,7 +323,13 @@ impl Fading for Mimo {
     fn draw_taps(&self, n_samples: usize, rng: &mut SimRng) -> Result<Taps> {
         let hs = self.draw_blocks(n_samples, rng)?;
         if hs.len() == 1 {
-            return Taps::time_invariant(vec![0], self.n_rx, self.n_tx, n_samples, vec![hs[0].iter().copied().collect()]);
+            return Taps::time_invariant(
+                vec![0],
+                self.n_rx,
+                self.n_tx,
+                n_samples,
+                vec![hs[0].iter().copied().collect()],
+            );
         }
         let coeffs = (0..n_samples).flat_map(|i| hs[i / self.coherence].iter().copied()).collect();
         Taps::new(vec![0], self.n_rx, self.n_tx, n_samples, vec![coeffs])
@@ -406,10 +414,9 @@ mod tests {
         let rho = C64::new(0.5, 0.2);
         let k = Kronecker::new(exponential_correlation(2, rho), exponential_correlation(3, rho)).unwrap();
         let x: Vec<Vec<C64>> = (0..3).map(|t| (0..10).map(|i| C64::new(i as f64, t as f64)).collect()).collect();
-        for ch in [
-            Mimo::rayleigh(2, 3),
-            Mimo { k_factor: 2.0, coherence: 4, correlation: Some(k), ..Mimo::rayleigh(2, 3) },
-        ] {
+        for ch in
+            [Mimo::rayleigh(2, 3), Mimo { k_factor: 2.0, coherence: 4, correlation: Some(k), ..Mimo::rayleigh(2, 3) }]
+        {
             let (_, hs) = ch.apply(&x, &mut Rng::new(9)).unwrap();
             assert_eq!(hs, blocks_drawn_one_by_one(&ch, 10, &mut Rng::new(9)));
         }
