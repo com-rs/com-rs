@@ -16,8 +16,8 @@ PyPI and the command line `comrs`.
   `com-dsp` (1), `com-fec`, `com-mapping`, `com-waveform`, `com-mimo`, `com-channel`,
   `com-hardware`, `com-metrics` (2), `com-sim` (3), `com-spec`, `com-systems` and the
   facade `comrs` (4), with the features `optical` and `spec`.
-- `com-core`: the multi-stream containers (`Bits`, `Llr`, `Symbols`, `Signal`,
-  `DualPol`), the verb traits (`Encode`, `Decode`, `Map`, `Demap`, `Modulate`,
+- `com-core`: the multi-stream containers (`Bits`, `Llr`, `Symbols`, `Labels`,
+  `Signal`, `DualPol`), the verb traits (`Encode`, `Decode`, `Map`, `Demap`, `Modulate`,
   `Demodulate`, `Precode`, `Detect`, `Propagate`, `Impair`), the unit newtypes, one
   error type for every crate, and the generator `SimRng` (xoshiro256\*\*) with one
   stream per `(seed, experiment, condition, trial)`.
@@ -284,9 +284,10 @@ crates; the Python API keeps its names until its own pass.
   (`manakov`), `spacing_wavelengths` (`cdl`) and `coherence_samples` (`rayleigh`).
 - One word per notion: `sps`, `rolloff` (`rrc_taps`, `rc_taps`), `noise_var`,
   `CeOfdm::n_subcarriers` and `CeOfdm::sps`, `OfdmFrame::n_data_symbols`.
-- `com_math::Jacobian { Exact, MaxLog }` for `max_star`, `bcjr`, `TurboDecoder`,
-  `LabelHalves`, `llr_from_metrics`, `Constellation::llr` and its variants and
-  `Dvbs2::llr`; the specifications keep their key `max_log`.
+- `Jacobian { Exact, MaxLog }` (`com_core::traits`, re-exported as
+  `com_math::Jacobian`) for `max_star`, `bcjr`, `TurboDecoder`, `LabelHalves`,
+  `llr_from_metrics`, `Constellation::llr` and its variants, `Dvbs2::llr` and the
+  `Demap` trait; the specifications keep their key `max_log`.
 - Errors: `Error::Shape` for lengths and empty inputs, `Error::Config` for values, in
   `lama`, `oamp`, `welch`, the symbol metrics, the blind estimators, the information
   rates, the frequency and frame synchronisation and the AWGN channel.
@@ -310,8 +311,18 @@ crates; the Python API keeps its names until its own pass.
 
 - Verb traits: CE-OFDM (its receiver a field) and FBMC (the OQAM staggering inside)
   implement `Modulate` and `Demodulate`; every modem (`Ofdm`, `Ufmc`, `Otfs`, `CeOfdm`,
-  `Fbmc`) carries its `sample_rate` (1 Hz by default) and `demodulate_into` refuses an
-  input at another rate. ADR 0012 proposes a container of indices for CSS and CPM.
+  `Fbmc`, `Css`, `Cpm`) carries its `sample_rate` (1 Hz by default) and
+  `demodulate_into` refuses an input at another rate.
+- Waveforms of symbol indices (ADR 0012): the container `Labels` (streams × indices),
+  the traits `Modulate<In = Symbols>` and `Demodulate<Out = Symbols>`; `Css` (the field
+  `sample_rate`) and `Cpm` (`Cpm::with_sample_rate`, `Cpm::sample_rate`) implement
+  `Modulate<Labels>` and `Demodulate<Labels>` (the noncoherent decisions of CSS, the
+  maximum-likelihood sequence detector of CPM), bit for bit their slice methods.
+- `Demap` with priors and the Jacobian: `Demapping { log_priors, jacobian }` and the
+  required method `Demap::demap_with_into` (`demap_into`, `demap_with`, `demap`
+  provided); `Constellation` implements it on the kernel of `llr_into`, allocation-free
+  up to `demapper::STACK_POINTS` points, and the specification block `demap` calls it
+  (one variance per symbol keeps `llr_with_variances`).
 - Placement: `WdmTransmitter` moves to `com_systems::wdm`; `wdm_grid` and
   `wdm_demultiplex` to `com_dsp::signal`; `Path` to `com_core::channel` (re-exported by
   `com_channel::multipath`); the envelope limiter to `com_dsp::nonlinear::limit_envelope`

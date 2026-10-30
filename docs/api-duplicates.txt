@@ -112,6 +112,7 @@ value
 values
 variance
 with_list
+with_sample_rate  # Fbmc / Cpm: the same builder of the sample rate on the two modems whose fields are private (ADR 0012)
 
 # Types (structs, enums, traits; compared since the review of 30 October 2026, the
 # Python classes apart from the Rust types they wrap). Different things under a

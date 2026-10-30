@@ -304,9 +304,9 @@ instead every name says what it is.
 ### One choice, one enum
 
 A choice between two algorithms is an enum, never a boolean whose polarity differs
-from one function to the next: `com_math::Jacobian { Exact, MaxLog }` is the choice of
-the Jacobian logarithm in `max_star`, the BCJR, the turbo decoder and
-`Constellation::llr`. A specification may keep a boolean key (`max_log`) mapped to the
+from one function to the next: `Jacobian { Exact, MaxLog }` (of `com_core::traits`,
+re-exported as `com_math::Jacobian`) is the choice of the Jacobian logarithm in
+`max_star`, the BCJR, the turbo decoder, `Constellation::llr` and the `Demap` trait. A specification may keep a boolean key (`max_log`) mapped to the
 enum.
 
 ### Constructors
@@ -367,6 +367,9 @@ pub struct Llr(Array2<f64>);
 /// Complex symbols at one sample per symbol.
 pub struct Symbols(Array2<Complex64>);
 
+/// The indices of symbols (a chirp of CSS, a level of CPM), one row per stream.
+pub struct Labels(Array2<usize>);
+
 /// Complex baseband waveform with its sample rate.
 pub struct Signal {
     data: Array2<Complex64>, // [n_streams, n_samples]
@@ -406,7 +409,20 @@ pub trait Decode {
 }
 
 pub trait Map    { fn map_into(&self, bits: &Bits, out: &mut Symbols) -> Result<()>; /* map */ }
-pub trait Demap  { fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()>; /* demap */ }
+
+/// The log-priors of the points (uniform if `None`) and the Jacobian logarithm.
+pub struct Demapping<'a> { pub log_priors: Option<&'a [f64]>, pub jacobian: Jacobian }
+
+pub trait Demap {
+    fn demap_with_into(&self, y: &Symbols, noise_var: f64, demapping: Demapping<'_>, out: &mut Llr) -> Result<()>;
+    fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> { /* default Demapping */ }
+    /* demap_with, demap */
+}
+
+/// Complex symbols by default; `Labels` for the waveforms that carry an index (ADR 0012).
+pub trait Modulate<In = Symbols>   { fn modulate_into(&self, x: &In, out: &mut Signal) -> Result<()>; /* modulate */ }
+pub trait Demodulate<Out = Symbols> { fn demodulate_into(&mut self, y: &Signal, out: &mut Out) -> Result<()>; /* demodulate */ }
+
 pub trait Detect { fn detect_into(&mut self, y: &Symbols, noise_var: f64, out: &mut Symbols) -> Result<()>; }
 
 /// Propagation through a medium. Randomness is always explicit.
@@ -423,9 +439,10 @@ pub trait Impair {
 Implementations: every `BlockCode` of `com-fec` (`Encode`, `Decode`, by the macro
 `container_traits!`): `ConvolutionalCode`, `TurboCode`, `PuncturedTurbo`,
 `Punctured<C>`, `LdpcCode`, `PolarCode`, `ReedSolomon`, `Bch`, `NrLdpc`, `NrPolar`
-(`Dvbs2Fec` of `com-systems` is a `BlockCode` only); `Constellation` (`Map`, `Demap`);
-`Ofdm`, `Ufmc`, `Otfs`, `CeOfdm`, `Fbmc` (`Modulate`, `Demodulate`, at the sample
-rate of the modem, checked on the input); `Eigenmode`, `LinearPrecoder`,
+(`Dvbs2Fec` of `com-systems` is a `BlockCode` only); `Constellation` (`Map`, `Demap`,
+with priors and the Jacobian through `Demapping`); `Ofdm`, `Ufmc`, `Otfs`, `CeOfdm`,
+`Fbmc` (`Modulate`, `Demodulate`) and `Css`, `Cpm` (`Modulate<Labels>`,
+`Demodulate<Labels>`), at the sample rate of the modem, checked on the input; `Eigenmode`, `LinearPrecoder`,
 `Ostbc` (`Precode`); `detection::Coherent` (`Detect`); `Awgn`, `Noise`, `Rayleigh`,
 `Mimo` (`fading`), `Tdl`, `DelayDopplerModel` (`multipath`), `Cdl`, `Fso`
 (`owc::atmospheric`), `Ssfm` (`optical::fiber`) (`Propagate`); `Rapp`, `Saleh`,
