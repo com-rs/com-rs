@@ -112,9 +112,42 @@ mod pulse;
 pub use detection::{MlPath, msk_bits, msk_precode};
 pub use pulse::{FrequencyPulse, gmsk_phase, gmsk_pulse, msk_psd};
 
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
 use com_math::{C64, cis};
 use std::f64::consts::{PI, TAU};
+
+/// A rational modulation index $h = p/q$ ([`CpmConfig::h_num`], [`CpmConfig::h_den`]),
+/// read from the fraction `"p/q"`.
+///
+/// # Examples
+/// ```
+/// use com_waveform::cpm::ModulationIndex;
+/// let h: ModulationIndex = " 1 / 2".parse()?;
+/// assert_eq!((h.num, h.den), (1, 2));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModulationIndex {
+    /// The numerator $p$.
+    pub num: u32,
+    /// The denominator $q$.
+    pub den: u32,
+}
+
+impl std::str::FromStr for ModulationIndex {
+    type Err = Error;
+
+    /// `"p/q"`, two non-negative integers (spaces around them are ignored); the values
+    /// are checked by [`CpmConfig::build`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another text.
+    fn from_str(s: &str) -> Result<ModulationIndex> {
+        s.split_once('/')
+            .and_then(|(p, q)| Some(ModulationIndex { num: p.trim().parse().ok()?, den: q.trim().parse().ok()? }))
+            .ok_or_else(|| Error::Config(format!("h must be a fraction p/q, got {s:?}")))
+    }
+}
 
 /// The parameters of a CPM signal, validated by [`CpmConfig::build`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -274,6 +307,14 @@ impl Cpm {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn the_modulation_index_is_read_from_a_fraction() {
+        assert_eq!("3/8".parse::<ModulationIndex>().unwrap(), ModulationIndex { num: 3, den: 8 });
+        for bad in ["0.5", "1/", "a/2", "-1/2", "1/2/3"] {
+            assert!(bad.parse::<ModulationIndex>().is_err(), "{bad}");
+        }
+    }
 
     fn random_symbols(m: usize, n: usize, rng: &mut Rng) -> Vec<usize> {
         (0..n).map(|_| rng.below(m)).collect()

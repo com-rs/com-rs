@@ -12,7 +12,7 @@ use super::{Block, BlockInfo, BuildContext, Frame, Params};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
-use com_waveform::cpm::{Cpm, CpmConfig, FrequencyPulse, msk_bits, msk_precode};
+use com_waveform::cpm::{Cpm, CpmConfig, FrequencyPulse, ModulationIndex, msk_bits, msk_precode};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -65,15 +65,11 @@ block_params! {
 impl CpmSpec {
     /// The modulator of order `order`.
     fn cpm(&self, order: usize) -> Result<Cpm> {
-        let (num, den) = self
-            .h
-            .split_once('/')
-            .and_then(|(p, q)| Some((p.trim().parse::<u32>().ok()?, q.trim().parse::<u32>().ok()?)))
-            .ok_or_else(|| Error::Config(format!("cpm: h must be a fraction p/q, got {:?}", self.h)))?;
+        let h: ModulationIndex = self.h.parse().map_err(|e: Error| e.context("cpm"))?;
         CpmConfig {
             order,
-            h_num: num,
-            h_den: den,
+            h_num: h.num,
+            h_den: h.den,
             pulse: FrequencyPulse::from_name(&self.pulse, self.bt)?,
             length: self.length,
             sps: self.sps,
