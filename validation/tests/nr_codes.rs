@@ -8,25 +8,16 @@
 //! in `tests/test_sionna_vectors.py`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use com_validation::bpsk_awgn_llr;
+use com_validation::fer;
 use comrs::fec::block::BlockCode;
 use comrs::fec::bounds::normal_approximation;
 use comrs::fec::nr::{NrLdpc, NrPolar};
 use comrs::math::bisect;
 use comrs::prelude::*;
 
-/// The block error rate of `code` over BPSK and AWGN at `ebn0_db`.
-fn bler(code: &dyn BlockCode, ebn0_db: f64, blocks: usize, rng: &mut Rng) -> f64 {
-    let (k, n) = (code.k(), code.n());
-    let s2 = 1.0 / (2.0 * k as f64 / n as f64 * db2lin(ebn0_db));
-    let mut errors = 0;
-    for _ in 0..blocks {
-        let b: Vec<u8> = (0..k).map(|_| rng.below(2) as u8).collect();
-        let c = code.encode_block(&b).unwrap();
-        let llr = bpsk_awgn_llr(&c, s2, rng);
-        errors += usize::from(code.decode_block(&llr).unwrap() != b);
-    }
-    errors as f64 / blocks as f64
+/// The block error rate of `code` over BPSK and AWGN at `ebn0_db`, over `blocks` blocks.
+fn bler(code: &dyn BlockCode, ebn0_db: f64, blocks: u64, rng: &mut Rng) -> f64 {
+    fer(code, ebn0_db, u64::MAX, blocks, rng).unwrap().rate()
 }
 
 /// The Eb/N0 (dB) at which the normal approximation reaches 1e-2.

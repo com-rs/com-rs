@@ -41,7 +41,8 @@ fn channel(z: &[C64]) -> Vec<C64> {
 /// `n` random symbols of `c` scaled to the peak amplitude [`PEAK`].
 fn symbols(c: &Constellation, n: usize, rng: &mut Rng) -> Vec<C64> {
     let peak = c.points().iter().map(|p| p.norm()).fold(0.0, f64::max);
-    (0..n).map(|_| c.points()[rng.below(c.points().len())] * (PEAK / peak)).collect()
+    let (_, x) = source::symbols(c, n, None, rng).unwrap();
+    x.iter().map(|v| v * (PEAK / peak)).collect()
 }
 
 #[test]

@@ -33,6 +33,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::crossing;
+use comrs::channel::awgn::add_noise;
 use comrs::mapping::constellation::Constellation;
 use comrs::prelude::*;
 use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
@@ -48,8 +49,8 @@ fn ber(ce: &CeOfdm, ebn0_db: f64, blocks: usize, seed: u64, detectors: &[Detecto
     let mut rng = Rng::new(seed);
     let (_, d) = comrs::mapping::source::symbols(&c, ce.n_data * blocks, None, &mut rng).unwrap();
     let sigma2 = ce.noise_variance(ebn0_db + comrs::math::lin2db(2.0));
-    let r: Vec<C64> =
-        ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma2.sqrt()).collect();
+    let mut r = ce.modulate(&d).unwrap();
+    add_noise(&mut r, sigma2, &mut rng);
     let truth = c.decide(&d);
     detectors
         .iter()

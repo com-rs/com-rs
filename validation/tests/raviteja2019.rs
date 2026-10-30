@@ -15,7 +15,9 @@
 //!   frame, uncoded 4QAM over EVA at 120 km/h (4 GHz, 15 kHz, one path per tap with
 //!   Jakes' Doppler) has a BER falling much faster with the SNR than one-tap CP-OFDM.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use comrs::channel::awgn::add_noise;
 use comrs::channel::multipath::{DelayDoppler, DelayDopplerModel, Path, Profile, max_doppler_hz};
+use comrs::metrics::errors::bit_errors;
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::prelude::*;
 use comrs::waveform::otfs::Otfs;
@@ -87,31 +89,21 @@ fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
         comrs::waveform::ofdm::Ofdm { oversampling: 1, n_cp: cp, ..comrs::waveform::ofdm::Ofdm::new(m, m).unwrap() };
     for _ in 0..frames {
         let ch = model.draw(&mut rng);
-        let bits: Vec<u8> = (0..m * n * 2).map(|_| rng.below(2) as u8).collect();
+        let bits = source::bits(m * n * 2, &mut rng);
         let x = c.modulate(&bits).unwrap();
         let labels: Vec<usize> = if otfs {
             let s = o.modulate(&x).unwrap();
             let taps = ch.taps(s.len());
-            let noisy: Vec<C64> = taps
-                .apply(&[s])
-                .unwrap()
-                .remove(0)
-                .iter()
-                .map(|v| v + rng.complex_gaussian() * sigma2.sqrt())
-                .collect();
+            let mut noisy = taps.apply(&[s]).unwrap().remove(0);
+            add_noise(&mut noisy, sigma2, &mut rng);
             let y = o.demodulate(&noisy).unwrap();
             let h = o.transform_channel(&taps.cyclic_matrix(cp, m * n).unwrap()).unwrap();
             Linear::mmse(c.clone()).detect(&h.view(), &y, sigma2).unwrap()
         } else {
             let s = ofdm.modulate(&x).unwrap();
             let taps = ch.taps(s.len());
-            let noisy: Vec<C64> = taps
-                .apply(&[s])
-                .unwrap()
-                .remove(0)
-                .iter()
-                .map(|v| v + rng.complex_gaussian() * sigma2.sqrt())
-                .collect();
+            let mut noisy = taps.apply(&[s]).unwrap().remove(0);
+            add_noise(&mut noisy, sigma2, &mut rng);
             let y = ofdm.demodulate(&noisy).unwrap();
             let bins: Vec<usize> = (0..m).map(|i| ofdm.bin(i)).collect();
             let mut z = Vec::with_capacity(y.len());
@@ -123,7 +115,7 @@ fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
             c.decide(&z)
         };
         let rx = comrs::mapping::constellation::indices_to_bits(&labels, 2);
-        errors += rx.iter().zip(&bits).filter(|(a, b)| a != b).count();
+        errors += bit_errors(&rx, &bits).unwrap();
         total += bits.len();
     }
     errors as f64 / total as f64

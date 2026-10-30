@@ -22,6 +22,7 @@
 //! from ours (centred bins and taps).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use comrs::channel::awgn::add_noise;
 use comrs::dsp::compensation::cd::{
     cd_dispersion_factor, cd_fir_taps, cd_ls_error, cd_ls_taps, cd_savory_length, cd_savory_taps,
 };
@@ -158,7 +159,8 @@ fn ber(taps: Option<&[C64]>, z_km: f64, fs: f64, ebn0_db: f64, n_sym: usize, rng
     let w = |i: usize| 2.0 * PI * ((i + n / 2) % n) as f64 / n as f64 - PI;
     let x: Vec<C64> = fft(&u).iter().enumerate().map(|(i, v)| v * g[i] * cis(-k * w(i) * w(i))).collect();
     let s2 = 1.0 / (4.0 * db2lin(ebn0_db));
-    let y: Vec<C64> = ifft(&x).iter().map(|v| v + rng.complex_gaussian() * s2.sqrt()).collect();
+    let mut y = ifft(&x);
+    add_noise(&mut y, s2, rng);
     let mut yf = fft(&y);
     if let Some(t) = taps {
         let mut h = vec![C64::new(0.0, 0.0); n];

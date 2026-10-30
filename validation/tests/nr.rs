@@ -15,6 +15,7 @@
 //!   in `tests/test_nr_oracle.py`).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use comrs::channel::awgn::add_noise;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::nr::{
     Numerology, SUBCARRIERS_PER_RB, SsbElement, detect_cell_id, pss, ssb_grid, ssb_indices, sss,
@@ -61,8 +62,8 @@ fn cell_search_in_white_noise() {
         let cid = rng.below(1008) as u32;
         let h = C64::from_polar(1.0, 2.0 * std::f64::consts::PI * rng.uniform());
         let s2 = 1.0 / db2lin(snr_db);
-        let y: Vec<C64> =
-            ssb_grid(cid, 0, None).unwrap().iter().map(|v| h * v + rng.complex_gaussian() * s2.sqrt()).collect();
+        let mut y: Vec<C64> = ssb_grid(cid, 0, None).unwrap().iter().map(|v| h * v).collect();
+        add_noise(&mut y, s2, &mut rng);
         ok += usize::from(detect_cell_id(&y).unwrap().0 == cid);
     }
     assert!(ok >= trials - 2, "{ok} of {trials} at {snr_db} dB");

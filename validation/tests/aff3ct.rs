@@ -44,10 +44,11 @@
 //! `COMRS_RECORD_AFF3CT=1`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use com_validation::bpsk_awgn_llr;
+use com_validation::{bpsk_awgn_llr, coded_frame};
 use comrs::core::signal::hard_decisions;
 use comrs::fec::bch::Bch;
 use comrs::fec::block::BlockCode;
+use comrs::fec::bounds::bpsk_noise_variance;
 use comrs::fec::conv::ConvolutionalCode;
 use comrs::fec::crc::Crc;
 use comrs::fec::interleaving::Interleaver;
@@ -55,6 +56,7 @@ use comrs::fec::ldpc::{CheckRule, LdpcCode};
 use comrs::fec::polar::PolarCode;
 use comrs::fec::rs::ReedSolomon;
 use comrs::fec::turbo::TurboCode;
+use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::sim::scenario::from_fn;
 use comrs::sim::stats::z_score;
@@ -124,18 +126,14 @@ fn fixture(name: &str) -> Fixture {
 /// monitored bits, and the number of monitored bits.
 type Link = Box<dyn Fn(f64, &mut Rng) -> Result<(u64, u64)> + Sync>;
 
-fn errors(a: &[u8], b: &[u8]) -> u64 {
-    a.iter().zip(b).filter(|(x, y)| x != y).count() as u64
+/// The bit errors between two sequences.
+fn errors(a: &[u8], b: &[u8]) -> Result<u64> {
+    Ok(bit_errors(a, b)? as u64)
 }
 
-/// A block code monitored on its information bits.
+/// A block code monitored on its information bits ([`coded_frame`]).
 fn block<C: BlockCode + Sync + 'static>(code: C) -> Link {
-    Box::new(move |s2, rng| {
-        let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
-        let c = code.encode_block(&info)?;
-        let decided = code.decode_block(&bpsk_awgn_llr(&c, s2, rng))?;
-        Ok((errors(&decided, &info), info.len() as u64))
-    })
+    Box::new(move |s2, rng| Ok((coded_frame(&code, s2, rng)?.bit_errors, code.k() as u64)))
 }
 
 /// A binary BCH code, decoded from the hard decisions, on its information bits.
@@ -144,7 +142,7 @@ fn bch(code: Bch) -> Link {
         let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let c = code.encode(&info)?;
         let (decided, _) = code.decode(&hard_decisions(&bpsk_awgn_llr(&c, s2, rng)))?;
-        Ok((errors(&decided, &info), info.len() as u64))
+        Ok((errors(&decided, &info)?, info.len() as u64))
     })
 }
 
@@ -154,7 +152,7 @@ fn ldpc(code: LdpcCode) -> Link {
         let info: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let c = code.encode_block(&info)?;
         let (post, _) = code.decode_llr(&bpsk_awgn_llr(&c, s2, rng))?;
-        Ok((errors(&hard_decisions(&post), &c), c.len() as u64))
+        Ok((errors(&hard_decisions(&post), &c)?, c.len() as u64))
     })
 }
 
@@ -188,7 +186,7 @@ fn polar_codes() -> Vec<PolarCode> {
 fn frozen_file(code: &PolarCode, design_ebn0_db: f64) -> (String, String) {
     let n = code.n();
     let info = code.info_positions();
-    let sigma = (1.0 / (2.0 * code.code_rate() * db2lin(design_ebn0_db))).sqrt();
+    let sigma = bpsk_noise_variance(design_ebn0_db, code.code_rate()).sqrt();
     let mut text = format!("{n}\nawgn\n{sigma:.6}\n");
     for p in info.iter().copied().chain((0..n).filter(|p| !info.contains(p))) {
         writeln!(text, "{p}").unwrap();
@@ -271,7 +269,7 @@ fn compare(name: &'static str, quick: bool) {
     let rate = fx.rate;
     let bits = fx.bits_per_frame;
     let scenario = from_fn(name, move |cond, rng, rec| {
-        let s2 = 1.0 / (2.0 * rate * db2lin(cond.f64("ebn0_db")?));
+        let s2 = bpsk_noise_variance(cond.f64("ebn0_db")?, rate);
         let (be, monitored) = link(s2, rng)?;
         assert_eq!(monitored, bits, "com-rs monitors {monitored} bits per frame, AFF3CT {bits}");
         rec.errors("ber", be, monitored);

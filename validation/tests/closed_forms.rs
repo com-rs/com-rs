@@ -6,35 +6,29 @@
 //! $$
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use com_validation::{MIN_ERRORS, within_three_sigma};
+use com_validation::{MIN_ERRORS, until_errors, within_three_sigma};
+use comrs::channel::awgn::add_noise;
 use comrs::channel::fading::Rayleigh;
+use comrs::fec::block::bpsk;
 use comrs::mapping::theory::ber_rayleigh_mrc;
 use comrs::math::qfunc;
+use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 
 const BLOCK: usize = 10_000;
 
-/// BPSK symbols `1 - 2b` of a block of random bits.
-fn bpsk(rng: &mut Rng) -> (Vec<u8>, Vec<C64>) {
-    let bits = source::bits(BLOCK, rng);
-    let x = bits.iter().map(|&b| C64::new(1.0 - 2.0 * f64::from(b), 0.0)).collect();
-    (bits, x)
-}
-
-/// Count bit errors over blocks until `MIN_ERRORS`, with `link` returning the decision
-/// statistic of every bit.
-fn simulate(seed: u64, mut link: impl FnMut(&[C64], &mut Rng) -> Vec<f64>) -> (u64, u64) {
-    let (mut errors, mut total) = (0u64, 0u64);
-    let mut batch = 0;
-    while errors < MIN_ERRORS {
-        let mut rng = batch_rng(seed, batch);
-        let (bits, x) = bpsk(&mut rng);
-        let z = link(&x, &mut rng);
-        errors += bits.iter().zip(&z).filter(|(b, z)| (**z < 0.0) != (**b == 1)).count() as u64;
-        total += BLOCK as u64;
-        batch += 1;
-    }
-    (errors, total)
+/// Count bit errors over blocks of BPSK symbols `1 - 2b` until `MIN_ERRORS`, block `b`
+/// drawn from `batch_rng(seed, b)`, with `link` returning the decision statistic of
+/// every bit.
+fn simulate(seed: u64, link: impl Fn(&[C64], &mut Rng) -> Vec<f64> + Sync) -> (u64, u64) {
+    let count = until_errors(seed, MIN_ERRORS, u64::MAX, 1, |rng| {
+        let bits = source::bits(BLOCK, rng);
+        let x: Vec<C64> = bpsk(&bits).iter().map(|&v| C64::new(v, 0.0)).collect();
+        let decided: Vec<u8> = link(&x, rng).iter().map(|&z| u8::from(z < 0.0)).collect();
+        Ok((bit_errors(&decided, &bits)? as u64, BLOCK as u64))
+    })
+    .unwrap();
+    (count.errors, count.total)
 }
 
 #[test]
@@ -56,8 +50,9 @@ fn bpsk_over_flat_rayleigh_follows_the_closed_form() {
             let s = Signal::from_stream(x.to_vec(), Hertz(1.0)).expect("one stream");
             let (y, h) = Rayleigh { coherence: 1 }.fade(&s, rng).expect("valid coherence");
             // the noise of the average SNR: E|h|² = 1
-            let sigma = (1.0 / db2lin(ebn0_db)).sqrt();
-            y.stream(0).iter().zip(&h[0]).map(|(v, g)| ((v + rng.complex_gaussian() * sigma) * g.conj()).re).collect()
+            let mut y = y.stream(0).to_vec();
+            add_noise(&mut y, 1.0 / db2lin(ebn0_db), rng);
+            y.iter().zip(&h[0]).map(|(v, g)| (v * g.conj()).re).collect()
         });
         let g = db2lin(ebn0_db);
         let theory = ber_rayleigh_mrc(g, 1).unwrap();

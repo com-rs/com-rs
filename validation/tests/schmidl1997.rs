@@ -16,6 +16,7 @@
 //!   $1 + 1/(2\,\mathrm{SNR})$ (1.5 at 0 dB, which the simulation follows within 10 %).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use comrs::channel::awgn::add_noise;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::Ofdm;
 use comrs::waveform::ofdm::sync::{preamble, schmidl_cox, synchronize};
@@ -46,7 +47,8 @@ fn schmidl_cox_1997_eqs_19_20_and_28_timing_metric() {
         let pn = ps / db2lin(snr_db);
         let m: Vec<f64> = (0..TRIALS)
             .map(|_| {
-                let r: Vec<C64> = p[ofdm.n_cp..].iter().map(|s| s + rng.complex_gaussian() * pn.sqrt()).collect();
+                let mut r = p[ofdm.n_cp..].to_vec();
+                add_noise(&mut r, pn, &mut rng);
                 schmidl_cox(&r, l)[0]
             })
             .collect();
@@ -80,13 +82,12 @@ fn schmidl_cox_1997_eq_43_frequency_offset_variance() {
         let eps = 0.2;
         let est: Vec<f64> = (0..TRIALS)
             .map(|_| {
-                let r: Vec<C64> = p
+                let mut r: Vec<C64> = p
                     .iter()
                     .enumerate()
-                    .map(|(k, s)| {
-                        s * C64::from_polar(1.0, 2.0 * PI * eps * k as f64 / n) + rng.complex_gaussian() * pn.sqrt()
-                    })
+                    .map(|(k, s)| s * C64::from_polar(1.0, 2.0 * PI * eps * k as f64 / n))
                     .collect();
+                add_noise(&mut r, pn, &mut rng);
                 synchronize(&r, &ofdm).unwrap().cfo
             })
             .collect();

@@ -23,7 +23,7 @@
 //! with the optimum correction (1.0 dB). The closed forms of the SDR (Figs. 3 and 4) are
 //! checked by `crates/com-waveform/src/ofdm/correction.rs::literature`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::log_interp;
+use com_validation::sweep_crossing;
 use comrs::channel::multipath::Tdl;
 use comrs::channel::multipath::max_doppler_hz;
 use comrs::mapping::theory::ber_rayleigh_mrc;
@@ -103,16 +103,8 @@ fn sir_at_1e2(n: usize, mph: f64, optimum: bool, rho: C64) -> f64 {
                 .fold(1.0, f64::min)
         }
     };
-    let mut prev = (2.0, at(2.0, 1));
-    for k in 1..40 {
-        let s = 2.0 + k as f64;
-        let b = at(s, 1 + k);
-        if b < 1e-2 {
-            return log_interp(prev, (s, b), 1e-2);
-        }
-        prev = (s, b);
-    }
-    panic!("no SIR up to 41 dB reaches 1e-2");
+    // point k of the grid draws from the seed 1 + k
+    sweep_crossing(2.0, 1.0, 40, 1e-2, |k, s| at(s, 1 + k as u64)).expect("no SIR up to 41 dB reaches 1e-2")
 }
 
 fn flat() -> C64 {

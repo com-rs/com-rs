@@ -16,16 +16,15 @@
 //! (`cargo test --release -p com-validation --test shaping -- --ignored --nocapture`).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use comrs::core::rng::batch_rng;
+use com_validation::until_errors;
 use comrs::fec::block::BlockCode;
 use comrs::fec::ccdm::Ccdm;
 use comrs::mapping::constellation::{Constellation, ConstellationKind};
-use comrs::mapping::source::maxwell_boltzmann;
+use comrs::mapping::source::{self, maxwell_boltzmann};
 use comrs::mapping::theory;
 use comrs::math::{db2lin, entropy, golden_max, lin2db};
 use comrs::systems::dvbs2::fec::{CodeRate, Dvbs2Fec, FrameSize};
 use comrs::systems::pas::Pas;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------------
@@ -400,53 +399,35 @@ fn pas_of(p: &Point) -> Pas {
     Pas::new(code, p.m, &amplitudes(p.m, nu), 1.0).unwrap().with_bit_mapper(p.levels).unwrap()
 }
 
+/// Frames per batch of the runner in [`frame_errors`]: the stopping rule is checked after
+/// every batch (48 frames, the rounds of the former loop on twelve threads).
+const FRAMES_PER_BATCH: u64 = 48;
+
 /// The frame errors of PAS over frames $0, 1, \dots$ at an SNR $E[X^{2}]/\sigma^{2}$ (dB,
-/// one real dimension), until `min_errors` errors or `max_frames` frames, by rounds of
-/// frames shared by the threads (the count does not depend on the number of threads).
-/// A frame is in error when the decoded data bits (the dematcher's and the signs') differ
-/// from the sent ones; when the LDPC decoder returns the sent information bits the
-/// dematcher returns the sent bits, and it runs only on the other frames. Frame `f`
-/// draws its bits and its noise from `batch_rng(seed, f)`: the SNRs share their random
-/// numbers.
+/// one real dimension), until `min_errors` errors or `max_frames` frames, by batches of
+/// [`FRAMES_PER_BATCH`] frames run on the threads of `com_sim`'s runner
+/// ([`until_errors`]: the count does not depend on the number of threads). A frame is in
+/// error when the decoded data bits (the dematcher's and the signs') differ from the
+/// sent ones; when the LDPC decoder returns the sent information bits the dematcher
+/// returns the sent bits, and it runs only on the other frames. Frame `f` draws its bits
+/// and its noise from `batch_rng(seed, f)`: the SNRs share their random numbers.
 fn frame_errors(pas: &Pas, snr_db: f64, seed: u64, min_errors: u64, max_frames: u64) -> (u64, u64) {
     let half = pas.matcher().composition().len();
     let levels: Vec<f64> = (0..2 * half).map(|i| (2 * i) as f64 - (2 * half - 1) as f64).collect();
     let es: f64 = pas.level_distribution().iter().zip(&levels).map(|(p, x)| p * x * x).sum();
     let noise_var = es / db2lin(snr_db);
     let sigma = noise_var.sqrt();
-    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get) as u64;
-    let round = 4 * threads;
-    let (mut errors, mut frames) = (0u64, 0u64);
-    while errors < min_errors && frames < max_frames {
-        let next = AtomicU64::new(frames);
-        let wrong = AtomicU64::new(0);
-        let end = frames + round;
-        std::thread::scope(|s| {
-            for _ in 0..threads {
-                s.spawn(|| {
-                    loop {
-                        let f = next.fetch_add(1, Ordering::Relaxed);
-                        if f >= end {
-                            break;
-                        }
-                        let mut rng = batch_rng(seed, f);
-                        let bits: Vec<u8> = (0..pas.info_bits()).map(|_| rng.bit()).collect();
-                        let x = pas.encode(&bits).unwrap();
-                        let y: Vec<f64> = x.iter().map(|v| v + sigma * rng.gaussian()).collect();
-                        let sent = pas.encode_codeword(&bits).unwrap();
-                        let (post, _) = pas.code().decode_llr(&pas.llr(&y, noise_var).unwrap()).unwrap();
-                        let info_ok = pas.code().info_positions().iter().all(|&i| (post[i] < 0.0) == (sent[i] == 1));
-                        if !info_ok && pas.decode(&y, noise_var).unwrap() != bits {
-                            wrong.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                });
-            }
-        });
-        errors += wrong.load(Ordering::Relaxed);
-        frames = end;
-    }
-    (errors, frames)
+    let count = until_errors(seed, min_errors, max_frames, FRAMES_PER_BATCH, |rng| {
+        let bits = source::bits(pas.info_bits(), rng);
+        let x = pas.encode(&bits)?;
+        let y: Vec<f64> = x.iter().map(|v| v + sigma * rng.gaussian()).collect();
+        let sent = pas.encode_codeword(&bits)?;
+        let (post, _) = pas.code().decode_llr(&pas.llr(&y, noise_var)?)?;
+        let info_ok = pas.code().info_positions().iter().all(|&i| (post[i] < 0.0) == (sent[i] == 1));
+        Ok((u64::from(!info_ok && pas.decode(&y, noise_var)? != bits), 1))
+    })
+    .unwrap();
+    (count.errors, count.trials)
 }
 
 /// The SNR (dB) at which the line through the points `(snr, ln FER)` reaches `target`

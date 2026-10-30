@@ -22,6 +22,7 @@
 //!   read on the figure, and against a Monte Carlo simulation of the whole chain.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use comrs::channel::awgn::add_noise;
 use comrs::dsp::nonlinear::{clipping_bussgang, distortion_spectrum, output_series};
 use comrs::mapping::theory::ber_dpsk;
 use comrs::math::erfc;
@@ -159,8 +160,10 @@ fn banelli2000_inband_distortion_and_fig5() {
         // apparent SNR, DQPSK detected from one block to the next
         let ebn0 = db2lin(10.0);
         let n0 = alpha * alpha / (2.0 * ebn0);
-        let noisy: Vec<Vec<C64>> =
-            rx.iter().map(|y| y.iter().map(|v| v + rng.complex_gaussian() * n0.sqrt()).collect()).collect();
+        let mut noisy = rx.clone();
+        for y in &mut noisy {
+            add_noise(y, n0, &mut rng);
+        }
         let quadrant = |z: C64| ((z.arg().rem_euclid(2.0 * PI) / (PI / 2.0)).round() as usize) % 4;
         let gray = |q: usize| q ^ (q >> 1);
         let (mut errors, mut bits) = (0u64, 0u64);
