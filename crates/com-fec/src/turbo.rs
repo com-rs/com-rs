@@ -34,7 +34,7 @@
 //!    polynomials over integer rings," *IEEE Trans. Inf. Theory*, 51(1), 101–119, 2005.
 
 use crate::block::{BlockCode, container_traits, expect_len};
-use crate::conv::{Trellis, bcjr};
+use crate::conv::{BcjrWorkspace, Trellis, bcjr_into};
 use crate::interleaving::Interleaver;
 use com_core::Result;
 use com_core::signal::hard_decisions;
@@ -177,19 +177,25 @@ impl BlockCode for TurboCode {
         let (a, b) = self.constituents(llr);
         let sys = &llr[..k];
         let sys2 = self.interleaver.interleave(sys);
-        let mut ext2 = vec![0.0; k]; // extrinsic of decoder 2, deinterleaved
-        let mut app = sys.to_vec();
+        let perm = &self.interleaver.perm;
+        // the a priori LLRs of the two decoders, zero on their tails; la1 holds the
+        // extrinsic LLRs of decoder 2, deinterleaved
+        let (mut la1, mut la2) = (vec![0.0; k + m], vec![0.0; k + m]);
+        let (mut app1, mut app2) = (Vec::with_capacity(k + m), Vec::with_capacity(k + m));
+        let mut ws = BcjrWorkspace::default();
         for _ in 0..self.iterations.max(1) {
-            let mut la1 = ext2.clone();
-            la1.extend(vec![0.0; m]);
-            let app1 = bcjr(&self.trellis, &a, &la1, true, self.exact)?;
-            let ext1: Vec<f64> = (0..k).map(|i| app1[i] - ext2[i] - sys[i]).collect();
-            let mut la2 = self.interleaver.interleave(&ext1);
-            la2.extend(vec![0.0; m]);
-            let app2 = bcjr(&self.trellis, &b, &la2, true, self.exact)?;
-            let e2: Vec<f64> = (0..k).map(|i| app2[i] - la2[i] - sys2[i]).collect();
-            ext2 = self.interleaver.deinterleave(&e2);
-            app = self.interleaver.deinterleave(&app2[..k]);
+            bcjr_into(&self.trellis, &a, &la1, true, self.exact, &mut ws, &mut app1)?;
+            for (i, &p) in perm.iter().enumerate() {
+                la2[i] = app1[p] - la1[p] - sys[p];
+            }
+            bcjr_into(&self.trellis, &b, &la2, true, self.exact, &mut ws, &mut app2)?;
+            for (i, &p) in perm.iter().enumerate() {
+                la1[p] = app2[i] - la2[i] - sys2[i];
+            }
+        }
+        let mut app = vec![0.0; k];
+        for (i, &p) in perm.iter().enumerate() {
+            app[p] = app2[i];
         }
         Ok(hard_decisions(&app))
     }

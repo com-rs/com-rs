@@ -67,7 +67,6 @@
 //!    2008.
 
 use crate::block::{BlockCode, container_traits, expect_len};
-use com_core::signal::hard_decisions;
 use com_core::{Error, Result, ensure};
 use com_math::gf2;
 use std::collections::VecDeque;
@@ -561,44 +560,56 @@ impl LdpcCode {
     pub fn decode_llr(&self, llr: &[f64]) -> Result<(Vec<f64>, usize)> {
         expect_len(llr.len(), self.n, "LLRs")?;
         let mut post = llr.to_vec();
-        let mut c2v: Vec<Vec<f64>> = self.rows.iter().map(|r| vec![0.0; r.len()]).collect();
-        if self.is_codeword(&hard_decisions(&post)) {
+        if self.hard_decisions_are_a_codeword(&post) {
             return Ok((post, 0));
         }
-        let (mut incoming, mut out, mut scratch) = (Vec::new(), Vec::new(), Vec::new());
+        // the check-to-variable messages, row after row: those of check c at
+        // start[c]..start[c + 1]; the flooding schedule writes the next ones apart
+        let mut start = Vec::with_capacity(self.rows.len() + 1);
+        start.push(0);
+        for row in &self.rows {
+            start.push(start[start.len() - 1] + row.len());
+        }
+        let edges = start[self.rows.len()];
+        let mut c2v = vec![0.0; edges];
+        let mut new_c2v = if self.layered { Vec::new() } else { vec![0.0; edges] };
+        let (mut incoming, mut scratch) = (Vec::new(), Vec::new());
         for it in 1..=self.max_iterations {
             if self.layered {
                 for (c, row) in self.rows.iter().enumerate() {
+                    let msgs = &mut c2v[start[c]..start[c + 1]];
                     incoming.clear();
-                    incoming.extend(row.iter().zip(&c2v[c]).map(|(&v, m)| post[v] - m));
-                    out.clear();
-                    out.resize(row.len(), 0.0);
-                    self.check_message(&incoming, &mut out, &mut scratch);
-                    for ((&v, m), (i, o)) in row.iter().zip(c2v[c].iter_mut()).zip(incoming.iter().zip(&out)) {
+                    incoming.extend(row.iter().zip(msgs.iter()).map(|(&v, m)| post[v] - m));
+                    self.check_message(&incoming, msgs, &mut scratch);
+                    for ((&v, o), i) in row.iter().zip(msgs.iter()).zip(&incoming) {
                         post[v] = i + o;
-                        *m = *o;
                     }
                 }
             } else {
-                let mut new_c2v = c2v.clone();
                 for (c, row) in self.rows.iter().enumerate() {
                     incoming.clear();
-                    incoming.extend(row.iter().zip(&c2v[c]).map(|(&v, m)| post[v] - m));
-                    self.check_message(&incoming, &mut new_c2v[c], &mut scratch);
+                    incoming.extend(row.iter().zip(&c2v[start[c]..start[c + 1]]).map(|(&v, m)| post[v] - m));
+                    self.check_message(&incoming, &mut new_c2v[start[c]..start[c + 1]], &mut scratch);
                 }
-                post = llr.to_vec();
-                for (row, msgs) in self.rows.iter().zip(&new_c2v) {
-                    for (&v, m) in row.iter().zip(msgs) {
+                post.copy_from_slice(llr);
+                for (c, row) in self.rows.iter().enumerate() {
+                    for (&v, m) in row.iter().zip(&new_c2v[start[c]..start[c + 1]]) {
                         post[v] += m;
                     }
                 }
-                c2v = new_c2v;
+                std::mem::swap(&mut c2v, &mut new_c2v);
             }
-            if self.is_codeword(&hard_decisions(&post)) {
+            if self.hard_decisions_are_a_codeword(&post) {
                 return Ok((post, it));
             }
         }
         Ok((post, self.max_iterations))
+    }
+
+    /// Whether the hard decisions of the LLRs `post` ($1$ for a negative LLR) satisfy
+    /// every check, without forming them.
+    fn hard_decisions_are_a_codeword(&self, post: &[f64]) -> bool {
+        self.rows.iter().all(|r| r.iter().fold(0u8, |a, &v| a ^ u8::from(post[v] < 0.0)) == 0)
     }
 }
 
@@ -754,6 +765,7 @@ mod tests {
     use super::*;
     use crate::block::testing::awgn_llr;
     use com_core::rng::Rng;
+    use com_core::signal::hard_decisions;
 
     #[test]
     fn peg_builds_a_regular_code_without_four_cycles() {

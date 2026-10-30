@@ -157,6 +157,24 @@ impl Trellis {
     fn branch(&self, o: u32, llr: &[f64]) -> f64 {
         llr.iter().enumerate().map(|(i, l)| if (o >> (self.n_out - 1 - i)) & 1 == 0 { l / 2.0 } else { -l / 2.0 }).sum()
     }
+
+    /// The log-likelihoods of the branches of one step into `metrics[s][u]` (flat,
+    /// `2 s + u`): through the $2^{n}$ output words when they are fewer than the
+    /// branches, each computed once.
+    fn branches(&self, llr: &[f64], words: &mut Vec<f64>, metrics: &mut [f64]) {
+        let n_words = if self.n_out < 16 { 1usize << self.n_out } else { usize::MAX };
+        if n_words <= metrics.len() {
+            words.clear();
+            words.extend((0..n_words as u32).map(|o| self.branch(o, llr)));
+            for (m, o) in metrics.iter_mut().zip(self.out.iter().flatten()) {
+                *m = words[*o as usize];
+            }
+        } else {
+            for (m, o) in metrics.iter_mut().zip(self.out.iter().flatten()) {
+                *m = self.branch(*o, llr);
+            }
+        }
+    }
 }
 
 /// Viterbi decoding of `steps = llr.len() / n` trellis steps from state 0; with
@@ -173,33 +191,35 @@ pub fn viterbi(trellis: &Trellis, llr: &[f64], terminated: bool) -> Result<Vec<u
     let ns = trellis.n_states();
     let mut metric = vec![f64::NEG_INFINITY; ns];
     metric[0] = 0.0;
-    let mut decisions: Vec<Vec<(usize, u8)>> = Vec::with_capacity(steps);
-    for t in 0..steps {
-        let l = &llr[t * n..(t + 1) * n];
-        let mut next = vec![f64::NEG_INFINITY; ns];
-        let mut from = vec![(0usize, 0u8); ns];
+    let mut next = vec![f64::NEG_INFINITY; ns];
+    let (mut words, mut gamma) = (Vec::new(), vec![0.0; 2 * ns]);
+    // the survivor of every step and state: its predecessor and input, 2 s + u (the
+    // states number at most 2^23)
+    let mut from = vec![0u32; steps * ns];
+    for (t, row) in from.chunks_exact_mut(ns).enumerate() {
+        trellis.branches(&llr[t * n..(t + 1) * n], &mut words, &mut gamma);
+        next.fill(f64::NEG_INFINITY);
         for s in 0..ns {
             if metric[s] == f64::NEG_INFINITY {
                 continue;
             }
             for u in 0..2 {
                 let ns2 = trellis.next[s][u];
-                let m = metric[s] + trellis.branch(trellis.out[s][u], l);
+                let m = metric[s] + gamma[2 * s + u];
                 if m > next[ns2] {
                     next[ns2] = m;
-                    from[ns2] = (s, u as u8);
+                    row[ns2] = (2 * s + u) as u32;
                 }
             }
         }
-        metric = next;
-        decisions.push(from);
+        std::mem::swap(&mut metric, &mut next);
     }
     let mut s = if terminated { 0 } else { (0..ns).max_by(|a, b| metric[*a].total_cmp(&metric[*b])).unwrap_or(0) };
     let mut bits = vec![0u8; steps];
     for t in (0..steps).rev() {
-        let (p, u) = decisions[t][s];
-        bits[t] = u;
-        s = p;
+        let su = from[t * ns + s] as usize;
+        bits[t] = (su & 1) as u8;
+        s = su >> 1;
     }
     if terminated {
         bits.truncate(steps.saturating_sub(trellis.constraint as usize - 1));
@@ -215,6 +235,32 @@ pub fn viterbi(trellis: &Trellis, llr: &[f64], terminated: bool) -> Result<Vec<u
 /// # Errors
 /// [`com_core::Error::Shape`] for inconsistent lengths.
 pub fn bcjr(trellis: &Trellis, llr: &[f64], apriori: &[f64], terminated: bool, exact: bool) -> Result<Vec<f64>> {
+    let mut app = Vec::new();
+    bcjr_into(trellis, llr, apriori, terminated, exact, &mut BcjrWorkspace::default(), &mut app)?;
+    Ok(app)
+}
+
+/// The arrays of [`bcjr`], kept between the calls of an iterative decoder.
+#[derive(Default)]
+pub(crate) struct BcjrWorkspace {
+    /// $\gamma_{t}(s, u)$ at `(t ns + s) 2 + u`.
+    gamma: Vec<f64>,
+    /// $\alpha_{t}(s)$, then $\beta_{t}(s)$, at `t ns + s`, $t = 0, \dots, T$.
+    alpha: Vec<f64>,
+    beta: Vec<f64>,
+    words: Vec<f64>,
+}
+
+/// [`bcjr`] into `app`, with the arrays of `ws`.
+pub(crate) fn bcjr_into(
+    trellis: &Trellis,
+    llr: &[f64],
+    apriori: &[f64],
+    terminated: bool,
+    exact: bool,
+    ws: &mut BcjrWorkspace,
+    app: &mut Vec<f64>,
+) -> Result<()> {
     let n = trellis.n_out;
     if llr.len() % n != 0 || (!apriori.is_empty() && apriori.len() != llr.len() / n) {
         return Err(com_core::Error::Shape("inconsistent channel and a priori LLRs".into()));
@@ -222,52 +268,65 @@ pub fn bcjr(trellis: &Trellis, llr: &[f64], apriori: &[f64], terminated: bool, e
     let steps = llr.len() / n;
     let ns = trellis.n_states();
     let ninf = f64::NEG_INFINITY;
-    let gamma = |t: usize, s: usize, u: usize| {
+    // the branch metrics, once per step and branch
+    ws.gamma.resize(steps * 2 * ns, 0.0);
+    for (t, g) in ws.gamma.chunks_exact_mut(2 * ns).enumerate() {
+        trellis.branches(&llr[t * n..(t + 1) * n], &mut ws.words, g);
         let la = apriori.get(t).copied().unwrap_or(0.0);
-        trellis.branch(trellis.out[s][u], &llr[t * n..(t + 1) * n]) + if u == 0 { la / 2.0 } else { -la / 2.0 }
-    };
-    let mut alpha = vec![vec![ninf; ns]; steps + 1];
-    alpha[0][0] = 0.0;
+        for (i, g) in g.iter_mut().enumerate() {
+            *g += if i % 2 == 0 { la / 2.0 } else { -la / 2.0 };
+        }
+    }
+    let gamma = &ws.gamma;
+    let alpha = &mut ws.alpha;
+    alpha.clear();
+    alpha.resize((steps + 1) * ns, ninf);
+    alpha[0] = 0.0;
     for t in 0..steps {
+        let (now, later) = alpha[t * ns..(t + 2) * ns].split_at_mut(ns);
         for s in 0..ns {
-            if alpha[t][s] == ninf {
+            if now[s] == ninf {
                 continue;
             }
             for u in 0..2 {
                 let s2 = trellis.next[s][u];
-                alpha[t + 1][s2] = max_star(alpha[t + 1][s2], alpha[t][s] + gamma(t, s, u), exact);
+                later[s2] = max_star(later[s2], now[s] + gamma[(t * ns + s) * 2 + u], exact);
             }
         }
     }
-    let mut beta = vec![vec![ninf; ns]; steps + 1];
+    let beta = &mut ws.beta;
+    beta.clear();
+    beta.resize((steps + 1) * ns, ninf);
     if terminated {
-        beta[steps][0] = 0.0;
+        beta[steps * ns] = 0.0;
     } else {
-        beta[steps] = vec![0.0; ns];
+        beta[steps * ns..].fill(0.0);
     }
     for t in (0..steps).rev() {
+        let (now, later) = beta[t * ns..(t + 2) * ns].split_at_mut(ns);
         for s in 0..ns {
             let mut b = ninf;
             for u in 0..2 {
-                b = max_star(b, gamma(t, s, u) + beta[t + 1][trellis.next[s][u]], exact);
+                b = max_star(b, gamma[(t * ns + s) * 2 + u] + later[trellis.next[s][u]], exact);
             }
-            beta[t][s] = b;
+            now[s] = b;
         }
     }
-    let mut app = Vec::with_capacity(steps);
+    app.clear();
     for t in 0..steps {
         let mut l = [ninf; 2];
         for s in 0..ns {
-            if alpha[t][s] == ninf {
+            let a = alpha[t * ns + s];
+            if a == ninf {
                 continue;
             }
             for u in 0..2 {
-                l[u] = max_star(l[u], alpha[t][s] + gamma(t, s, u) + beta[t + 1][trellis.next[s][u]], exact);
+                l[u] = max_star(l[u], a + gamma[(t * ns + s) * 2 + u] + beta[(t + 1) * ns + trellis.next[s][u]], exact);
             }
         }
         app.push(l[0] - l[1]);
     }
-    Ok(app)
+    Ok(())
 }
 
 /// A terminated rate-$1/n$ convolutional code over blocks of `k` information bits,
@@ -357,6 +416,45 @@ mod tests {
         assert_eq!(hard_decisions(&app[..200]), info);
         let maxlog = bcjr(&code.trellis, &y, &[], true, false).unwrap();
         assert_eq!(hard_decisions(&maxlog[..200]), info);
+    }
+
+    #[test]
+    fn branch_tables_and_reused_workspaces_change_nothing() {
+        let mut r = Rng::new(5);
+        // a table of the 2^n output words (k7, the turbo constituent) and the branches
+        // computed one by one (five outputs, four states)
+        let codes = [
+            Trellis::feedforward(7, &[0o133, 0o171]).unwrap(),
+            Trellis::recursive(4, 0o13, 0o15).unwrap(),
+            Trellis::feedforward(3, &[5, 7, 7, 5, 6]).unwrap(),
+        ];
+        let (mut ws, mut app) = (BcjrWorkspace::default(), Vec::new());
+        for t in &codes {
+            let (ns, n) = (t.n_states(), t.n_out);
+            let l: Vec<f64> = (0..n).map(|_| r.gaussian()).collect();
+            let (mut words, mut m) = (Vec::new(), vec![0.0; 2 * ns]);
+            t.branches(&l, &mut words, &mut m);
+            for s in 0..ns {
+                for u in 0..2 {
+                    assert_eq!(m[2 * s + u].to_bits(), t.branch(t.out[s][u], &l).to_bits());
+                }
+            }
+            for len in [30, 7, 50] {
+                let bits: Vec<u8> = (0..len).map(|_| r.bit()).collect();
+                let c = t.encode(&bits, true);
+                let clean: Vec<f64> = c.iter().map(|b| 4.0 * (1.0 - 2.0 * f64::from(*b))).collect();
+                assert_eq!(viterbi(t, &clean, true).unwrap(), bits);
+                let y: Vec<f64> = clean.iter().map(|v| v + 2.0 * r.gaussian()).collect();
+                let la: Vec<f64> = (0..y.len() / n).map(|_| r.gaussian()).collect();
+                for (terminated, exact) in [(true, true), (false, false)] {
+                    bcjr_into(t, &y, &la, terminated, exact, &mut ws, &mut app).unwrap();
+                    let fresh = bcjr(t, &y, &la, terminated, exact).unwrap();
+                    assert!(
+                        app.iter().zip(&fresh).all(|(a, b)| a.to_bits() == b.to_bits()) && app.len() == fresh.len()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
