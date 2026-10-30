@@ -59,7 +59,7 @@ use super::tables::{POLAR_INTERLEAVER, POLAR_SEQUENCE, SUBBLOCK_PATTERN};
 use crate::block::{BlockCode, container_traits, expect_len};
 use crate::crc::Crc;
 use crate::polar::PolarCode;
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
 
 /// The LLR of a shortened bit (known to be 0).
 const KNOWN: f64 = 30.0;
@@ -87,6 +87,19 @@ fn ceil_log2(x: usize) -> u32 {
 }
 
 impl NrPolar {
+    /// The code of a link by name: `uplink` ([`NrPolar::uplink`]) or `downlink`
+    /// ([`NrPolar::downlink`]), case-insensitive.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for another name, or as the code of the link.
+    pub fn from_name(link: &str, a: usize, e: usize) -> Result<NrPolar> {
+        match link.to_ascii_lowercase().as_str() {
+            "uplink" => NrPolar::uplink(a, e),
+            "downlink" => NrPolar::downlink(a, e),
+            _ => Err(Error::Config(format!("the link is uplink or downlink, got {link:?}"))),
+        }
+    }
+
     /// The code of the uplink control information: `a` bits, `e` transmitted bits.
     ///
     /// # Errors
@@ -299,6 +312,15 @@ container_traits!(NrPolar);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_links_are_read_by_name() {
+        let same = |a: NrPolar, b: NrPolar| a.k() == b.k() && a.n() == b.n() && a.bit_map() == b.bit_map();
+        assert!(same(NrPolar::from_name("Uplink", 30, 100).unwrap(), NrPolar::uplink(30, 100).unwrap()));
+        assert!(same(NrPolar::from_name("downlink", 30, 100).unwrap(), NrPolar::downlink(30, 100).unwrap()));
+        assert!(!same(NrPolar::uplink(30, 100).unwrap(), NrPolar::downlink(30, 100).unwrap()));
+        assert!(NrPolar::from_name("sidelink", 30, 100).is_err());
+    }
 
     #[test]
     fn the_tables_are_permutations() {
