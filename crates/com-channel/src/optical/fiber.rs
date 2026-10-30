@@ -22,8 +22,9 @@
 //!   the frequency domain on the block (OptiCommPy `linearFiberChannel`):
 //!   `A(L, ω) = A(0, ω) exp(-αL/2 + j β₂ ω² L/2)`;
 //! - [`Ssfm`]: the symmetric split-step Fourier method of OptiCommPy `ssfm` for one
-//!   polarisation (fixed step `h`; per step: half linear step, nonlinear phase
-//!   `γ|A|² h`, half linear step; after each span an EDFA, an ideal gain or nothing),
+//!   polarisation (`n = ⌈L/h⌉` equal steps of `L/n` per span, `h` itself when it
+//!   divides the span; per step: half linear step, nonlinear phase `γ|A|² h`, half
+//!   linear step; after each span an EDFA, an ideal gain or nothing),
 //!   a thin wrapper that supplies the parameters of the link to the solver
 //!   [`com_math::nlse::SplitStep`]; [`Ssfm::propagate_f32`] runs it in single
 //!   precision. [`Ssfm::backpropagate`] is a shortcut to the digital back-propagation
@@ -277,7 +278,9 @@ impl std::str::FromStr for Precision {
 pub struct Ssfm {
     /// The link (spans, loss, dispersion, nonlinearity, noise figure).
     pub fiber: FiberParams,
-    /// Step size `h` (km); `⌊L_span / h⌋` steps per span.
+    /// Step size `h` (km): the span of length $L$ is covered by $n = \lceil L / h \rceil$
+    /// equal steps of $L / n \le h$ (the step `h` itself when it divides the span), so
+    /// that the simulated length is the span the amplifier compensates.
     pub step_km: f64,
     /// Amplification after every span.
     pub amplification: Amplification,
@@ -292,11 +295,30 @@ impl Ssfm {
         Ssfm { fiber, step_km, amplification: Amplification::Edfa, raman: None }
     }
 
-    fn steps(&self) -> Result<usize> {
-        ensure(self.step_km > 0.0, || format!("step must be positive, got {}", self.step_km))?;
-        let n = (self.fiber.span_km / self.step_km).floor() as usize;
-        ensure(n >= 1, || format!("the step {} km is longer than the span", self.step_km))?;
-        Ok(n)
+    /// The steps of a span: their number $n = \lceil L / h \rceil$ and their length
+    /// $L / n$, which add up to the span $L$. The length is `h` itself when $n h = L$
+    /// (within $10^{-9}$), $L / n$ otherwise, in both cases lowered by the units in the
+    /// last place needed for $\lfloor L / h \rfloor = n$, the test by which the
+    /// back-propagation recognises the forward step ([`Ssfm::dbp`]).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a non-positive or non-finite step, or a step longer than
+    /// the span.
+    fn steps(&self) -> Result<(usize, f64)> {
+        let (h, span) = (self.step_km, self.fiber.span_km);
+        ensure(h > 0.0 && h.is_finite(), || format!("step must be positive, got {h}"))?;
+        let ratio = span / h;
+        ensure(ratio.is_finite() && ratio >= 1.0 - 1e-9, || format!("the step {h} km is longer than the span"))?;
+        let whole = ratio.round();
+        let divides = (whole - ratio).abs() <= 1e-9 * ratio;
+        let n = if divides { whole as usize } else { ratio.ceil() as usize };
+        // n h = L within rounding: the step as given
+        let mut step = if divides && (span / h).floor() as usize == n { h } else { span / n as f64 };
+        while ((span / step).floor() as usize) < n {
+            // one unit in the last place below: the steps fall short of L by 1e-16 relative
+            step = f64::from_bits(step.to_bits() - 1);
+        }
+        Ok((n, step))
     }
 
     /// Propagate a field (√W) sampled at `fs` over the link; the ASE of the EDFAs is
@@ -308,8 +330,7 @@ impl Ssfm {
         if let Some(raman) = &self.raman {
             return self.propagate_raman(raman, x, fs, rng);
         }
-        let n_steps = self.steps()?;
-        let h = self.step_km;
+        let (n_steps, h) = self.steps()?;
         let f = &self.fiber;
         let steps = SplitStep::new(&f.medium(), h, h, n_steps, x.len(), fs);
         let mut e = x.to_vec();
@@ -332,11 +353,9 @@ impl Ssfm {
     }
 
     /// [`Ssfm::propagate`] with Raman amplification: the profile of every span is solved
-    /// for the slices of the field at its input, over the simulated length
-    /// `⌊L/h⌋ h`.
+    /// for the slices of the field at its input, over the simulated length `n h`.
     fn propagate_raman(&self, raman: &Raman, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Result<Vec<C64>> {
-        let n_steps = self.steps()?;
-        let h = self.step_km;
+        let (n_steps, h) = self.steps()?;
         let fiber = FiberParams { span_km: n_steps as f64 * h, ..self.fiber.clone() };
         let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
         let steps = SplitStep::new(&medium, h, h, n_steps, x.len(), fs);
@@ -352,15 +371,16 @@ impl Ssfm {
     /// The digital back-propagation of this link with `steps_per_span` steps per span
     /// and the nonlinear scale `xi` (see `com_dsp::compensation::dbp`): the amplifier
     /// gain of [`Ssfm::amplification`] is removed before each span, and with the
-    /// forward step (`steps_per_span = ⌊L/h⌋`) it is the exact inverse of
-    /// [`Ssfm::propagate`] without noise. It back-propagates the power profile of the
-    /// lumped amplifiers: [`Ssfm::raman`] is ignored.
+    /// forward steps (`steps_per_span = ⌈L/h⌉`, see [`Ssfm::step_km`]) it is the exact
+    /// inverse of [`Ssfm::propagate`] without noise. It back-propagates the power profile
+    /// of the lumped amplifiers: [`Ssfm::raman`] is ignored.
     pub fn dbp(&self, steps_per_span: usize, xi: f64) -> Dbp {
         let f = &self.fiber;
+        let forward = self.steps().map_or(self.step_km, |(_, h)| h);
         let mut dbp = Dbp {
             steps_per_span,
             xi,
-            forward_step_km: Some(self.step_km),
+            forward_step_km: Some(forward),
             ..Dbp::new(f.medium(), f.span_km, f.n_spans, 1.0)
         };
         dbp.span_gain = self.amplification.field_gain(f, steps_per_span as f64 * dbp.step_km());
@@ -397,12 +417,11 @@ impl Ssfm {
     /// precision only).
     pub fn propagate_f32(&self, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Result<Vec<C64>> {
         ensure(self.raman.is_none(), || "the Raman amplification is simulated in double precision only".into())?;
-        let n_steps = self.steps()?;
+        let (n_steps, h) = self.steps()?;
         let n = x.len();
         if n == 0 {
             return Ok(Vec::new());
         }
-        let h = self.step_km;
         let f = &self.fiber;
         let steps = SplitStepF32::new(&f.medium(), h, n_steps, n, fs);
         let simulated_km = n_steps as f64 * h;
@@ -480,6 +499,47 @@ pub(crate) mod tests {
         let y = sim.propagate(&x, 64e9, None).unwrap();
         let z = sim.backpropagate(&y, 64e9, 40).unwrap();
         assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-9 * a.norm().max(1e-3)));
+    }
+
+    #[test]
+    fn the_split_step_covers_the_whole_span_when_the_step_does_not_divide_it() {
+        // 80 km in steps of 3 km: ⌈80/3⌉ = 27 steps of 80/27 km, so that the EDFA (α L =
+        // 16 dB) restores the launch power exactly (26 steps of 3 km gave +0.4 dB per span)
+        let fiber = FiberParams { n_spans: 10, gamma_w_km: 0.0, ..FiberParams::default() };
+        let x = signal(512, 3, 1e-3);
+        for amplification in [Amplification::Edfa, Amplification::Ideal] {
+            let s = Ssfm { fiber: fiber.clone(), step_km: 3.0, amplification, raman: None };
+            // the single precision rounds the power of 270 steps by about 1e-4 dB
+            for (y, tol) in
+                [(s.propagate(&x, 64e9, None).unwrap(), 1e-9), (s.propagate_f32(&x, 64e9, None).unwrap(), 1e-3)]
+            {
+                let gain_db = 10.0 * (power(&y) / power(&x)).log10();
+                assert!(gain_db.abs() < tol, "{:?}: {gain_db} dB", s.amplification);
+            }
+        }
+        // and the linear channel of the whole link is reproduced
+        let lossless = FiberParams { alpha_db_km: 0.0, n_spans: 1, gamma_w_km: 0.0, ..FiberParams::default() };
+        let s = Ssfm { fiber: lossless.clone(), step_km: 3.0, amplification: Amplification::None, raman: None };
+        let a = linear_fiber_channel(&x, &lossless, 80.0, 64e9);
+        let b = s.propagate(&x, 64e9, None).unwrap();
+        assert!(a.iter().zip(&b).all(|(u, v)| (u - v).norm() < 1e-12), "the steps do not add up to 80 km");
+        assert_eq!(s.steps().unwrap().0, 27);
+        let exact = Ssfm { step_km: 0.4, ..s.clone() }.steps().unwrap();
+        assert_eq!(exact, (200, 0.4));
+        assert!(Ssfm { step_km: 81.0, ..s.clone() }.steps().is_err());
+        assert!(Ssfm { step_km: 0.0, ..s }.steps().is_err());
+    }
+
+    #[test]
+    fn dbp_inverts_the_split_step_when_the_step_does_not_divide_the_span() {
+        let fiber = FiberParams { n_spans: 2, ..FiberParams::default() };
+        let x = signal(256, 1, 5e-3);
+        for step in [3.0, 7.0, 2.6] {
+            let sim = Ssfm::new(fiber.clone(), step);
+            let y = sim.propagate(&x, 64e9, None).unwrap();
+            let z = sim.backpropagate(&y, 64e9, (80.0 / step).ceil() as usize).unwrap();
+            assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-9 * a.norm().max(1e-3)), "step {step}");
+        }
     }
 
     #[test]

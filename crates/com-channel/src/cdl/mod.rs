@@ -118,6 +118,10 @@ use com_math::{SPEED_OF_LIGHT, cis, db2lin};
 use std::f64::consts::PI;
 
 /// A CDL channel between two arrays (see the module).
+///
+/// Its delays are put on the sampling grid of the delay spread and rate given at
+/// construction ([`Cdl::delay_spread`], [`Cdl::sample_rate`]): the channel applies only
+/// to signals of that rate.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cdl {
     clusters: Vec<Cluster>,
@@ -125,10 +129,8 @@ pub struct Cdl {
     spreads: Spreads,
     powers: Vec<f64>,
     delays: Vec<usize>,
-    /// Desired RMS delay spread $\mathrm{DS}$ (s).
-    pub delay_spread: f64,
-    /// Sampling rate (Hz).
-    pub sample_rate: f64,
+    delay_spread: f64,
+    sample_rate: f64,
     /// Transmit array.
     pub tx: Array,
     /// Receive array.
@@ -220,6 +222,16 @@ impl Cdl {
     /// Delays of the clusters on the sampling grid (samples), one tap each.
     pub fn delays(&self) -> &[usize] {
         &self.delays
+    }
+
+    /// Desired RMS delay spread $\mathrm{DS}$ (s).
+    pub fn delay_spread(&self) -> f64 {
+        self.delay_spread
+    }
+
+    /// Sampling rate of the delays and of the time variation (Hz).
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
     }
 
     /// Normalised powers $P_{n}$ of the clusters (unit sum, the specular component
@@ -340,10 +352,11 @@ impl Cdl {
     /// zero: the `n_rx` received streams and the taps of the realisation.
     ///
     /// # Errors
-    /// [`Error::Shape`] if `x` does not have `n_tx` streams, and as
-    /// [`Cdl::draw_rays`].
+    /// [`Error::Shape`] if `x` does not have `n_tx` streams, [`Error::Config`] if it is
+    /// not sampled at [`Cdl::sample_rate`], and as [`Cdl::draw_rays`].
     pub fn fade(&self, x: &Signal, rng: &mut SimRng) -> Result<(Signal, Taps)> {
         same_len(x.n_streams(), self.n_tx(), "streams and transmit antennas")?;
+        crate::multipath::same_rate(x.sample_rate(), self.sample_rate, "the CDL channel")?;
         let n = x.n_samples();
         let taps = self.draw(n, rng)?;
         let y = taps.apply(&x.to_streams())?;
@@ -481,7 +494,20 @@ mod tests {
         let ch = vertical(Profile::A, 1);
         assert!(ch.fade(&Signal::zeros(2, 8, Hertz(1e6)), &mut Rng::new(0)).is_err());
         assert!("CDL-X".parse::<Profile>().is_err());
+        assert_eq!((ch.delay_spread(), ch.sample_rate()), (100e-9, 1e6));
         assert_eq!("b".parse::<Profile>().unwrap(), Profile::B);
+    }
+
+    #[test]
+    fn a_cdl_rejects_a_signal_of_another_sample_rate() {
+        let mut ch = vertical(Profile::C, 2);
+        ch.velocity = [0.0, 15.0, 0.0];
+        assert!(ch.fade(&Signal::zeros(1, 64, Hertz(1e6)), &mut Rng::new(0)).is_ok());
+        // four times oversampled: the delays and the Doppler phase per sample would be wrong
+        let x = Signal::zeros(1, 64, Hertz(4e6));
+        assert!(matches!(ch.fade(&x, &mut Rng::new(0)), Err(Error::Config(_))));
+        let mut out = Signal::zeros(2, 0, Hertz(1.0));
+        assert!(ch.propagate_into(&x, &mut Rng::new(0), &mut out).is_err());
     }
 
     #[test]
@@ -525,10 +551,9 @@ mod tests {
 
     #[test]
     fn doppler_of_every_ray_is_bounded_and_the_tap_spectrum_too() {
-        let mut ch = vertical(Profile::B, 1);
+        let mut ch = Cdl::new(Profile::B, 100e-9, 4000.0, Array::linear(1, 0.5), Array::linear(1, 0.5)).unwrap();
         ch.velocity = [20.0, -10.0, 3.0];
         ch.carrier_frequency = 2e9;
-        ch.sample_rate = 4000.0;
         let f_max = ch.max_doppler(); // 150 Hz
         let rays = ch.draw_rays(&mut Rng::new(3)).unwrap();
         for n in 0..rays.n_clusters() {
@@ -547,7 +572,7 @@ mod tests {
             })
             .collect();
         let spec = com_math::fft::fft(&h);
-        let bin = ch.sample_rate / n as f64;
+        let bin = ch.sample_rate() / n as f64;
         let (mut inside, mut outside) = (0.0, 0.0);
         for (k, s) in spec.iter().enumerate() {
             let f = if k < n / 2 { k as f64 } else { k as f64 - n as f64 } * bin;

@@ -184,7 +184,7 @@ fn gn_snr_db(t: &TheorySpec, name: &str) -> Result<f64> {
             // the priors of the source with mb_lambda: on the unit-energy constellation
             let c = crate::blocks::parse_constellation(v)?.normalized();
             let px = t.mb_lambda.map(|l| com_mapping::source::maxwell_boltzmann(&c, l));
-            Some(FormatMoments::of(c.points(), px.as_deref()))
+            Some(FormatMoments::of(c.points(), px.as_deref())?)
         }
     };
     let model = GnModel { coherent: t.coherent, raman: ctx.raman(t.fiber.as_ref())?, egn, ..GnModel::new(fiber) };

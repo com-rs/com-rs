@@ -76,7 +76,8 @@ pub enum Profile {
     /// ITU-R M.1225 (1997), Table 5, channel B (4 000 ns).
     VehicularB,
     /// An exponential profile of the given RMS delay spread, truncated at five times the
-    /// spread, with taps every `resolution_s` seconds.
+    /// spread, with taps every `resolution_s` seconds (a finite non-negative spread and a
+    /// finite positive spacing, which [`Profile::try_taps`] checks).
     Exponential {
         /// RMS delay spread (s).
         rms_delay_s: f64,
@@ -113,10 +114,21 @@ impl std::str::FromStr for Profile {
 }
 
 impl Profile {
-    /// The taps `(delay in s, power in dB)`.
+    /// The taps `(delay in s, power in dB)`; an empty list for an exponential profile of
+    /// invalid parameters, which the channels ([`Tdl::new`], [`DelayDopplerModel::new`])
+    /// reject ([`Profile::try_taps`] gives the reason).
     pub fn taps(&self) -> Vec<(f64, f64)> {
+        self.try_taps().unwrap_or_default()
+    }
+
+    /// The taps `(delay in s, power in dB)`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for an exponential profile of a negative or non-finite RMS delay
+    /// spread, or of a non-positive or non-finite tap spacing.
+    pub fn try_taps(&self) -> Result<Vec<(f64, f64)>> {
         let ns = |v: &[(f64, f64)]| v.iter().map(|(d, p)| (d * 1e-9, *p)).collect();
-        match *self {
+        Ok(match *self {
             Profile::Epa => ns(&[
                 (0.0, 0.0),
                 (30.0, -1.0),
@@ -159,6 +171,12 @@ impl Profile {
                 ns(&[(0.0, -2.5), (300.0, 0.0), (8900.0, -12.8), (12900.0, -10.0), (17100.0, -25.2), (20000.0, -16.0)])
             }
             Profile::Exponential { rms_delay_s: rms_delay, resolution_s: resolution } => {
+                ensure(rms_delay.is_finite() && rms_delay >= 0.0, || {
+                    format!("the RMS delay spread must be finite and non-negative, got {rms_delay}")
+                })?;
+                ensure(resolution.is_finite() && resolution > 0.0, || {
+                    format!("the tap spacing must be finite and positive, got {resolution}")
+                })?;
                 let n = ((5.0 * rms_delay / resolution).ceil() as usize).max(1);
                 (0..=n)
                     .map(|i| {
@@ -167,8 +185,19 @@ impl Profile {
                     })
                     .collect()
             }
-        }
+        })
     }
+}
+
+/// Return [`Error::Config`] unless a signal of rate `signal` is sampled at the rate
+/// `channel` (Hz) at which a channel has put its delays and Doppler shifts on the
+/// sampling grid (relative tolerance $10^{-9}$): a channel applied to a signal of another
+/// rate would give it delays and Doppler shifts scaled by the ratio of the rates.
+pub(crate) fn same_rate(signal: Hertz, channel: f64, what: &str) -> Result<()> {
+    let fs = signal.0;
+    ensure((fs - channel).abs() <= 1e-9 * channel.abs(), || {
+        format!("{what} is sampled at {channel} Hz, the signal at {fs} Hz: build the channel at the rate of the signal")
+    })
 }
 
 /// The RMS delay spread of a list of taps `(delay, power dB)` (s).
@@ -322,14 +351,16 @@ impl Taps {
 }
 
 /// A tapped-delay-line channel with Clarke/Jakes Doppler (see the module).
+///
+/// Its delays are put on the sampling grid of the rate given at construction, which
+/// [`Tdl::sample_rate`] returns: the channel applies only to signals of that rate.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tdl {
     delays: Vec<usize>,
     powers: Vec<f64>,
     /// Maximum Doppler shift $f_{D}$ (Hz); 0 for a channel constant over a call.
     pub doppler_hz: f64,
-    /// Sampling rate (Hz).
-    pub sample_rate: f64,
+    sample_rate: f64,
     /// Receive antennas.
     pub n_rx: usize,
     /// Transmit antennas.
@@ -369,6 +400,11 @@ impl Tdl {
     /// Delays of the taps on the sampling grid (samples).
     pub fn delays(&self) -> &[usize] {
         &self.delays
+    }
+
+    /// Sampling rate of the delays and of the Doppler spectrum (Hz).
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
     }
 
     /// Normalised powers of the taps.
@@ -431,9 +467,11 @@ impl Tdl {
     /// zero: the `n_rx` received streams and the taps of the realisation.
     ///
     /// # Errors
-    /// [`Error::Shape`] if `x` does not have `n_tx` streams.
+    /// [`Error::Shape`] if `x` does not have `n_tx` streams, [`Error::Config`] if it is
+    /// not sampled at [`Tdl::sample_rate`].
     pub fn fade(&self, x: &Signal, rng: &mut SimRng) -> Result<(Signal, Taps)> {
         same_len(x.n_streams(), self.n_tx, "streams and transmit antennas")?;
+        same_rate(x.sample_rate(), self.sample_rate, "the TDL channel")?;
         let n = x.n_samples();
         let taps = self.draw(n, rng);
         let y = taps.apply(&x.to_streams())?;
@@ -574,6 +612,11 @@ impl DelayDopplerModel {
         Ok(DelayDopplerModel { taps: discretise(taps, sample_rate)?, max_doppler_hz, sample_rate })
     }
 
+    /// Sampling rate of the delays and Doppler shifts (Hz).
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
+    }
+
     /// Draw a realisation.
     pub fn draw(&self, rng: &mut SimRng) -> DelayDoppler {
         let paths = self
@@ -589,9 +632,12 @@ impl DelayDopplerModel {
     }
 }
 
+/// The channel of a new realisation on a single-antenna signal sampled at the rate of
+/// the model ([`Error::Config`] otherwise).
 impl Propagate for DelayDopplerModel {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         same_len(x.n_streams(), 1, "streams of a single-antenna channel")?;
+        same_rate(x.sample_rate(), self.sample_rate, "the delay-Doppler channel")?;
         let taps = self.draw(rng).taps(x.n_samples());
         *out = Signal::from_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
         Ok(())
@@ -666,6 +712,44 @@ mod tests {
         }
         assert!((y.stream(0)[100] - yp[100]).norm() < 1e-12);
         assert!((ch.frequency_correlation(0, 256).re - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn an_exponential_profile_of_invalid_spacing_is_an_error_not_an_abort() {
+        for (rms, res) in [(100e-9, 0.0), (100e-9, -1e-9), (100e-9, f64::NAN), (-1e-9, 1e-9), (f64::INFINITY, 1e-9)] {
+            let p = Profile::Exponential { rms_delay_s: rms, resolution_s: res };
+            assert!(matches!(p.try_taps(), Err(Error::Config(_))), "{p:?}");
+            assert_eq!(p.taps(), Vec::new());
+            assert!(Tdl::new(&p.taps(), 0.0, 1e6, 1, 1).is_err());
+            assert!(DelayDopplerModel::new(&p.taps(), 0.0, 1e6).is_err());
+        }
+        let p = Profile::Exponential { rms_delay_s: 0.0, resolution_s: 1e-9 };
+        assert_eq!(p.try_taps().unwrap()[0], (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_tdl_rejects_a_signal_of_another_sample_rate() {
+        let ch = Tdl::new(&Profile::Eva.taps(), 100.0, 15.36e6, 1, 1).unwrap();
+        assert_eq!(ch.sample_rate(), 15.36e6);
+        let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6)).unwrap();
+        assert!(ch.fade(&x, &mut Rng::new(1)).is_ok());
+        // twice oversampled: the delays (samples) and the Doppler (per sample) would be halved
+        let x2 = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(30.72e6)).unwrap();
+        assert!(matches!(ch.fade(&x2, &mut Rng::new(1)), Err(Error::Config(_))));
+        let mut ch = ch;
+        let mut out = Signal::zeros(1, 0, Hertz(1.0));
+        assert!(ch.propagate_into(&x2, &mut Rng::new(1), &mut out).is_err());
+    }
+
+    #[test]
+    fn a_delay_doppler_model_rejects_a_signal_of_another_sample_rate() {
+        let mut model = DelayDopplerModel::new(&Profile::Eva.taps(), 444.0, 15.36e6).unwrap();
+        assert_eq!(model.sample_rate(), 15.36e6);
+        let mut out = Signal::zeros(1, 0, Hertz(1.0));
+        let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6)).unwrap();
+        assert!(model.propagate_into(&x, &mut Rng::new(1), &mut out).is_ok());
+        let x2 = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(61.44e6)).unwrap();
+        assert!(matches!(model.propagate_into(&x2, &mut Rng::new(1), &mut out), Err(Error::Config(_))));
     }
 }
 
