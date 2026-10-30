@@ -269,6 +269,47 @@ A review of the whole library before the release settled its conventions
   the README and of the Python documentation are generated from
   `validation/maturity.yaml` (`just maturity`, checked by `just check`).
 
+### Waveforms and hardware (review of 30 October 2026)
+
+- Verb traits: CE-OFDM (its receiver a field) and FBMC (the OQAM staggering inside)
+  implement `Modulate` and `Demodulate`; every modem (`Ofdm`, `Ufmc`, `Otfs`, `CeOfdm`,
+  `Fbmc`) carries its `sample_rate` (1 Hz by default) and `demodulate_into` refuses an
+  input at another rate. ADR 0012 proposes a container of indices for CSS and CPM.
+- Placement: `WdmTransmitter` moves to `com_systems::wdm`; `wdm_grid` and
+  `wdm_demultiplex` to `com_dsp::signal`; `Path` to `com_core::channel` (re-exported by
+  `com_channel::multipath`); the envelope limiter to `com_dsp::nonlinear::limit_envelope`
+  and the static predistorter to `com_dsp::compensation::dpd::static_predistort`
+  (`Rapp::predistort` calls it).
+- One kernel each: `Laser::carrier` (the laser and the WDM multiplex), `phase_noise` on
+  `increment_sd`, `shot_noise_variance` and `thermal_noise_variance`,
+  `ResourceGrid::data_indices`, the OFDM link on `Ofdm::modulate`/`demodulate`,
+  `com_math::argmax`, `com_dsp::filter::{normalize_energy, response_at}`,
+  `Signal::map_streams_in_place` for the in-place `Impair` blocks.
+- `Otfs::effective_channel(&[Path])` returns a sparse `EffectiveChannel` (P entries per
+  row; `to_dense` for the detectors that take a matrix).
+- New: `nr::Carrier` with `demodulate`; `Photodiode::detect_signal` and
+  `coherent_receiver_signal` on a `Signal`; `Rapp::bussgang`, `Saleh::bussgang`.
+- Checks instead of NaN, panics or silent changes: `ResourceGrid::check` (a spacing of
+  zero), `PowerDelayProfile::new`, `Css::lora`, `Rapp`/`Saleh`/`Mzm::check`, the
+  laser, the phase noise, `ResourceGrid::extract`, `Cpm::min_distance2` (bounded search);
+  the length mismatches of NR return `Error::Shape`.
+- Numerics: the chirps of CSS are tabulated (within 10⁻¹¹ of the direct evaluation,
+  closer to the exact phase; the error counts of the validation links are unchanged);
+  `Cpm::min_distance2` integrates by Simpson's rule (within 10⁻¹¹ of the closed form of
+  CPFSK, 4·10⁻⁶ before); `Laser::field` at zero linewidth no longer draws its null
+  phase increments (its random stream changes there only).
+- Migration: `Css::lora`, `PowerDelayProfile::{new, uniform}`, `Laser::field`,
+  `phase_noise`, `increment_sd`, `Rapp::{amplify, predistort}`, `Saleh::amplify`,
+  `ResourceGrid::extract` and `Cpm::min_distance2` return `Result`;
+  `nr::modulate(nr, grid, k, n_fft, first)` is `nr::Carrier { numerology: nr,
+  n_subcarriers: k, n_fft, first_symbol: first }.modulate(grid)`;
+  `Otfs::effective_channel(&tuples, fs)` is `Otfs { sample_rate: Hertz(fs), .. }
+  .effective_channel(&paths)?.to_dense()`; a full literal of `Ofdm`, `Ufmc`, `Otfs` or
+  `CeOfdm` adds `sample_rate` (and `receiver` for `CeOfdm`), or starts from `new`; the
+  fields of `PowerDelayProfile` are getters; `com_hardware::optical::{WdmTransmitter,
+  wdm_grid, wdm_demultiplex}` are `com_systems::wdm::WdmTransmitter` and
+  `com_dsp::signal::{wdm_grid, wdm_demultiplex}`.
+
 ### Documentation
 
 - The Python documentation (Sphinx): getting started, six tutorials, a user guide (with
