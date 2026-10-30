@@ -292,6 +292,9 @@ mod tests {
         r.iter().enumerate().map(|(k, v)| v * cis(TAU * eps * k as f64 / n as f64)).collect()
     }
 
+    /// The direct sums of the former metric: the windowed sums of the shared kernel are
+    /// computed in O(n) by block prefix and suffix sums (`com_dsp::sync::frame`), the same
+    /// values to the rounding of the sums (bit for bit where a window starts a block).
     #[test]
     fn schmidl_cox_on_the_shared_kernel_is_the_former_metric() {
         let mut rng = Rng::new(9);
@@ -303,7 +306,14 @@ mod tests {
                 if e > 0.0 { p.norm_sqr() / (e * e) } else { 0.0 }
             })
             .collect();
-        assert_eq!(schmidl_cox(&r, 64), former);
+        let m = schmidl_cox(&r, 64);
+        assert_eq!(m.len(), former.len());
+        for (d, (a, b)) in m.iter().zip(&former).enumerate() {
+            assert!((a - b).abs() <= 1e-13 * b, "d = {d}: {a} against {b}");
+            if d % 64 == 0 {
+                assert_eq!(a, b, "d = {d}");
+            }
+        }
     }
 
     #[test]
