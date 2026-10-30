@@ -3,7 +3,7 @@
 
 use crate::comm::PyConstellation;
 use crate::fiber::PyFiber;
-use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, cmat, cvec, farr, fvec, mat, uvec};
+use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, cvec, farr, fvec, mat, streams_in, uvec};
 use comrs::dsp::compensation::cd;
 use comrs::dsp::equalizer::{AdaptiveEqualizer, Algorithm, Singularity};
 use comrs::dsp::filter::{LowPass, PulseShape};
@@ -246,7 +246,7 @@ fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -
 ///     numpy.ndarray: the compensated field (complex128).
 #[pyfunction]
 fn cdc<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fiber: &PyFiber, length_km: f64, fs: f64) -> PyResult<CArr<'py>> {
-    let (x, f) = (cvec(x)?, fiber.to_rust());
+    let (x, f) = (cvec(x)?, fiber.inner.clone());
     Ok(carr(py, py.detach(|| cd::cdc(&x, f.beta2_s2_km(), length_km, fs))))
 }
 
@@ -263,7 +263,7 @@ fn cdc<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fiber: &PyFiber, length_km: 
 ///     int: the number of taps.
 #[pyfunction]
 fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) -> usize {
-    cd::cd_taps_needed(fiber.to_rust().beta2_s2_km(), length_km, symbol_rate, fs)
+    cd::cd_taps_needed(fiber.inner.beta2_s2_km(), length_km, symbol_rate, fs)
 }
 
 /// Centred taps of the dispersion compensation of `length_km` (frequency sampling).
@@ -278,7 +278,7 @@ fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) ->
 ///     numpy.ndarray: the taps (complex128).
 #[pyfunction]
 fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: usize) -> CArr<'py> {
-    carr(py, cd::cd_fir_taps(fiber.to_rust().beta2_s2_km(), length_km, fs, n_taps))
+    carr(py, cd::cd_fir_taps(fiber.inner.beta2_s2_km(), length_km, fs, n_taps))
 }
 
 /// The dispersion factor `K = -β₂ L fs²/2` of the digital compensation `e^{jKω²}`
@@ -293,7 +293,7 @@ fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n
 ///     float: K.
 #[pyfunction]
 fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
-    cd::cd_dispersion_factor(fiber.to_rust().beta2_s2_km(), length_km, fs)
+    cd::cd_dispersion_factor(fiber.inner.beta2_s2_km(), length_km, fs)
 }
 
 /// Centred taps of Savory's dispersion-compensating FIR, `√(j/(4Kπ)) e^{-jn²/(4K)}`.
@@ -317,7 +317,7 @@ fn cd_savory_taps<'py>(
     fs: f64,
     n_taps: Option<usize>,
 ) -> PyResult<CArr<'py>> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     let n = n_taps.unwrap_or_else(|| cd::cd_savory_length(b2, length_km, fs));
     Ok(carr(py, cd::cd_savory_taps(b2, length_km, fs, n).py()?))
 }
@@ -353,7 +353,7 @@ fn cd_ls_taps<'py>(
     band_hz: Option<f64>,
     epsilon: f64,
 ) -> PyResult<CArr<'py>> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     Ok(carr(py, cd::cd_ls_taps(b2, length_km, fs, n_taps, band_hz.unwrap_or(fs / 2.0), epsilon).py()?))
 }
 
@@ -379,7 +379,7 @@ fn cd_ls_error(
     fs: f64,
     band_hz: Option<f64>,
 ) -> PyResult<f64> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     cd::cd_ls_error(&cvec(taps)?, b2, length_km, fs, band_hz.unwrap_or(fs / 2.0)).py()
 }
 
@@ -412,8 +412,19 @@ fn cd_ls_error(
 ///     symbols)`, the final taps `(modes², n_taps)` with row `m + N·modes` the filter
 ///     from input `N` to output `m`, and the squared errors `(modes, symbols)`.
 #[pyfunction]
-#[pyo3(signature = (x, constellation, *, algorithm = None, n_taps = 15, sps = 2, mu = None, passes = 1, reference = None, kikuchi = None))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    x,
+    constellation,
+    *,
+    algorithm = None,
+    n_taps = AdaptiveEqualizer::new(Algorithm::Cma).n_taps,
+    sps = AdaptiveEqualizer::new(Algorithm::Cma).sps,
+    mu = None,
+    passes = AdaptiveEqualizer::new(Algorithm::Cma).passes,
+    reference = None,
+    kikuchi = None,
+))]
+#[allow(clippy::too_many_arguments, reason = "the settings of the equaliser, by keyword")]
 fn adaptive_equalizer<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -426,8 +437,7 @@ fn adaptive_equalizer<'py>(
     reference: Option<&Bound<'py, PyAny>>,
     kikuchi: Option<usize>,
 ) -> PyResult<(CMat<'py>, CMat<'py>, FMat<'py>)> {
-    let modes =
-        if x.getattr("ndim").and_then(|n| n.extract::<usize>()).unwrap_or(2) == 1 { vec![cvec(x)?] } else { cmat(x)? };
+    let (modes, _) = streams_in(x)?;
     let schedule = match algorithm {
         None => vec![(Algorithm::Cma, usize::MAX)],
         Some(a) if a.is_instance_of::<PyString>() => vec![(a.extract::<String>()?.parse().py()?, usize::MAX)],
@@ -436,14 +446,10 @@ fn adaptive_equalizer<'py>(
             steps.into_iter().map(|(s, n)| Ok((s.parse::<Algorithm>().py()?, n))).collect::<PyResult<_>>()?
         }
     };
-    let reference = match reference {
-        None => None,
-        Some(r) if r.getattr("ndim").and_then(|n| n.extract::<usize>()).unwrap_or(2) == 1 => Some(vec![cvec(r)?]),
-        Some(r) => Some(cmat(r)?),
-    };
+    let reference = reference.map(streams_in).transpose()?.map(|(r, _)| r);
     let singularity = kikuchi.map_or(Singularity::None, Singularity::Kikuchi);
     let stage_mu: Vec<f64> = match mu {
-        None => vec![1e-3],
+        None => vec![AdaptiveEqualizer::new(Algorithm::Cma).mu],
         Some(m) => m.extract::<Vec<f64>>().or_else(|_| m.extract::<f64>().map(|v| vec![v]))?,
     };
     if stage_mu.is_empty() {
@@ -563,6 +569,13 @@ fn bps<'py>(
     Ok(farr(py, py.detach(|| carrier::bps(&x, n, &pts, b)).py()?))
 }
 
+/// The symbol rate of OptiCommPy's `ddpll` (its `Ts = 1/32e9`), the default of [`ddpll`].
+const OPTICOMMPY_DDPLL_FS: f64 = 32e9;
+/// The VCO gain of OptiCommPy's `ddpll`.
+const OPTICOMMPY_DDPLL_KV: f64 = 0.1;
+/// The time constants of the loop filter of OptiCommPy's `ddpll`, `1/(2π 10 MHz)`.
+const OPTICOMMPY_DDPLL_TAU: f64 = 1.0 / (2.0 * std::f64::consts::PI * 10e6);
+
 /// Decision-directed phase-locked loop (OptiCommPy `ddpll`): the phase correction to
 /// apply with `derotate(x, θ)`.
 ///
@@ -580,8 +593,18 @@ fn bps<'py>(
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad).
 #[pyfunction]
-#[pyo3(signature = (x, constellation, *, fs = 32e9, kv = 0.1, tau1 = 1.0 / (2.0 * std::f64::consts::PI * 10e6), tau2 = 1.0 / (2.0 * std::f64::consts::PI * 10e6), pilot_indices = None, pilot_symbols = None))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    x,
+    constellation,
+    *,
+    fs = OPTICOMMPY_DDPLL_FS,
+    kv = OPTICOMMPY_DDPLL_KV,
+    tau1 = OPTICOMMPY_DDPLL_TAU,
+    tau2 = OPTICOMMPY_DDPLL_TAU,
+    pilot_indices = None,
+    pilot_symbols = None,
+))]
+#[allow(clippy::too_many_arguments, reason = "the loop parameters of OptiCommPy, by keyword")]
 fn ddpll<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,

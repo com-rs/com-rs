@@ -543,7 +543,7 @@ fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth: f64,
 /// Returns:
 ///     numpy.ndarray: the output (complex128).
 #[pyfunction]
-#[pyo3(signature = (x, *, gain=1.0, saturation=1.0, smoothness=2.0))]
+#[pyo3(signature = (x, *, gain=Rapp::default().gain, saturation=Rapp::default().saturation, smoothness=Rapp::default().smoothness))]
 fn pa_rapp<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -567,7 +567,14 @@ fn pa_rapp<'py>(
 /// Returns:
 ///     numpy.ndarray: the predistorted input (complex128).
 #[pyfunction]
-#[pyo3(signature = (x, *, gain=1.0, saturation=1.0, smoothness=2.0, max_output=0.99))]
+#[pyo3(signature = (
+    x,
+    *,
+    gain = Rapp::default().gain,
+    saturation = Rapp::default().saturation,
+    smoothness = Rapp::default().smoothness,
+    max_output = 0.99,
+))]
 fn rapp_predistort<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -592,7 +599,14 @@ fn rapp_predistort<'py>(
 /// Returns:
 ///     numpy.ndarray: the output (complex128).
 #[pyfunction]
-#[pyo3(signature = (x, *, alpha_a=2.1587, beta_a=1.1517, alpha_p=4.0033, beta_p=9.1040))]
+#[pyo3(signature = (
+    x,
+    *,
+    alpha_a = Saleh::default().alpha_a,
+    beta_a = Saleh::default().beta_a,
+    alpha_p = Saleh::default().alpha_p,
+    beta_p = Saleh::default().beta_p,
+))]
 fn pa_saleh<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -643,7 +657,10 @@ pub struct PyDpd {
 #[pymethods]
 impl PyDpd {
     #[new]
-    #[pyo3(signature = (orders=vec![1, 3, 5], memory=3))]
+    #[pyo3(signature = (
+        orders = MemoryPolynomialDpd::DEFAULT_ORDERS.to_vec(),
+        memory = MemoryPolynomialDpd::DEFAULT_MEMORY,
+    ))]
     fn new(orders: Vec<u32>, memory: usize) -> Self {
         PyDpd { inner: MemoryPolynomialDpd::new(orders, memory) }
     }

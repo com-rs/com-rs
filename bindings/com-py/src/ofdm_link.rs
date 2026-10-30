@@ -22,6 +22,12 @@ fn profile_taps(name: &str) -> PyResult<Vec<(f64, f64)>> {
     Ok(name.parse::<Profile>().py()?.taps())
 }
 
+/// The taps of a profile given by its name (`"eva"`) or as an `(n, 2)` array of
+/// `(delay in s, power in dB)`.
+pub(crate) fn profile_or_taps(profile: &Bound<'_, PyAny>) -> PyResult<Vec<(f64, f64)>> {
+    if profile.is_instance_of::<PyString>() { profile_taps(&profile.extract::<String>()?) } else { taps_in(profile) }
+}
+
 /// The taps of a power-delay profile of the standards.
 ///
 /// Args:
@@ -105,11 +111,7 @@ impl PyTdl {
     #[new]
     #[pyo3(signature = (profile, fs, *, doppler_hz=0.0, n_rx=1, n_tx=1))]
     fn new(profile: &Bound<'_, PyAny>, fs: f64, doppler_hz: f64, n_rx: usize, n_tx: usize) -> PyResult<Self> {
-        let taps = if profile.is_instance_of::<PyString>() {
-            profile_taps(&profile.extract::<String>()?)?
-        } else {
-            taps_in(profile)?
-        };
+        let taps = profile_or_taps(profile)?;
         Ok(PyTdl { inner: Tdl::new(&taps, doppler_hz, fs, n_rx, n_tx).py()? })
     }
 
@@ -386,9 +388,14 @@ fn ofdm_estimate<'py>(
     n_fft: Option<usize>,
 ) -> PyResult<CArr<'py>> {
     let pdp = match (delays, powers, max_delay, n_fft) {
-        (Some(d), Some(p), _, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n)),
-        (_, _, Some(m), Some(n)) => Some(PowerDelayProfile::uniform(m, n)),
-        _ => None,
+        (None, None, None, None) => None,
+        (Some(d), Some(p), None, Some(n)) => Some(PowerDelayProfile::new(fvec(d)?, &fvec(p)?, n)),
+        (None, None, Some(m), Some(n)) => Some(PowerDelayProfile::uniform(m, n)),
+        _ => {
+            return Err(PyValueError::new_err(
+                "give delays, powers and n_fft (a measured profile), or max_delay and n_fft (the uniform profile)",
+            ));
+        }
     };
     let m = FrequencyInterpolation::from_name(method, pdp).py()?;
     let r = cvec(rx)?;

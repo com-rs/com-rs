@@ -139,13 +139,7 @@ fn nr_pbch_dmrs(py: Python<'_>, n_cell_id: u32, i_ssb_bar: u32) -> PyResult<CArr
 ///     numpy.ndarray: the indices (int64).
 #[pyfunction]
 fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<crate::IArr<'py>> {
-    let k = match kind {
-        "pss" => SsbElement::Pss,
-        "sss" => SsbElement::Sss,
-        "pbch" => SsbElement::Pbch,
-        "pbch_dmrs" => SsbElement::PbchDmrs,
-        other => return Err(PyValueError::new_err(format!("unknown kind {other:?}: pss, sss, pbch or pbch_dmrs"))),
-    };
+    let k: SsbElement = kind.parse().py()?;
     Ok(crate::iarr(py, nr::ssb_indices(n_cell_id, k).into_iter().map(|(k, l)| l * SSB_SUBCARRIERS + k).collect()))
 }
 
@@ -220,7 +214,7 @@ fn nr_pdsch_dmrs(
     let d = PdschDmrs { config_type, type_a_position, additional_position, n_id, slot };
     let symbols = d.symbols().py()?;
     let ks = d.subcarriers(n_rb);
-    let k_grid = 12 * n_rb;
+    let k_grid = nr::SUBCARRIERS_PER_RB * n_rb;
     let values: Vec<Vec<C64>> = symbols.iter().map(|&l| d.values(n_rb, l)).collect();
     let out = PyDict::new(py);
     out.set_item("symbols", crate::iarr(py, symbols.clone()))?;

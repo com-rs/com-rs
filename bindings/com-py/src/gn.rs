@@ -75,35 +75,20 @@ fn gn_model<'py>(
     let px = px.map(fvec).transpose()?;
     let n = freqs.len();
     let powers = powers_dbm(power_dbm, n)?;
-    let ch = channel.unwrap_or(n / 2);
     let egn = match modulation {
         None => None,
         Some(f) => Some(self::format_moments_of(py, f, px.as_deref())?),
     };
     let model =
-        GnModel { fiber: fiber.to_rust(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
-    let spec = WdmSpectrum {
-        freqs: freqs.clone(),
-        powers_w: powers.iter().map(|p| dbm2w(*p)).collect(),
-        symbol_rate,
-        rolloff,
-    };
-    let (nli, ase, snr, eta, p_opt) = py
-        .detach(|| -> comrs::core::Result<_> {
-            let nli = model.nli_psd(&spec, spec.freqs.get(ch).copied().unwrap_or(0.0))?;
-            let ase = model.ase_psd_channel(&spec, ch)?;
-            let snr = model.snr(&spec, ch)?;
-            let eta = model.eta(&freqs, symbol_rate, rolloff, ch)?;
-            let p_opt = model.optimal_power(&freqs, symbol_rate, rolloff, ch)?;
-            Ok((nli, ase, snr, eta, p_opt))
-        })
-        .py()?;
+        GnModel { fiber: fiber.inner.clone(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
+    let spec = WdmSpectrum { freqs, powers_w: powers.iter().map(|p| dbm2w(*p)).collect(), symbol_rate, rolloff };
+    let s = py.detach(|| model.summary(&spec, channel)).py()?;
     let d = PyDict::new(py);
-    d.set_item("nli_psd", nli)?;
-    d.set_item("ase_psd", ase)?;
-    d.set_item("snr_db", comrs::math::lin2db(snr))?;
-    d.set_item("eta", eta)?;
-    d.set_item("p_opt_dbm", comrs::math::w2dbm(p_opt))?;
+    d.set_item("nli_psd", s.nli_psd)?;
+    d.set_item("ase_psd", s.ase_psd)?;
+    d.set_item("snr_db", comrs::math::lin2db(s.snr))?;
+    d.set_item("eta", s.eta)?;
+    d.set_item("p_opt_dbm", comrs::math::w2dbm(s.optimal_power_w))?;
     Ok(d)
 }
 
@@ -201,15 +186,13 @@ fn raman_profile<'py>(
     let n = freqs.len();
     let powers = powers_dbm(power_dbm, n)?;
     let r = crate::fiber::raman(py, Some(raman))?.ok_or_else(|| PyValueError::new_err("raman must be a mapping"))?;
-    let f = fiber.to_rust();
+    let f = fiber.inner.clone();
     let signals: Vec<(f64, f64)> = freqs.iter().zip(&powers).map(|(fr, p)| (f.fc_hz + fr, dbm2w(*p))).collect();
     let p = py.detach(|| r.solve(&f, &signals)).py()?;
     let d = PyDict::new(py);
-    let rows: Vec<Vec<f64>> =
-        p.log_power.iter().map(|l| l.iter().map(|v| 10.0 * std::f64::consts::LOG10_E * v + 30.0).collect()).collect();
-    let n_waves = rows.len();
+    let n_waves = p.log_power.len();
     let n_z = p.z_km.len();
-    let flat: Vec<f64> = rows.into_iter().flatten().collect();
+    let flat: Vec<f64> = (0..n_waves).flat_map(|k| p.power_dbm(k)).collect();
     d.set_item("z_km", farr(py, p.z_km.clone()))?;
     d.set_item("freqs_hz", farr(py, p.freqs_hz.clone()))?;
     d.set_item(
@@ -239,7 +222,7 @@ fn raman_profile<'py>(
 ///     float: the NLI power spectral density (W/Hz).
 #[pyfunction]
 fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing: f64, power_dbm: f64) -> f64 {
-    closed_form_nli_psd(&fiber.to_rust(), n_channels, symbol_rate, spacing, dbm2w(power_dbm))
+    closed_form_nli_psd(&fiber.inner, n_channels, symbol_rate, spacing, dbm2w(power_dbm))
 }
 
 /// The centre frequencies of ``n`` WDM channels, relative to the carrier: the grid of

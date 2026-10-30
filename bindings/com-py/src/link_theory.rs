@@ -5,6 +5,7 @@
 
 use crate::{FArr, IntoPy, cvec, farr, fvec, map_real};
 use comrs::dsp::nonlinear;
+use comrs::mapping::constellation::Constellation;
 use comrs::mapping::imperfect_csi as csi;
 use num_complex::Complex64 as C64;
 use pyo3::exceptions::PyValueError;
@@ -18,7 +19,8 @@ use pyo3::prelude::*;
 /// the perfect channel.
 ///
 /// Args:
-///     modulation (str): ``"bpsk"``, ``"qpsk"`` (Gray) or ``"16qam"`` (Gray).
+///     modulation (str): ``"bpsk"``, ``"qpsk"`` (Gray) or ``"16qam"`` (Gray), any name of
+///         a constellation (``"16-QAM"``, ``"QPSK"``).
 ///     ebn0_db (float | array_like): the mean `Eb/N0` (dB).
 ///     rho1 (float): the real correlation coefficient.
 ///     rho2 (float): the imaginary correlation coefficient.
@@ -41,13 +43,8 @@ fn theory_ber_imperfect_csi(
     rho2: f64,
     sigma_ratio: f64,
 ) -> PyResult<Py<PyAny>> {
-    let g = |e: f64| comrs::math::db2lin(e);
-    match modulation {
-        "bpsk" => map_real(ebn0_db, |e| Ok(csi::ber_bpsk_imperfect_csi(g(e), rho1, rho2))),
-        "qpsk" => map_real(ebn0_db, |e| Ok(csi::ber_qpsk_imperfect_csi(g(e), rho1, rho2))),
-        "16qam" => map_real(ebn0_db, |e| Ok(csi::ber_16qam_imperfect_csi(g(e), rho1, rho2, sigma_ratio))),
-        other => Err(PyValueError::new_err(format!("modulation is bpsk, qpsk or 16qam, got {other:?}"))),
-    }
+    let c = Constellation::from_name(modulation).py()?;
+    map_real(ebn0_db, |e| csi::ber_imperfect_csi(&c, comrs::math::db2lin(e), rho1, rho2, sigma_ratio).py())
 }
 
 /// The bit error rate of DBPSK (`m = 2`) or Gray DQPSK (`m = 4`) over Jakes' Rayleigh

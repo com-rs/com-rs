@@ -2,10 +2,9 @@
 //! forms of its error rates.
 
 use crate::{BArr, CArr, IArr, IntoPy, bvec, carr, cvec, iarr, map_real, uvec};
-use comrs::mapping::differential::{self, Dpsk};
+use comrs::mapping::differential::{self, Detection, Dpsk};
 use comrs::mapping::theory;
 use numpy::IntoPyArray;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Differential M-PSK (DBPSK, DQPSK, D8PSK, …) with Gray-labelled phase transitions.
@@ -265,14 +264,8 @@ impl PyDpsk {
 #[pyfunction]
 #[pyo3(signature = (m, ebn0_db, *, detection = "noncoherent"))]
 fn theory_ber_dpsk(m: usize, ebn0_db: &Bound<'_, PyAny>, detection: &str) -> PyResult<Py<PyAny>> {
-    match detection {
-        "noncoherent" => map_real(ebn0_db, |e| theory::ber_dpsk(m, e).py()),
-        "coherent" if m == 2 => map_real(ebn0_db, |e| Ok(theory::ber_dbpsk_coherent(e))),
-        "coherent" => Err(PyValueError::new_err(format!(
-            "coherent detection with differential decoding is defined for m = 2, got m = {m}"
-        ))),
-        other => Err(PyValueError::new_err(format!("detection must be noncoherent or coherent, got {other:?}"))),
-    }
+    let detection: Detection = detection.parse().py()?;
+    map_real(ebn0_db, |e| theory::ber_differential(m, e, detection).py())
 }
 
 /// The probability that the phase angle between two vectors of the same SNR perturbed

@@ -6,7 +6,7 @@ use crate::kind;
 use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, cvec, farr, fvec, iarr, map_real, uvec};
 use comrs::math::C64;
 use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
-use comrs::waveform::cpm::{self, Cpm, CpmConfig, FrequencyPulse};
+use comrs::waveform::cpm::{self, Cpm, CpmConfig, FrequencyPulse, ModulationIndex};
 use comrs::waveform::css::{Css, Waveform, theory as css_theory};
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
@@ -15,10 +15,8 @@ use pyo3::prelude::*;
 /// The modulation index `p/q` of a string `"p/q"` or a pair `(p, q)`.
 fn modulation_index(h: &Bound<'_, PyAny>) -> PyResult<(u32, u32)> {
     if let Ok(s) = h.extract::<String>() {
-        return s
-            .split_once('/')
-            .and_then(|(p, q)| Some((p.trim().parse::<u32>().ok()?, q.trim().parse::<u32>().ok()?)))
-            .ok_or_else(|| PyValueError::new_err(format!("h must be a fraction \"p/q\", got {s:?}")));
+        let h: ModulationIndex = s.parse().py()?;
+        return Ok((h.num, h.den));
     }
     h.extract::<(u32, u32)>()
         .map_err(|_| PyValueError::new_err("h must be a fraction \"p/q\" or a pair of integers (p, q)"))
@@ -460,8 +458,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (n_data, h, *, oversampling=4, n_cp=0))]
     fn new(n_data: usize, h: f64, oversampling: usize, n_cp: usize) -> PyResult<Self> {
         let inner = CeOfdm { n_data, oversampling, h, n_cp };
-        // validate through the theory, which checks the parameters
-        theory::snr(&inner, 0.0).py()?;
+        inner.check().py()?;
         Ok(PyCeOfdm { inner })
     }
 

@@ -3,7 +3,7 @@
 
 use crate::{CArr, FArr, IntoPy, carr, cvec, farr, fvec};
 use comrs::dsp::nonlinear;
-use comrs::hardware::amplifier::{Rapp, Saleh};
+use comrs::hardware::amplifier::{Model, Rapp, Saleh};
 use comrs::waveform::fbmc::{self, Fbmc};
 use comrs::waveform::ufmc::Ufmc;
 use num_complex::Complex64 as C64;
@@ -214,6 +214,9 @@ impl PyUfmc {
 /// Bussgang's decomposition `y = K x + d` of a memoryless amplifier driven by a circular
 /// complex Gaussian signal: the complex gain and the power of the distortion.
 ///
+/// The parameters of each model default to those of :func:`pa_rapp` and
+/// :func:`pa_saleh` (Rapp with `p = 2`, Saleh's fit of 1981).
+///
 /// Args:
 ///     model (str): `"rapp"` (gain 1, `saturation`, `smoothness`) or
 ///         `"saleh"` (`alpha_a`, `beta_a`, `alpha_p`, `beta_p`).
@@ -228,13 +231,29 @@ impl PyUfmc {
 /// Returns:
 ///     tuple[complex, float]: `K` and `σ_d²`.
 ///
+/// Raises:
+///     ValueError: for an unknown model.
+///
 /// Examples:
-///     >>> import comrs
-///     >>> k, d = comrs.amplifier_bussgang("saleh", 10 ** -0.4, alpha_p=3.141592653589793 / 6)
+///     The TWTA of Bouhadda et al. (2014, Table 3) at 4 dB of input back-off, `φ₀ = π/6`:
+///
+///     >>> import comrs, math
+///     >>> k, d = comrs.amplifier_bussgang("saleh", 10 ** -0.4, alpha_a=1.0, beta_a=1.0,
+///     ...                                 alpha_p=math.pi / 6, beta_p=1.0)
 ///     >>> round(k.real, 4), round(k.imag, 4)
 ///     (0.5917, 0.1106)
 #[pyfunction]
-#[pyo3(signature = (model, power, *, saturation=1.0, smoothness=1.0, alpha_a=1.0, beta_a=1.0, alpha_p=0.0, beta_p=1.0))]
+#[pyo3(signature = (
+    model,
+    power,
+    *,
+    saturation = Rapp::default().saturation,
+    smoothness = Rapp::default().smoothness,
+    alpha_a = Saleh::default().alpha_a,
+    beta_a = Saleh::default().beta_a,
+    alpha_p = Saleh::default().alpha_p,
+    beta_p = Saleh::default().beta_p,
+))]
 #[allow(clippy::too_many_arguments, reason = "the parameters of both amplifier models, by keyword")]
 fn amplifier_bussgang(
     model: &str,
@@ -246,19 +265,12 @@ fn amplifier_bussgang(
     alpha_p: f64,
     beta_p: f64,
 ) -> PyResult<(C64, f64)> {
-    match model {
-        "rapp" => {
-            let a = Rapp { gain: 1.0, saturation, smoothness };
-            let b = nonlinear::bussgang(|r| C64::new(a.am_am(r), 0.0), power);
-            Ok((b.gain, b.distortion))
-        }
-        "saleh" => {
-            let a = Saleh { alpha_a, beta_a, alpha_p, beta_p };
-            let b = nonlinear::bussgang(|r| C64::from_polar(a.am_am(r), a.am_pm(r)), power);
-            Ok((b.gain, b.distortion))
-        }
-        other => Err(PyValueError::new_err(format!("unknown amplifier {other:?}: rapp, saleh"))),
-    }
+    let b = match model.parse::<Model>().py()? {
+        Model::Rapp => nonlinear::bussgang_of(&Rapp { saturation, smoothness, ..Rapp::default() }, power),
+        Model::Saleh => nonlinear::bussgang_of(&Saleh { alpha_a, beta_a, alpha_p, beta_p }, power),
+        other => return Err(PyValueError::new_err(format!("no Bussgang decomposition for {other:?}"))),
+    };
+    Ok((b.gain, b.distortion))
 }
 
 /// The Dolph–Chebyshev window (as `scipy.signal.windows.chebwin`).

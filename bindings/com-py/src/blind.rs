@@ -4,9 +4,8 @@
 use crate::comm::PyConstellation;
 use crate::{IntoPy, cvec, map_real};
 use comrs::dsp::cyclo;
-use comrs::metrics::blind::{self, Cumulants};
+use comrs::metrics::blind::{self, Classifier, Cumulants};
 use num_complex::Complex64 as C64;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -105,15 +104,8 @@ fn classify_modulation<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let x = cvec(x)?;
     let cands: Vec<_> = candidates.iter().map(|c| c.inner.normalized()).collect();
-    let d = match method {
-        "ml" => py.detach(|| blind::classify_ml_blind(&x, &cands)).py()?,
-        "ml_known" => {
-            let n = noise_var.ok_or_else(|| PyValueError::new_err("ml_known needs noise_var"))?;
-            py.detach(|| blind::classify_ml(&x, &cands, n)).py()?
-        }
-        "cumulants" => blind::classify_cumulants(&x, &cands, noise_var).py()?,
-        other => return Err(PyValueError::new_err(format!("unknown method {other:?}: ml, ml_known or cumulants"))),
-    };
+    let classifier = Classifier::from_name(method, noise_var).py()?;
+    let d = py.detach(|| classifier.classify(&x, &cands)).py()?;
     let out = PyDict::new(py);
     out.set_item("index", d.index)?;
     out.set_item("scores", d.scores)?;

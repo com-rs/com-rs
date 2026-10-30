@@ -1,13 +1,12 @@
 //! Orthogonal time frequency space and the delay–Doppler channel it is designed for.
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec, taps_in};
-use comrs::channel::multipath::{DelayDopplerModel, Profile};
+use crate::{CArr, IntoPy, carr, cvec};
+use comrs::channel::multipath::DelayDopplerModel;
 use comrs::waveform::otfs::Otfs;
 use num_complex::Complex64 as C64;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
-use pyo3::types::PyString;
 
 /// Orthogonal time frequency space (Raviteja et al. 2019) with rectangular pulses: the
 /// symbols of the `n_fft × n_symbols` delay–Doppler grid (`x[n * M + m]`, delay `m`,
@@ -133,11 +132,7 @@ fn delay_doppler_paths(
     fs: f64,
     mut rng: PyRefMut<'_, PyRng>,
 ) -> PyResult<Vec<(C64, usize, f64)>> {
-    let taps = if profile.is_instance_of::<PyString>() {
-        profile.extract::<String>()?.parse::<Profile>().py()?.taps()
-    } else {
-        taps_in(profile)?
-    };
+    let taps = crate::ofdm_link::profile_or_taps(profile)?;
     let model = DelayDopplerModel::new(&taps, max_doppler_hz, fs).py()?;
     Ok(model.draw(&mut rng.inner).paths().iter().map(|p| (p.gain, p.delay, p.doppler_hz)).collect())
 }

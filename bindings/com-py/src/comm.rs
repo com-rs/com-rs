@@ -574,11 +574,12 @@ fn theory_ber(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 #[pyfunction]
 #[pyo3(signature = (m, ebn0_db, kind = "qam", *, mq = None))]
 fn theory_ber_gray(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str, mq: Option<usize>) -> PyResult<Py<PyAny>> {
+    use comrs::mapping::constellation::ConstellationKind as Kind;
     use comrs::mapping::theory as th;
-    match (kind.to_ascii_lowercase().as_str(), mq) {
-        ("pam", None) => map_real(ebn0_db, |e| th::ber_gray_pam(m, e).py()),
-        ("qam", None) => map_real(ebn0_db, |e| th::ber_gray_qam(m, e).py()),
-        ("qam", Some(j)) => map_real(ebn0_db, |e| th::ber_gray_rect_qam(m, j, e).py()),
+    match (self::kind(kind)?, mq) {
+        (Kind::Pam, None) => map_real(ebn0_db, |e| th::ber_gray_pam(m, e).py()),
+        (Kind::Qam, None) => map_real(ebn0_db, |e| th::ber_gray_qam(m, e).py()),
+        (Kind::Qam, Some(j)) => map_real(ebn0_db, |e| th::ber_gray_rect_qam(m, j, e).py()),
         _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "the exact Gray BER is for kind \"pam\" or \"qam\" (mq with qam only), got {kind:?}"
         ))),
@@ -677,7 +678,7 @@ fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 ///     >>> round(comrs.theory_mi(4, 30.0), 6)
 ///     2.0
 #[pyfunction]
-#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = 40))]
+#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn theory_mi(
     m: usize,
     snr_db: &Bound<'_, PyAny>,
@@ -706,7 +707,7 @@ fn theory_mi(
 /// Returns:
 ///     float | numpy.ndarray: the GMI (bits/symbol) at every SNR.
 #[pyfunction]
-#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = 40))]
+#[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn theory_gmi(
     m: usize,
     snr_db: &Bound<'_, PyAny>,
@@ -726,7 +727,7 @@ fn fading(name: &str) -> PyResult<Fading> {
 
 /// The CM capacity (bits per channel use) of a constellation with uniform inputs over
 /// AWGN or Rayleigh fading known at the receiver (Caire, Taricco & Biglieri 1998, eq.
-/// (10)): `theory_mi` of a constellation object.
+/// (10)): :func:`theory_mi` of any constellation, uniform inputs.
 ///
 /// Args:
 ///     constellation (Constellation): the points (normalised inside).
@@ -742,7 +743,7 @@ fn fading(name: &str) -> PyResult<Fading> {
 ///     >>> round(comrs.cm_capacity(comrs.Constellation("qam", 4), 30.0), 6)
 ///     2.0
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn cm_capacity(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
@@ -756,7 +757,7 @@ fn cm_capacity(
 /// The BICM capacity (bits per channel use) of a labelled constellation with uniform
 /// inputs (Caire, Taricco & Biglieri 1998, eq. (14)): the GMI of the bit-wise decoder,
 /// labels as `constellation` gives them (Gray, or `Constellation.set_partitioning`):
-/// `theory_gmi` of a constellation object.
+/// :func:`theory_gmi` of any labelled constellation, uniform inputs.
 ///
 /// Args:
 ///     constellation (Constellation): the labelled points.
@@ -767,7 +768,7 @@ fn cm_capacity(
 /// Returns:
 ///     float | numpy.ndarray: the capacity at every SNR.
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn bicm_capacity(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
@@ -814,7 +815,7 @@ fn cm_cutoff_rate(constellation: &PyConstellation, snr_db: &Bound<'_, PyAny>, fa
 /// Returns:
 ///     float | numpy.ndarray: the cutoff rate at every SNR.
 #[pyfunction]
-#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = 16))]
+#[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn bicm_cutoff_rate(
     constellation: &PyConstellation,
     snr_db: &Bound<'_, PyAny>,
