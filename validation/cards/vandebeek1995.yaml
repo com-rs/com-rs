@@ -1,0 +1,26 @@
+id: vandebeek1995
+title: Timing from the cyclic prefix on an AWGN channel, with the SNR of the conference paper
+literature: vandebeek1995
+source:
+  kind: paper
+  reference: "J.-J. van de Beek, M. Sandell, M. Isaksson, P. O. Borjesson, Low-complex frame synchronization in OFDM systems, Proc. IEEE ICUPC, 982-986, 1995"
+  locator: "Fig. 7, the estimator on r(k) (AWGN, N = 1024, a prefix of 128 samples); the SNR defined as E|s(k)|^2 / E|n(k)|^2"
+  file: synchronisation/1995_vandebeek_low-complex-frame-sync-ofdm_icupc.pdf
+description: >
+  The timing of the maximum-likelihood estimator from the cyclic prefix
+  (comrs::waveform::ofdm::sync::cp_ml), N = 1024 subcarriers (QPSK) and a prefix of 128
+  samples, AWGN at the SNR of the paper, no frequency offset; every window of 2N + L
+  samples holds one whole symbol whose prefix starts at a uniform position.
+run:
+  test: validation/tests/vandebeek1995.rs
+tier: campaign
+duration: "about 4 s on an Apple M6"
+tolerance: {factor: 1.6}
+why: "Fig. 7 read on log axes to about 0.1 decade (a factor 1.26), and 4000 windows per point; at 20 dB the errors are of one sample in about 2 % of the windows, so the variance is known to about 10 %"
+findings:
+  - "with the SNR stated in this paper, E|s|^2/E|n|^2, the library matches Fig. 7 without any shift; Fig. 6 of the journal version (TSP 1997) is the one reproduced 3 dB to the left of its axis (card vandebeek1997)"
+cases:
+  - {inputs: {snr_db: 5}, expected: 1.6}
+  - {inputs: {snr_db: 10}, expected: 0.25}
+  - {inputs: {snr_db: 15}, expected: 0.054}
+  - {inputs: {snr_db: 20}, expected: 0.016}

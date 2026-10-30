@@ -95,12 +95,15 @@
 //! 3. J.-J. van de Beek, M. Sandell and P. O. Börjesson, "ML estimation of time and
 //!    frequency offset in OFDM systems," *IEEE Trans. Signal Process.*, 45(7),
 //!    1800–1805, 1997.
+//! 4. J. Armstrong, "Analysis of new and existing methods of reducing intercarrier
+//!    interference due to carrier frequency offset in OFDM," *IEEE Trans. Commun.*,
+//!    47(3), 365–369, 1999.
 
 use super::Ofdm;
 use com_core::rng::Rng;
 use com_core::{Result, ensure, ensure_shape};
 use com_dsp::sync::frame::{delayed_correlation, windowed_energy};
-use com_math::{C64, diric, sinc};
+use com_math::{C64, cis, diric, sinc};
 use std::f64::consts::TAU;
 
 /// The preamble of Schmidl & Cox (with its cyclic prefix): QPSK on the even active
@@ -215,20 +218,31 @@ pub fn moose_std(es_n0: f64) -> f64 {
     1.0 / (TAU * es_n0.sqrt())
 }
 
+/// The weight $c_{d}$ with which, under a frequency offset `eps` (in subcarrier
+/// spacings), the symbol of the subcarrier $d$ positions away reaches a subcarrier
+/// after the DFT of $N$ = `n` points (Armstrong 1999, eq. (8); Moose 1994, eq. (8)):
+///
+/// $$
+/// c_{d} = \frac{\sin \pi(d + \varepsilon)}{N \sin(\pi(d + \varepsilon)/N)}\,
+/// e^{j\pi(N - 1)(d + \varepsilon)/N},
+/// $$
+///
+/// [`com_math::diric`] times its phase; $c_{0}$ is the attenuation and rotation of the
+/// wanted symbol, and the others the interference.
+pub fn cfo_coefficient(n: usize, d: isize, eps: f64) -> C64 {
+    let x = d as f64 + eps;
+    let nf = n as f64;
+    cis(std::f64::consts::PI * (nf - 1.0) * x / nf) * diric(TAU * x / nf, n)
+}
+
 /// The power of the interference that a frequency offset `eps` (in subcarrier
 /// spacings) brings onto the active subcarrier `i` from the other active subcarriers,
-/// relative to the power of one subcarrier: Moose's eq. (10), each term
-/// [`com_math::diric`]$(2\pi(l - k + \varepsilon)/N, N)^{2}$.
+/// relative to the power of one subcarrier: Moose's eq. (10), the sum of
+/// $|c_{l-k}|^{2}$ ([`cfo_coefficient`]) over the other active subcarriers $l$.
 pub fn ici_power(ofdm: &Ofdm, i: usize, eps: f64) -> f64 {
     let n = ofdm.fft_len();
     let k = ofdm.subcarrier(i);
-    (0..ofdm.n_active)
-        .filter(|&l| l != i)
-        .map(|l| {
-            let p = (ofdm.subcarrier(l) - k) as f64;
-            diric(TAU * (p + eps) / n as f64, n).powi(2)
-        })
-        .sum()
+    (0..ofdm.n_active).filter(|&l| l != i).map(|l| cfo_coefficient(n, ofdm.subcarrier(l) - k, eps).norm_sqr()).sum()
 }
 
 /// Moose's lower bound of the SNR of a subcarrier after the DFT under a frequency offset

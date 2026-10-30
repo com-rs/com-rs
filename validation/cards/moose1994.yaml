@@ -17,7 +17,7 @@ run:
 tier: campaign
 duration: "about 2 s on an Apple M6"
 findings:
-  - "Fig. 1: the simulated SNR after the DFT (8PSK, Ec/N0 = 29 dB) agrees with the experiment points up to an offset of 0.15 but lies 1.3, 1.6 and 2.5 dB below them at 0.25, 0.35 and 0.5; the simulation equals the exact sum of eq. (10), so the points of the paper sit above the interference the paper itself derives"
+  - "Fig. 1: the simulated SNR after the DFT (8PSK, Ec/N0 = 29 dB) agrees with the experiment points up to an offset of 0.15 but lies 1.3, 1.6 and 2.5 dB below them at 0.25, 0.35 and 0.5; the simulation equals the exact sum of eq. (10), and Pollet et al. 1995 (eq. (6), card pollet1995) show that the useful power and the interference sum to one, which caps the SNR at -1.67 dB at an offset of 0.5 on a full grid: the points of Fig. 1 near +1 dB are not possible"
   - "the text says the bound of eq. (15) is tight for small offsets and about 3 dB low at 0.5; the exact interference of eq. (10) gives the opposite at Ec/N0 = 29 dB: the bound is 2.3 dB low at an offset of 0.05 to 0.15 and 0.15 dB low at 0.5 (the constant 0.5947 is reached at 0.5 only; at small offsets the sum is 0.33 sin^2)"
   - "Sec. III-A cites eq. (25) for the variance; it is eq. (26)"
 cases:

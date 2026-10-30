@@ -1,0 +1,27 @@
+id: armstrong1999
+title: The weights of the intercarrier interference under a carrier frequency offset
+literature: armstrong1999
+source:
+  kind: paper
+  reference: "J. Armstrong, Analysis of new and existing methods of reducing intercarrier interference due to carrier frequency offset in OFDM, IEEE Trans. Commun. 47(3), 365-369, 1999"
+  locator: "eq. (8); Fig. 2 (N = 16, offset 0.2) and Fig. 3 (offset 0.1)"
+  file: multicarrier/1999_armstrong_ofdm-ici-carrier-frequency-offset_tcom.pdf
+description: >
+  The complex weights c_d of eq. (8) (comrs::waveform::ofdm::sync::cfo_coefficient)
+  against the points of Figs. 2 and 3.
+run:
+  test: validation/tests/armstrong1999.rs
+tier: ci
+tolerance: {atol: 0.015}
+why: "read on linear axes to about 0.005, the markers about 0.01 wide"
+cases:
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: 0, part: real}, expected: 0.78}
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: 0, part: imag}, expected: 0.516}
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: 1, part: real}, expected: 0.147}
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: 1, part: imag}, expected: 0.058}
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: -1, part: real}, expected: -0.16}
+  - {inputs: {fig: 2, n: 16, eps: 0.2, d: -1, part: imag}, expected: -0.16}
+  - {inputs: {fig: 3, n: 2, eps: 0.1, d: 0, part: imag}, expected: 0.153}
+  - {inputs: {fig: 3, n: 1024, eps: 0.1, d: 0, part: real}, expected: 0.937}
+  - {inputs: {fig: 3, n: 1024, eps: 0.1, d: 0, part: imag}, expected: 0.308}
+  - {inputs: {fig: 3, n: 1024, eps: 0.1, d: 0, part: power}, expected: 0.966}

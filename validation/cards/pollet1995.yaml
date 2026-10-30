@@ -1,0 +1,41 @@
+id: pollet1995
+title: Degradation of OFDM by a carrier frequency offset
+literature: pollet1995
+source:
+  kind: paper
+  reference: "T. Pollet, M. Van Bladel, M. Moeneclaey, BER sensitivity of OFDM systems to carrier frequency offset and Wiener phase noise, IEEE Trans. Commun. 43(2/3/4), 191-193, 1995"
+  locator: "eqs. (4), (6) and its appendix, (7)"
+  file: multicarrier/1995_pollet_ofdm-ber-cfo-phase-noise_tcom.pdf
+description: >
+  The useful power |c_0|^2 and the interference of the other bins (comrs::waveform::
+  ofdm::sync::cfo_coefficient and ici_power) on a full grid of N bins: their sum (eq.
+  (6) and the appendix) and the degradation of eq. (4), D = -10 log|c_0|^2 + 10 log(1 +
+  V0 Es/N0), against the small-offset approximation of eq. (7).
+run:
+  test: validation/tests/pollet1995.rs
+tier: ci
+findings:
+  - "eq. (6) settles the experiment of Fig. 1 of Moose (1994): the useful power and the interference sum to one, so at an offset of half a spacing |c_0|^2 = 0.405 caps the SNR after the DFT at -1.67 dB on a full grid (-1.52 dB with 193 of 256 subcarriers); Moose's points near +1 dB are not possible"
+  - "eq. (7) is the interference (pi eps)^2/3 at small offsets, which makes Moose's bound (0.5947 sin^2) 1.78 times too large there"
+cases:
+  - inputs: {part: power, n: 64, eps: 0.1}
+    expected: 1.0
+    tolerance: {atol: 1.0e-12}
+    why: "exact: the appendix of the paper, the power of the received bin and of the interference sum to one (Parseval on a full grid)"
+  - inputs: {part: power, n: 64, eps: 0.5}
+    expected: 1.0
+    tolerance: {atol: 1.0e-12}
+    why: "exact, as above"
+  - inputs: {part: power, n: 256, eps: 0.3}
+    expected: 1.0
+    tolerance: {atol: 1.0e-12}
+    why: "exact, as above"
+  - inputs: {part: degradation, n: 256, eps: 0.01, es_n0_db: 20}
+    expected: 0.1429
+    tolerance: {rtol: 0.02}
+    why: "eq. (7), (10/(3 ln 10)) (pi eps)^2 Es/N0, keeps of eq. (4) the term proportional to Es/N0 and the first order of the logarithm; the neglected terms are 1/(Es/N0) = 1 % and about 1.6 % here, of opposite signs"
+  - inputs: {part: degradation, n: 256, eps: 0.003, es_n0_db: 30}
+    expected: 0.1286
+    tolerance: {rtol: 0.02}
+    why: "eq. (7), as above; the neglected terms are 0.1 % and about 1.5 % here"
+    note: "at 10 dB the amplitude term that eq. (7) drops is 10 % of the degradation: the approximation needs a large Es/N0"
