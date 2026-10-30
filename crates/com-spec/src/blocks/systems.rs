@@ -27,7 +27,7 @@
 use super::{Block, BlockInfo, BuildContext, Coding, Frame, Params};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
-use com_systems::dvbs2::{Dvbs2, FrameSize, Modcod, bbframe, bbframe_data, decode_plheader};
+use com_systems::dvbs2::{Dvbs2, FrameSize, Modcod, PLHEADER_LEN, bbframe, bbframe_data, decode_plheader};
 use serde_json::Value as Json;
 
 /// The documentation of the blocks of this module.
@@ -108,7 +108,7 @@ impl Block for Dvbs2Tx {
         for chunk in data.chunks(k - 80) {
             samples.extend(l.link.modulate(&bbframe(chunk, k, 0)?)?);
         }
-        let bits_per_symbol = l.link.modcod().modulation.bits_per_symbol();
+        let bits_per_symbol = l.link.modcod().modulation().bits_per_symbol();
         *s = Frame {
             trial: s.trial,
             coding: Coding {
@@ -150,11 +150,11 @@ impl Block for Dvbs2Rx {
         ensure(s.samples.len() >= len * frames, || {
             format!("dvbs2_rx: {} samples for {frames} PLFRAMEs of {len} symbols", s.samples.len())
         })?;
-        let number = l.link.modcod().number()?;
+        let number = l.link.modcod().number();
         let (mut decoded, mut header_errors, mut crc_failures) = (Vec::new(), 0usize, 0usize);
         for f in 0..frames {
             let rx = &s.samples[f * len..(f + 1) * len];
-            if decode_plheader(&rx[..90])?.0 != number {
+            if decode_plheader(&rx[..PLHEADER_LEN])?.modcod != number {
                 header_errors += 1;
             }
             let bb = l.link.fec().decode(&l.link.llr(rx, var, l.max_log)?)?;
