@@ -72,12 +72,25 @@ fn detector(
     Ok(DetectorKind::from_name(method, k).py()?.with_iterations(iterations).py()?.detector(c))
 }
 
-/// Run `f` on every received vector with its channel; rows of the result.
+/// The rows of a per-vector result, stored flat (`width` values per vector).
+struct Rows<T> {
+    data: Vec<T>,
+    width: usize,
+}
+
+impl<T> Rows<T> {
+    fn map<U>(self, f: impl FnMut(T) -> U) -> Rows<U> {
+        Rows { data: self.data.into_iter().map(f).collect(), width: self.width }
+    }
+}
+
+/// Run `f` on every received vector with its channel, the rows of the result in one
+/// buffer (a vector is passed without a copy when its row is contiguous).
 fn per_vector<T: Send>(
     h: &Channels,
     y: &Array2<C64>,
     f: impl Fn(&ArrayView2<'_, C64>, &[C64]) -> comrs::Result<Vec<T>> + Sync,
-) -> comrs::Result<Vec<Vec<T>>> {
+) -> comrs::Result<Rows<T>> {
     if let Channels::Many(hs) = h {
         if hs.shape()[0] != y.nrows() {
             return Err(comrs::Error::Shape(format!(
@@ -87,15 +100,31 @@ fn per_vector<T: Send>(
             )));
         }
     }
-    (0..y.nrows()).map(|i| f(&h.get(i), &y.row(i).to_vec())).collect()
+    let mut out = Rows { data: Vec::new(), width: 0 };
+    for i in 0..y.nrows() {
+        let row = y.row(i);
+        let r = match row.as_slice() {
+            Some(v) => f(&h.get(i), v)?,
+            None => f(&h.get(i), &row.to_vec())?,
+        };
+        if i == 0 {
+            out.width = r.len();
+            out.data.reserve(r.len() * y.nrows());
+        } else {
+            comrs::core::same_len(r.len(), out.width, "values per vector")?;
+        }
+        out.data.extend(r);
+    }
+    Ok(out)
 }
 
-fn rows_to_array<T: numpy::Element + Clone>(py: Python<'_>, rows: Vec<Vec<T>>, single: bool) -> PyResult<Py<PyAny>> {
+fn rows_to_array<T: numpy::Element>(py: Python<'_>, rows: Rows<T>, single: bool) -> PyResult<Py<PyAny>> {
     if single {
-        let row = rows.into_iter().next().unwrap_or_default();
-        return Ok(row.into_pyarray(py).into_any().unbind());
+        return Ok(rows.data.into_pyarray(py).into_any().unbind());
     }
-    Ok(PyArray2::from_vec2(py, &rows).map_err(|e| PyValueError::new_err(e.to_string()))?.into_any().unbind())
+    let n = rows.data.len().checked_div(rows.width).unwrap_or(0);
+    let a = Array2::from_shape_vec((n, rows.width), rows.data).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(a.into_pyarray(py).into_any().unbind())
 }
 
 /// Flat MIMO channel matrices: Rayleigh or Rician fading, with exponential antenna
@@ -216,8 +245,7 @@ fn mimo_detect(
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
     let d = detector(method, &constellation.inner, k, iterations)?;
     let rows = py.detach(|| per_vector(&hs, &ys, |h, y| d.detect(h, y, noise_var))).py()?;
-    let rows: Vec<Vec<i64>> = rows.into_iter().map(|r| r.into_iter().map(|v| v as i64).collect()).collect();
-    rows_to_array(py, rows, single)
+    rows_to_array(py, rows.map(|v| v as i64), single)
 }
 
 /// Bit log-likelihood ratios of a MIMO link (positive for a 0, most significant bit
@@ -516,10 +544,14 @@ fn mimo_estimate(
         "mmse" => Linear::mmse(constellation.inner.clone()),
         other => return Err(PyValueError::new_err(format!("method must be zf or mmse, got {other:?}"))),
     };
-    let rows =
-        py.detach(|| per_vector(&hs, &ys, |h, y| lin.estimate(h, y, noise_var).map(|(z, v)| vec![(z, v)]))).py()?;
-    let (z, v): (Vec<Vec<C64>>, Vec<Vec<f64>>) = rows.into_iter().map(|mut r| r.remove(0)).unzip();
-    Ok((rows_to_array(py, z, single)?, rows_to_array(py, v, single)?))
+    let rows = py
+        .detach(|| {
+            per_vector(&hs, &ys, |h, y| lin.estimate(h, y, noise_var).map(|(z, v)| z.into_iter().zip(v).collect()))
+        })
+        .py()?;
+    let (z, v): (Vec<C64>, Vec<f64>) = rows.data.into_iter().unzip();
+    let width = rows.width;
+    Ok((rows_to_array(py, Rows { data: z, width }, single)?, rows_to_array(py, Rows { data: v, width }, single)?))
 }
 
 /// An orthogonal space-time block code (Alamouti, or the rate-3/4 codes for 3 and 4

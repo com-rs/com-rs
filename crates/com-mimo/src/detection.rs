@@ -169,15 +169,22 @@ struct Filter {
     var: Vec<f64>,
 }
 
+/// The regularisation $\lambda$ of the Gram matrix: 0 for zero forcing (which needs at
+/// least as many receive as transmit antennas), $\sigma^{2}/E_{s}$ for MMSE.
+fn regularisation(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64) -> Result<f64> {
+    match criterion {
+        Criterion::Zf => tall(h, "zero forcing").map(|()| 0.0),
+        Criterion::Mmse => Ok(noise_var / es),
+    }
+}
+
 fn filter(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64) -> Result<Filter> {
     let n = h.ncols();
-    let lambda = match criterion {
-        Criterion::Zf => {
-            tall(h, "zero forcing")?;
-            0.0
-        }
-        Criterion::Mmse => noise_var / es,
-    };
+    let lambda = regularisation(h, criterion, es, noise_var)?;
+    if n == 1 {
+        let s = SingleStream::new(h, criterion, es, noise_var, lambda)?;
+        return Ok(Filter { w: h.t().mapv(|v| v.conj() / s.g), bias: vec![s.bias], var: vec![s.var] });
+    }
     let hh = hermitian(h);
     let g = hh.dot(h) + identity(n).mapv(|x| x * lambda);
     let ginv = inverse_hpd(&g.view()).map_err(|_| Error::Numerical("the channel is rank deficient".into()))?;
@@ -198,6 +205,42 @@ fn filter(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64
         }
     }
     Ok(Filter { w, bias, var })
+}
+
+/// The filter of one stream (SISO, or SIMO combining) as scalars: $G = \|h\|^{2} +
+/// \lambda$, so that $w = h^{H}/G$ (maximal-ratio combining for zero forcing), the bias
+/// and the error variance $\sigma^{2}/G$. The same filter as the general case, whose
+/// $1 \times 1$ matrices and their allocations cost more than the arithmetic.
+struct SingleStream {
+    g: f64,
+    bias: f64,
+    var: f64,
+}
+
+impl SingleStream {
+    fn new(
+        h: &ArrayView2<'_, C64>,
+        criterion: Criterion,
+        es: f64,
+        noise_var: f64,
+        lambda: f64,
+    ) -> Result<SingleStream> {
+        let g = h.iter().map(C64::norm_sqr).sum::<f64>() + lambda;
+        if !(g > 0.0 && g.is_finite()) {
+            return Err(Error::Numerical("the channel is rank deficient".into()));
+        }
+        let ekk = noise_var / g;
+        let (bias, var) = match criterion {
+            Criterion::Zf => (1.0, ekk),
+            Criterion::Mmse => ((1.0 - ekk / es).max(1e-300), es * ekk / (es - ekk).max(1e-300)),
+        };
+        Ok(SingleStream { g, bias, var })
+    }
+
+    /// The unbiased estimate $w y / b$.
+    fn estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64]) -> C64 {
+        h.column(0).iter().zip(y).map(|(hi, yi)| hi.conj() / self.g * yi).sum::<C64>() / self.bias
+    }
 }
 
 /// A linear detector (ZF or MMSE) followed by symbol-by-symbol decisions.
@@ -226,9 +269,23 @@ impl Linear {
     /// As [`MimoDetector::detect`]; [`Error::Numerical`] for a rank-deficient channel.
     pub fn estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<C64>, Vec<f64>)> {
         check(h, y, noise_var)?;
+        let (z, var) = self.single(h, y, noise_var)?;
+        if let Some(z) = z {
+            return Ok((vec![z], vec![var]));
+        }
         let f = filter(h, self.criterion, self.constellation.energy(), noise_var)?;
         let z = matvec(&f.w.view(), y).iter().zip(&f.bias).map(|(z, b)| z / b).collect();
         Ok((z, f.var))
+    }
+
+    /// The estimate and its variance for one stream, `None` for several streams.
+    fn single(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Option<C64>, f64)> {
+        if h.ncols() != 1 {
+            return Ok((None, 0.0));
+        }
+        let es = self.constellation.energy();
+        let s = SingleStream::new(h, self.criterion, es, noise_var, regularisation(h, self.criterion, es, noise_var)?)?;
+        Ok((Some(s.estimate(h, y)), s.var))
     }
 }
 
@@ -739,6 +796,46 @@ mod tests {
 
     fn noisy(h: &CMat, x: &[C64], s2: f64, rng: &mut Rng) -> Vec<C64> {
         matvec(&h.view(), x).into_iter().map(|v| v + rng.complex_gaussian() * s2.sqrt()).collect()
+    }
+
+    #[test]
+    fn the_single_stream_filter_is_the_matrix_filter() {
+        let mut rng = Rng::new(7);
+        let es = 1.0;
+        for nr in [1, 3] {
+            let h = channel(nr, 1, &mut rng);
+            for (criterion, lambda) in [(Criterion::Zf, 0.0), (Criterion::Mmse, 0.3 / es)] {
+                let f = filter(&h.view(), criterion, es, 0.3).unwrap();
+                // the general case: (HᴴH + λI)⁻¹ Hᴴ
+                let hh = hermitian(&h.view());
+                let ginv = inverse_hpd(&(hh.dot(&h) + identity(1).mapv(|x| x * lambda)).view()).unwrap();
+                let w = ginv.dot(&hh);
+                assert!(f.w.iter().zip(w.iter()).all(|(a, b)| (a - b).norm() < 1e-14 * b.norm().max(1.0)));
+                assert!(
+                    (f.var[0]
+                        - match criterion {
+                            Criterion::Zf => 0.3 * ginv[[0, 0]].re,
+                            Criterion::Mmse => {
+                                let e = 0.3 * ginv[[0, 0]].re;
+                                es * e / (es - e)
+                            }
+                        })
+                    .abs()
+                        < 1e-14
+                );
+            }
+        }
+        // the scalar estimate is the product of the filter
+        let qpsk = Constellation::psk(4).unwrap().normalized();
+        let h = channel(3, 1, &mut rng);
+        let y: Vec<C64> = (0..3).map(|_| rng.complex_gaussian()).collect();
+        for d in [Linear::zf(qpsk.clone()), Linear::mmse(qpsk.clone())] {
+            let f = filter(&h.view(), d.criterion, qpsk.energy(), 0.3).unwrap();
+            let (z, var) = d.estimate(&h.view(), &y, 0.3).unwrap();
+            assert!((z[0] - matvec(&f.w.view(), &y)[0] / f.bias[0]).norm() < 1e-14 && var == f.var);
+        }
+        let zero = Array2::from_elem((2, 1), C64::new(0.0, 0.0));
+        assert!(filter(&zero.view(), Criterion::Zf, es, 0.3).is_err());
     }
 
     #[test]

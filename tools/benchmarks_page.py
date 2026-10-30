@@ -135,9 +135,14 @@ Limits of this comparison
 - **One machine, cases chosen by com-rs.** The scenarios are the classical links that
   several libraries offer; other machines, sizes and cases may rank the libraries
   differently. The scripts are published to be rerun.
-- **Where com-rs is slower.** Over flat Rayleigh fading on one thread, the comrs
-  functions are slower than Sionna: the detector is called for every symbol, a fixed
-  cost of a fraction of a microsecond per call that dominates single-antenna links.
+- **What this benchmark changed in com-rs.** Over flat Rayleigh fading the first run
+  found the comrs functions 3.4 times slower than Sionna on one thread (293 against
+  87 ns per bit for BPSK): the linear detector built a dozen 1 × 1 matrices for every
+  symbol. It now has a single-stream path (the same filter, as scalars), with the same
+  error counts at every point, and the binding passes the vectors without a copy.
+- **Why Sionna is fast on a CPU.** It processes the whole batch in one call per
+  operation: the cost of Python is paid once per operation, not once per symbol, and
+  the kernels of PyTorch are vectorised C++ working in float32.
 """
 
 
