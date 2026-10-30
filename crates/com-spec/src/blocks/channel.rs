@@ -172,7 +172,9 @@ struct PhaseNoise {
 
 impl PhaseNoise {
     fn new(p: &PhaseNoiseSpec) -> Result<PhaseNoise> {
-        ensure(p.linewidth_hz.is_some() != p.sigma_rad.is_some(), || "phase_noise: give linewidth_hz or sigma_rad".into())?;
+        ensure(p.linewidth_hz.is_some() != p.sigma_rad.is_some(), || {
+            "phase_noise: give linewidth_hz or sigma_rad".into()
+        })?;
         let origin = p.origin.parse().map_err(|e: Error| e.context("phase_noise"))?;
         Ok(PhaseNoise { linewidth_hz: p.linewidth_hz, sigma_rad: p.sigma_rad, origin })
     }
