@@ -105,7 +105,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `struct Tdl` — A tapped-delay-line channel with Clarke/Jakes Doppler (see the module).
 - `struct TdlParams` — The parameters of a [`Tdl`]: its taps, Doppler shift, sampling rate and antennas.
 - `fn TdlParams::check(&self) -> Result<()>` — Check the parameters.
-- `fn Tdl::new(params: TdlParams) -> Result<Tdl>` — The channel of the parameters `params`, its taps put on the sampling grid (taps
+- `fn Tdl::new(params: &TdlParams) -> Result<Tdl>` — The channel of the parameters `params`, its taps put on the sampling grid (taps
 - `fn Tdl::delays(&self) -> &[usize]` — Delays of the taps on the sampling grid (samples).
 - `fn Tdl::sample_rate(&self) -> f64` — Sampling rate of the delays and of the Doppler spectrum (Hz).
 - `fn Tdl::powers(&self) -> &[f64]` — Normalised powers of the taps.
@@ -149,7 +149,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `fn linear_fiber_channel(x: &[C64], fiber: &FiberParams, length_km: f64, fs: f64) -> Vec<C64>` — Loss and dispersion of `length_km` of fibre on a block sampled at `fs`
 - `enum Amplification` — The amplification after every span of a split-step simulation.
 - `fn Amplification::field_gain(&self, fiber: &FiberParams, length_km: f64) -> f64` — The field gain after a span: the EDFA restores the span `α L` of `fiber`, the
-- `fn Amplification::apply( &self, e: &mut Vec<C64>, fiber: &FiberParams, length_km: f64, fs: f64, rng: Option<&mut Rng>, ) -> Result<()>` — Amplify the field `e` (√W, sampled at `fs`) after a span: the EDFA of `fiber`
+- `fn Amplification::apply( &self, e: &mut [C64], fiber: &FiberParams, length_km: f64, fs: f64, rng: Option<&mut Rng>, ) -> Result<()>` — Amplify the field `e` (√W, sampled at `fs`) after a span: the EDFA of `fiber`
 - `enum Precision` — The arithmetic of the split steps of [`Ssfm::propagate_with`].
 - `struct Ssfm` — The symmetric split-step Fourier method of OptiCommPy (`ssfm`), one polarisation.
 - `fn Ssfm::new(fiber: FiberParams, step_km: f64) -> Ssfm` — A simulation of `fiber` with steps of `step_km` and EDFAs.
