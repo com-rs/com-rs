@@ -1,0 +1,29 @@
+id: fatadin2009_fig2
+title: Theoretical BER of 16-QAM against the OSNR at 14 GBd
+literature: fatadin2009
+source:
+  kind: paper
+  reference: "I. Fatadin, D. Ives, S. J. Savory, Blind equalization and carrier phase recovery in a 16-QAM optical coherent system, J. Lightw. Technol. 27(15), 3042-3049, 2009"
+  locator: "Fig. 2 (theory), read at OSNR = 10, 12, 14 to 20 dB (0.1 nm)"
+  file: fiber/2009_fatadin_blind-equalization-phase-recovery-16qam_jlt.pdf
+description: >
+  The theory curve of Fig. 2 (and of Fig. 8) is the BER of Gray 16-QAM over AWGN at
+  Es/N0 = OSNR B_ref / R_s, B_ref = 12.5 GHz (0.1 nm) and R_s = 14 GBd: the noise of
+  both polarisations counted in the detected one. The inputs are therefore
+  Eb/N0 = OSNR + 10 log10(12.5/14) - 10 log10(4) = OSNR - 6.5128 dB; the function is the
+  exact BER of Cho and Yoon (2002). This convention is the one of the simulations of
+  validation/tests/fatadin2009.rs.
+run:
+  function: comrs.theory_ber_gray
+tolerance: {factor: 1.15}
+why: "log10(BER) read on the figure to 0.05 decade (a factor 1.12)"
+cases:
+  - {inputs: {m: 16, ebn0_db: 3.4872, kind: qam}, expected: 6.8e-2, note: "OSNR 10 dB"}
+  - {inputs: {m: 16, ebn0_db: 5.4872, kind: qam}, expected: 3.4e-2, note: "OSNR 12 dB"}
+  - {inputs: {m: 16, ebn0_db: 7.4872, kind: qam}, expected: 1.26e-2, note: "OSNR 14 dB"}
+  - {inputs: {m: 16, ebn0_db: 8.4872, kind: qam}, expected: 7.1e-3, note: "OSNR 15 dB"}
+  - {inputs: {m: 16, ebn0_db: 9.4872, kind: qam}, expected: 2.95e-3, note: "OSNR 16 dB"}
+  - {inputs: {m: 16, ebn0_db: 10.4872, kind: qam}, expected: 1.0e-3, note: "OSNR 17 dB"}
+  - {inputs: {m: 16, ebn0_db: 11.4872, kind: qam}, expected: 3.2e-4, note: "OSNR 18 dB"}
+  - {inputs: {m: 16, ebn0_db: 12.4872, kind: qam}, expected: 6.3e-5, note: "OSNR 19 dB"}
+  - {inputs: {m: 16, ebn0_db: 13.4872, kind: qam}, expected: 8.9e-6, note: "OSNR 20 dB"}

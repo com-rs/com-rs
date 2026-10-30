@@ -1,0 +1,40 @@
+id: faruk2017_eq12
+title: Taps of the least-squares FIR compensating chromatic dispersion over the whole band
+literature: faruk2017
+source:
+  kind: paper
+  reference: "M. S. Faruk, S. J. Savory, Digital signal processing for coherent transceivers employing multilevel formats, J. Lightw. Technol. 35(5), 1125-1141, 2017"
+  locator: "eqs. (11)-(12), Sec. IV-A1"
+  file: fiber/2017_faruk_dsp-coherent-transceivers-multilevel-formats_jlt.pdf
+description: >
+  The least-squares FIR of N_c = floor(|rho|) taps compensating the dispersion of z km of
+  fibre of beta2 = -21 ps2/km sampled at 56 GSa/s, rho = 2 pi beta2 z / T_s^2 (-41.379 for
+  100 km, 41 taps; -413.785 for 1000 km, 413 taps), by
+  comrs::dsp::compensation::cd::cd_ls_taps over the whole band |f| <= fs/2 without
+  penalty: the modulus of the taps and their phase relative to the centre tap. The
+  expected values are eq. (12) evaluated with the complex erfi of SciPy; the phases of
+  com-rs are conjugated, its field being exp(-j(wt - bz)) where the paper's is
+  exp(j(wt - bz)).
+run:
+  test: validation/tests/faruk2017.rs::faruk_2017_eq_12
+tier: ci
+tolerance: {atol: 1.0e-9}
+why: "eq. (12) evaluated by SciPy and printed to 10 decimals; com-rs computes the same Fourier coefficients with Fresnel integrals (Eghbali et al. 2014, eq. 19)"
+findings:
+  - "eq. (12) is the least-squares filter of Eghbali et al. (JLT 32(8), 2014, eq. 19) over the whole band: com-rs computes it with Fresnel integrals where the paper writes the imaginary error function of a complex argument; the two agree to the printed digits"
+  - "with beta2 < 0, rho is negative: N_c = floor(rho) must be read floor(|rho|), and the factor 1/sqrt(rho) of eqs. (11)-(12) taken literally gives every tap the same extra phase of -pi/2 (pi/4 away from the Fourier coefficients of the compensation, after the conjugation of the conventions); a constant phase, removed by the carrier recovery"
+cases:
+  - {inputs: {quantity: modulus, length_km: 100.0, offset: 0}, expected: 0.1604174435}
+  - {inputs: {quantity: modulus, length_km: 100.0, offset: 1}, expected: 0.1507543360}
+  - {inputs: {quantity: modulus, length_km: 100.0, offset: 5}, expected: 0.1423310715}
+  - {inputs: {quantity: modulus, length_km: 100.0, offset: 20}, expected: 0.0881707776}
+  - {inputs: {quantity: phase, length_km: 100.0, offset: 1}, expected: -0.1121812850}
+  - {inputs: {quantity: phase, length_km: 100.0, offset: 5}, expected: 1.8710835282}
+  - {inputs: {quantity: phase, length_km: 100.0, offset: 20}, expected: -0.9737587187}
+  - {inputs: {quantity: modulus, length_km: 1000.0, offset: 0}, expected: 0.0482882988}
+  - {inputs: {quantity: modulus, length_km: 1000.0, offset: 1}, expected: 0.0500732904}
+  - {inputs: {quantity: modulus, length_km: 1000.0, offset: 5}, expected: 0.0502812032}
+  - {inputs: {quantity: modulus, length_km: 1000.0, offset: 206}, expected: 0.0259000259}
+  - {inputs: {quantity: phase, length_km: 1000.0, offset: 1}, expected: 0.0585691720}
+  - {inputs: {quantity: phase, length_km: 1000.0, offset: 5}, expected: 0.2370462855}
+  - {inputs: {quantity: phase, length_km: 1000.0, offset: 206}, expected: 1.8407942687}

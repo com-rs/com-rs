@@ -1,0 +1,56 @@
+id: fatadin2009_fig7_8
+title: Decision-directed carrier recovery of 16-QAM with laser phase noise
+literature: fatadin2009
+source:
+  kind: paper
+  reference: "I. Fatadin, D. Ives, S. J. Savory, Blind equalization and carrier phase recovery in a 16-QAM optical coherent system, J. Lightw. Technol. 27(15), 3042-3049, 2009"
+  locator: "eqs. (11)-(13), Fig. 7 (phase error, OSNR 18 dB) and Fig. 8 (BER, mu_phi = 0.1), Sec. IV"
+  file: fiber/2009_fatadin_blind-equalization-phase-recovery-16qam_jlt.pdf
+description: >
+  Gray 16-QAM of unit power at 14 GBd and one sample per symbol, rotated by a Wiener
+  phase of increments of variance 2 pi dnu Ts (eq. (13)), with noise at the OSNR of the
+  paper (Es/N0 = OSNR 12.5/14, the theory of its Fig. 2), recovered by the first-order
+  loop of eq. (11), phi(k+1) = phi(k) - mu_phi Im[z(k) e*(k)]: comrs::dsp::sync::carrier::ddpll
+  with tau1 = 1e9 Ts and tau2 = mu_phi tau1 (proportional gain mu_phi, integral gain 1e-9).
+  Fig. 7: the median over 20 records of 196 000 symbols (14 us, Fig. 9) of the standard
+  deviation of the phase error. Fig. 8: the BER of records of 10^6 symbols, the ambiguity
+  of pi/2 resolved on every block of 1000 symbols against the transmitted ones. There is
+  no equaliser, filter or ADC: the paper's chain of Sec. III adds them.
+run:
+  test: validation/tests/fatadin2009.rs::fatadin_2009_figs_7_8_carrier_recovery
+tier: campaign
+duration: "2.5 s on an Apple M6 (release)"
+tolerance: {factor: 1.5}
+why: >
+  the BER read on the logarithmic axis to 0.1 decade (a factor 1.26), the Monte Carlo
+  error (78 errors at the lowest point, 11 %), and the equaliser, filters and ADC of the
+  paper's chain, absent here: the measured BER is 0.76 to 1.22 times that of the figure
+findings:
+  - "Fig. 7: while the loop of mu_phi = 0.1 holds the lock, its phase error is that of the figure (0.037, 0.047, 0.056 and 0.070 rad at dnu Ts = 0.25, 0.5, 0.75 and 1e-4, against 0.05, 0.05, 0.06 and 0.07). But it slips: in 1 of 20 records of 196 000 symbols at 0.75e-4, 10 of 20 at 1e-4 and 20 of 20 at 1.5e-4 (median 0.88 rad there, where the figure shows 0.08 and the first slips at 1.75e-4). With mu_phi = 0.01 at 0.25e-4, 19 of 20 records slip (median 0.60 rad, 0.07 on the figure). The paper does not give the scale of its constellation, which scales the gain of the loop (Im[z e*] grows with |a|^2); larger gains (0.3, 1) slip more often here, so the gap is not explained by the scale"
+  - "Fig. 8: with dnu Ts = 1e-4 every record of 10^6 symbols slips; with the ambiguity resolved every 1000 symbols the BER is 6.9e-3, 4.2e-3, 2.2e-3, 1.2e-3 and 3.5e-4 at 16 to 20 dB against about 7.4e-3, 2.8e-3, 1.3e-3, 3.2e-4 and 5.5e-5 on the figure: the slips, which the paper does not report, dominate above 17 dB. The penalty at 1e-3 then depends on the slips of the record (1.6 and 2.1 dB in two runs), so the claim of Sec. IV, less than 2 dB, is not checked"
+  - "Fig. 8: with dnu Ts = 2e-4 the loop slips continually and the BER floors at about 1.2e-2 (1.6e-2 at 18 dB), where the figure floors at about 4e-4"
+cases:
+  - inputs: {figure: 7, mu: 0.1, dnu_ts: 2.5e-5}
+    expected: 0.05
+    tolerance: {atol: 0.02}
+    why: "the figure read to 0.01 rad; its curve starts at 0 at dnu Ts = 0, so it seems not to count the 0.02 rad that the additive noise alone gives here"
+  - inputs: {figure: 7, mu: 0.1, dnu_ts: 5.0e-5}
+    expected: 0.05
+    tolerance: {atol: 0.02}
+    why: "the figure read to 0.01 rad; the agreement obtained"
+  - inputs: {figure: 7, mu: 0.1, dnu_ts: 7.5e-5}
+    expected: 0.06
+    tolerance: {atol: 0.02}
+    why: "the figure read to 0.01 rad; the agreement obtained"
+  - inputs: {figure: 7, mu: 0.1, dnu_ts: 1.0e-4}
+    expected: 0.07
+    tolerance: {atol: 0.02}
+    why: "the figure read to 0.01 rad; the median of 20 records, half of which slip (see the findings)"
+  - inputs: {figure: 7, mu: 0.001, dnu_ts: 1.0e-4}
+    expected: {min: 1.0}
+    note: "the loop of mu_phi = 0.001 does not follow the phase: 2.1 rad on the figure"
+  - {inputs: {figure: 8, dnu_ts: 1.0e-5, osnr_db: 16.0}, expected: 4.5e-3}
+  - {inputs: {figure: 8, dnu_ts: 1.0e-5, osnr_db: 17.0}, expected: 1.6e-3}
+  - {inputs: {figure: 8, dnu_ts: 1.0e-5, osnr_db: 18.0}, expected: 5.0e-4}
+  - {inputs: {figure: 8, dnu_ts: 1.0e-5, osnr_db: 19.0}, expected: 1.1e-4}
+  - {inputs: {figure: 8, dnu_ts: 1.0e-5, osnr_db: 20.0}, expected: 1.6e-5}
