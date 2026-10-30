@@ -39,13 +39,15 @@
 //! 1. IEEE Std 1139-2022, *IEEE Standard Definitions of Physical Quantities for Fundamental
 //!    Frequency and Time Metrology—Random Instabilities*, Annex A and Table B.2.
 
-use com_core::{Result, ensure_shape};
+use com_core::{Result, ensure, ensure_shape};
 use std::f64::consts::TAU;
 
-/// Check the averaging factor `m` against `n` phase samples and the `span` (2 or 3) of
-/// the differences.
+/// Check the averaging factor `m` and the sampling period `ts` (a configuration), then
+/// the `n` phase samples against them and the `span` (2 or 3) of the differences (a
+/// length).
 fn check(n: usize, ts: f64, m: usize, span: usize) -> Result<()> {
-    ensure_shape(m >= 1 && ts > 0.0 && n > span * m, || {
+    ensure(m >= 1 && ts > 0.0, || format!("the averaging factor must be positive and the period too, got {m} and {ts} s"))?;
+    ensure_shape(n > span * m, || {
         format!("{n} phase samples for an averaging factor of {m} (at least {} needed)", span * m + 1)
     })
 }
@@ -54,8 +56,8 @@ fn check(n: usize, ts: f64, m: usize, span: usize) -> Result<()> {
 /// from the phase `phase_rad` sampled every `ts` seconds (see the module).
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for fewer than $2m + 1$ samples, a zero `m` or a
-/// non-positive `ts`.
+/// [`com_core::Error::Shape`] for fewer than $2m + 1$ samples, [`com_core::Error::Config`]
+/// for a zero `m` or a non-positive `ts`.
 pub fn allan_variance(phase_rad: &[f64], ts: f64, m: usize) -> Result<f64> {
     check(phase_rad.len(), ts, m, 2)?;
     let x = |k: usize| phase_rad[k] / TAU;
@@ -69,8 +71,8 @@ pub fn allan_variance(phase_rad: &[f64], ts: f64, m: usize) -> Result<f64> {
 /// module).
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for fewer than $3m$ samples, a zero `m` or a non-positive
-/// `ts`.
+/// [`com_core::Error::Shape`] for fewer than $3m$ samples, [`com_core::Error::Config`]
+/// for a zero `m` or a non-positive `ts`.
 pub fn modified_allan_variance(phase_rad: &[f64], ts: f64, m: usize) -> Result<f64> {
     check(phase_rad.len() + 1, ts, m, 3)?;
     let x = |k: usize| phase_rad[k] / TAU;
@@ -91,8 +93,8 @@ pub fn modified_allan_variance(phase_rad: &[f64], ts: f64, m: usize) -> Result<f
 /// module).
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for fewer than $3m + 1$ samples, a zero `m` or a
-/// non-positive `ts`.
+/// [`com_core::Error::Shape`] for fewer than $3m + 1$ samples, [`com_core::Error::Config`]
+/// for a zero `m` or a non-positive `ts`.
 pub fn hadamard_variance(phase_rad: &[f64], ts: f64, m: usize) -> Result<f64> {
     check(phase_rad.len(), ts, m, 3)?;
     let x = |k: usize| phase_rad[k] / TAU;
@@ -111,7 +113,9 @@ mod tests {
         let phi: Vec<f64> = (0..200).map(|k| 0.3 * k as f64 + 1.0).collect();
         for f in [allan_variance, modified_allan_variance, hadamard_variance] {
             assert!(f(&phi, 1e-3, 5).unwrap().abs() < 1e-12);
-            assert!(f(&phi, 1e-3, 100).is_err());
+            assert!(matches!(f(&phi, 1e-3, 100), Err(com_core::Error::Shape(_))));
+            assert!(matches!(f(&phi, 1e-3, 0), Err(com_core::Error::Config(_))));
+            assert!(matches!(f(&phi, 0.0, 5), Err(com_core::Error::Config(_))));
         }
         // a linear drift of the frequency: zero Hadamard variance, not Allan
         let drift: Vec<f64> = (0..200).map(|k| 1e-3 * (k * k) as f64).collect();
