@@ -25,10 +25,11 @@
 //!    channels with application to antipodal signaling in a fading environment," *AEÜ*,
 //!    47(4), 228–239, 1993.
 
+use crate::posterior::SymbolMetric;
 use crate::{preprocess, variance};
 use com_core::{Result, ensure, same_len};
 use com_mapping::constellation::{Constellation, log_priors};
-use com_math::{C64, entropy, golden_max, log_sum_exp};
+use com_math::{C64, entropy, golden_max};
 
 /// The priors of the points of `c` (uniform if `px` is `None`), checked and normalised
 /// to a sum of 1, and the constellation scaled to unit energy under them.
@@ -162,15 +163,8 @@ pub fn information_rates(
     let y: Vec<C64> = rx.iter().map(|v| v / a).collect();
     let h = entropy(&p);
     // MI = H(X) - mean[-log2 p(x|y)], p(x|y) = p(x) e^{-|y-x|²/σ²} / Σ_j p_j e^{-|y-x_j|²/σ²}
-    let mut terms = vec![0.0; m];
-    let mut acc = 0.0;
-    for ((yk, xk), &i) in y.iter().zip(&x).zip(indices) {
-        let d0 = (yk - xk).norm_sqr();
-        for (j, pt) in cn.points().iter().enumerate() {
-            terms[j] = lp[j] - lp[i] - ((yk - pt).norm_sqr() - d0) / sigma2;
-        }
-        acc += log_sum_exp(&terms);
-    }
+    let mut metric = SymbolMetric::new(cn.points(), &lp, sigma2);
+    let acc: f64 = y.iter().zip(indices).map(|(&yk, &i)| metric.log_sum(yk, 1.0, Some(i))).sum();
     let mi = h - acc / rx.len() as f64 / std::f64::consts::LN_2;
     let b = cn.bits_per_symbol();
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
@@ -294,16 +288,8 @@ pub fn posterior_rates(
         }
     };
     let air_at = |s: f64| -> f64 {
-        let mut terms = vec![0.0; m];
-        let mut row = vec![0.0; m];
-        let mut acc = 0.0;
-        for (&zk, &i) in z.iter().zip(indices) {
-            distances(zk, &mut row);
-            for j in 0..m {
-                terms[j] = lp[j] - lp[i] - s * (row[j] - row[i]);
-            }
-            acc += log_sum_exp(&terms);
-        }
+        let mut metric = SymbolMetric::new(cn.points(), &lp, noise_var);
+        let acc: f64 = z.iter().zip(indices).map(|(&zk, &i)| metric.log_sum(zk, s, Some(i))).sum();
         h - acc / n / std::f64::consts::LN_2
     };
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
@@ -359,18 +345,14 @@ pub fn monte_carlo_mi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f6
     let (cn, p) = shaped(c, px)?;
     let lp = log_priors(&p);
     let mut h_xgy = 0.0;
-    let mut metric = vec![0.0; cn.order()];
-    for (y, x) in r.iter().zip(&t) {
-        for (i, pt) in cn.points().iter().enumerate() {
-            metric[i] = -(y - pt).norm_sqr() / scale + lp[i];
-        }
-        let log_py = log_sum_exp(&metric);
+    let mut metric = SymbolMetric::new(cn.points(), &lp, scale);
+    for (&y, x) in r.iter().zip(&t) {
+        let log_py = metric.log_sum(y, 1.0, None);
         // the transmitted symbol is the constellation point nearest to the normalised
         // reference (OptiCommPy uses the normalised reference itself, which is slightly
         // off the grid after an empirical power normalisation and can push the estimate
         // above log2 M at high SNR)
-        let i = cn.nearest(*x);
-        let log_pxy = -(y - cn.points()[i]).norm_sqr() / scale + lp[i];
+        let log_pxy = metric.term(cn.nearest(*x));
         h_xgy -= (log_pxy - log_py) / std::f64::consts::LN_2;
     }
     Ok(entropy(&p) - h_xgy / r.len() as f64)

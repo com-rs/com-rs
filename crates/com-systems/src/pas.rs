@@ -32,11 +32,9 @@
 //! the amplitudes. Over the AWGN channel PAS approaches the capacity within about 1 dB
 //! with a code of rate $(m-1)/m$ only.
 //!
-//! The LLRs are those of [`com_mapping::demapper`] for the labels of PAS, but computed
-//! here in the order of the published results of com-rs (the sums of each bit over the
-//! signs then the amplitudes, the difference of two log-sum-exps): the demapper sums in
-//! label order and rounds the last bits of the LLRs differently, which would change the
-//! decoded frames of `specs/pas_64qam.yaml`.
+//! The LLRs are those of [`com_mapping::demapper`] for the PAM whose point of label
+//! $(s, g(a))$ is $(1 - 2s)(2a + 1)\Delta$, the priors $p_{A}(a)/2$ and the complex noise
+//! variance $2\sigma^{2}$.
 //!
 //! # Examples
 //! ```
@@ -65,8 +63,8 @@ use com_core::{Result, ensure, expect_len};
 use com_fec::block::BlockCode;
 use com_fec::ccdm::Ccdm;
 use com_fec::ldpc::LdpcCode;
-use com_mapping::constellation::{Constellation, log_priors};
-use com_math::{bits_to_index, gray, gray_inverse, index_to_bits, log_sum_exp_iter};
+use com_mapping::constellation::Constellation;
+use com_math::{C64, bits_to_index, gray, gray_inverse, index_to_bits};
 
 /// A PAS transceiver of one real dimension (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -77,6 +75,11 @@ pub struct Pas {
     /// $2^{m}$-PAM scaled by $\Delta$: the level $i$ (in increasing order) carries the
     /// label $g(i)$.
     pam: Constellation,
+    /// The same levels labelled as PAS: the point of label $s 2^{m-1} + g(a)$ is
+    /// $(1 - 2s)(2a + 1)\Delta$, the sign bit first, then the label of the amplitude.
+    labelled: Constellation,
+    /// The prior of every point of `labelled`, $p_{A}(a)/2$.
+    label_priors: Vec<f64>,
     /// The index, among the information bits of the code, of bit $j$ of the label of
     /// amplitude $i$ (entry $i(m-1) + j$).
     amplitude_info: Vec<usize>,
@@ -157,15 +160,35 @@ impl Pas {
         let sign_positions: Vec<usize> = (0..n).filter(|&p| !is_amp[p]).collect();
         let dm = Ccdm::from_distribution(amplitudes, n_c)?;
         let pam = Constellation::pam(1 << m)?.scaled(delta);
-        Ok(Pas { code, dm, m, pam, amplitude_info, amplitude_positions, extra_positions, sign_positions })
+        // the level (1 - 2s)(2a + 1)Δ is the point of the PAM of index 2^{m-1} + a
+        // (positive) or 2^{m-1} - 1 - a, and takes the label s 2^{m-1} + g(a)
+        let half = 1 << mb;
+        let mut points = vec![C64::new(0.0, 0.0); 1 << m];
+        let mut label_priors = vec![0.0; 1 << m];
+        for (a, p) in dm.distribution().iter().enumerate() {
+            for (s, i) in [(0, half + a), (1, half - 1 - a)] {
+                points[s * half + gray(a)] = pam.points()[gray(i)];
+                label_priors[s * half + gray(a)] = p / 2.0;
+            }
+        }
+        let labelled = Constellation::from_points(points)?;
+        Ok(Pas {
+            code,
+            dm,
+            m,
+            pam,
+            labelled,
+            label_priors,
+            amplitude_info,
+            amplitude_positions,
+            extra_positions,
+            sign_positions,
+        })
     }
 
-    /// The level $(1 - 2s)(2a + 1)\Delta$ of the sign bit `s` and the amplitude `a`: the
-    /// point of the PAM of index $2^{m-1} + a$ (positive) or $2^{m-1} - 1 - a$.
+    /// The level $(1 - 2s)(2a + 1)\Delta$ of the sign bit `s` and the amplitude `a`.
     fn level(&self, s: usize, a: usize) -> f64 {
-        let half = 1 << (self.m - 1);
-        let i = if s == 0 { half + a } else { half - 1 - a };
-        self.pam.points()[gray(i)].re
+        self.labelled.points()[(s << (self.m - 1)) | gray(a)].re
     }
 
     /// PAM symbols per codeword $n_{c}$.
@@ -238,27 +261,17 @@ impl Pas {
     pub fn llr(&self, y: &[f64], noise_var: &[f64]) -> Result<Vec<f64>> {
         expect_len(y.len(), self.n_symbols(), "symbols")?;
         expect_len(noise_var.len(), self.n_symbols(), "noise variances")?;
-        let na = 1 << (self.m - 1);
         let mb = self.m - 1;
-        let lp = log_priors(&self.dm.distribution());
+        let z: Vec<C64> = y.iter().map(|&v| C64::new(v, 0.0)).collect();
+        // the complex noise variance of the demapper, kept positive and finite as the
+        // demapper requires (a zero variance is the limit of a small one)
+        let var: Vec<f64> = noise_var.iter().map(|&v| (2.0 * v.max(1e-300)).min(f64::MAX)).collect();
+        let llr = self.labelled.llr_with_variances(&z, &var, Some(&self.label_priors), false)?;
         let mut out = vec![0.0; self.code.n()];
-        let mut metric = vec![0.0; 2 * na];
-        for (i, (&yi, &v)) in y.iter().zip(noise_var).enumerate() {
-            let v = v.max(1e-300);
-            // point (s, a): sign s (0: +), amplitude a
-            for s in 0..2 {
-                for a in 0..na {
-                    let x = self.level(s, a);
-                    metric[s * na + a] = lp[a] - (yi - x) * (yi - x) / (2.0 * v);
-                }
-            }
-            let lse = |keep: &dyn Fn(usize, usize) -> bool| -> f64 {
-                log_sum_exp_iter((0..2 * na).filter(|&j| keep(j / na, j % na)).map(|j| metric[j]))
-            };
-            out[self.sign_positions[i]] = lse(&|s, _| s == 0) - lse(&|s, _| s == 1);
-            for j in 0..mb {
-                let bit = |a: usize| (gray(a) >> (mb - 1 - j)) & 1;
-                out[self.amplitude_positions[i * mb + j]] = lse(&|_, a| bit(a) == 0) - lse(&|_, a| bit(a) == 1);
+        for (i, l) in llr.chunks_exact(self.m).enumerate() {
+            out[self.sign_positions[i]] = l[0];
+            for (j, &lj) in l[1..].iter().enumerate() {
+                out[self.amplitude_positions[i * mb + j]] = lj;
             }
         }
         Ok(out)
@@ -355,5 +368,35 @@ mod tests {
         // a mapper that is not a permutation of the levels is refused
         assert!(Pas::with_bit_mapper(code.clone(), 4, &pa, 1.0, &[4, 2, 2]).is_err());
         assert!(Pas::with_bit_mapper(code, 4, &pa, 1.0, &[1, 2, 3]).is_err());
+    }
+
+    #[test]
+    fn the_llrs_are_those_of_the_formula_of_the_module() {
+        // L(b) = ln Σ_{b = 0} p_A(a) e^{-(y - x)²/(2σ²)} - ln Σ_{b = 1} …, over the sign
+        // and the Gray label of the amplitude; a zero variance stays a small one
+        let code = LdpcCode::peg(384, 256, 3, 1).unwrap();
+        let pas = Pas::new(code, 3, &[0.4, 0.3, 0.2, 0.1], 0.5).unwrap();
+        // the priors are the composition of the matcher
+        let pa = pas.matcher().distribution();
+        let mut rng = Rng::new(2);
+        let y: Vec<f64> = (0..pas.n_symbols()).map(|_| 2.0 * rng.gaussian()).collect();
+        let var: Vec<f64> = (0..pas.n_symbols()).map(|i| [0.3, 0.05, 1.5][i % 3]).collect();
+        let llr = pas.llr(&y, &var).unwrap();
+        for (i, (&yi, &v)) in y.iter().zip(&var).enumerate() {
+            let lse = |keep: &dyn Fn(usize, usize) -> bool| {
+                let t = (0..8).filter(|&j| keep(j / 4, j % 4));
+                com_math::log_sum_exp_iter(
+                    t.map(|j| pa[j % 4].ln() - (yi - pas.level(j / 4, j % 4)).powi(2) / (2.0 * v)),
+                )
+            };
+            let close = |a: f64, b: f64| assert!((a - b).abs() < 1e-12 * b.abs().max(1.0), "{a} {b}");
+            close(llr[pas.sign_positions[i]], lse(&|s, _| s == 0) - lse(&|s, _| s == 1));
+            for j in 0..2 {
+                let bit = |a: usize| (gray(a) >> (1 - j)) & 1;
+                close(llr[pas.amplitude_positions[i * 2 + j]], lse(&|_, a| bit(a) == 0) - lse(&|_, a| bit(a) == 1));
+            }
+        }
+        let x = pas.encode(&vec![0; pas.info_bits()]).unwrap();
+        assert!(pas.llr(&x, &vec![0.0; x.len()]).unwrap().iter().all(|l| l.is_finite()));
     }
 }
