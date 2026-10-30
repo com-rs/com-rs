@@ -38,6 +38,7 @@
 
 use com_core::prelude::*;
 use com_dsp::compensation::dpd::memory_polynomial;
+use com_dsp::nonlinear::Envelope;
 use com_dsp::signal::map_envelope;
 use com_math::cis;
 
@@ -101,6 +102,13 @@ impl Rapp {
     }
 }
 
+impl Envelope for Rapp {
+    /// $A(r)$, no AM/PM.
+    fn response(&self, r: f64) -> C64 {
+        C64::new(self.am_am(r), 0.0)
+    }
+}
+
 impl Impair for Rapp {
     fn impair_into(&mut self, x: &Signal, _rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         x.map_streams(out, |_, s| self.amplify(s));
@@ -148,6 +156,13 @@ impl Saleh {
     /// Amplify a block.
     pub fn amplify(&self, x: &[C64]) -> Vec<C64> {
         memoryless(x, |r| self.am_am(r), |r| self.am_pm(r))
+    }
+}
+
+impl Envelope for Saleh {
+    /// $A(r) e^{j\Phi(r)}$.
+    fn response(&self, r: f64) -> C64 {
+        C64::from_polar(self.am_am(r), self.am_pm(r))
     }
 }
 
@@ -267,7 +282,7 @@ mod tests {
 #[cfg(test)]
 mod literature {
     use super::{Rapp, Saleh};
-    use com_dsp::nonlinear::bussgang;
+    use com_dsp::nonlinear::{bussgang, bussgang_of};
     use com_math::C64;
 
     /// H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi and R. Bouallegue,
@@ -303,6 +318,9 @@ mod literature {
                 let t = twta(phi0);
                 bussgang(|r| C64::from_polar(t.am_am(r), t.am_pm(r)), power)
             };
+            // the models as envelopes give the same decomposition
+            let of_model = if model == "SSPA" { bussgang_of(&sspa, power) } else { bussgang_of(&twta(phi0), power) };
+            assert_eq!(of_model, b);
             let (k, d) = (b.gain, b.distortion);
             assert!((k - k_table).norm() < 2e-3, "{model} {ibo} dB: K = {k}");
             assert!((d / d_table - 1.0).abs() < 0.015, "{model} {ibo} dB: σ_d² = {d}");

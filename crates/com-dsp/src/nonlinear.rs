@@ -2,7 +2,8 @@
 //! decomposition, the series of its output autocorrelation and the spectrum of its
 //! distortion (Banelli & Cacopardi 2000).
 //!
-//! - [`bussgang`]: the decomposition $y = K x + d$ of any envelope nonlinearity, and
+//! - [`bussgang`]: the decomposition $y = K x + d$ of any envelope nonlinearity (of a
+//!   closure, or of a model implementing [`Envelope`] with [`bussgang_of`]), and
 //!   [`clipping_bussgang`] its closed form for the envelope limiter;
 //! - [`output_series`] (and [`output_series_sampled`] on [`series_grid`]): the
 //!   coefficients of the output autocorrelation;
@@ -189,6 +190,36 @@ pub fn bussgang(f: impl Fn(f64) -> C64, power: f64) -> Bussgang {
     Bussgang { gain, output_power: power * out, distortion: power * (out - gain.norm_sqr()) }
 }
 
+/// A memoryless envelope nonlinearity: the complex response $f(r) = A(r) e^{j\Phi(r)}$ to
+/// the input envelope $r$ (its AM/AM and AM/PM conversions), $y = f(|x|) e^{j \arg x}$.
+///
+/// The amplifier models of `com-hardware` implement it, so that the analyses of this
+/// module ([`bussgang_of`]) take a model rather than a closure.
+pub trait Envelope {
+    /// The complex output $f(r)$ for the input envelope $r \ge 0$.
+    fn response(&self, r: f64) -> C64;
+}
+
+/// [`bussgang`] of the envelope nonlinearity `model` driven by a circular complex
+/// Gaussian input of power `power`.
+///
+/// # Examples
+/// ```
+/// use com_dsp::nonlinear::{Envelope, bussgang, bussgang_of};
+/// use com_math::C64;
+/// struct Limiter(f64);
+/// impl Envelope for Limiter {
+///     fn response(&self, r: f64) -> C64 {
+///         C64::new(r.min(self.0), 0.0)
+///     }
+/// }
+/// let (a, b) = (bussgang_of(&Limiter(1.0), 0.5), bussgang(|r| C64::new(r.min(1.0), 0.0), 0.5));
+/// assert_eq!(a, b);
+/// ```
+pub fn bussgang_of(model: &impl Envelope, power: f64) -> Bussgang {
+    bussgang(|r| model.response(r), power)
+}
+
 /// The projections $\int_{0}^{\infty} f(r)\, 2r^{2} e^{-r^{2}} L_{n}^{(1)}(r^{2})\, dr$,
 /// $n = 0, \dots, N - 1$, of the samples of $f$ on [`series_grid`], before the factor $h/3$
 /// of Simpson's rule.
@@ -251,5 +282,18 @@ mod tests {
         assert!((c[0] - 4.0).abs() < 1e-9 && c[1..].iter().all(|v| v.abs() < 1e-9), "{c:?}");
         let (u, d) = distortion_spectrum(&[1.0, 0.0], 8, 32);
         assert!((u.iter().sum::<f64>() - 1.0).abs() < 1e-12 && d.iter().all(|v| v.abs() < 1e-15));
+    }
+
+    #[test]
+    fn bussgang_of_a_model_is_bussgang_of_its_response() {
+        struct Cubic;
+        impl Envelope for Cubic {
+            fn response(&self, r: f64) -> C64 {
+                C64::from_polar(r - 0.1 * r * r * r, 0.2 * r * r)
+            }
+        }
+        let want = bussgang(|r| Cubic.response(r), 0.3);
+        assert_eq!(bussgang_of(&Cubic, 0.3), want);
+        assert!(want.gain.im > 0.0 && want.distortion > 0.0);
     }
 }
