@@ -30,6 +30,12 @@ use crate::error::{Error, Result, expect_len, same_len};
 use crate::units::Hertz;
 use ndarray::{Array2, ArrayView1, ArrayViewMut1};
 
+/// The magnitude of the LLR of a bit taken as known: $+30$ for a known 0 (a filler or
+/// shortened bit of a rate matching), $\pm 30$ for a decision whose counter-hypothesis
+/// left a tree search; $e^{-30} \approx 10^{-13}$, a probability no channel output
+/// reaches, and small enough for the check-node products of the decoders.
+pub const KNOWN_BIT_LLR: f64 = 30.0;
+
 /// The hard decisions of log-likelihood ratios: a negative LLR is a 1, any other a 0
 /// (see the module for the sign convention).
 ///
