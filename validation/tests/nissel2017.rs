@@ -18,8 +18,7 @@
 //!   500 km/h, as in the figure, but equal to CP-OFDM at 250 km/h (1.2e-2 against 8.5e-3
 //!   for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::max_doppler_hz;
-use comrs::channel::multipath::{Profile, Taps, Tdl};
+use comrs::channel::multipath::{Profile, Taps, Tdl, max_doppler_hz};
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
 use comrs::waveform::ofdm::Ofdm;

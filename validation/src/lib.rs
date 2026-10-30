@@ -22,7 +22,6 @@
 pub mod card;
 
 use comrs::fec::block::{bpsk, bpsk_llr};
-use comrs::math::SPEED_OF_LIGHT;
 
 /// Errors to collect at every simulated point.
 pub const MIN_ERRORS: u64 = 100;
@@ -43,15 +42,6 @@ pub fn bpsk_awgn_llr(c: &[u8], noise_var: f64, rng: &mut comrs::core::rng::Rng) 
     let s = noise_var.sqrt();
     let y: Vec<f64> = bpsk(c).iter().map(|x| x + s * rng.gaussian()).collect();
     bpsk_llr(&y, noise_var)
-}
-
-/// The maximum Doppler shift $f_{D} = v f_{c} / c$ (Hz) of a terminal moving at
-/// `speed_m_s` (m/s) on the carrier `carrier_hz` (Hz), $c$ the speed of light.
-///
-/// The papers give the speed in km/h ($v = $ `kmh / 3.6`) or in mph
-/// ($v = 0.447\,04 \times$ `mph`).
-pub fn max_doppler_hz(speed_m_s: f64, carrier_hz: f64) -> f64 {
-    speed_m_s * carrier_hz / SPEED_OF_LIGHT
 }
 
 /// The abscissa where the line through the points `a` and `b` in $(x, \ln y)$ reaches
@@ -86,7 +76,5 @@ mod tests {
         let points = [(-2.0, 1e-1), (0.0, 1e-2), (2.0, 1e-4)];
         assert!((crossing(&points, 1e-3).unwrap() - 1.0).abs() < 1e-12);
         assert!(crossing(&points, 1e-6).is_none());
-        // 60 km/h at 2.5 GHz: about 139 Hz
-        assert!((max_doppler_hz(60.0 / 3.6, 2.5e9) - 138.98).abs() < 0.01);
     }
 }

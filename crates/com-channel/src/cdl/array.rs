@@ -100,11 +100,3 @@ impl Array {
         (a * c, a * s)
     }
 }
-
-/// The spherical unit vector $\hat{r}(\theta, \phi)$ (7.5-23) of a zenith and an
-/// azimuth in degrees.
-pub(super) fn unit_vector(zenith: f64, azimuth: f64) -> [f64; 3] {
-    let (st, ct) = zenith.to_radians().sin_cos();
-    let (sp, cp) = azimuth.to_radians().sin_cos();
-    [st * cp, st * sp, ct]
-}

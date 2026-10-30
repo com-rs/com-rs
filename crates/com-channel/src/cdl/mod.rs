@@ -89,6 +89,7 @@
 //! ```
 //! use com_core::prelude::*;
 //! use com_channel::cdl::{Array, Cdl, Profile};
+//! use com_channel::fading::Fading;
 //! let ch = Cdl::new(Profile::C, 300e-9, 30.72e6, Array::linear(2, 0.5), Array::linear(4, 0.5))?;
 //! let x = Signal::zeros(2, 256, Hertz(30.72e6));
 //! let (y, taps) = ch.fade(&x, &mut batch_rng(1, 0))?;
@@ -110,11 +111,11 @@ mod tables;
 pub use array::{Array, Pattern};
 pub use tables::{Cluster, Profile, RAY_OFFSETS, RAYS_PER_CLUSTER, Spreads};
 
-use crate::multipath::Taps;
-use array::unit_vector;
+use crate::fading::Fading;
+use crate::multipath::{Taps, max_doppler_hz};
 use com_core::prelude::*;
 use com_core::{ensure, same_len};
-use com_math::geometry::{dot, norm};
+use com_math::geometry::{dot, from_spherical, norm};
 use com_math::{SPEED_OF_LIGHT, cis, db2lin};
 use std::f64::consts::PI;
 
@@ -251,9 +252,10 @@ impl Cdl {
         self.tx.n_elements()
     }
 
-    /// The maximum Doppler shift $|\bar{v}| / \lambda$ (Hz).
+    /// The maximum Doppler shift $|\bar{v}| / \lambda$ (Hz,
+    /// [`crate::multipath::max_doppler_hz`] of the speed).
     pub fn max_doppler(&self) -> f64 {
-        norm(self.velocity) * self.carrier_frequency / SPEED_OF_LIGHT
+        max_doppler_hz(norm(self.velocity), self.carrier_frequency)
     }
 
     /// Draw a realisation: the ray coupling and initial phases of every cluster, from
@@ -290,12 +292,7 @@ impl Cdl {
             let amp = (db2lin(c.power_db) * norm / RAYS_PER_CLUSTER as f64).sqrt();
             for m in 0..RAYS_PER_CLUSTER {
                 // step 4: initial phases Φ^θθ, Φ^θφ, Φ^φθ, Φ^φφ uniform on (-π, π)
-                let phases = [
-                    rng.uniform() * 2.0 * PI - PI,
-                    rng.uniform() * 2.0 * PI - PI,
-                    rng.uniform() * 2.0 * PI - PI,
-                    rng.uniform() * 2.0 * PI - PI,
-                ];
+                let phases = [rng.phase(), rng.phase(), rng.phase(), rng.phase()];
                 rays.push(self.ray(aod[m], aoa[m], zod[m], zoa[m], amp, phases, kappa_inv_sqrt, inv_lambda));
             }
             clusters.push(rays);
@@ -317,8 +314,9 @@ impl Cdl {
         kappa_inv_sqrt: f64,
         inv_lambda: f64,
     ) -> Ray {
-        let r_rx = unit_vector(zoa, aoa);
-        let r_tx = unit_vector(zod, aod);
+        // the spherical unit vectors (7.5-23, 7.5-24) of the angles in degrees
+        let r_rx = from_spherical(zoa.to_radians(), aoa.to_radians());
+        let r_tx = from_spherical(zod.to_radians(), aod.to_radians());
         let m = [cis(phases[0]), cis(phases[1]) * kappa_inv_sqrt, cis(phases[2]) * kappa_inv_sqrt, cis(phases[3])];
         // per transmit element: array phase, F_tx,θ, F_tx,φ
         let tx: Vec<(C64, f64, f64)> = (0..self.n_tx())
@@ -348,27 +346,30 @@ impl Cdl {
     pub fn draw(&self, n_samples: usize, rng: &mut SimRng) -> Result<Taps> {
         Ok(self.draw_rays(rng)?.taps(0, n_samples))
     }
+}
 
-    /// Apply the channel to `x` (`n_tx` streams), the samples before the signal being
-    /// zero: the `n_rx` received streams and the taps of the realisation.
-    ///
-    /// # Errors
-    /// [`Error::Shape`] if `x` does not have `n_tx` streams, [`Error::Config`] if it is
-    /// not sampled at [`Cdl::sample_rate`], and as [`Cdl::draw_rays`].
-    pub fn fade(&self, x: &Signal, rng: &mut SimRng) -> Result<(Signal, Taps)> {
-        same_len(x.n_streams(), self.n_tx(), "streams and transmit antennas")?;
-        crate::multipath::same_rate(x.sample_rate(), self.sample_rate, "the CDL channel")?;
-        let n = x.n_samples();
-        let taps = self.draw(n, rng)?;
-        let y = taps.apply(&x.to_streams())?;
-        Ok((Signal::from_streams(&y, x.sample_rate())?, taps))
+/// The taps of [`Cdl::draw`].
+impl Fading for Cdl {
+    fn n_rx(&self) -> usize {
+        self.rx.n_elements()
+    }
+
+    fn n_tx(&self) -> usize {
+        self.tx.n_elements()
+    }
+
+    fn sample_rate(&self) -> Option<f64> {
+        Some(self.sample_rate)
+    }
+
+    fn draw_taps(&self, n_samples: usize, rng: &mut SimRng) -> Result<Taps> {
+        self.draw(n_samples, rng)
     }
 }
 
 impl Propagate for Cdl {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        out.assign(&self.fade(x, rng)?.0);
-        Ok(())
+        self.fade_into(x, rng, out).map(drop)
     }
 }
 

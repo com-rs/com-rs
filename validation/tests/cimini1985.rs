@@ -23,7 +23,8 @@
 //! with the optimum correction (1.0 dB). The closed forms of the SDR (Figs. 3 and 4) are
 //! checked by `crates/com-waveform/src/ofdm/correction.rs::literature`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::{log_interp, max_doppler_hz};
+use com_validation::log_interp;
+use comrs::channel::multipath::max_doppler_hz;
 use comrs::channel::multipath::Tdl;
 use comrs::mapping::theory::ber_rayleigh_mrc;
 use comrs::math::bisect;

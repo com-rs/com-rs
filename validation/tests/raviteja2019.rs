@@ -15,8 +15,7 @@
 //!   frame, uncoded 4QAM over EVA at 120 km/h (4 GHz, 15 kHz, one path per tap with
 //!   Jakes' Doppler) has a BER falling much faster with the SNR than one-tap CP-OFDM.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::max_doppler_hz;
-use comrs::channel::multipath::{DelayDoppler, DelayDopplerModel, Path, Profile};
+use comrs::channel::multipath::{DelayDoppler, DelayDopplerModel, Path, Profile, max_doppler_hz};
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::prelude::*;
 use comrs::waveform::otfs::Otfs;

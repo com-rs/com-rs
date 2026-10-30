@@ -104,6 +104,7 @@ pub use com_core::{C64, Error, Result};
 /// The items used by most simulations.
 pub mod prelude {
     pub use com_channel::awgn;
+    pub use com_channel::fading::Fading;
     #[cfg(feature = "optical")]
     pub use com_channel::optical::fiber::{self, FiberParams};
     pub use com_core::prelude::*;
