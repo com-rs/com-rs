@@ -80,7 +80,7 @@ impl PyCeOfdm {
     /// int: Data subcarriers `K` per block.
     #[getter]
     fn n_data(&self) -> usize {
-        self.inner.n_data
+        self.inner.n_subcarriers
     }
 
     /// float: The modulation index `h`.
@@ -116,7 +116,7 @@ impl PyCeOfdm {
     /// float: Samples per data symbol, `(N + N_cp)/K`.
     #[getter]
     fn sps(&self) -> f64 {
-        self.inner.samples_per_symbol()
+        self.inner.sps()
     }
 
     /// The noise variance per sample for an `E_s/N_0` per data symbol and a unit
@@ -363,7 +363,7 @@ impl PyCeOfdm {
 
     fn __repr__(&self) -> String {
         let c = &self.inner;
-        format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_data, c.h, c.oversampling, c.n_cp)
+        format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_subcarriers, c.h, c.oversampling, c.n_cp)
     }
 }
 

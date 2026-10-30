@@ -288,7 +288,7 @@ takes the sample spacing $1/f_s$ (s), `angular_frequencies(n, fs)` the rate (Hz)
 | iteration cap with early stopping | `max_iterations` | |
 | subcarriers | `n_subcarriers` | `n_data` |
 | data resource elements | `n_data` | |
-| symbols per antenna of a frame | `n_symbols` | `n_data` |
+| data symbols per antenna of an OFDM frame | `n_data_symbols` | `n_data`, and `n_symbols`, which counts OFDM symbols |
 
 `iterations` and `max_iterations` are chosen by meaning: a decoder that stops when its
 syndrome is zero has a cap (`LdpcCode`, the NR LDPC code). CPM keeps `sps`, its shaping

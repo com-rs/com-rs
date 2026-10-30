@@ -174,18 +174,18 @@ pub fn gauss_legendre(n: usize) -> (Vec<f64>, Vec<f64>) {
 ///     assert!((m2 - 0.3).abs() < 1e-12);
 /// }
 /// ```
-pub fn gaussian_nodes(sigma2: f64, complex: bool, n: usize) -> Vec<(C64, f64)> {
+pub fn gaussian_nodes(noise_var: f64, complex: bool, n: usize) -> Vec<(C64, f64)> {
     let (t, a) = gauss_hermite(n.max(2));
     let pi = std::f64::consts::PI;
     if complex {
-        let s = sigma2.sqrt();
+        let s = noise_var.sqrt();
         t.iter()
             .zip(&a)
             .flat_map(|(tr, ar)| t.iter().zip(&a).map(move |(ti, ai)| (C64::new(s * tr, s * ti), ar * ai / pi)))
             .filter(|(_, w)| *w > NEGLIGIBLE_WEIGHT)
             .collect()
     } else {
-        let s = (2.0 * sigma2).sqrt();
+        let s = (2.0 * noise_var).sqrt();
         t.iter().zip(&a).map(|(t, a)| (C64::new(s * t, 0.0), a / pi.sqrt())).collect()
     }
 }

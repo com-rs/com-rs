@@ -60,7 +60,7 @@ pub struct OfdmFrame {
     /// Transmit antennas (ports).
     pub n_ports: usize,
     /// Data symbols per antenna before the padding of the last grid.
-    pub n_data: usize,
+    pub n_data_symbols: usize,
     /// Amplitude of the time samples, $\sqrt{K/(L N)}$.
     pub scale: f64,
 }
@@ -81,8 +81,8 @@ pub fn transmit(
 ) -> Result<(Vec<Vec<C64>>, OfdmFrame)> {
     let n_ports = streams.len();
     ensure(n_ports >= 1, || "at least one antenna".into())?;
-    let n_data = streams[0].len();
-    ensure_shape(streams.iter().all(|x| x.len() == n_data), || {
+    let n_data_symbols = streams[0].len();
+    ensure_shape(streams.iter().all(|x| x.len() == n_data_symbols), || {
         format!("the antennas carry different lengths: {:?}", streams.iter().map(Vec::len).collect::<Vec<_>>())
     })?;
     ofdm.check()?;
@@ -98,7 +98,7 @@ pub fn transmit(
     grid.check()?;
     let per_grid = grid.n_data();
     ensure(per_grid > 0, || "the grid has no data resource element".into())?;
-    let n_grids = n_data.div_ceil(per_grid).max(1);
+    let n_grids = n_data_symbols.div_ceil(per_grid).max(1);
     let scale = (ofdm.n_active as f64 / ofdm.fft_len() as f64).sqrt();
     // the padding of the last grid: random QPSK at the power of a layer
     let pad_amp = std::f64::consts::FRAC_1_SQRT_2 / (n_ports as f64).sqrt();
@@ -118,7 +118,7 @@ pub fn transmit(
         }
         out.push(time);
     }
-    let frame = OfdmFrame { ofdm: ofdm.clone(), grid: grid.clone(), n_grids, n_ports, n_data, scale };
+    let frame = OfdmFrame { ofdm: ofdm.clone(), grid: grid.clone(), n_grids, n_ports, n_data_symbols, scale };
     Ok((out, frame))
 }
 
@@ -207,7 +207,7 @@ impl OfdmFrame {
         for g in 0..self.n_grids {
             let rx = self.received_grid(streams, g)?;
             let h = channel(g, &rx)?;
-            let used = self.n_data.saturating_sub(g * data_res.len()).min(data_res.len());
+            let used = self.n_data_symbols.saturating_sub(g * data_res.len()).min(data_res.len());
             receiver
                 .detect_uses(
                     data_res[..used].iter().copied(),

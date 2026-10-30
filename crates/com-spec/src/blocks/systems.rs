@@ -126,7 +126,7 @@ impl Block for Dvbs2Rx {
         let per_symbol = &s.receiver.symbol_noise;
         let var = s
             .receiver
-            .sigma2
+            .noise_var
             .or(s.channel.noise_var)
             .or((!per_symbol.is_empty()).then(|| per_symbol.iter().sum::<f64>() / per_symbol.len() as f64))
             .ok_or_else(|| {

@@ -92,7 +92,7 @@ use com_math::{C64, erf, fft, qfunc};
 /// [`com_core::Error::Config`] for invalid parameters.
 pub fn snr(ce: &CeOfdm, esn0_db: f64) -> Result<f64> {
     ce.check()?;
-    let (k, n) = (ce.n_data, ce.n_fft());
+    let (k, n) = (ce.n_subcarriers, ce.n_fft());
     Ok((TAU * ce.h).powi(2) * n as f64 / (k as f64 * ce.noise_variance(esn0_db)))
 }
 
@@ -137,7 +137,7 @@ pub fn ber(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Resu
 /// [`com_core::Error::Config`] for invalid parameters.
 pub fn phase_autocorrelation(ce: &CeOfdm) -> Result<Vec<f64>> {
     ce.check()?;
-    let (k, n) = (ce.n_data, ce.n_fft());
+    let (k, n) = (ce.n_subcarriers, ce.n_fft());
     Ok((0..n).map(|m| (1..=k).map(|i| (TAU * (i * m % n) as f64 / n as f64).cos()).sum::<f64>() / k as f64).collect())
 }
 
@@ -300,7 +300,7 @@ pub fn ber_optimum(two_pi_h: f64, ebn0_db: f64) -> f64 {
 /// [`com_core::Error::Config`] for invalid parameters or `start ≥ N`.
 pub fn cycle_slip_response(ce: &CeOfdm, start: usize) -> Result<Vec<C64>> {
     ce.check()?;
-    let (k, n) = (ce.n_data, ce.n_fft());
+    let (k, n) = (ce.n_subcarriers, ce.n_fft());
     ensure(start < n, || format!("the slip must start within the block of {n} samples, got {start}"))?;
     let scale = (2.0 * k as f64).sqrt() / (n as f64 * ce.h);
     Ok((1..=k)
@@ -339,7 +339,7 @@ fn sin_sin(a: f64, b: f64, v: f64, rho: f64) -> f64 {
 /// [`com_core::Error::Config`] for invalid parameters.
 pub fn subcarrier_snr(ce: &CeOfdm, receiver: Receiver, esn0_db: f64) -> Result<Vec<f64>> {
     let flat = snr(ce, esn0_db)?;
-    let (k, n) = (ce.n_data, ce.n_fft());
+    let (k, n) = (ce.n_subcarriers, ce.n_fft());
     let v = (TAU * ce.h).powi(2);
     let alpha = receiver_gain(ce, receiver);
     let sigma2 = ce.noise_variance(esn0_db);

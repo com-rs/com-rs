@@ -200,7 +200,7 @@ impl Gamp {
             format!("the damping must lie in (0, 1], got {}", self.damping)
         })?;
         ensure(noise_var > 0.0, || format!("the noise variance must be positive, got {noise_var}"))?;
-        let (k, l) = (ce.n_data, ce.block_len());
+        let (k, l) = (ce.n_subcarriers, ce.block_len());
         ensure_shape(r.len() % l == 0, || format!("{} samples is not a multiple of N + N_cp = {l}", r.len()))?;
         let (re, im) = axis_levels(c)?;
         let mut out = Vec::with_capacity(r.len() / l * k);
@@ -211,7 +211,7 @@ impl Gamp {
     }
 
     fn block(&self, ce: &CeOfdm, r: &[C64], re: &Prior, im: &Prior, noise_var: f64) -> Vec<C64> {
-        let (k, n) = (ce.n_data, ce.n_fft());
+        let (k, n) = (ce.n_subcarriers, ce.n_fft());
         let kappa = TAU * ce.h;
         let a = 2.0 / (2.0 * k as f64).sqrt();
         let beta = self.damping;

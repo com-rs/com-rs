@@ -126,7 +126,7 @@ impl Fact {
             Fact::Constellation => s.constellation.is_some(),
             Fact::Samples => !s.samples.is_empty(),
             Fact::Noise => {
-                s.receiver.sigma2.is_some() || s.channel.noise_var.is_some() || !s.receiver.symbol_noise.is_empty()
+                s.receiver.noise_var.is_some() || s.channel.noise_var.is_some() || !s.receiver.symbol_noise.is_empty()
             }
             Fact::Csi => s.channel.csi.is_some(),
             Fact::Payload => !s.coding.payload.is_empty(),

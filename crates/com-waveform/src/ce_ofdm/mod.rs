@@ -169,7 +169,7 @@ impl std::str::FromStr for Receiver {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CeOfdm {
     /// Data subcarriers `K` per block.
-    pub n_data: usize,
+    pub n_subcarriers: usize,
     /// Oversampling factor `J`: the DFT has `N = 2J(K + 1)` points.
     pub oversampling: usize,
     /// Modulation index `h` (phase standard deviation `2πh`).
@@ -189,7 +189,7 @@ pub struct CeOfdm {
 impl CeOfdm {
     /// The DFT size `N = 2J(K + 1)`.
     pub fn n_fft(&self) -> usize {
-        2 * self.oversampling * (self.n_data + 1)
+        2 * self.oversampling * (self.n_subcarriers + 1)
     }
 
     /// Samples per block, `N + N_cp`.
@@ -198,14 +198,14 @@ impl CeOfdm {
     }
 
     /// Samples per data symbol, `(N + N_cp)/K`.
-    pub fn samples_per_symbol(&self) -> f64 {
-        self.block_len() as f64 / self.n_data as f64
+    pub fn sps(&self) -> f64 {
+        self.block_len() as f64 / self.n_subcarriers as f64
     }
 
     /// Noise variance per sample for an `E_s/N_0` (dB) per data symbol and a unit
     /// envelope: `σ² = (N + N_cp)/(K E_s/N_0)`.
     pub fn noise_variance(&self, esn0_db: f64) -> f64 {
-        self.samples_per_symbol() / db2lin(esn0_db)
+        self.sps() / db2lin(esn0_db)
     }
 
     /// `K` data subcarriers, oversampling `J`, modulation index `h`, no prefix, the default
@@ -221,8 +221,8 @@ impl CeOfdm {
     /// assert_eq!(ce.block_len(), 2 * 2 * 17 + 8);
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub fn new(n_data: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
-        let ce = CeOfdm { n_data, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
+    pub fn new(n_subcarriers: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
+        let ce = CeOfdm { n_subcarriers, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
         ce.check()?;
         Ok(ce)
     }
@@ -233,7 +233,7 @@ impl CeOfdm {
     /// [`com_core::Error::Config`] unless `K ≥ 1`, `J ≥ 1`, `h > 0`, the prefix is at
     /// most one block of `N` samples and the sample rate is positive and finite.
     pub fn check(&self) -> Result<()> {
-        ensure(self.n_data >= 1 && self.oversampling >= 1, || "CE-OFDM needs K ≥ 1 and J ≥ 1".into())?;
+        ensure(self.n_subcarriers >= 1 && self.oversampling >= 1, || "CE-OFDM needs K ≥ 1 and J ≥ 1".into())?;
         ensure(self.h > 0.0 && self.h.is_finite(), || {
             format!("the modulation index must be positive, got {}", self.h)
         })?;
@@ -250,7 +250,7 @@ impl CeOfdm {
     /// a number of symbols that is not a multiple of `K`.
     pub fn ofdm_signal(&self, d: &[C64]) -> Result<Vec<f64>> {
         self.check()?;
-        let (k, n) = (self.n_data, self.n_fft());
+        let (k, n) = (self.n_subcarriers, self.n_fft());
         ensure_shape(d.len() % k == 0, || format!("{} symbols is not a multiple of K = {k}", d.len()))?;
         let mut out = Vec::with_capacity(d.len() / k * n);
         for block in d.chunks(k) {
@@ -261,7 +261,7 @@ impl CeOfdm {
 
     /// The real OFDM signal `x = (F d + F* d*)/√(2K)` of one block of `K` symbols.
     fn synthesize(&self, d: &[C64]) -> Vec<f64> {
-        let (k, n) = (self.n_data, self.n_fft());
+        let (k, n) = (self.n_subcarriers, self.n_fft());
         let mut spec = vec![C64::new(0.0, 0.0); n];
         for (i, &v) in d.iter().enumerate() {
             spec[i + 1] = v;
@@ -276,7 +276,7 @@ impl CeOfdm {
     /// subcarriers.
     fn data_bins(&self, x: &[f64]) -> Vec<C64> {
         let spec = fft::fft(&x.iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
-        spec[1..=self.n_data].to_vec()
+        spec[1..=self.n_subcarriers].to_vec()
     }
 
     /// The transmitted samples `exp(j2πh x)`, with the cyclic prefix of every block.
@@ -353,7 +353,7 @@ impl CeOfdm {
 
     /// [`CeOfdm::project`] of a configuration and a length already checked.
     fn project_checked(&self, psi: &[f64], gain: f64) -> Result<Vec<C64>> {
-        let (k, n, l) = (self.n_data, self.n_fft(), self.block_len());
+        let (k, n, l) = (self.n_subcarriers, self.n_fft(), self.block_len());
         let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h * gain);
         let mut out = Vec::with_capacity(psi.len() / l * k);
         for block in psi.chunks(l) {

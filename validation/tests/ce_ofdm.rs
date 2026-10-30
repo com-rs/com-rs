@@ -47,7 +47,7 @@ type Detector<'a> = &'a dyn Fn(&CeOfdm, &[C64], f64) -> Vec<C64>;
 fn ber(ce: &CeOfdm, ebn0_db: f64, blocks: usize, seed: u64, detectors: &[Detector]) -> Vec<f64> {
     let c = Constellation::qam(4).unwrap().normalized();
     let mut rng = Rng::new(seed);
-    let (_, d) = comrs::mapping::source::symbols(&c, ce.n_data * blocks, None, &mut rng).unwrap();
+    let (_, d) = comrs::mapping::source::symbols(&c, ce.n_subcarriers * blocks, None, &mut rng).unwrap();
     let sigma2 = ce.noise_variance(ebn0_db + comrs::math::lin2db(2.0));
     let mut r = ce.modulate(&d).unwrap();
     add_noise(&mut r, sigma2, &mut rng);

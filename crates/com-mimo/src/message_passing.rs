@@ -266,14 +266,14 @@ impl Prior {
     /// The MSE function $\Psi(\sigma^{2}, \gamma^{2})$ and the variance function
     /// $\Phi(\sigma^{2}, \gamma^{2})$ of the denoiser applied with the variance
     /// $\gamma^{2}$ to $S + \sigma Z$ (see the module), by Gauss–Hermite quadrature.
-    pub fn mse(&self, sigma2: f64, gamma2: f64, domain: Domain) -> (f64, f64) {
+    pub fn mse(&self, noise_var: f64, gamma2: f64, domain: Domain) -> (f64, f64) {
         if domain == Domain::Complex {
             if let Some(pam) = self.separable() {
-                let (psi, phi) = pam.mse(0.5 * sigma2, 0.5 * gamma2, Domain::Real);
+                let (psi, phi) = pam.mse(0.5 * noise_var, 0.5 * gamma2, Domain::Real);
                 return (2.0 * psi, 2.0 * phi);
             }
         }
-        let sigma = sigma2.max(0.0).sqrt();
+        let sigma = noise_var.max(0.0).sqrt();
         let nodes = Quadrature::new(domain);
         match self {
             Prior::Discrete { points, probs } => {
@@ -295,7 +295,7 @@ impl Prior {
                 // R = S + σZ is a mixture of zero-mean Gaussians of variances σ² and
                 // 1/ρ + σ²; given R, E|F(R, γ²) - S|² = |F(R, γ²) - F(R, σ²)|² + G(R, σ²)
                 let (mut psi, mut phi) = (0.0, 0.0);
-                for (weight, var) in [(1.0 - rho, sigma2), (*rho, 1.0 / rho + sigma2)] {
+                for (weight, var) in [(1.0 - rho, noise_var), (*rho, 1.0 / rho + noise_var)] {
                     if weight <= 0.0 {
                         continue;
                     }
@@ -303,7 +303,7 @@ impl Prior {
                     nodes.for_each(|z, w| {
                         let r = z * sd;
                         let (f, g) = self.denoise(r, gamma2, domain);
-                        let (f0, g0) = self.denoise(r, sigma2, domain);
+                        let (f0, g0) = self.denoise(r, noise_var, domain);
                         psi += weight * w * ((f - f0).norm_sqr() + g0);
                         phi += weight * w * g;
                     });

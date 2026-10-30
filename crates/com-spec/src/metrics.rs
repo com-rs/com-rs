@@ -384,7 +384,7 @@ impl Metrics {
 
     /// The rates of the receiver's declared posterior, on the samples as they are.
     fn posterior(s: &Frame, name: &str, raw: &[C64], tx: &[usize]) -> Result<metrics::PosteriorRates> {
-        let s2 = s.receiver.sigma2.ok_or_else(|| {
+        let s2 = s.receiver.noise_var.ok_or_else(|| {
             Error::Config(format!(
                 "metric {name:?} needs a block that declares the receiver's posterior \
                  (a learned receiver, or noise_estimate after a classic receiver)"

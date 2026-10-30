@@ -45,7 +45,7 @@ block_params! {
 impl CeOfdmSpec {
     fn link(&self) -> CeOfdm {
         CeOfdm {
-            n_data: self.n_data,
+            n_subcarriers: self.n_data,
             oversampling: self.oversampling,
             h: self.h,
             n_cp: self.n_cp,
@@ -61,7 +61,7 @@ impl Block for CeOfdmTx {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         s.require_one_sps("ce_ofdm_tx")?;
         s.samples = self.0.modulate(&s.samples)?;
-        s.sps = self.0.samples_per_symbol();
+        s.sps = self.0.sps();
         Ok(())
     }
 }

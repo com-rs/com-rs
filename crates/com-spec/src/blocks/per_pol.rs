@@ -39,7 +39,7 @@ fn polarisation(s: &Frame, i: usize, n: usize, samples: Vec<C64>) -> Result<Fram
         sps: s.sps,
         symbol_rate: s.symbol_rate,
         excluded: part(&s.excluded, i, n, "exclusion flags")?,
-        receiver: ReceiverState { sigma2: s.receiver.sigma2, ..ReceiverState::default() },
+        receiver: ReceiverState { noise_var: s.receiver.noise_var, ..ReceiverState::default() },
         channel: ChannelState { noise_var: s.channel.noise_var, ..ChannelState::default() },
         trial: s.trial,
         ..Frame::default()
@@ -91,9 +91,9 @@ pub(super) fn per_pol(s: &mut Frame, rng: &mut Rng, f: &dyn Fn(&mut Frame, &mut 
     for u in &mut subs {
         s.values.append(&mut u.values);
     }
-    let sig: Vec<f64> = subs.iter().filter_map(|u| u.receiver.sigma2).collect();
+    let sig: Vec<f64> = subs.iter().filter_map(|u| u.receiver.noise_var).collect();
     if !sig.is_empty() {
-        s.receiver.sigma2 = Some(sig.iter().sum::<f64>() / sig.len() as f64);
+        s.receiver.noise_var = Some(sig.iter().sum::<f64>() / sig.len() as f64);
     }
     s.set_streams(subs.into_iter().map(|u| u.samples).collect());
     Ok(())
