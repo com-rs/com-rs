@@ -5,22 +5,30 @@
 //! Nothing here is specific to optics but the name of the parameter: the blocks take
 //! the group-velocity dispersion `β₂` (s²/km) and the length (km).
 //!
-//! - [`cdc`]: exact compensation on a periodic block, `X(ω) e^{-j β₂ ω² L/2}`;
-//! - [`cd_fir_taps`]: an FIR of `n` taps by frequency sampling of the same response
-//!   (inverse DFT of `e^{-jβ₂ω_k²L/2}` on `n` bins, centred), applied by
-//!   [`crate::filter::fir_filter_complex`]; [`cd_taps_needed`] gives the length rule
-//!   of OptiCommPy's `edc`, `2⌈6.67 |β₂| L R_s² (f_s/R_s)⌉`;
-//! - [`cd_savory_taps`]: the truncated impulse response of Savory (2008), of the length
-//!   [`cd_savory_length`];
-//! - [`cd_ls_taps`]: the optimal FIR in the least-squares sense of Eghbali et al.
-//!   (2014), over the whole band or over the band of the signal, and [`cd_ls_error`],
-//!   the energy of its error.
+//! A [`Dispersion`] holds the three parameters (`β₂`, the length, the sampling rate) and
+//! gives every compensation:
+//!
+//! - [`Dispersion::compensate`]: exact compensation on a periodic block,
+//!   `X(ω) e^{-j β₂ ω² L/2}`;
+//! - [`Dispersion::fir_taps`]: an FIR of `n` taps by frequency sampling of the same
+//!   response (inverse DFT of `e^{-jβ₂ω_k²L/2}` on `n` bins, centred), applied by
+//!   [`crate::filter::fir_filter_complex`]; [`Dispersion::edc_length`] gives the length
+//!   rule of OptiCommPy's `edc`, `2⌈6.67 |β₂| L R_s² (f_s/R_s)⌉`;
+//! - [`Dispersion::savory_taps`]: the truncated impulse response of Savory (2008), of the
+//!   length [`Dispersion::savory_length`];
+//! - [`Dispersion::ls_taps`]: the optimal FIR in the least-squares sense of Eghbali et
+//!   al. (2014), over the whole band or over the band of the signal, and
+//!   [`Dispersion::ls_error`], the energy of its error.
+//!
+//! The free functions [`cdc`], [`cd_fir_taps`], [`cd_taps_needed`], [`cd_savory_taps`],
+//! [`cd_savory_length`], [`cd_ls_taps`], [`cd_ls_error`] and [`cd_dispersion_factor`]
+//! call these methods; they are kept for one release.
 //!
 //! # FIR design
 //!
 //! In the digital frequency $\omega \in [-\pi, \pi]$ (radians per sample), the
 //! compensation is $H_{\mathrm{des}}(e^{j\omega}) = e^{jK\omega^{2}}$ with
-//! $K = -\beta_{2} L f_{s}^{2}/2$ ([`cd_dispersion_factor`]; $K = D\lambda^{2}z/(4\pi c
+//! $K = -\beta_{2} L f_{s}^{2}/2$ ([`Dispersion::factor`]; $K = D\lambda^{2}z/(4\pi c
 //! T^{2})$ in the notation of the papers, positive for standard fibre). Savory's filter
 //! samples the impulse response of the analog compensation,
 //!
@@ -59,7 +67,7 @@
 //! $10^{5}$ for 119 taps at $K = 19.9$, so the receive filter must reject that band
 //! (the paper assumes ideal pulse-shaping filters). Since $|H_{\mathrm{des}}| = 1$,
 //! $E = \mathbf{h}^{H}\mathbf{Q}\mathbf{h} - 2\,\mathrm{Re}(\mathbf{h}^{H}\mathbf{D}) +
-//! \Omega/\pi$ in closed form ([`cd_ls_error`]), accurate down to about $10^{-15}$
+//! \Omega/\pi$ in closed form ([`Dispersion::ls_error`]), accurate down to about $10^{-15}$
 //! ($-150$ dB). For $K < 0$ every filter is the conjugate of the one of $|K|$.
 //!
 //! # Examples
@@ -89,106 +97,209 @@ use com_math::{C64, cis, fresnel};
 use ndarray::Array2;
 use std::f64::consts::PI;
 
-/// Compensate the dispersion `beta2_s2_km` of `length_km` on a block sampled at `fs`.
-pub fn cdc(x: &[C64], beta2_s2_km: f64, length_km: f64, fs: f64) -> Vec<C64> {
-    fft::filter(x, inverse_dispersion(x.len(), beta2_s2_km, length_km, fs))
-}
-
-/// The inverse dispersion `e^{-jβ₂ω²L/2}` on the `n` angular frequencies of a block
-/// sampled at `fs`: the linear response of a lossless medium of dispersion `-β₂`.
-fn inverse_dispersion(n: usize, beta2_s2_km: f64, length_km: f64, fs: f64) -> Vec<C64> {
-    let inverse = Medium { alpha_np_km: 0.0, beta2_s2_km: -beta2_s2_km, gamma_w_km: 0.0 };
-    inverse.linear_response(&fft::angular_frequencies(n, fs), length_km)
-}
-
-/// Number of taps of the dispersion-compensating FIR (OptiCommPy `edc` rule).
-pub fn cd_taps_needed(beta2_s2_km: f64, length_km: f64, symbol_rate: f64, fs: f64) -> usize {
-    let b2 = beta2_s2_km.abs();
-    (2.0 * (6.67 * b2 * length_km * symbol_rate * symbol_rate * (fs / symbol_rate)).ceil()) as usize
-}
-
-/// `n` centred taps of the dispersion compensation of `length_km` by frequency sampling.
-pub fn cd_fir_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize) -> Vec<C64> {
-    let t = fft::ifft(&inverse_dispersion(n, beta2_s2_km, length_km, fs));
-    // centre: tap i of the FIR is the impulse response at time i - ⌊n/2⌋
-    fft::fftshift(&t)
-}
-
-/// The dispersion factor $K = -\beta_{2} L f_{s}^{2}/2$ of the digital compensation
-/// $e^{jK\omega^{2}}$ (see the module).
-pub fn cd_dispersion_factor(beta2_s2_km: f64, length_km: f64, fs: f64) -> f64 {
-    -beta2_s2_km * length_km * fs * fs / 2.0
-}
-
-/// The length $N = 2\lfloor 2\pi |K| \rfloor + 1$ of Savory's filter (see the module).
-pub fn cd_savory_length(beta2_s2_km: f64, length_km: f64, fs: f64) -> usize {
-    2 * (2.0 * PI * cd_dispersion_factor(beta2_s2_km, length_km, fs).abs()).floor() as usize + 1
-}
-
-/// The `n` centred taps of Savory's filter $\sqrt{j/(4K\pi)}\, e^{-jn^{2}/(4K)}$ (see the
-/// module; `n` is usually [`cd_savory_length`]).
+/// The dispersion of a length of fibre at a sampling rate: the parameters every
+/// compensation of the module shares, with its filters as methods (see the module).
 ///
-/// # Errors
-/// [`com_core::Error::Config`] for an even `n` or no dispersion.
-pub fn cd_savory_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize) -> Result<Vec<C64>> {
-    let k = cd_dispersion_factor(beta2_s2_km, length_km, fs);
-    ensure(n % 2 == 1, || format!("the filter needs an odd number of taps, got {n}"))?;
-    ensure(k != 0.0, || "the filter needs a non-zero dispersion".to_string())?;
-    let (ka, half) = (k.abs(), (n / 2) as f64);
-    let gain = (C64::new(0.0, 1.0) / (4.0 * ka * PI)).sqrt();
-    Ok((0..n).map(|i| i as f64 - half).map(|m| conj_if(gain * cis(-m * m / (4.0 * ka)), k < 0.0)).collect())
+/// # Examples
+/// ```
+/// use com_dsp::compensation::cd::Dispersion;
+/// // 1000 km of SSMF sampled at 21.4 GHz
+/// let d = Dispersion { beta2_s2_km: -2.17e-23, length_km: 1000.0, fs: 21.4e9 };
+/// assert!((d.factor() - 4.969).abs() < 1e-3);
+/// let n = d.savory_length();
+/// assert_eq!(n, 63);
+/// let (sav, ls) = (d.savory_taps(n)?, d.ls_taps(n, d.fs / 2.0, 0.0)?);
+/// assert!(d.ls_error(&ls, d.fs / 2.0)? < d.ls_error(&sav, d.fs / 2.0)?);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dispersion {
+    /// Group-velocity dispersion `β₂` (s²/km).
+    pub beta2_s2_km: f64,
+    /// Length (km).
+    pub length_km: f64,
+    /// Sampling rate (Hz).
+    pub fs: f64,
 }
 
-/// The `n` centred taps of the least-squares compensation over the band $|f| \le$
-/// `band_hz` (half the bandwidth; `fs / 2` for the whole band), with the penalty
-/// `epsilon` (Eghbali et al. 2014, see the module).
-///
-/// # Errors
-/// [`com_core::Error::Config`] for an even `n`, no dispersion, a band outside
-/// $(0, f_{s}/2]$ or a negative penalty; [`com_core::Error::Numerical`] when
-/// $\mathbf{Q} + \epsilon\mathbf{I}$ is not positive definite to the machine precision
-/// (raise `epsilon`).
-pub fn cd_ls_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize, band_hz: f64, epsilon: f64) -> Result<Vec<C64>> {
-    let k = cd_dispersion_factor(beta2_s2_km, length_km, fs);
-    ensure(n % 2 == 1, || format!("the filter needs an odd number of taps, got {n}"))?;
-    ensure(k != 0.0, || "the filter needs a non-zero dispersion".to_string())?;
-    ensure(band_hz > 0.0 && band_hz <= fs / 2.0, || format!("the band {band_hz} Hz must lie in (0, fs/2]"))?;
-    ensure(epsilon >= 0.0, || format!("the penalty must be non-negative, got {epsilon}"))?;
-    let omega = 2.0 * PI * band_hz / fs;
-    let d = ls_target(k.abs(), n, omega);
-    let h = if band_hz == fs / 2.0 && epsilon == 0.0 {
-        // Q = I (eq. 19)
-        d
-    } else {
-        let q = toeplitz_band(n, omega);
-        let a = Array2::from_shape_fn((n, n), |(i, j)| {
-            C64::new(q[i.abs_diff(j)] + if i == j { epsilon } else { 0.0 }, 0.0)
-        });
-        let b = Array2::from_shape_fn((n, 1), |(i, _)| d[i]);
-        solve_hpd(&a.view(), &b.view())?.column(0).to_vec()
-    };
-    Ok(h.into_iter().map(|v| conj_if(v, k < 0.0)).collect())
-}
-
-/// The energy of the error $E$ of the centred `taps` (odd in number) against the
-/// compensation of `length_km`, over the band $|f| \le$ `band_hz` (see the module).
-///
-/// # Errors
-/// [`com_core::Error::Config`] as [`cd_ls_taps`].
-pub fn cd_ls_error(taps: &[C64], beta2_s2_km: f64, length_km: f64, fs: f64, band_hz: f64) -> Result<f64> {
-    let (n, k) = (taps.len(), cd_dispersion_factor(beta2_s2_km, length_km, fs));
-    ensure(n % 2 == 1, || format!("the filter needs an odd number of taps, got {n}"))?;
-    ensure(k != 0.0, || "the filter needs a non-zero dispersion".to_string())?;
-    ensure(band_hz > 0.0 && band_hz <= fs / 2.0, || format!("the band {band_hz} Hz must lie in (0, fs/2]"))?;
-    let omega = 2.0 * PI * band_hz / fs;
-    let h: Vec<C64> = taps.iter().map(|v| conj_if(*v, k < 0.0)).collect();
-    let (q, d) = (toeplitz_band(n, omega), ls_target(k.abs(), n, omega));
-    let mut e = omega / PI;
-    for i in 0..n {
-        let qh: C64 = (0..n).map(|j| h[j] * q[i.abs_diff(j)]).sum();
-        e += (h[i].conj() * qh).re - 2.0 * (h[i].conj() * d[i]).re;
+impl Dispersion {
+    /// Compensate the dispersion of a periodic block exactly, `X(ω) e^{-jβ₂ω²L/2}`.
+    pub fn compensate(&self, x: &[C64]) -> Vec<C64> {
+        fft::filter(x, self.inverse_response(x.len()))
     }
-    Ok(e.max(0.0))
+
+    /// The inverse dispersion `e^{-jβ₂ω²L/2}` on the `n` angular frequencies of a block:
+    /// the linear response of a lossless medium of dispersion `-β₂`.
+    fn inverse_response(&self, n: usize) -> Vec<C64> {
+        let inverse = Medium { alpha_np_km: 0.0, beta2_s2_km: -self.beta2_s2_km, gamma_w_km: 0.0 };
+        inverse.linear_response(&fft::angular_frequencies(n, self.fs), self.length_km)
+    }
+
+    /// The number of taps of the compensating FIR by OptiCommPy's rule (`edc`),
+    /// $2\lceil 6.67 |\beta_{2}| L R_{s}^{2} (f_{s}/R_{s}) \rceil$ for the symbol rate
+    /// `symbol_rate` (Bd).
+    pub fn edc_length(&self, symbol_rate: f64) -> usize {
+        let b2 = self.beta2_s2_km.abs();
+        (2.0 * (6.67 * b2 * self.length_km * symbol_rate * symbol_rate * (self.fs / symbol_rate)).ceil()) as usize
+    }
+
+    /// `n` centred taps of the compensation by frequency sampling (the inverse DFT of
+    /// the response on `n` bins).
+    pub fn fir_taps(&self, n: usize) -> Vec<C64> {
+        let t = fft::ifft(&self.inverse_response(n));
+        // centre: tap i of the FIR is the impulse response at time i - ⌊n/2⌋
+        fft::fftshift(&t)
+    }
+
+    /// The dispersion factor $K = -\beta_{2} L f_{s}^{2}/2$ of the digital compensation
+    /// $e^{jK\omega^{2}}$ (see the module).
+    pub fn factor(&self) -> f64 {
+        -self.beta2_s2_km * self.length_km * self.fs * self.fs / 2.0
+    }
+
+    /// The length $N = 2\lfloor 2\pi |K| \rfloor + 1$ of Savory's filter (see the module).
+    pub fn savory_length(&self) -> usize {
+        2 * (2.0 * PI * self.factor().abs()).floor() as usize + 1
+    }
+
+    /// The factor $K$ of a filter of `n` taps, checked: an odd number of taps and a
+    /// non-zero dispersion.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an even `n` or no dispersion.
+    fn filter_factor(&self, n: usize) -> Result<f64> {
+        let k = self.factor();
+        ensure(n % 2 == 1, || format!("the filter needs an odd number of taps, got {n}"))?;
+        ensure(k != 0.0, || "the filter needs a non-zero dispersion".to_string())?;
+        Ok(k)
+    }
+
+    /// The digital half-bandwidth $\Omega = 2\pi B/f_{s}$ of the band $|f| \le B$ =
+    /// `band_hz`, checked.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a band outside $(0, f_{s}/2]$.
+    fn band(&self, band_hz: f64) -> Result<f64> {
+        let fs = self.fs;
+        ensure(band_hz > 0.0 && band_hz <= fs / 2.0, || format!("the band {band_hz} Hz must lie in (0, fs/2]"))?;
+        Ok(2.0 * PI * band_hz / fs)
+    }
+
+    /// The `n` centred taps of Savory's filter $\sqrt{j/(4K\pi)}\, e^{-jn^{2}/(4K)}$ (see
+    /// the module; `n` is usually [`Dispersion::savory_length`]).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an even `n` or no dispersion.
+    pub fn savory_taps(&self, n: usize) -> Result<Vec<C64>> {
+        let k = self.filter_factor(n)?;
+        let (ka, half) = (k.abs(), (n / 2) as f64);
+        let gain = (C64::new(0.0, 1.0) / (4.0 * ka * PI)).sqrt();
+        Ok((0..n).map(|i| i as f64 - half).map(|m| conj_if(gain * cis(-m * m / (4.0 * ka)), k < 0.0)).collect())
+    }
+
+    /// The `n` centred taps of the least-squares compensation over the band $|f| \le$
+    /// `band_hz` (half the bandwidth; `fs / 2` for the whole band), with the penalty
+    /// `epsilon` (Eghbali et al. 2014, see the module).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for an even `n`, no dispersion, a band outside
+    /// $(0, f_{s}/2]$ or a negative penalty; [`com_core::Error::Numerical`] when
+    /// $\mathbf{Q} + \epsilon\mathbf{I}$ is not positive definite to the machine precision
+    /// (raise `epsilon`).
+    pub fn ls_taps(&self, n: usize, band_hz: f64, epsilon: f64) -> Result<Vec<C64>> {
+        let k = self.filter_factor(n)?;
+        let omega = self.band(band_hz)?;
+        ensure(epsilon >= 0.0, || format!("the penalty must be non-negative, got {epsilon}"))?;
+        let d = ls_target(k.abs(), n, omega);
+        let h = if band_hz == self.fs / 2.0 && epsilon == 0.0 {
+            // Q = I (eq. 19)
+            d
+        } else {
+            let q = toeplitz_band(n, omega);
+            let a = Array2::from_shape_fn((n, n), |(i, j)| {
+                C64::new(q[i.abs_diff(j)] + if i == j { epsilon } else { 0.0 }, 0.0)
+            });
+            let b = Array2::from_shape_fn((n, 1), |(i, _)| d[i]);
+            solve_hpd(&a.view(), &b.view())?.column(0).to_vec()
+        };
+        Ok(h.into_iter().map(|v| conj_if(v, k < 0.0)).collect())
+    }
+
+    /// The energy of the error $E$ of the centred `taps` (odd in number) against the
+    /// compensation, over the band $|f| \le$ `band_hz` (see the module).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] as [`Dispersion::ls_taps`].
+    pub fn ls_error(&self, taps: &[C64], band_hz: f64) -> Result<f64> {
+        let n = taps.len();
+        let k = self.filter_factor(n)?;
+        let omega = self.band(band_hz)?;
+        let h: Vec<C64> = taps.iter().map(|v| conj_if(*v, k < 0.0)).collect();
+        let (q, d) = (toeplitz_band(n, omega), ls_target(k.abs(), n, omega));
+        let mut e = omega / PI;
+        for i in 0..n {
+            let qh: C64 = (0..n).map(|j| h[j] * q[i.abs_diff(j)]).sum();
+            e += (h[i].conj() * qh).re - 2.0 * (h[i].conj() * d[i]).re;
+        }
+        Ok(e.max(0.0))
+    }
+}
+
+/// [`Dispersion::compensate`] of the dispersion `beta2_s2_km` of `length_km` on a block
+/// sampled at `fs` (kept for one release: prefer [`Dispersion`]).
+pub fn cdc(x: &[C64], beta2_s2_km: f64, length_km: f64, fs: f64) -> Vec<C64> {
+    Dispersion { beta2_s2_km, length_km, fs }.compensate(x)
+}
+
+/// [`Dispersion::edc_length`]: the number of taps of the dispersion-compensating FIR
+/// (OptiCommPy `edc` rule; kept for one release).
+pub fn cd_taps_needed(beta2_s2_km: f64, length_km: f64, symbol_rate: f64, fs: f64) -> usize {
+    Dispersion { beta2_s2_km, length_km, fs }.edc_length(symbol_rate)
+}
+
+/// [`Dispersion::fir_taps`]: `n` centred taps of the compensation of `length_km` by
+/// frequency sampling (kept for one release).
+pub fn cd_fir_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize) -> Vec<C64> {
+    Dispersion { beta2_s2_km, length_km, fs }.fir_taps(n)
+}
+
+/// [`Dispersion::factor`]: the dispersion factor $K = -\beta_{2} L f_{s}^{2}/2$ (kept for
+/// one release).
+pub fn cd_dispersion_factor(beta2_s2_km: f64, length_km: f64, fs: f64) -> f64 {
+    Dispersion { beta2_s2_km, length_km, fs }.factor()
+}
+
+/// [`Dispersion::savory_length`]: the length $N = 2\lfloor 2\pi |K| \rfloor + 1$ of
+/// Savory's filter (kept for one release).
+pub fn cd_savory_length(beta2_s2_km: f64, length_km: f64, fs: f64) -> usize {
+    Dispersion { beta2_s2_km, length_km, fs }.savory_length()
+}
+
+/// [`Dispersion::savory_taps`]: the `n` centred taps of Savory's filter (kept for one
+/// release).
+///
+/// # Errors
+/// As [`Dispersion::savory_taps`].
+pub fn cd_savory_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize) -> Result<Vec<C64>> {
+    Dispersion { beta2_s2_km, length_km, fs }.savory_taps(n)
+}
+
+/// [`Dispersion::ls_taps`]: the `n` centred taps of the least-squares compensation over
+/// the band $|f| \le$ `band_hz` with the penalty `epsilon` (kept for one release).
+///
+/// # Errors
+/// As [`Dispersion::ls_taps`].
+pub fn cd_ls_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize, band_hz: f64, epsilon: f64) -> Result<Vec<C64>> {
+    Dispersion { beta2_s2_km, length_km, fs }.ls_taps(n, band_hz, epsilon)
+}
+
+/// [`Dispersion::ls_error`]: the energy of the error of the centred `taps` over the band
+/// $|f| \le$ `band_hz` (kept for one release).
+///
+/// # Errors
+/// As [`Dispersion::ls_error`].
+pub fn cd_ls_error(taps: &[C64], beta2_s2_km: f64, length_km: f64, fs: f64, band_hz: f64) -> Result<f64> {
+    Dispersion { beta2_s2_km, length_km, fs }.ls_error(taps, band_hz)
 }
 
 fn conj_if(v: C64, c: bool) -> C64 {
