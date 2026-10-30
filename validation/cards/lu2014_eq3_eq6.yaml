@@ -1,0 +1,47 @@
+id: lu2014_eq3_eq6
+title: Ergodic capacity of the i.i.d. Rayleigh channel against the bounds and limits of massive MIMO
+literature: lu2014
+source:
+  kind: paper
+  reference: "L. Lu, G. Y. Li, A. L. Swindlehurst, A. Ashikhmin, R. Zhang, An overview of massive MIMO: benefits and challenges, IEEE J. Sel. Topics Signal Process. 8(5), 742-758, 2014"
+  locator: "Sec. II-A: the capacity of eq. (2), its bounds (3) and its limits (5) (N_t >> N_r) and (6) (N_r >> N_t), at rho = 10 dB"
+  file: mimo/2014_lu_massive-mimo-overview_jstsp.pdf
+description: >
+  The ergodic capacity E log2 det(I + rho/N_t H H^H) of eq. (2) over i.i.d. Rayleigh
+  fading (comrs.ergodic_capacity, com_mimo::capacity::ergodic_rayleigh: Telatar's
+  integral) at rho = 10 dB, against the bounds of eq. (3), log2(1 + rho N_r) and
+  min(N_t, N_r) log2(1 + rho max(N_t, N_r)/N_t), and the limits N_r log2(1 + rho) of
+  eq. (5) and N_t log2(1 + rho N_r/N_t) of eq. (6).
+run:
+  function: comrs.ergodic_capacity
+note: "the bounds of eq. (3) hold for every channel with Tr(H H^H) = N_t N_r; for the i.i.d. channel, whose trace is random, the upper one holds on average by Jensen's inequality and the lower one is far below the capacity"
+tolerance: {rtol: 0.005}
+why: "the agreement obtained: eqs. (5) and (6) are limits, approached as 1/N (0.27 % at 256 antennas, 0.07 % at 1024 for eq. (5); 0.12 % and 0.025 % for eq. (6))"
+cases:
+  - inputs: {n_rx: 4, n_tx: 4, snr_db: 10.0}
+    expected: {min: 5.357552004618084, max: 13.83772647454919}
+    note: "eq. (3), N_t = N_r = 4: capacity 10.94"
+  - inputs: {n_rx: 4, n_tx: 16, snr_db: 10.0}
+    expected: {min: 5.357552004618084, max: 13.83772647454919}
+    note: "eq. (3), N_t = 16, N_r = 4"
+  - inputs: {n_rx: 16, n_tx: 4, snr_db: 10.0}
+    expected: {min: 7.330916878114617, max: 21.430208018472335}
+    note: "eq. (3), N_t = 4, N_r = 16"
+  - inputs: {n_rx: 4, n_tx: 256, snr_db: 10.0}
+    expected: 13.83772647454919
+    note: "eq. (5): N_r log2(1 + rho)"
+  - inputs: {n_rx: 4, n_tx: 1024, snr_db: 10.0}
+    expected: 13.83772647454919
+    tolerance: {rtol: 0.001}
+    why: "the agreement obtained with 1024 antennas (0.07 %)"
+    note: "eq. (5): N_r log2(1 + rho)"
+  - inputs: {n_rx: 256, n_tx: 4, snr_db: 10.0}
+    expected: 37.296722186474966
+    tolerance: {rtol: 0.002}
+    why: "the agreement obtained with 256 antennas (0.12 %)"
+    note: "eq. (6): N_t log2(1 + rho N_r/N_t)"
+  - inputs: {n_rx: 1024, n_tx: 4, snr_db: 10.0}
+    expected: 45.28996615038987
+    tolerance: {rtol: 0.0005}
+    why: "the agreement obtained with 1024 antennas (0.025 %)"
+    note: "eq. (6): N_t log2(1 + rho N_r/N_t)"

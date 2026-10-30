@@ -1,0 +1,57 @@
+id: lu2014_eq13
+title: Sum capacity and sum rates of ZF and MMSE detection against the limit of favourable propagation
+literature: lu2014
+source:
+  kind: paper
+  reference: "L. Lu, G. Y. Li, A. L. Swindlehurst, A. Ashikhmin, R. Zhang, An overview of massive MIMO: benefits and challenges, IEEE J. Sel. Topics Signal Process. 8(5), 742-758, 2014"
+  locator: "Sec. II-B, eqs. (11)-(13) (the uplink sum capacity tends to K log2(1 + N rho_u) for d_k = 1); Sec. III-B, the linear detectors approach it"
+  file: mimo/2014_lu_massive-mimo-overview_jstsp.pdf
+description: >
+  K = 4 single-antenna users, d_k = 1, rho_u = 1 (0 dB), N = 16, 64 and 256 base-station
+  antennas, i.i.d. Rayleigh fading (comrs.channel.fading.Mimo.rayleigh), 2000 draws: the
+  ergodic sum capacity log2 det(I + rho_u H^H H) (comrs.mimo.capacity.equal_power), and
+  the sum rates of ZF and MMSE detection (comrs.mimo.detection.Linear), sum_k log2(1 +
+  SINR_k) with SINR_k the inverse of the noise variance of the unbiased estimate. The
+  expected values are the limit of eq. (13), K log2(1 + N rho_u).
+run:
+  test: validation/tests/lu2014.rs::lu_2014_eq_13
+tier: ci
+tolerance: {rtol: 0.02}
+why: >
+  the agreement obtained, not a precision of the paper: eq. (13) is the limit N -> infinity,
+  approached from below as K/N grows small (gaps of 4 to 8 % at N = 16, 0.8 to 1.4 % at
+  64, 0.1 to 0.2 % at 256); the means of 2000 draws have a standard error below 0.1 %
+findings:
+  - "the paper gives no sum-rate figure: eq. (13) is an asymptote, and the cases check how fast com-rs approaches it (2000 draws, seed 2014): capacity 15.69, 23.90, 31.99; ZF 15.05, 23.76, 31.95; MMSE 15.14, 23.76, 31.95 bit/s/Hz against 16.35, 24.09, 32.02 at N = 16, 64, 256"
+  - "the matched filter (MRC) of eqs. (14) and (44) is not checked: com-rs has no multi-user maximum-ratio combiner or precoder, nor a function for the SINR of a linear receiver or precoder; the ZF and MMSE SINRs come from the noise variances of Linear::estimate"
+cases:
+  - inputs: {antennas: 16, receiver: capacity}
+    expected: 16.3499
+    tolerance: {rtol: 0.1}
+    why: "the agreement obtained at N = 16 (see the why of the card)"
+  - inputs: {antennas: 16, receiver: zf}
+    expected: 16.3499
+    tolerance: {rtol: 0.1}
+    why: "the agreement obtained at N = 16 (see the why of the card)"
+  - inputs: {antennas: 16, receiver: mmse}
+    expected: 16.3499
+    tolerance: {rtol: 0.1}
+    why: "the agreement obtained at N = 16 (see the why of the card)"
+  - inputs: {antennas: 64, receiver: capacity}
+    expected: 24.0895
+  - inputs: {antennas: 64, receiver: zf}
+    expected: 24.0895
+  - inputs: {antennas: 64, receiver: mmse}
+    expected: 24.0895
+  - inputs: {antennas: 256, receiver: capacity}
+    expected: 32.0225
+    tolerance: {rtol: 0.005}
+    why: "the agreement obtained at N = 256 (see the why of the card)"
+  - inputs: {antennas: 256, receiver: zf}
+    expected: 32.0225
+    tolerance: {rtol: 0.005}
+    why: "the agreement obtained at N = 256 (see the why of the card)"
+  - inputs: {antennas: 256, receiver: mmse}
+    expected: 32.0225
+    tolerance: {rtol: 0.005}
+    why: "the agreement obtained at N = 256 (see the why of the card)"

@@ -1,0 +1,41 @@
+id: larsson2014_fig6
+title: Singular value spread of the i.i.d. Rayleigh channel of 4 terminals
+literature: larsson2014
+source:
+  kind: paper
+  reference: "E. G. Larsson, O. Edfors, F. Tufvesson, T. L. Marzetta, Massive MIMO for next generation wireless systems, IEEE Commun. Mag. 52(2), 186-195, 2014"
+  locator: "Fig. 6, the dotted i.i.d. curves read at the CDF levels of the markers (0.25, 0.5, 0.75); the text: a median of about 18 dB with 4 antennas"
+  file: mimo/2014_larsson_massive-mimo-next-generation_commag.pdf
+description: >
+  The channel of 4 single-antenna terminals to 4, 32 or 128 base-station antennas,
+  i.i.d. CN(0, 1) entries (comrs.channel.fading.Mimo.rayleigh), 5000 draws per array; the
+  singular value spread 20 log10(sigma_max / sigma_min) (comrs.math.linalg.svd), its
+  quartiles.
+run:
+  test: validation/tests/larsson2014.rs::larsson_2014_fig_6
+tier: ci
+tolerance: {atol: 0.3}
+why: "the dotted i.i.d. curves read on the figure to about 0.2 dB (they are partly hidden by the markers of the measured curves); the quartiles of 5000 draws have a standard error below 0.05 dB"
+findings:
+  - "the spread is 20 log10 of the ratio of the extreme singular values (the ratio in amplitude): 10 log10 would halve every value"
+  - "with 128 antennas the dotted curve of the figure sits about 0.2 dB left of the simulation at the median (1.7 against 1.95 dB), within the reading precision"
+  - "the measured channels (linear and cylindrical arrays) and the sum rates of Fig. 7 under MRT are not reproduced: com-rs has no measured channel and no maximum-ratio precoder or multi-user SINR"
+cases:
+  - {inputs: {antennas: 128, cdf: 0.25}, expected: 1.6}
+  - {inputs: {antennas: 128, cdf: 0.5}, expected: 1.7}
+  - {inputs: {antennas: 128, cdf: 0.75}, expected: 2.1}
+  - {inputs: {antennas: 32, cdf: 0.25}, expected: 3.45}
+  - {inputs: {antennas: 32, cdf: 0.5}, expected: 3.85}
+  - {inputs: {antennas: 32, cdf: 0.75}, expected: 4.5}
+  - inputs: {antennas: 4, cdf: 0.25}
+    expected: 14.3
+    tolerance: {atol: 0.5}
+    why: "read to about 0.3 dB on the flatter curve of 4 antennas; the quartiles of 5000 draws have a standard error of about 0.1 dB"
+  - inputs: {antennas: 4, cdf: 0.5}
+    expected: 17.5
+    tolerance: {atol: 0.5}
+    why: "read to about 0.3 dB on the flatter curve of 4 antennas (the text: about 18 dB); the median of 5000 draws has a standard error of about 0.1 dB"
+  - inputs: {antennas: 4, cdf: 0.75}
+    expected: 21.4
+    tolerance: {atol: 0.5}
+    why: "read to about 0.3 dB on the flatter curve of 4 antennas; the quartiles of 5000 draws have a standard error of about 0.1 dB"

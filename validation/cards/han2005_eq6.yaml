@@ -1,0 +1,25 @@
+id: han2005_eq6
+title: CCDF of the PAPR of N independent Rayleigh samples
+literature: han2005
+source:
+  kind: closed_form
+  reference: "S. H. Han, J. H. Lee, An overview of peak-to-average power ratio reduction techniques for multicarrier transmission, IEEE Wireless Commun. 12(2), 56-65, 2005"
+  locator: "eq. (6): P(PAPR > z) = 1 - (1 - exp(-z))^N, at the thresholds of Fig. 1"
+  file: multicarrier/2005_han_papr-reduction-overview_wcm.pdf
+description: >
+  The CCDF of the PAPR at the Nyquist rate (comrs.theory_papr_ccdf with oversampled =
+  False, com_waveform::papr::ccdf_nyquist) against eq. (6) evaluated without
+  cancellation, -expm1(N log1p(-exp(-z))).
+run:
+  function: comrs.theory_papr_ccdf
+tolerance: {rtol: 1.0e-9}
+why: "a closed form in double precision: the library evaluates 1 - (1 - e^-z)^N directly, whose cancellation costs up to 1e-10 relative near 1e-4"
+cases:
+  - inputs: {n: 256, papr_db: 8.0, oversampled: false}
+    expected: 0.37251720329938903
+  - inputs: {n: 256, papr_db: 10.0, oversampled: false}
+    expected: 0.01155536382385686
+  - inputs: {n: 256, papr_db: 11.3, oversampled: false}
+    expected: 3.545617649885087e-04
+  - inputs: {n: 1024, papr_db: 11.7, oversampled: false}
+    expected: 3.85949165326673e-04

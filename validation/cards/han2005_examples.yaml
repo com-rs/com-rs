@@ -1,0 +1,68 @@
+id: han2005_examples
+title: PAPR of the BPSK blocks of Table 1 and of the PTS and SLM examples
+literature: han2005
+source:
+  kind: paper
+  reference: "S. H. Han, J. H. Lee, An overview of peak-to-average power ratio reduction techniques for multicarrier transmission, IEEE Wireless Commun. 12(2), 56-65, 2005"
+  locator: "Table 1; the PTS example of Sec. 'The partial transmit sequence technique' and Fig. 3; the SLM example of Sec. 'The selected mapping technique'"
+  file: multicarrier/2005_han_papr-reduction-overview_wcm.pdf
+description: >
+  The PAPR of eq. (4), max |x_k|^2 / E|x_k|^2 on the signal oversampled L = 4 times
+  (comrs.waveform.ofdm.Ofdm, comrs.math.papr_db): the sixteen BPSK blocks of four
+  subcarriers of Table 1; the PTS example (eight subcarriers, four adjacent subblocks,
+  factors +-1, b1 = 1: comrs.waveform.papr.Pts, exhaustive search over the 8
+  combinations); the SLM example (eight subcarriers, the four phase sequences B(1) to
+  B(4) of the text applied to X = [1, -1, 1, 1, 1, -1, 1, -1]).
+run:
+  test: validation/tests/han2005.rs::han_lee_2005_examples
+tier: ci
+tolerance: {atol: 0.05}
+why: "the PAPR is printed to 0.1 dB"
+findings:
+  - "the PAPR of Table 1 is that of the signal oversampled four times (2.32, 3.73 and 6.02 dB): the continuous signal gives 2.48 and 3.75 dB for the first two"
+  - "SLM example: X(3) ties with X(2) at 3.01 dB (X(4): 3.73 dB); the text names X(2) as the lowest, the first of the two"
+  - "Table 1, right column: the first four blocks are printed [1,1,1,1], [1,1,1,1], [1,1,1,1] and [1,1,-1,-1]; they are [-1,1,1,1], [-1,1,1,-1], [-1,1,-1,1] and [-1,1,-1,-1] (the minus sign of the first symbol is lost), whose PAPR is the one printed"
+  - "eq. (7): the second branch of the clipping is |x| > A, printed |x| <= A"
+cases:
+  - {inputs: {table: 1, block: "1,1,1,1"}, expected: 6.0}
+  - {inputs: {table: 1, block: "1,1,1,-1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "1,1,-1,1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "1,1,-1,-1"}, expected: 3.7}
+  - {inputs: {table: 1, block: "1,-1,1,1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "1,-1,1,-1"}, expected: 6.0}
+  - {inputs: {table: 1, block: "1,-1,-1,1"}, expected: 3.7}
+  - {inputs: {table: 1, block: "1,-1,-1,-1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "-1,1,1,1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "-1,1,1,-1"}, expected: 3.7}
+  - {inputs: {table: 1, block: "-1,1,-1,1"}, expected: 6.0}
+  - {inputs: {table: 1, block: "-1,1,-1,-1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "-1,-1,1,1"}, expected: 3.7}
+  - {inputs: {table: 1, block: "-1,-1,1,-1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "-1,-1,-1,1"}, expected: 2.3}
+  - {inputs: {table: 1, block: "-1,-1,-1,-1"}, expected: 6.0}
+  - inputs: {example: pts, metric: papr_original_db}
+    expected: 6.5
+    note: "X = [1, -1, 1, -1, 1, -1, -1, -1] (Fig. 3)"
+  - inputs: {example: pts, metric: papr_reduced_db}
+    expected: 2.2
+    note: "the best combination, a 4.3 dB reduction"
+  - inputs: {example: pts, metric: factors_match}
+    expected: 1.0
+    tolerance: {exact: true}
+    why: "the exhaustive search must select b = [1, -1, -1, -1], as in the text"
+  - inputs: {example: pts, metric: block_matches}
+    expected: 1.0
+    tolerance: {exact: true}
+    why: "the modified block must be X' = [1, -1, -1, 1, -1, 1, 1, 1], as in the text"
+  - inputs: {example: slm, candidate: 1}
+    expected: 6.5
+    note: "X(1) = X: the PAPR before SLM"
+  - inputs: {example: slm, candidate: 2}
+    expected: 3.0
+    note: "X(2), the candidate selected"
+  - inputs: {example: slm, candidate: 3}
+    expected: {min: 2.95}
+    note: "the text: X(2) has the lowest PAPR (3.0 dB), so X(3) is not below it"
+  - inputs: {example: slm, candidate: 4}
+    expected: {min: 2.95}
+    note: "the text: X(2) has the lowest PAPR (3.0 dB), so X(4) is not below it"
