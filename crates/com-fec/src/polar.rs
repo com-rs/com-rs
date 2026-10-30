@@ -33,7 +33,7 @@
 //! use com_fec::block::{BlockCode, bpsk_llr};
 //! use com_fec::crc::Crc;
 //! use com_fec::polar::PolarCode;
-//! let code = PolarCode::new(128, 64, 2.0)?.with_crc(Crc::crc6())?.with_list(8);
+//! let code = PolarCode::new(128, 64, 2.0)?.with_crc(Crc::crc6())?.with_list(8)?;
 //! let info: Vec<u8> = (0..64).map(|i| (i % 3 == 0) as u8).collect();
 //! let c = code.encode_block(&info)?;
 //! let y: Vec<f64> = c.iter().map(|b| 1.0 - 2.0 * f64::from(*b)).collect();
@@ -88,16 +88,22 @@ fn phi_inv(y: f64) -> f64 {
     com_math::bisect(|x| phi(x) > y, lo, hi, 100)
 }
 
-/// The mean LLR of the synthetic channel `i` of a transform of size `n` whose
-/// channels have the mean LLR `mu`.
-fn reliability(i: usize, n: usize, mu: f64) -> f64 {
-    if n == 1 {
-        return mu;
+/// The mean LLR of every synthetic channel of a transform of size `n` (a power of two)
+/// whose channels have the mean LLR `mu`.
+///
+/// The outer stage of the transform acts first on the channel LLRs: the most
+/// significant bit of a channel index chooses its branch (the check node
+/// $\phi^{-1}(1 - (1 - \phi(\mu))^{2})$ for 0, the variable node $2\mu$ for 1), the
+/// lower bits the next stages. After $s$ stages the $2^{s}$ values of the prefixes are
+/// distinct, so each is computed once: $n - 1$ inversions of $\phi$ in all, instead of
+/// one per channel and stage.
+fn reliabilities(n: usize, mu: f64) -> Vec<f64> {
+    let mut v = vec![mu];
+    while v.len() < n {
+        // prefix p (the high bits of the index) becomes 2p (bit 0) and 2p + 1 (bit 1)
+        v = v.iter().flat_map(|&m| [phi_inv(1.0 - (1.0 - phi(m)).powi(2)), 2.0 * m]).collect();
     }
-    // the outer stage of the transform acts first on the channel LLRs: the most
-    // significant bit of `i` chooses its branch, the lower bits the next stages
-    let m = if i < n / 2 { phi_inv(1.0 - (1.0 - phi(mu)).powi(2)) } else { 2.0 * mu };
-    reliability(i % (n / 2), n / 2, m)
+    v
 }
 
 /// The transform $x = u F^{\otimes m}$ in place.
@@ -318,6 +324,19 @@ impl ListDecoder {
     /// The decisions $u$ and the metrics of the surviving paths, the most likely first.
     fn decode(&mut self, llr: &[f64], info: &[bool], pc: &[bool]) -> Vec<(Vec<u8>, f64)> {
         let n = llr.len();
+        self.reset(llr);
+        for phi in 0..n {
+            self.candidates(phi, info, pc);
+            self.release_unclaimed();
+            self.assign_slots();
+            self.commit(phi, n, info[phi] && !pc[phi]);
+        }
+        self.start.push(self.hist.len());
+        self.trace_back(n)
+    }
+
+    /// One path, slot 0, on the channel LLRs `llr`.
+    fn reset(&mut self, llr: &[f64]) {
         for p in &mut self.llr {
             p.reset();
         }
@@ -333,91 +352,111 @@ impl ListDecoder {
         self.reg[0] = [0; 5];
         self.hist.clear();
         self.start.clear();
-        for phi in 0..n {
-            self.lam.clear();
-            for r in 0..self.order.len() {
-                let lam = self.leaf_llr(self.order[r], phi);
-                self.lam.push(lam);
-            }
-            self.cand.clear();
-            for (r, (&slot, &lam)) in self.order.iter().zip(&self.lam).enumerate() {
-                let pm = self.pm[slot];
-                let cost = |bit: u8| {
-                    let s = if bit == 0 { lam } else { -lam };
-                    pm + ln_1p_exp(-s)
-                };
-                if pc[phi] {
-                    // the register before u_φ, rotated once more: its second cell
-                    let bit = self.reg[slot][1];
-                    self.cand.push((cost(bit), r, bit));
-                } else if info[phi] {
-                    self.cand.push((cost(0), r, 0));
-                    self.cand.push((cost(1), r, 1));
-                } else {
-                    self.cand.push((cost(0), r, 0));
-                }
-            }
-            // a stable sort by metric: the ties keep the order (rank, bit)
-            self.cand.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then((x.1, x.2).cmp(&(y.1, y.2))));
-            self.cand.truncate(self.list);
-            // the paths without a surviving child free their slot and arrays, then a
-            // parent with two children shares its arrays with the second one
-            self.claimed.clear();
-            self.claimed.resize(self.order.len(), false);
-            for c in &self.cand {
-                self.claimed[c.1] = true;
-            }
-            for r in 0..self.order.len() {
-                if !self.claimed[r] {
-                    let slot = self.order[r];
-                    for p in &mut self.llr {
-                        p.release(slot);
-                    }
-                    for p in &mut self.bits {
-                        p.release(slot);
-                    }
-                    self.free.push(slot);
-                }
-            }
-            self.claimed.fill(false);
-            self.next.clear();
-            for k in 0..self.cand.len() {
-                let r = self.cand[k].1;
-                let parent = self.order[r];
-                let slot = if self.claimed[r] {
-                    let slot = self.free.pop().unwrap_or_else(|| unreachable!("at most L paths"));
-                    for p in &mut self.llr {
-                        p.share(parent, slot);
-                    }
-                    for p in &mut self.bits {
-                        p.share(parent, slot);
-                    }
-                    self.reg[slot] = self.reg[parent];
-                    slot
-                } else {
-                    self.claimed[r] = true;
-                    parent
-                };
-                self.next.push(slot);
-            }
-            self.start.push(self.hist.len());
-            for k in 0..self.cand.len() {
-                let (metric, r, bit) = self.cand[k];
-                let slot = self.next[k];
-                self.pm[slot] = metric;
-                let reg = &mut self.reg[slot];
-                reg.rotate_left(1);
-                if info[phi] && !pc[phi] {
-                    reg[0] ^= bit;
-                }
-                self.hist.push((r as u32, bit));
-                if phi + 1 < n {
-                    self.set_bit(slot, phi, bit);
-                }
-            }
-            std::mem::swap(&mut self.order, &mut self.next);
+    }
+
+    /// The `list` best children (metric, rank of the parent, bit) of the paths at leaf
+    /// `phi`: the frozen bit, the parity-check bit of the register, or both values of
+    /// an information bit.
+    fn candidates(&mut self, phi: usize, info: &[bool], pc: &[bool]) {
+        self.lam.clear();
+        for r in 0..self.order.len() {
+            let lam = self.leaf_llr(self.order[r], phi);
+            self.lam.push(lam);
         }
+        self.cand.clear();
+        for (r, (&slot, &lam)) in self.order.iter().zip(&self.lam).enumerate() {
+            let pm = self.pm[slot];
+            let cost = |bit: u8| {
+                let s = if bit == 0 { lam } else { -lam };
+                pm + ln_1p_exp(-s)
+            };
+            if pc[phi] {
+                // the register before u_φ, rotated once more: its second cell
+                let bit = self.reg[slot][1];
+                self.cand.push((cost(bit), r, bit));
+            } else if info[phi] {
+                self.cand.push((cost(0), r, 0));
+                self.cand.push((cost(1), r, 1));
+            } else {
+                self.cand.push((cost(0), r, 0));
+            }
+        }
+        // a stable sort by metric: the ties keep the order (rank, bit)
+        self.cand.sort_unstable_by(|x, y| x.0.total_cmp(&y.0).then((x.1, x.2).cmp(&(y.1, y.2))));
+        self.cand.truncate(self.list);
+    }
+
+    /// The paths without a surviving child free their slot and arrays.
+    fn release_unclaimed(&mut self) {
+        self.claimed.clear();
+        self.claimed.resize(self.order.len(), false);
+        for c in &self.cand {
+            self.claimed[c.1] = true;
+        }
+        for r in 0..self.order.len() {
+            if !self.claimed[r] {
+                let slot = self.order[r];
+                for p in &mut self.llr {
+                    p.release(slot);
+                }
+                for p in &mut self.bits {
+                    p.release(slot);
+                }
+                self.free.push(slot);
+            }
+        }
+    }
+
+    /// The slot of every candidate: the first child of a parent keeps its slot, a
+    /// second one takes a free slot that shares the arrays of the parent.
+    fn assign_slots(&mut self) {
+        self.claimed.fill(false);
+        self.next.clear();
+        for k in 0..self.cand.len() {
+            let r = self.cand[k].1;
+            let parent = self.order[r];
+            let slot = if self.claimed[r] {
+                let slot = self.free.pop().unwrap_or_else(|| unreachable!("at most L paths"));
+                for p in &mut self.llr {
+                    p.share(parent, slot);
+                }
+                for p in &mut self.bits {
+                    p.share(parent, slot);
+                }
+                self.reg[slot] = self.reg[parent];
+                slot
+            } else {
+                self.claimed[r] = true;
+                parent
+            };
+            self.next.push(slot);
+        }
+    }
+
+    /// The metrics, registers, history and partial sums of the candidates at leaf
+    /// `phi` of `n`; `data` when the leaf carries an information bit (not a parity
+    /// check), which enters the register.
+    fn commit(&mut self, phi: usize, n: usize, data: bool) {
         self.start.push(self.hist.len());
+        for k in 0..self.cand.len() {
+            let (metric, r, bit) = self.cand[k];
+            let slot = self.next[k];
+            self.pm[slot] = metric;
+            let reg = &mut self.reg[slot];
+            reg.rotate_left(1);
+            if data {
+                reg[0] ^= bit;
+            }
+            self.hist.push((r as u32, bit));
+            if phi + 1 < n {
+                self.set_bit(slot, phi, bit);
+            }
+        }
+        std::mem::swap(&mut self.order, &mut self.next);
+    }
+
+    /// The decisions of every surviving path, from the history of its ancestors.
+    fn trace_back(&self, n: usize) -> Vec<(Vec<u8>, f64)> {
         (0..self.order.len())
             .map(|rank| {
                 let mut u = vec![0u8; n];
@@ -497,7 +536,7 @@ impl PolarCode {
         // BPSK: mean channel LLR 2/σ² = 4 R Eb/N0 with the rate of the information bits
         let rate = self.k as f64 / self.n as f64;
         let mu = 4.0 * rate * db2lin(design_ebn0_db);
-        let mut order: Vec<(f64, usize)> = (0..self.n).map(|i| (reliability(i, self.n, mu), i)).collect();
+        let mut order: Vec<(f64, usize)> = reliabilities(self.n, mu).into_iter().zip(0..self.n).collect();
         order.sort_by(|x, y| y.0.total_cmp(&x.0).then(y.1.cmp(&x.1)));
         let mut pos: Vec<usize> = order.iter().take(a).map(|o| o.1).collect();
         pos.sort_unstable();
@@ -527,11 +566,15 @@ impl PolarCode {
         Ok(self)
     }
 
-    /// The same code decoded by SC list with `list` paths.
-    #[must_use]
-    pub fn with_list(mut self, list: usize) -> PolarCode {
-        self.list = list.max(1);
-        self
+    /// The same code decoded by SC list with `list` paths (1: successive
+    /// cancellation).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for `list = 0`.
+    pub fn with_list(mut self, list: usize) -> Result<PolarCode> {
+        ensure(list >= 1, || "the list decoder needs at least one path".into())?;
+        self.list = list;
+        Ok(self)
     }
 
     /// The CRC appended to the information bits (CA-SCL), if any ([`PolarCode::with_crc`]).
@@ -616,7 +659,7 @@ impl PolarCode {
         let (info, pc) = self.masks();
         // the workspace (about L n values) costs less than the noise of the timing to
         // allocate per frame; `BlockCode` takes `&self` and cannot keep it
-        ListDecoder::new(self.n, self.list.max(1)).decode(llr, &info, &pc)
+        ListDecoder::new(self.n, self.list).decode(llr, &info, &pc)
     }
 }
 
@@ -697,7 +740,7 @@ mod tests {
     fn the_list_and_the_crc_lower_the_block_error_rate() {
         let base = PolarCode::new(128, 64, 2.0).unwrap();
         // a short CRC: 11 bits would cost 17 % of the rate of a block of 64 bits
-        let scl = base.clone().with_crc(Crc::crc6()).unwrap().with_list(8);
+        let scl = base.clone().with_crc(Crc::crc6()).unwrap().with_list(8).unwrap();
         let mut r = Rng::new(2);
         let (mut e_sc, mut e_scl) = (0, 0);
         let s2 = 1.0 / 10f64.powf(0.2); // Eb/N0 = 2 dB at rate 1/2
@@ -782,7 +825,7 @@ mod tests {
                 }
             }
             next.sort_by(|a, b| a.1.total_cmp(&b.1));
-            next.truncate(code.list.max(1));
+            next.truncate(code.list);
             paths = next;
         }
         paths
@@ -809,7 +852,8 @@ mod tests {
                             PolarCode::with_positions(n, &pos[..k], &pos[k..k + n_pc]).unwrap()
                         }
                     }
-                    .with_list(list);
+                    .with_list(list)
+                    .unwrap();
                     let info: Vec<u8> = (0..code.k).map(|_| r.bit()).collect();
                     let c = code.encode_block(&info).unwrap();
                     let s2 = 0.3 + 1.5 * r.uniform();
@@ -838,5 +882,29 @@ mod tests {
     fn a_non_finite_design_ebn0_is_rejected() {
         assert!(PolarCode::new(64, 32, f64::NAN).is_err());
         assert!(PolarCode::new(64, 32, f64::INFINITY).is_err());
+        assert!(PolarCode::new(64, 32, 1.0).unwrap().with_list(0).is_err());
+    }
+
+    /// The reliability of one channel by the recursion over the stages, as the
+    /// construction computed it before the values of the prefixes were shared.
+    fn former_reliability(i: usize, n: usize, mu: f64) -> f64 {
+        if n == 1 {
+            return mu;
+        }
+        let m = if i < n / 2 { phi_inv(1.0 - (1.0 - phi(mu)).powi(2)) } else { 2.0 * mu };
+        former_reliability(i % (n / 2), n / 2, m)
+    }
+
+    #[test]
+    fn the_shared_reliabilities_are_those_of_the_recursion() {
+        for n in [2usize, 8, 64, 1024] {
+            for mu in [0.05, 1.3, 7.0, 40.0] {
+                let r = reliabilities(n, mu);
+                assert_eq!(r.len(), n);
+                for (i, v) in r.iter().enumerate() {
+                    assert_eq!(v.to_bits(), former_reliability(i, n, mu).to_bits(), "n {n}, mu {mu}, i {i}");
+                }
+            }
+        }
     }
 }
