@@ -24,14 +24,18 @@
 //! few hundred picoseconds, so the bins are of 10 ps (0.8 dB lost on the maximum SNR with
 //! bins of 0.1 ns). The minima of the SNR are 0.9 and 1.35 dB above the captions, at the
 //! points between the lights; the maxima and averages agree within 0.15 dB. The noise of Table II (its 0.53 A/W, the text quoting
-//! 0.54) is negligible against the interference, as the paper notes (Fig. 10).
+//! 0.54) is negligible against the interference, as the paper notes (Fig. 10). The
+//! values of the captions and their tolerances are in the cards
+//! `validation/cards/komine2004_fig3.yaml` and `komine2004_figs4_6_8_9.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use comrs::channel::owc::indoor::{
     Detector, Emitter, Illumination, Reflectance, Resolution, Room, direction, illuminance_lx, lambertian_mode,
 };
 use comrs::hardware::optical::PinFetReceiver;
 use comrs::math::lin2db;
+use serde_json::json;
 use std::f64::consts::FRAC_PI_2;
 
 const AREA: f64 = 1e-4;
@@ -68,9 +72,10 @@ fn min_max_mean(x: &[f64]) -> [f64; 3] {
     [min, max, x.iter().sum::<f64>() / x.len() as f64]
 }
 
-fn assert_close(what: &str, got: [f64; 3], want: [f64; 3], tol: [f64; 3]) {
-    for (k, name) in ["min", "max", "mean"].iter().enumerate() {
-        assert!((got[k] - want[k]).abs() <= tol[k], "{what} {name}: {:.2} vs {}", got[k], want[k]);
+/// Record the minimum, maximum and mean of `quantity` in `card`.
+fn check(card: &mut Card, quantity: &str, got: [f64; 3]) {
+    for (k, stat) in ["min", "max", "mean"].iter().enumerate() {
+        card.check(&json!({"quantity": quantity, "stat": stat}), got[k]);
     }
 }
 
@@ -96,7 +101,9 @@ fn komine_2004_illuminance_fig_3() {
     let lights = lights();
     let up = direction(FRAC_PI_2, 0.0);
     let lx: Vec<f64> = desk().map(|p| illuminance_lx(&lights, 0.73, p, up)).collect();
-    assert_close("illuminance", min_max_mean(&lx), [313.5, 1211.5, 865.7], [0.5, 0.5, 0.5]);
+    let mut card = Card::load("komine2004_fig3").unwrap();
+    check(&mut card, "illuminance_lx", min_max_mean(&lx));
+    card.finish().unwrap();
 }
 
 #[test]
@@ -109,8 +116,10 @@ fn komine_2004_received_power_and_snr_figs_4_6_8_9() {
     let [p0, p1] = power.map(|x| min_max_mean(&x));
     let [s0, s1] = snr.map(|x| min_max_mean(&x));
     println!("power {p0:.2?} {p1:.2?}, SNR {s0:.2?} {s1:.2?}");
-    assert_close("power, line of sight", p0, [-2.8, 4.0, 2.0], [0.1, 0.1, 0.15]);
-    assert_close("power with reflections", p1, [-2.8, 4.2, 2.5], [0.1, 0.1, 0.15]);
-    assert_close("SNR, line of sight", s0, [12.7, 24.8, 18.9], [1.2, 0.2, 0.2]);
-    assert_close("SNR with reflections", s1, [11.6, 20.1, 15.4], [1.5, 0.2, 0.2]);
+    let mut card = Card::load("komine2004_figs4_6_8_9").unwrap();
+    check(&mut card, "power_los_dbm", p0);
+    check(&mut card, "power_reflections_dbm", p1);
+    check(&mut card, "snr_los_db", s0);
+    check(&mut card, "snr_reflections_db", s1);
+    card.finish().unwrap();
 }

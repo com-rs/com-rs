@@ -1,0 +1,19 @@
+id: liang2025_eq27
+title: The ultimate shaping gain of the standard coherent channel
+literature: liang2025
+source:
+  kind: paper
+  reference: "E. M. Liang, J. M. Kahn, Probabilistic shaping distributions for optical communications, J. Lightw. Technol. 43(4), 1504-1521, 2025"
+  locator: "eq. (27), the value 1.53 dB of the text"
+  file: fiber/2025_liang_shaping-distributions_jlt.pdf
+description: >
+  The ultimate shaping gain pi e / 6 of the standard coherent (AWGN) channel, in dB
+  (also Böcherer et al. 2015, Sec. III-D, after Forney et al. 1984).
+run:
+  test: validation/tests/liang2025.rs::liang_kahn_2025_eq27_ultimate_shaping_gain
+tier: ci
+cases:
+  - inputs: {quantity: ultimate_shaping_gain_db}
+    expected: 1.53
+    tolerance: {atol: 5.0e-3}
+    why: "printed to two decimals (1.5329 dB)"

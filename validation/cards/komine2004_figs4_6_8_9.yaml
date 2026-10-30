@@ -1,0 +1,38 @@
+id: komine2004_figs4_6_8_9
+title: Received power and SNR of on-off keying on the desk, with and without reflections
+literature: komine2004
+source:
+  kind: paper
+  reference: "T. Komine, M. Nakagawa, Fundamental analysis for visible-light communication system using LED lights, IEEE Trans. Consum. Electron. 50(1), 100-107, 2004"
+  locator: "the captions of Figs. 4, 6, 8 and 9 (minimum, maximum and average over the desk), with Tables I and II"
+  file: optical-wireless/2004_komine_vlc-led-lights-fundamental-analysis_tce.pdf
+description: >
+  The room of Fig. 2 with 20 mW per LED, a field of view of 60 degrees, a detector of
+  1 cm^2 behind a concentrator of index 1.5 (Table I), the walls reflecting rho = 0.7
+  and the ceiling and floor nothing (comrs::channel::owc::indoor::Room, bins of 10 ps,
+  one reflection); the PIN-FET receiver of Table II
+  (comrs::hardware::optical::PinFetReceiver::komine2004), on-off keying with bits of
+  10 ns starting at the first arrival and a bandwidth of 100 MHz, the energy after the
+  bit counted as interference. The desk 0.85 m high, sampled every 0.1 m.
+run:
+  test: validation/tests/komine2004.rs::komine_2004_received_power_and_snr_figs_4_6_8_9
+tier: campaign
+duration: "about 2 s on an Apple M6"
+why: "the captions print 0.1 dB; the maxima and averages agree within 0.15 dB, the minima of the SNR are the gaps of the findings (the tolerance is the agreement obtained)"
+findings:
+  - "the reflectivity of the walls (0.7) and none for the ceiling and floor is not stated; it reproduces the maximum of Fig. 6 and the 0.5 dB that the reflections add on average (Sec. V)"
+  - "the minima of the SNR are 0.9 dB (Fig. 8) and 1.35 dB (Fig. 9) above the captions, at the points between the lights: not explained"
+  - "the responsivity is 0.53 A/W in Table II and 0.54 A/W in the text; the noise is negligible against the interference, as the paper notes (Fig. 10)"
+cases:
+  - {inputs: {quantity: power_los_dbm, stat: min}, expected: -2.8, tolerance: {atol: 0.1}, note: "Fig. 4"}
+  - {inputs: {quantity: power_los_dbm, stat: max}, expected: 4.0, tolerance: {atol: 0.1}}
+  - {inputs: {quantity: power_los_dbm, stat: mean}, expected: 2.0, tolerance: {atol: 0.15}}
+  - {inputs: {quantity: power_reflections_dbm, stat: min}, expected: -2.8, tolerance: {atol: 0.1}, note: "Fig. 6"}
+  - {inputs: {quantity: power_reflections_dbm, stat: max}, expected: 4.2, tolerance: {atol: 0.1}}
+  - {inputs: {quantity: power_reflections_dbm, stat: mean}, expected: 2.5, tolerance: {atol: 0.15}}
+  - {inputs: {quantity: snr_los_db, stat: min}, expected: 12.7, tolerance: {atol: 1.2}, note: "Fig. 8"}
+  - {inputs: {quantity: snr_los_db, stat: max}, expected: 24.8, tolerance: {atol: 0.2}}
+  - {inputs: {quantity: snr_los_db, stat: mean}, expected: 18.9, tolerance: {atol: 0.2}}
+  - {inputs: {quantity: snr_reflections_db, stat: min}, expected: 11.6, tolerance: {atol: 1.5}, note: "Fig. 9"}
+  - {inputs: {quantity: snr_reflections_db, stat: max}, expected: 20.1, tolerance: {atol: 0.2}}
+  - {inputs: {quantity: snr_reflections_db, stat: mean}, expected: 15.4, tolerance: {atol: 0.2}}

@@ -1,0 +1,28 @@
+id: liang2025_fig6_256qam
+title: The finite-constellation shaping gain of Maxwell-Boltzmann 256-QAM over the AWGN channel
+literature: liang2025
+source:
+  kind: paper
+  reference: "E. M. Liang, J. M. Kahn, Probabilistic shaping distributions for optical communications, J. Lightw. Technol. 43(4), 1504-1521, 2025"
+  locator: "Fig. 6 (the red arrow) and Sec. III-C3: about 1 dB at about 6 bits per symbol"
+  file: fiber/2025_liang_shaping-distributions_jlt.pdf
+description: >
+  The largest difference, at a fixed mutual information, between the SNR of uniform
+  256-QAM and that of the Maxwell-Boltzmann input optimised at that rate
+  (com_validation::shaping: the MI of square QAM is twice that of its 16-ASK quadrature
+  at the same SNR), found by a golden-section search over the rate; the rate where it is
+  reached.
+run:
+  test: validation/tests/liang2025.rs::liang_kahn_2025_fig6_shaping_gain_of_256qam
+tier: ci
+findings:
+  - "the gain is 1.08 dB at 5.99 bits: the 'about 1 dB' of the text, read on the arrow of Fig. 6"
+cases:
+  - inputs: {quantity: shaping_gain_db}
+    expected: 1.0
+    tolerance: {atol: 0.1}
+    why: "the text gives about 1 dB, the arrow of Fig. 6 read to about 0.1 dB"
+  - inputs: {quantity: mi_bits}
+    expected: 6.0
+    tolerance: {atol: 0.5}
+    why: "the arrow of Fig. 6 stands at about 6 bits per symbol; the gain is flat around its maximum"

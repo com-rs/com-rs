@@ -2,11 +2,14 @@
 //! "Probabilistic shaping distributions for optical communications," *J. Lightw.
 //! Technol.*, 43(4), 1504–1521, 2025: the ultimate shaping gain of eq. (27) and the
 //! finite-constellation shaping gains of Fig. 6 (the rates of `com_validation::shaping`;
-//! the gains of 1024- to 65536-QAM are `#[ignore]`d).
+//! the gains of 1024- to 65536-QAM are `#[ignore]`d). The printed values and their
+//! tolerances are in the cards `validation/cards/liang2025_*.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use com_validation::shaping::{mi_ask, snr_for, snr_mb};
 use comrs::math::{db2lin, golden_max, lin2db};
+use serde_json::json;
 use std::time::Instant;
 
 /// The finite-constellation shaping gain of square $M$-QAM (Liang & Kahn 2025,
@@ -46,7 +49,10 @@ fn qam_shaping_gain(m_qam: usize) -> (f64, f64, f64) {
 #[test]
 fn liang_kahn_2025_eq27_ultimate_shaping_gain() {
     let ultimate = lin2db(std::f64::consts::PI * std::f64::consts::E / 6.0);
-    assert!((ultimate - 1.53).abs() < 5e-3, "{ultimate}");
+    let mut card = Card::load("liang2025_eq27").unwrap();
+    card.check(&json!({"quantity": "ultimate_shaping_gain_db"}), ultimate);
+    card.finish().unwrap();
+    // the closed form to four decimals
     assert!((ultimate - 1.5329).abs() < 1e-4, "{ultimate}");
     // MI of MB and uniform 256-QAM below the Shannon limit and saturating at 8 bits
     for snr_db in [10.0, 20.0, 30.0, 50.0] {
@@ -66,8 +72,10 @@ fn liang_kahn_2025_eq27_ultimate_shaping_gain() {
 fn liang_kahn_2025_fig6_shaping_gain_of_256qam() {
     let (gain, mi, snr) = qam_shaping_gain(256);
     println!("256-QAM: largest shaping gain {gain:.3} dB at {mi:.2} bits ({snr:.2} dB)");
-    assert!((gain - 1.0).abs() < 0.1, "{gain}");
-    assert!((mi - 6.0).abs() < 0.5, "{mi}");
+    let mut card = Card::load("liang2025_fig6_256qam").unwrap();
+    card.check(&json!({"quantity": "shaping_gain_db"}), gain);
+    card.check(&json!({"quantity": "mi_bits"}), mi);
+    card.finish().unwrap();
 }
 
 /// Fig. 6 of Liang & Kahn (2025), Sec. III-C3: the finite-constellation shaping gain
@@ -85,11 +93,14 @@ fn liang_kahn_2025_fig6_shaping_gains_256_to_65536_qam() {
         println!("{m}-QAM: largest shaping gain {gain:.3} dB at {mi:.2} bits ({snr:.2} dB)");
         gains.push(gain);
     }
+    // the claim of Sec. III-C3, with no value to read: growing gains, by smaller steps
     let steps: Vec<f64> = gains.windows(2).map(|w| w[1] - w[0]).collect();
     assert!(steps.iter().all(|s| *s > 0.0), "{gains:?}");
     assert!(steps.windows(2).all(|w| w[1] < w[0]), "{steps:?}");
     let g = gains[4];
-    assert!((g - 1.4).abs() < 0.1, "{g}");
-    assert!(g < ultimate, "{g}");
+    let mut card = Card::load("liang2025_fig6_65536qam").unwrap();
+    card.check(&json!({"qam": 65536, "quantity": "shaping_gain_db"}), g);
+    card.check(&json!({"qam": 65536, "quantity": "gap_to_ultimate_db"}), ultimate - g);
+    card.finish().unwrap();
     println!("{:.1} s", start.elapsed().as_secs_f64());
 }

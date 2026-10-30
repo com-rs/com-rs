@@ -7,7 +7,8 @@
 //!   $\eta_{\mathrm{SCI}} = P^{-3} \int_{-R_{s}/2}^{R_{s}/2} G_{\mathrm{SCI}}(f)\\, df$ of
 //!   the GN and EGN models, read on the figure at 1, 10, 20 and 50 spans. Between 2 and
 //!   5 spans the published EGN curve lies up to 0.9 dB below the EGN formulas of the same
-//!   paper; the Monte Carlo test below follows the formulas.
+//!   paper; the Monte Carlo test below follows the formulas. The values read and their
+//!   tolerances are in the card `validation/cards/carena2014_fig1a.yaml`.
 //! - **First-order perturbation**: the NLI of a periodic signal of $W$ symbols is the
 //!   double sum over its spectral lines of the first-order perturbation of the Manakov
 //!   equation (Carena et al., Appendix A, Eqs. (32)–(34), without the terms of constant
@@ -15,10 +16,12 @@
 //!   gives the ratio EGN/GN without any of the EGN formulas.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
 use comrs::core::rng::Rng;
 use comrs::math::{C64, fft};
+use serde_json::json;
 
 const QPSK: FormatMoments = FormatMoments { phi: -1.0, psi: 4.0 };
 
@@ -58,12 +61,12 @@ fn eta_sci(n_spans: usize, egn: Option<FormatMoments>, rolloff: f64) -> f64 {
 #[test]
 #[ignore = "validation against the literature: run with --release --ignored"]
 fn sci_of_pm_qpsk_follows_fig_1a_of_carena_2014() {
-    // (spans, GN, EGN) read on Fig. 1(a)
-    for (ns, gn, egn) in [(1, 22.3, 18.1), (10, 34.5, 32.6), (20, 38.2, 36.5), (50, 42.7, 41.4)] {
-        let (g, e) = (eta_sci(ns, None, 0.05), eta_sci(ns, Some(QPSK), 0.05));
-        assert!((g - gn).abs() < 0.2, "{ns} spans: GN {g:.2} dB against {gn}");
-        assert!((e - egn).abs() < 0.25, "{ns} spans: EGN {e:.2} dB against {egn}");
+    let mut card = Card::load("carena2014_fig1a").unwrap();
+    for ns in [1, 10, 20, 50] {
+        card.check(&json!({"spans": ns, "model": "gn"}), eta_sci(ns, None, 0.05));
+        card.check(&json!({"spans": ns, "model": "egn"}), eta_sci(ns, Some(QPSK), 0.05));
     }
+    card.finish().unwrap();
 }
 
 /// The variance of the first-order NLI of the centre band, averaged over the output
