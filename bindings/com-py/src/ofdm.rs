@@ -30,6 +30,9 @@ use pyo3::types::PyDict;
 ///     dc_null (bool): leave the DC subcarrier empty.
 ///     dft_spread (bool): DFT-spread OFDM.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> ofdm = comrs.Ofdm(64, 48, n_cp=8)
@@ -151,6 +154,9 @@ impl PyOfdm {
     ///     numpy.ndarray | tuple[numpy.ndarray, numpy.ndarray]: the samples
     ///     (complex128); with a reduction technique, the samples and the side
     ///     information of every block (the SLM or PTS candidate, int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (data, reduction=None))]
     fn modulate(
         &self,
@@ -180,6 +186,9 @@ impl PyOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: the data symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, reduction=None, *, side=None))]
     fn demodulate<'py>(
         &self,
@@ -205,6 +214,9 @@ impl PyOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: the PAPR of every block (dB).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn papr_db<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.papr_db_per_block(&cvec(samples)?)))
     }
@@ -289,6 +301,9 @@ impl PyPaprReduction {
     ///
     /// Returns:
     ///     PaprReduction: the technique (its side information is the candidate).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -406,6 +421,9 @@ impl PyPaprReduction {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the PAPR (dB), of `x` or of every block.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, *, block_len=None))]
 fn papr_db(py: Python<'_>, x: &Bound<'_, PyAny>, block_len: Option<usize>) -> PyResult<Py<PyAny>> {
@@ -425,6 +443,9 @@ fn papr_db(py: Python<'_>, x: &Bound<'_, PyAny>, block_len: Option<usize>) -> Py
 ///
 /// Returns:
 ///     numpy.ndarray: `P(X > t)` at every threshold (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
     Ok(farr(py, spectrum::ccdf(&fvec(values)?, &fvec(thresholds)?)))
@@ -443,6 +464,9 @@ fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py
 ///
 /// Returns:
 ///     float | numpy.ndarray: `P(PAPR > γ)` at every threshold.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -466,6 +490,9 @@ fn theory_papr_ccdf(n: i64, papr_db: &Bound<'_, PyAny>, oversampled: bool, candi
 ///
 /// Returns:
 ///     dict: ``gain`` (α), ``output_power``, ``distortion`` (σ_d²), ``sdr_db``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn clipping_bussgang(py: Python<'_>, ratio_db: f64) -> PyResult<Bound<'_, PyDict>> {
     let b = comrs::dsp::nonlinear::clipping_bussgang(ratio_db);
@@ -487,6 +514,9 @@ fn clipping_bussgang(py: Python<'_>, ratio_db: f64) -> PyResult<Bound<'_, PyDict
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (Hz) and the density
 ///     (power per Hz), which integrates to the average power.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
 fn psd<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
@@ -507,6 +537,9 @@ fn psd<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyR
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (Hz) and the density
 ///     (power per Hz).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
 fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
@@ -527,6 +560,9 @@ fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize
 ///
 /// Returns:
 ///     float: the ACLR (dB).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth: f64, offset: f64) -> PyResult<f64> {
     spectrum::aclr_db(&fvec(freqs)?, &fvec(density)?, bandwidth, offset).py()
@@ -543,6 +579,9 @@ fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth: f64,
 ///
 /// Returns:
 ///     numpy.ndarray: the output (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, *, gain=Rapp::default().gain, saturation=Rapp::default().saturation, smoothness=Rapp::default().smoothness))]
 fn pa_rapp<'py>(
@@ -567,6 +606,9 @@ fn pa_rapp<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the predistorted input (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (
     x,
@@ -599,6 +641,9 @@ fn rapp_predistort<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the output (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (
     x,
@@ -626,6 +671,9 @@ fn pa_saleh<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the output (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn pa_memory_polynomial<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     Ok(carr(py, MemoryPolynomial::ding2004().amplify(&cvec(x)?)))
@@ -683,6 +731,9 @@ impl PyDpd {
     ///
     /// Returns:
     ///     numpy.ndarray: the predistorted envelope (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn apply<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         let v = cvec(x)?;
         Ok(carr(py, py.detach(|| self.inner.apply(&v))))
@@ -694,6 +745,9 @@ impl PyDpd {
     ///     x (array_like): the input of the polynomial.
     ///     y (array_like): the output it should give.
     ///     regularization (float): the Tikhonov regularisation.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, *, regularization=1e-9))]
     fn fit(&mut self, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, regularization: f64) -> PyResult<()> {
         self.inner.fit(&cvec(x)?, &cvec(y)?, regularization).py()
@@ -707,6 +761,9 @@ impl PyDpd {
     ///     gain (complex): the target complex gain of the cascade.
     ///     iterations (int): iterations of the indirect learning.
     ///     regularization (float): the regularisation of every fit.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, pa, *, gain=C64::new(1.0, 0.0), iterations=3, regularization=1e-9))]
     fn train_indirect(
         &mut self,
@@ -745,6 +802,9 @@ impl PyDpd {
 ///
 /// Returns:
 ///     numpy.ndarray: the corrected samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gain_limited_correction<'py>(
     py: Python<'py>,
@@ -766,6 +826,9 @@ fn gain_limited_correction<'py>(
 /// Returns:
 ///     float | numpy.ndarray: the SDR (dB) at every SIR.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.sdr_gain_limited(25.0, -17.0), 1)
@@ -785,6 +848,9 @@ fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResul
 ///
 /// Returns:
 ///     float | numpy.ndarray: the SDR (dB) at every SIR.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_optimum(comrs::math::db2lin(s)))))

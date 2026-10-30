@@ -99,6 +99,9 @@ impl PyRng {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` values (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     fn uniform<'py>(&mut self, py: Python<'py>, n: i64) -> PyResult<FArr<'py>> {
         let n = count(n, "n")?;
         Ok(farr(py, (0..n).map(|_| self.inner.uniform()).collect()))
@@ -111,6 +114,9 @@ impl PyRng {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` values (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     fn gaussian<'py>(&mut self, py: Python<'py>, n: i64) -> PyResult<FArr<'py>> {
         let n = count(n, "n")?;
         Ok(farr(py, (0..n).map(|_| self.inner.gaussian()).collect()))
@@ -124,6 +130,9 @@ impl PyRng {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` values (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     #[pyo3(signature = (n, noise_var = 1.0))]
     fn complex_noise<'py>(&mut self, py: Python<'py>, n: i64, noise_var: f64) -> PyResult<CArr<'py>> {
         let n = count(n, "n")?;
@@ -138,6 +147,9 @@ impl PyRng {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` values (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn integers<'py>(&mut self, py: Python<'py>, high: i64, n: i64) -> PyResult<IArr<'py>> {
         let (high, n) = (count(high, "high")?, count(n, "n")?);
         if high == 0 {
@@ -154,6 +166,9 @@ impl PyRng {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the linear ratio.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -172,6 +187,9 @@ fn db2lin(x_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Returns:
 ///     float | numpy.ndarray: the ratio (dB).
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.lin2db(100.0)
@@ -188,6 +206,9 @@ fn lin2db(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the power (W).
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -206,6 +227,9 @@ fn dbm2w(p_dbm: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Returns:
 ///     float | numpy.ndarray: the power (dBm).
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.w2dbm(1e-3)
@@ -223,6 +247,9 @@ fn w2dbm(p_w: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Returns:
 ///     float | numpy.ndarray: `Q(x)`.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.qfunc(0.0), 6), round(comrs.qfunc(3.0), 6)
@@ -239,6 +266,9 @@ fn qfunc(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the Q factor (dB).
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs

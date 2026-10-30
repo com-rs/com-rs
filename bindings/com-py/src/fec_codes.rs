@@ -83,6 +83,9 @@ fn symbols_out(py: Python<'_>, v: Vec<u16>) -> IArr<'_> {
 ///         coefficient of ``x^i`` (the conventional one of Lin & Costello, Table 2.7,
 ///         by default: ``0x11D`` for ``m = 8``).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     The RS(204, 188) outer code of DVB-T and DVB-S (ETSI EN 300 744 V1.6.1,
 ///     Sec. 4.3.2; EN 300 421, Sec. 4.4): ``t = 8``, roots ``λ^0, …, λ^15`` over the
@@ -205,6 +208,9 @@ impl PyReedSolomon {
     ///
     /// Returns:
     ///     numpy.ndarray: the ``n_symbols`` symbols of the word (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn encode_symbols<'py>(&self, py: Python<'py>, msg: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         Ok(symbols_out(py, self.inner.encode_symbols(&symbols(msg)?).py()?))
     }
@@ -221,6 +227,9 @@ impl PyReedSolomon {
     ///     tuple[numpy.ndarray, int | None]: the ``k_symbols`` message symbols and the number of
     ///     corrected symbols (erasures included), ``None`` for a detected decoding
     ///     failure (the message symbols are then returned as received).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (received, *, erasures=None))]
     fn decode_symbols<'py>(
         &self,
@@ -244,6 +253,9 @@ impl PyReedSolomon {
     /// Returns:
     ///     tuple[numpy.ndarray, int | None]: the ``k`` message bits and the number of
     ///     corrected symbols (``None`` for a detected decoding failure).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<(BArr<'py>, Option<usize>)> {
         let (msg, corrected) = self.inner.decode(&bvec(bits)?).py()?;
         Ok((msg.into_pyarray(py), corrected))
@@ -256,6 +268,9 @@ impl PyReedSolomon {
     ///
     /// Returns:
     ///     numpy.ndarray: ``n`` coded bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -275,6 +290,9 @@ impl PyReedSolomon {
     ///
     /// Returns:
     ///     numpy.ndarray: ``k`` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -309,6 +327,9 @@ impl PyReedSolomon {
 /// Returns:
 ///     numpy.ndarray: the symbols (int64).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.pack_symbols([1, 0, 1, 1, 1, 1, 0, 0], 4).tolist()
@@ -326,6 +347,9 @@ fn pack_symbols<'py>(py: Python<'py>, bits: &Bound<'py, PyAny>, m: u32) -> PyRes
 ///
 /// Returns:
 ///     numpy.ndarray: ``m`` bits per symbol (uint8).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -349,6 +373,9 @@ fn unpack_symbols<'py>(py: Python<'py>, symbols: &Bound<'py, PyAny>, m: u32) -> 
 /// Returns:
 ///     float | numpy.ndarray: the word error probability at every ``p_s``.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> pw = comrs.theory_rs_wer(255, 16, [1e-3, 1e-2])
@@ -371,6 +398,9 @@ fn theory_rs_wer(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 /// Returns:
 ///     float | numpy.ndarray: the decoded symbol error probability at every ``p_s``.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> bool(comrs.theory_rs_ser(255, 16, 1e-2) < comrs.theory_rs_wer(255, 16, 1e-2))
@@ -391,6 +421,9 @@ fn theory_rs_ser(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 ///
 /// Returns:
 ///     float | numpy.ndarray: the decoded bit error probability at every ``p_s``.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(p_s, |p| Ok(rs::bit_error_probability(n, t, m, p)))
@@ -414,6 +447,9 @@ fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult
 ///     n (int | None): word length in bits (``2^m - 1`` by default).
 ///     poly (int | None): the primitive polynomial of the field, bit ``i`` the
 ///         coefficient of ``x^i`` (the conventional one by default).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     The (15, 7) code correcting two errors, ``g(x) = 1 + x^4 + x^6 + x^7 + x^8``
@@ -482,6 +518,9 @@ impl PyBch {
     /// Returns:
     ///     numpy.ndarray: ``n`` coded bits per block (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.BchCode(4, 2).encode(comrs.bits(14, comrs.Rng(1))).size
@@ -499,6 +538,9 @@ impl PyBch {
     ///
     /// Returns:
     ///     numpy.ndarray: ``k`` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -522,6 +564,9 @@ impl PyBch {
     ///     tuple[numpy.ndarray, int | None]: the ``k`` message bits and the number of
     ///     corrected errors (``None`` for a detected decoding failure, the message bits
     ///     then returned as received).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<(BArr<'py>, Option<usize>)> {
         let (msg, corrected) = self.inner.decode(&bvec(bits)?).py()?;
         Ok((msg.into_pyarray(py), corrected))
@@ -544,6 +589,9 @@ impl PyBch {
 ///
 /// Returns:
 ///     int: the free distance.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs

@@ -54,6 +54,9 @@ use pyo3::types::PyDict;
 ///     modulation (Constellation | str, optional): the modulation format of the EGN
 ///         model.
 ///     px (array_like, optional): the probabilities of its points.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, freqs, power_dbm, symbol_rate, *, rolloff = 0.1, channel = None, coherent = true, resolution_hz = None, raman = None, modulation = None, px = None))]
 #[allow(clippy::too_many_arguments)]
@@ -127,6 +130,9 @@ fn format_moments_of(py: Python<'_>, f: &Bound<'_, PyAny>, px: Option<&[f64]>) -
 /// Returns:
 ///     tuple[float, float]: ``(Φ, Ψ)``.
 ///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> [round(v, 4) for v in comrs.format_moments("16-QAM")]
@@ -167,6 +173,9 @@ fn format_moments(
 ///     ``power_dbm`` (one row per wave), ``net_gain_db`` and ``on_off_gain_db`` (per
 ///     channel), ``ase_psd`` (W/Hz, both polarisations, per channel at the end of the
 ///     span) and ``iterations``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -234,6 +243,9 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 ///
 /// Returns:
 ///     numpy.ndarray: the ``n`` frequencies (Hz, float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
 ///
 /// Examples:
 ///     >>> import comrs

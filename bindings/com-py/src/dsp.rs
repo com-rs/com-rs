@@ -37,6 +37,9 @@ use pyo3::types::PyString;
 /// Returns:
 ///     numpy.ndarray: the taps (float64), summing to one.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> h = comrs.pulse_shape("rrc", 4)
@@ -59,6 +62,9 @@ fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, roll
 ///
 /// Returns:
 ///     numpy.ndarray: `n_symbols·sps` gains in FFT order (float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
 fn rrc_spectrum(py: Python<'_>, n_symbols: i64, sps: usize, rolloff: f64) -> PyResult<FArr<'_>> {
     Ok(farr(py, filter::rrc_spectrum(count(n_symbols, "n_symbols")?, sps, rolloff)))
@@ -73,6 +79,9 @@ fn rrc_spectrum(py: Python<'_>, n_symbols: i64, sps: usize, rolloff: f64) -> PyR
 ///
 /// Returns:
 ///     numpy.ndarray: the filtered signal, of the length of `x` (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn fir_filter<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     let (h, x) = (cvec(h)?, cvec(x)?);
@@ -87,6 +96,9 @@ fn fir_filter<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>
 ///
 /// Returns:
 ///     numpy.ndarray: `len(h) + len(x) - 1` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn convolve<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     let (h, x) = (cvec(h)?, cvec(x)?);
@@ -101,6 +113,9 @@ fn convolve<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) 
 ///
 /// Returns:
 ///     numpy.ndarray: `factor·len(x)` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn upsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::upsample(&cvec(x)?, factor)))
@@ -115,6 +130,9 @@ fn upsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize) -> PyRes
 ///
 /// Returns:
 ///     numpy.ndarray: the kept samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, factor, *, offset = 0))]
 fn downsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize, offset: usize) -> PyResult<CArr<'py>> {
@@ -131,6 +149,9 @@ fn downsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize, offset
 ///
 /// Returns:
 ///     numpy.ndarray: the signal at `sps_out` samples per symbol (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn decimate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, sps_in: usize, sps_out: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::decimate(&cvec(x)?, sps_in, sps_out).py()?))
@@ -144,6 +165,9 @@ fn decimate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, sps_in: usize, sps_out:
 ///
 /// Returns:
 ///     numpy.ndarray: `n_out` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: i64) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::resample_fft(&cvec(x)?, count(n_out, "n_out")?)))
@@ -160,6 +184,9 @@ fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: i64) -> PyRe
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fc, fs, n_taps, *, kind = "rect"))]
 fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: i64, kind: &str) -> PyResult<FArr<'py>> {
@@ -174,6 +201,9 @@ fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: i64, kind: &str)
 ///
 /// Returns:
 ///     numpy.ndarray: the scaled signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn pnorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::pnorm(&cvec(x)?)))
@@ -186,6 +216,9 @@ fn pnorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 ///
 /// Returns:
 ///     numpy.ndarray: the scaled signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::anorm(&cvec(x)?)))
@@ -200,6 +233,9 @@ fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 ///
 /// Returns:
 ///     numpy.ndarray: the shifted signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::freq_shift(&cvec(x)?, delta_f, fs)))
@@ -214,6 +250,9 @@ fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64
 ///
 /// Returns:
 ///     numpy.ndarray: the averaged signal, of the length of `x` (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResult<CArr<'py>> {
     Ok(carr(py, filter::moving_average(&cvec(x)?, count(n, "n")?)))
@@ -228,6 +267,9 @@ fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResu
 ///
 /// Returns:
 ///     numpy.ndarray: the delayed block (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::delay_fft(&cvec(x)?, delay, fs)))
@@ -244,6 +286,9 @@ fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -
 ///
 /// Returns:
 ///     numpy.ndarray: the compensated field (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn cdc<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fiber: &PyFiber, length_km: f64, fs: f64) -> PyResult<CArr<'py>> {
     let (x, f) = (cvec(x)?, fiber.inner.clone());
@@ -276,6 +321,9 @@ fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) ->
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
 fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: i64) -> PyResult<CArr<'py>> {
     Ok(carr(py, cd::cd_fir_taps(fiber.inner.beta2_s2_km(), length_km, fs, count(n_taps, "n_taps")?)))
@@ -308,6 +356,9 @@ fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, length_km, fs, n_taps = None))]
 fn cd_savory_taps<'py>(
@@ -342,6 +393,9 @@ fn cd_savory_taps<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, length_km, fs, n_taps, *, band_hz = None, epsilon = 0.0))]
 fn cd_ls_taps<'py>(
@@ -370,6 +424,9 @@ fn cd_ls_taps<'py>(
 ///
 /// Returns:
 ///     float: E.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (taps, fiber, length_km, fs, *, band_hz = None))]
 fn cd_ls_error(
@@ -411,6 +468,9 @@ fn cd_ls_error(
 ///     tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]: the symbols `(modes,
 ///     symbols)`, the final taps `(modes², n_taps)` with row `m + N·modes` the filter
 ///     from input `N` to output `m`, and the squared errors `(modes, symbols)`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (
     x,
@@ -471,6 +531,9 @@ fn adaptive_equalizer<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the rotated signal (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, theta, *, sign = 1.0))]
 fn derotate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, theta: &Bound<'py, PyAny>, sign: f64) -> PyResult<CArr<'py>> {
@@ -486,6 +549,9 @@ fn derotate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, theta: &Bound<'py, PyAn
 ///
 /// Returns:
 ///     numpy.ndarray: the unwrapped phases (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (phi, *, period = std::f64::consts::TAU))]
 fn unwrap<'py>(py: Python<'py>, phi: &Bound<'py, PyAny>, period: f64) -> PyResult<FArr<'py>> {
@@ -505,6 +571,9 @@ fn unwrap<'py>(py: Python<'py>, phi: &Bound<'py, PyAny>, period: f64) -> PyResul
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, float]: the corrected signal and the offset (Hz).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, fs, *, m = 4, refined = true))]
 fn fourth_power_foe<'py>(
@@ -533,6 +602,9 @@ fn fourth_power_foe<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, *, n = 35, m = 4))]
 fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64, m: u32) -> PyResult<FArr<'py>> {
@@ -555,6 +627,9 @@ fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64, m: u32) 
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad, in `[0, π/2)`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, constellation, *, n = 35, b = 64))]
 fn bps<'py>(
@@ -592,6 +667,9 @@ const OPTICOMMPY_DDPLL_TAU: f64 = 1.0 / (2.0 * std::f64::consts::PI * 10e6);
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (
     x,
@@ -648,6 +726,9 @@ fn array<const N: usize>(x: &Bound<'_, PyAny>) -> PyResult<[C64; N]> {
 ///
 /// Returns:
 ///     float: the timing error.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gardner_ted(x: &Bound<'_, PyAny>) -> PyResult<f64> {
     Ok(clock::gardner_ted(&array::<3>(x)?))
@@ -660,6 +741,9 @@ fn gardner_ted(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns:
 ///     float: the timing error.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
     Ok(clock::gardner_ted_nyquist(&array::<3>(x)?))
@@ -674,6 +758,9 @@ fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns:
 ///     complex: the interpolated sample.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
     Ok(comrs::dsp::interpolation::lagrange_cubic(&array::<4>(x)?, mu))
@@ -691,6 +778,9 @@ fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the resampled signal (2 sps) and the
 ///     fractional sampling instant of every output sample.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, *, kp = 1e-3, ki = 1e-6, nyquist = true, max_ppm = 500.0))]
 fn gardner_clock_recovery<'py>(

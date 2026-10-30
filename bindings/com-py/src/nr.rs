@@ -23,6 +23,9 @@ use pyo3::types::PyDict;
 ///     ``symbols_per_slot``, ``sample_rate`` (Hz), ``cp_lengths`` (samples, the symbols
 ///     of one subframe).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> info = comrs.nr_numerology(0, n_fft=2048)   # LTE: 30.72 MS/s
@@ -72,6 +75,9 @@ fn grid_out<'py>(py: Python<'py>, g: &[C64], k: usize) -> PyResult<Bound<'py, Py
 ///
 /// Returns:
 ///     numpy.ndarray: the samples at `n_fft · Δf` (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (grid, mu, n_fft, *, extended_cp = false, first_symbol = 0))]
 fn nr_ofdm_modulate<'py>(
@@ -95,6 +101,9 @@ fn nr_ofdm_modulate<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: 127 values ±1 (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn nr_pss(py: Python<'_>, n_id2: u32) -> PyResult<FArr<'_>> {
     Ok(farr(py, nr::pss(n_id2).py()?))
@@ -109,6 +118,9 @@ fn nr_pss(py: Python<'_>, n_id2: u32) -> PyResult<FArr<'_>> {
 ///
 /// Returns:
 ///     numpy.ndarray: 127 values ±1 (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn nr_sss(py: Python<'_>, n_id1: u32, n_id2: u32) -> PyResult<FArr<'_>> {
     Ok(farr(py, nr::sss(n_id1, n_id2).py()?))
@@ -122,6 +134,9 @@ fn nr_sss(py: Python<'_>, n_id1: u32, n_id2: u32) -> PyResult<FArr<'_>> {
 ///
 /// Returns:
 ///     numpy.ndarray: the values (complex128), in the order of their mapping.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (n_cell_id, i_ssb_bar = 0))]
 fn nr_pbch_dmrs(py: Python<'_>, n_cell_id: u32, i_ssb_bar: u32) -> PyResult<CArr<'_>> {
@@ -137,6 +152,9 @@ fn nr_pbch_dmrs(py: Python<'_>, n_cell_id: u32, i_ssb_bar: u32) -> PyResult<CArr
 ///
 /// Returns:
 ///     numpy.ndarray: the indices (int64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<crate::IArr<'py>> {
     let k: SsbElement = kind.parse().py()?;
@@ -153,6 +171,9 @@ fn nr_ssb_indices<'py>(py: Python<'py>, n_cell_id: u32, kind: &str) -> PyResult<
 ///
 /// Returns:
 ///     numpy.ndarray: the grid, shape `(240, 4)` (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (n_cell_id, i_ssb_bar = 0, pbch = None))]
 fn nr_ssb_grid<'py>(
@@ -175,6 +196,9 @@ fn nr_ssb_grid<'py>(
 /// Returns:
 ///     tuple[int, float, float]: the cell identity and the normalised correlations of
 ///     the PSS and of the SSS (1 without noise).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn nr_detect_cell_id(grid: &Bound<'_, PyAny>) -> PyResult<(u32, f64, f64)> {
     let (g, k) = grid_in(grid)?;
@@ -200,6 +224,9 @@ fn nr_detect_cell_id(grid: &Bound<'_, PyAny>) -> PyResult<(u32, f64, f64)> {
 ///     dict: ``symbols`` (the DMRS symbols), ``subcarriers``, ``values`` (shape
 ///     `(len(subcarriers), len(symbols))`, complex128) and ``indices`` (the linear
 ///     indices `l · 12 n_rb + k` of the grid, frequency first).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (n_rb, *, config_type = 1, type_a_position = 2, additional_position = 0, n_id = 0, slot = 0))]
 fn nr_pdsch_dmrs(

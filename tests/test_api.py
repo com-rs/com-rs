@@ -170,6 +170,72 @@ def test_every_public_routine_documents_its_arguments(name, obj):
             assert re.search(rf"^\s+{p} \(", doc, re.M), f"{name}: argument {p} is not documented"
 
 
+BINDINGS = pathlib.Path(__file__).parents[1] / "bindings" / "com-py" / "src"
+# the files of the runner and of the specifications are reviewed in their own batch
+RAISES_PENDING = {"sim.rs", "spec.rs"}
+
+
+def fallible_bindings(lines):
+    """The Python routines of a binding file that return ``PyResult``: ``(name, doc
+    lines)``, the doc of a fallible constructor being that of its class."""
+    region, pymethods, docs, doc, attrs, out = None, False, {}, [], [], []
+    i = 0
+    while i < len(lines):
+        line, s = lines[i], lines[i].strip()
+        if s.startswith("///"):
+            doc.append(line)
+            i += 1
+            continue
+        pymethods = pymethods or s in ("#[pymethods]", "#[pyo3::pymethods]")
+        if m := re.match(r"^impl (Py\w+) \{", line):
+            region, pymethods = (m.group(1) if pymethods else None), False
+        if line.startswith("wrapper_methods! {"):
+            region = lines[i + 1].split()[0]
+        if line.startswith("}"):
+            region = None
+        if (m := re.match(r"^pub struct (Py\w+)", line)) and doc:
+            docs[m.group(1)] = doc
+        if s.startswith("#["):
+            attrs.append(s)
+            depth = s.count("(") - s.count(")") + s.count("[") - s.count("]")
+            while depth > 0:
+                i += 1
+                depth += lines[i].count("(") - lines[i].count(")") + lines[i].count("[") - lines[i].count("]")
+            i += 1
+            continue
+        seen, attrs = " ".join(attrs), []
+        if m := re.match(r"^(\s*)(?:pub(?:\(crate\))? )?fn (\w+)", line):
+            sig, k = line, i
+            while not sig.rstrip().endswith("{"):
+                k += 1
+                sig += lines[k]
+            exposed = "#[pyfunction]" in seen or (region is not None and len(m.group(1)) == 4)
+            skip = m.group(2).startswith("__") or "#[getter]" in seen or "#[setter]" in seen
+            if exposed and not skip and "->" in sig and "PyResult" in sig.split("->")[-1]:
+                if "#[new]" in seen:
+                    out.append((f"{region} (constructor)", docs.get(region, [])))
+                elif doc:
+                    out.append((m.group(2), doc))
+            doc, i = [], k + 1
+            continue
+        if s and not s.startswith("//"):
+            doc = []
+        i += 1
+    return out
+
+
+def test_every_fallible_binding_documents_its_exceptions():
+    files = sorted(p for p in BINDINGS.glob("*.rs") if p.name not in RAISES_PENDING)
+    assert len(files) > 10
+    missing = [
+        f"{path.name}: {name}"
+        for path in files
+        for name, doc in fallible_bindings(path.read_text().split("\n"))
+        if not any(re.match(r"\s*///\s*Raises:", d) for d in doc)
+    ]
+    assert missing == [], f"no Raises: section in {missing}"
+
+
 def test_every_public_class_is_documented():
     for name in comrs.__all__:
         obj = getattr(comrs, name)

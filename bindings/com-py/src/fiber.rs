@@ -277,6 +277,9 @@ wrapper_methods! {
 ///
 /// Returns:
 ///     numpy.ndarray: the field at the output (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn linear_fiber_channel<'py>(
     py: Python<'py>,
@@ -319,6 +322,9 @@ pub(crate) fn raman(py: Python<'_>, v: Option<&Bound<'_, PyAny>>) -> PyResult<Op
 ///     raman (dict, optional): Raman pumps and ISRS in every span, the keys of
 ///         ``fiber.raman`` in a specification (see :func:`raman_profile`); the amplifier
 ///         after a span then restores every frequency to its launch power.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -387,6 +393,9 @@ impl PySsfm {
     ///
     /// Returns:
     ///     numpy.ndarray: the field at the end of the link (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, fs, rng = None, *, precision = "f64"))]
     fn propagate<'py>(
         &self,
@@ -421,6 +430,9 @@ impl PySsfm {
     ///
     /// Returns:
     ///     numpy.ndarray: the back-propagated field (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
     fn backpropagate<'py>(
         &self,
@@ -449,6 +461,9 @@ impl PySsfm {
 ///     pmd_ps_sqrt_km (float): PMD coefficient (ps/√km); 0 for none.
 ///     sections_per_span (int): sections per span.
 ///     rng (Rng, optional): draws the PMD realisation (needed when the PMD is not 0).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "Manakov", module = "comrs")]
 pub struct PyManakov {
     inner: Manakov,
@@ -493,6 +508,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the fields of the two polarisations.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, rng = None))]
     fn propagate<'py>(
         &self,
@@ -520,6 +538,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn backpropagate_with_pmd<'py>(
         &self,
         py: Python<'py>,
@@ -543,6 +564,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two fields without the PMD.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn equalize_pmd<'py>(
         &self,
         py: Python<'py>,
@@ -576,6 +600,9 @@ impl PyManakov {
 ///     amplification (str): ``"edfa"``, ``"ideal"`` or ``"none"``.
 ///     raman (dict, optional): Raman pumps and ISRS in every span (see
 ///         :func:`raman_profile`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyclass(name = "ManakovSsfm", module = "comrs")]
 pub struct PyManakovSsfm {
     inner: ManakovSsfm,
@@ -632,6 +659,9 @@ impl PyManakovSsfm {
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray, int]: the two fields and the number of
     ///     steps.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, rng = None))]
     fn propagate<'py>(
         &self,
@@ -663,6 +693,9 @@ impl PyManakovSsfm {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
     fn backpropagate<'py>(
         &self,

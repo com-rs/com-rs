@@ -146,6 +146,9 @@ fn rows_to_array<T: numpy::Element>(py: Python<'_>, rows: Rows<T>, single: bool)
 /// Returns:
 ///     numpy.ndarray: `(n_rx, n_tx)`, or `(n, n_rx, n_tx)` with `n`.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.mimo_channel(4, 2, comrs.Rng(1), n=10).shape
@@ -190,6 +193,9 @@ fn mimo_channel(
 /// Returns:
 ///     numpy.ndarray: the `(n, n)` matrix (complex128).
 ///
+/// Raises:
+///     ValueError: for a negative count.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.exponential_correlation(3, 0.5).real.tolist()
@@ -218,6 +224,9 @@ fn exponential_correlation<'py>(py: Python<'py>, n: i64, rho: C64) -> PyResult<B
 ///
 /// Returns:
 ///     numpy.ndarray: the labels of the decided points, `(n, n_tx)` (or `(n_tx,)`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -265,6 +274,9 @@ fn mimo_detect(
 ///
 /// Returns:
 ///     numpy.ndarray: `(n, n_tx · log2 M)` (or one row), float64.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (
     h, y, constellation, noise_var, method="mmse", *, k=DetectorKind::DEFAULT_PATHS,
@@ -324,6 +336,9 @@ fn steps<'py>(py: Python<'py>, se: &[mp::StateEvolutionStep]) -> PyResult<Bound<
 ///     dict: ``estimates`` (`(iterations, n_tx)`, the MMSE estimate of every iteration),
 ///     ``z`` (`(n_tx,)`, the input of the last denoiser: the symbols in Gaussian noise),
 ///     ``noise_var`` (its variance) and ``noise_vars`` (the variance of every iteration).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -398,6 +413,9 @@ fn message_passing<'py>(
 /// Returns:
 ///     dict: ``noise_var`` and ``mse``, one value per iteration.
 ///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> c = comrs.Constellation("qam", 4).normalized()
@@ -431,6 +449,9 @@ fn amp_state_evolution<'py>(
 ///
 /// Returns:
 ///     dict: ``beta_min``, ``beta_max``, ``n0_min`` and ``n0_max``.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -469,6 +490,9 @@ fn amp_thresholds<'py>(
 ///
 /// Returns:
 ///     dict: ``noise_var`` (`τ²` of every iteration) and ``mse``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -513,6 +537,9 @@ fn oamp_state_evolution<'py>(
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the estimates and their variances, both
 ///     `(n, n_tx)` (or `(n_tx,)`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (h, y, constellation, noise_var, method="mmse"))]
 fn mimo_estimate(
@@ -579,6 +606,9 @@ impl PyOstbc {
     ///
     /// Returns:
     ///     Ostbc: the code.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[staticmethod]
     fn rate_3_4(n_tx: usize) -> PyResult<Self> {
         Ok(PyOstbc { inner: Ostbc::rate_3_4(n_tx).py()? })
@@ -621,6 +651,9 @@ impl PyOstbc {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n_tx, n_slots · blocks)` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn encode<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray2<C64>>> {
         Ok(self.inner.encode(&crate::cvec(symbols)?).py()?.into_pyarray(py))
     }
@@ -635,6 +668,9 @@ impl PyOstbc {
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the symbol estimates and their noise
     ///     variances.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode<'py>(
         &self,
         py: Python<'py>,
@@ -671,6 +707,9 @@ impl PyOstbc {
 /// Returns:
 ///     numpy.ndarray: the power of every channel (float64).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.water_filling_powers([1.0, 1.0], 2.0).tolist()
@@ -696,6 +735,9 @@ fn water_filling_powers<'py>(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the capacity of every realisation.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -730,6 +772,9 @@ fn mimo_capacity(py: Python<'_>, h: &Bound<'_, PyAny>, snr_db: f64, water_fillin
 /// Returns:
 ///     float | numpy.ndarray: the capacity at every SNR.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.ergodic_capacity(1, 1, 10.0), 4)   # log2(e) e^0.1 E1(0.1)
@@ -751,6 +796,9 @@ fn ergodic_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>) -> PyRe
 ///
 /// Returns:
 ///     float | numpy.ndarray: the outage probability at every rate.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     crate::map_real(rate, |r| capacity::outage_rayleigh(n_rx, n_tx, comrs::math::db2lin(snr_db), r).py())
@@ -767,6 +815,9 @@ fn outage_probability(n_rx: usize, n_tx: usize, snr_db: f64, rate: &Bound<'_, Py
 ///
 /// Returns:
 ///     float | numpy.ndarray: the rate at every SNR.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64) -> PyResult<Py<PyAny>> {
     crate::map_real(snr_db, |s| capacity::outage_capacity_rayleigh(n_rx, n_tx, comrs::math::db2lin(s), eps).py())
@@ -785,6 +836,9 @@ fn outage_capacity(n_rx: usize, n_tx: usize, snr_db: &Bound<'_, PyAny>, eps: f64
 /// Returns:
 ///     dict: ``precoder`` `(n_tx, streams)`, ``combiner`` `(streams, n_rx)`, ``gains``,
 ///     ``powers``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (h, total_power, noise_var, *, water_filling=true))]
 fn eigenmode<'py>(
@@ -817,6 +871,9 @@ fn eigenmode<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the precoder `(n_tx, n_users)` (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (h, *, total_power=1.0, alpha=0.0))]
 fn zf_precoder<'py>(

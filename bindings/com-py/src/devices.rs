@@ -25,6 +25,9 @@ use pyo3::types::PyDict;
 /// Returns:
 ///     numpy.ndarray: the noisy signal (complex128).
 ///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> x = np.ones(100_000, dtype=complex)
@@ -58,6 +61,9 @@ fn awgn<'py>(
 /// Returns:
 ///     numpy.ndarray: the noisy signal (complex128).
 ///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> c = comrs.Constellation("qam", 4).normalized()
@@ -89,6 +95,9 @@ fn awgn_ebn0<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the phase of every sample (rad).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn phase_noise<'py>(
     py: Python<'py>,
@@ -118,6 +127,9 @@ fn phase_noise<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: `n` samples of the field (√W, complex128).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
 #[pyo3(signature = (n, fs, rng, *, power_dbm = 10.0, linewidth_hz = 100e3, rin_var = 0.0, freq_shift_hz = 0.0))]
 #[allow(clippy::too_many_arguments)]
@@ -144,6 +156,9 @@ fn laser<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the modulated field (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (e, u, *, vpi = 2.0))]
 fn phase_modulator<'py>(
@@ -169,6 +184,9 @@ fn phase_modulator<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the modulated field (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (e, u, *, vpi = 2.0, vb = -1.0, er_db = 60.0))]
 fn mzm<'py>(
@@ -197,6 +215,9 @@ fn mzm<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the modulated field (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (e, u, *, vpi = 2.0, vb_i = -2.0, vb_q = -2.0, vphi = 1.0, er_i_db = 60.0, er_q_db = 60.0))]
 #[allow(clippy::too_many_arguments)]
@@ -233,6 +254,9 @@ fn iqm<'py>(
 ///     thermal_noise (bool): add thermal noise.
 ///     bandwidth_limitation (bool): filter to the bandwidth.
 ///     ideal (bool): ideal square-law detection (overrides the three flags above).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "Photodiode", module = "comrs")]
 #[derive(Clone)]
 pub struct PyPhotodiode {
@@ -353,6 +377,9 @@ wrapper_methods! {
     ///
     /// Returns:
     ///     numpy.ndarray: the photocurrent (A, float64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn detect_power<'py>(
         &self,
         py: Python<'py>,
@@ -415,6 +442,9 @@ fn photodiode_or_ideal(pd: Option<&PyPhotodiode>) -> Photodiode {
 ///
 /// Returns:
 ///     numpy.ndarray: the photocurrent (A, float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (e1, e2, fs, rng, *, photodiode = None))]
 fn balanced_photodiode<'py>(
@@ -439,6 +469,9 @@ fn balanced_photodiode<'py>(
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray, numpy.ndarray]: the four
 ///     output fields.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[allow(clippy::type_complexity)]
 fn hybrid_2x4<'py>(
@@ -463,6 +496,9 @@ fn hybrid_2x4<'py>(
 /// Returns:
 ///     numpy.ndarray: the in-phase and quadrature photocurrents as one complex signal
 ///     (A).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (es, elo, fs, rng, *, photodiode = None))]
 fn coherent_receiver<'py>(

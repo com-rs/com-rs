@@ -29,6 +29,9 @@ use pyo3::prelude::*;
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `Eb/N0`.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> p = comrs.theory_ber_imperfect_csi("16qam", 50.0, 0.999)
@@ -58,6 +61,9 @@ fn theory_ber_imperfect_csi(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `Eb/N0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> PyResult<Py<PyAny>> {
     let g = |e: f64| comrs::math::db2lin(e);
@@ -75,6 +81,9 @@ fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> Py
 ///
 /// Returns:
 ///     float | numpy.ndarray: `J0(x)`.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(x, |v| Ok(comrs::math::bessel_j0(v)))
@@ -93,6 +102,9 @@ fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///
 /// Returns:
 ///     numpy.ndarray: `c_0, …, c_{n_terms - 1}`.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -120,6 +132,9 @@ fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: i64) ->
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the useful and the distortion power per bin.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn distortion_spectrum<'py>(
     py: Python<'py>,

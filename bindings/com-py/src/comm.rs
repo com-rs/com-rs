@@ -22,6 +22,9 @@ use pyo3::prelude::*;
 ///     kind (str): `"qam"`, `"psk"`, `"pam"` or `"ook"`.
 ///     m (int): the order, a power of two (`2` for OOK).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> c = comrs.Constellation("qam", 16).normalized()
@@ -52,6 +55,9 @@ impl PyConstellation {
     /// Returns:
     ///     Constellation: the constellation (kind `"custom"`).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.Constellation.from_points([1, -1]).order
@@ -71,6 +77,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     Constellation: the constellation (kind `"custom"`).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -141,6 +150,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     float: `Σ p_i |s_i|²`.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn energy_with(&self, px: &Bound<'_, PyAny>) -> PyResult<f64> {
         Ok(self.inner.energy_with(&crate::fvec(px)?))
     }
@@ -186,6 +198,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: one symbol per `log2 M` bits (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&bvec(bits)?).py()?))
     }
@@ -197,6 +212,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: the points (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn symbols<'py>(&self, py: Python<'py>, indices: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         let idx = uvec(indices)?;
         if let Some(bad) = idx.iter().find(|&&i| i >= self.inner.order()) {
@@ -212,6 +230,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: the indices (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn decide<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         let z = cvec(z)?;
         Ok(iarr(py, self.inner.decide(&z)))
@@ -224,6 +245,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: the points (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn project<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.project(&cvec(z)?)))
     }
@@ -235,6 +259,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: `log2 M` bits per sample (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn demodulate<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.demodulate(&cvec(z)?).into_pyarray(py))
     }
@@ -252,6 +279,9 @@ impl PyConstellation {
     ///
     /// Returns:
     ///     numpy.ndarray: `log2 M` LLRs per sample, MSB first (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -336,6 +366,9 @@ fn bits<'py>(py: Python<'py>, n: i64, mut rng: PyRefMut<'py, PyRng>) -> PyResult
 /// Returns:
 ///     numpy.ndarray: `length` bits (uint8).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> int(comrs.prbs(7, 127).sum())
@@ -370,6 +403,9 @@ fn maxwell_boltzmann<'py>(py: Python<'py>, constellation: &PyConstellation, lam:
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the indices (int64) and the symbols
 ///     (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (constellation, n, rng, *, px = None))]
 fn symbols<'py>(
@@ -414,6 +450,9 @@ fn ber(rx_bits: &Bound<'_, PyAny>, tx_bits: &Bound<'_, PyAny>) -> PyResult<f64> 
 ///
 /// Returns:
 ///     float: the SNR (dB).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn snr_db(rx: &Bound<'_, PyAny>, tx: &Bound<'_, PyAny>) -> PyResult<f64> {
     metrics::snr_db(&cvec(rx)?, &cvec(tx)?).py()
@@ -431,6 +470,9 @@ fn snr_db(rx: &Bound<'_, PyAny>, tx: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns:
 ///     tuple[float, float, float]: BER, SER and SNR (dB).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn fast_ber_calc(
     rx: &Bound<'_, PyAny>,
@@ -454,6 +496,9 @@ fn fast_ber_calc(
 ///
 /// Returns:
 ///     float: the EVM as a power ratio.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (symbols, constellation, *, tx = None))]
 fn evm(symbols: &Bound<'_, PyAny>, constellation: &PyConstellation, tx: Option<&Bound<'_, PyAny>>) -> PyResult<f64> {
@@ -469,6 +514,9 @@ fn evm(symbols: &Bound<'_, PyAny>, constellation: &PyConstellation, tx: Option<&
 ///
 /// Returns:
 ///     float: the entropy (bits).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -492,6 +540,9 @@ fn entropy(px: &Bound<'_, PyAny>) -> PyResult<f64> {
 /// Returns:
 ///     tuple[float, float]: GMI (bits/symbol) and normalised GMI (per bit of
 ///     information, ``GMI / H(X)``).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (rx, tx, constellation, *, px = None))]
 fn monte_carlo_gmi(
@@ -517,6 +568,9 @@ fn monte_carlo_gmi(
 ///
 /// Returns:
 ///     float: the mutual information (bits/symbol).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (rx, tx, constellation, *, px = None))]
 fn monte_carlo_mi(
@@ -538,6 +592,9 @@ fn monte_carlo_mi(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `E_b/N_0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -564,6 +621,9 @@ fn theory_ber(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `E_b/N_0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -626,6 +686,9 @@ fn theory_ber_rayleigh_mrc(ebn0_db: &Bound<'_, PyAny>, branches: usize) -> PyRes
 /// Returns:
 ///     float | numpy.ndarray: the density at every `theta`.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs, math
 ///     >>> round(comrs.theory_phase_pdf(1.0, 0.0) * 2 * math.pi, 12)
@@ -644,6 +707,9 @@ fn theory_phase_pdf(theta: &Bound<'_, PyAny>, snr: f64) -> PyResult<Py<PyAny>> {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the symbol error probability at every `E_b/N_0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -672,6 +738,9 @@ fn theory_ser(m: usize, ebn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<P
 ///
 /// Returns:
 ///     float | numpy.ndarray: the mutual information (bits/symbol) at every SNR.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -706,6 +775,9 @@ fn theory_mi(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the GMI (bits/symbol) at every SNR.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (m, snr_db, kind = "qam", *, px = None, fading = "awgn", points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn theory_gmi(
@@ -738,6 +810,9 @@ fn fading(name: &str) -> PyResult<Fading> {
 /// Returns:
 ///     float | numpy.ndarray: the capacity at every SNR.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.cm_capacity(comrs.Constellation("qam", 4), 30.0), 6)
@@ -767,6 +842,9 @@ fn cm_capacity(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the capacity at every SNR.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn bicm_capacity(
@@ -789,6 +867,9 @@ fn bicm_capacity(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the cutoff rate at every SNR.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs, math
@@ -814,6 +895,9 @@ fn cm_cutoff_rate(constellation: &PyConstellation, snr_db: &Bound<'_, PyAny>, fa
 ///
 /// Returns:
 ///     float | numpy.ndarray: the cutoff rate at every SNR.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (constellation, snr_db, fading = "awgn", *, points = theory::DEFAULT_QUADRATURE_POINTS))]
 fn bicm_cutoff_rate(
@@ -844,6 +928,9 @@ fn bicm_cutoff_rate(
 /// Returns:
 ///     dict: ``air``, ``air_bmd``, ``air_opt``, ``air_bmd_opt`` (bits/symbol), ``scale``,
 ///     ``scale_bmd`` (the best scalings) and ``calibration``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (z, indices, constellation, noise_var, *, px = None))]
 fn posterior_rates<'py>(
@@ -889,6 +976,9 @@ fn posterior_rates<'py>(
 /// Returns:
 ///     dict: ``mi``, ``gmi`` (bits/symbol), ``ngmi`` (per bit of information),
 ///     ``snr_db`` (the effective SNR, dB) and ``entropy`` (``H(X)``, bits).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (rx, indices, constellation, *, px = None))]
 fn information_rates<'py>(

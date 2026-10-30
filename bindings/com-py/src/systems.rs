@@ -26,6 +26,9 @@ use pyo3::prelude::*;
 ///     pilots (bool): pilot blocks.
 ///     scrambling_code (int): the number ``n`` of the Gold sequence.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> link = comrs.Dvbs2("8PSK", "3/5", frame="short")
@@ -110,6 +113,9 @@ impl PyDvbs2 {
     ///
     /// Returns:
     ///     numpy.ndarray: the ``plframe_len`` unit-energy symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, bbframe: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         let b = bvec(bbframe)?;
         let x = py.detach(|| self.inner.modulate(&b)).py()?;
@@ -125,6 +131,9 @@ impl PyDvbs2 {
     ///
     /// Returns:
     ///     numpy.ndarray: one LLR per bit of the FECFRAME (positive for a 0).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (rx, noise_var, *, max_log = false))]
     fn llr<'py>(&self, py: Python<'py>, rx: &Bound<'py, PyAny>, noise_var: f64, max_log: bool) -> PyResult<FArr<'py>> {
         let y = cvec(rx)?;
@@ -140,6 +149,9 @@ impl PyDvbs2 {
     ///
     /// Returns:
     ///     numpy.ndarray: the ``k`` bits of the BBFRAME (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode<'py>(&self, py: Python<'py>, rx: &Bound<'py, PyAny>, noise_var: f64) -> PyResult<BArr<'py>> {
         let y = cvec(rx)?;
         let b = py.detach(|| self.inner.decode(&y, noise_var)).py()?;
@@ -158,6 +170,9 @@ impl PyDvbs2 {
 ///
 /// Returns:
 ///     numpy.ndarray: the ``k_bch`` bits of the BBFRAME (uint8).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (data, k_bch, *, rolloff = 0))]
 fn dvbs2_bbframe<'py>(py: Python<'py>, data: &Bound<'py, PyAny>, k_bch: usize, rolloff: u8) -> PyResult<BArr<'py>> {
@@ -171,6 +186,9 @@ fn dvbs2_bbframe<'py>(py: Python<'py>, data: &Bound<'py, PyAny>, k_bch: usize, r
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, bool]: the data bits (uint8, derandomised) and the CRC check.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn dvbs2_bbframe_data<'py>(py: Python<'py>, bbframe: &Bound<'py, PyAny>) -> PyResult<(BArr<'py>, bool)> {
     let (d, ok) = dvbs2::bbframe_data(&bvec(bbframe)?).py()?;
@@ -185,6 +203,9 @@ fn dvbs2_bbframe_data<'py>(py: Python<'py>, bbframe: &Bound<'py, PyAny>) -> PyRe
 ///
 /// Returns:
 ///     tuple[int, bool, bool]: the MODCOD, the short-frame flag and the pilot flag.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn dvbs2_decode_plheader(rx: &Bound<'_, PyAny>) -> PyResult<(u8, bool, bool)> {
     dvbs2::decode_plheader(&cvec(rx)?).py()

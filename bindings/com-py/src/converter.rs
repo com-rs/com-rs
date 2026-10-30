@@ -29,6 +29,9 @@ use pyo3::prelude::*;
 /// Returns:
 ///     numpy.ndarray: the digital samples (complex128).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> comrs.adc(np.array([0.3 - 0.01j]), 3, full_scale=1.0).tolist()
@@ -81,6 +84,9 @@ fn adc<'py>(
 /// Returns:
 ///     numpy.ndarray: the analogue signal (complex128), ``hold`` × ``len(x)`` samples.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> comrs.dac(np.array([0.3 + 0.0j]), 3, full_scale=1.0, hold=2).real.tolist()
@@ -132,6 +138,9 @@ fn theory_sqnr_sine_db(bits: u32) -> f64 {
 ///
 /// Returns:
 ///     float: the mean squared error.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs

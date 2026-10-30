@@ -49,6 +49,9 @@ fn modulation_index(h: &Bound<'_, PyAny>) -> PyResult<(u32, u32)> {
 ///     sps (int): samples per symbol (at least 2).
 ///     order (int): alphabet size `M`, 2 or 4.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> msk = comrs.Cpm("1/2", "rec", sps=4)
@@ -95,6 +98,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     Cpm: the modulator.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[staticmethod]
     #[pyo3(signature = (sps=4))]
     fn msk(sps: usize) -> PyResult<Self> {
@@ -110,6 +116,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     Cpm: the modulator.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[staticmethod]
     #[pyo3(signature = (bt=0.3, *, length=3, sps=4))]
     fn gmsk(bt: f64, length: usize, sps: usize) -> PyResult<Self> {
@@ -198,6 +207,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: the levels `±1, ±3, …` (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn levels<'py>(&self, py: Python<'py>, indices: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         let m = self.inner.config().order;
         let idx = uvec(indices)?;
@@ -214,6 +226,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: `sps` phase samples (rad) per symbol.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn phase<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.phase(&uvec(symbols)?).py()?))
     }
@@ -225,6 +240,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: `sps · len(symbols)` complex samples.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&uvec(symbols)?).py()?))
     }
@@ -237,6 +255,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: the symbol indices of the most likely sequence (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn ml_detect<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         let r = cvec(samples)?;
         Ok(iarr(py, py.detach(|| self.inner.ml_detect(&r)).py()?))
@@ -251,6 +272,9 @@ impl PyCpm {
     ///     tuple[numpy.ndarray, numpy.ndarray]: the symbol indices, and the terminal phase states
     ///     in units of `π/q` (modulo `2q`) at the start of every interval and after
     ///     the last one (one more value than symbols).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn ml_detect_path<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<(IArr<'py>, IArr<'py>)> {
         let r = cvec(samples)?;
         let path = py.detach(|| self.inner.ml_detect_path(&r)).py()?;
@@ -267,6 +291,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: the bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn msk_detect<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.msk_detect(&cvec(samples)?).py()?.into_pyarray(py))
     }
@@ -284,6 +311,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     numpy.ndarray: the symbol indices (int64; for binary CPM, the bits).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, *, bt=None))]
     fn differential_detect<'py>(
         &self,
@@ -337,6 +367,9 @@ impl PyCpm {
 /// Returns:
 ///     numpy.ndarray: the symbol indices for :meth:`Cpm.modulate` (int64).
 ///
+/// Raises:
+///     ValueError: for bits that are not 0 or 1, or not a 1-D array.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.msk_precode([1, 1, 0, 0, 1]).tolist()
@@ -355,6 +388,9 @@ fn msk_precode<'py>(py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<IArr<
 ///
 /// Returns:
 ///     numpy.ndarray: the `N` bits (uint8).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -378,6 +414,9 @@ fn msk_bits<'py>(py: Python<'py>, phase_states: &Bound<'py, PyAny>) -> PyResult<
 ///
 /// Returns:
 ///     float | numpy.ndarray: the density, which integrates to one over all frequencies.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -423,6 +462,9 @@ fn msk_psd(ft: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///     h (float): modulation index (phase standard deviation `2πh`).
 ///     oversampling (int): `J`, the DFT has `N = 2J(K+1)` points.
 ///     n_cp (int): cyclic prefix (samples).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -512,6 +554,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     float | numpy.ndarray: `σ²` (for `Rng.complex_noise`).
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn noise_variance(&self, esn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(esn0_db, |e| Ok(self.inner.noise_variance(e)))
     }
@@ -523,6 +568,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `N` real samples per block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn ofdm_signal<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.ofdm_signal(&cvec(symbols)?).py()?))
     }
@@ -534,6 +582,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `N + N_cp` unit-envelope samples per block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&cvec(symbols)?).py()?))
     }
@@ -551,6 +602,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `K` complex estimates per block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, *, unwrap="none", receiver="arctangent"))]
     fn demodulate<'py>(
         &self,
@@ -578,6 +632,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `K` complex estimates per block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, noise_var, constellation, *, iterations=50, damping=0.5, points=64))]
     #[allow(clippy::too_many_arguments, reason = "the keyword arguments of the Python method")]
     fn gamp<'py>(
@@ -602,6 +659,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: one phase (rad) per sample.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     #[pyo3(signature = (samples, *, unwrap="none"))]
     fn received_phase<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>, unwrap: &str) -> PyResult<FArr<'py>> {
         let u = self::unwrap(unwrap)?;
@@ -616,6 +676,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the SNR (linear).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn snr(&self, esn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(esn0_db, |e| theory::snr(&self.inner, e).py())
     }
@@ -630,6 +693,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the SER.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ser(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
@@ -647,6 +713,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the BER.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ber(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
@@ -658,6 +727,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `N` values, in the order of the DFT.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn psd<'py>(&self, py: Python<'py>) -> PyResult<FArr<'py>> {
         Ok(farr(py, theory::psd(&self.inner).py()?))
     }
@@ -671,6 +743,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `K` SNRs (linear).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[pyo3(signature = (esn0_db, receiver="arctangent"))]
     fn subcarrier_snr<'py>(&self, py: Python<'py>, esn0_db: f64, receiver: &str) -> PyResult<FArr<'py>> {
         let r = self::receiver(receiver, "none")?;
@@ -688,6 +763,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the BER.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
     fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
         let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
@@ -703,6 +781,9 @@ impl PyCeOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: `K` complex changes.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn cycle_slip_response<'py>(&self, py: Python<'py>, start: usize) -> PyResult<CArr<'py>> {
         Ok(carr(py, theory::cycle_slip_response(&self.inner, start).py()?))
     }
@@ -724,6 +805,9 @@ impl PyCeOfdm {
 ///
 /// Returns:
 ///     numpy.ndarray: `P_0 … P_{n-1}`.
+///
+/// Raises:
+///     ValueError: for a negative count.
 ///
 /// Examples:
 ///     >>> import comrs, math
@@ -764,6 +848,9 @@ fn ce_ofdm_optimum_gain(two_pi_h: f64, theta_max: Option<f64>) -> f64 {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the BER.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn ce_ofdm_ber_optimum(two_pi_h: f64, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(ebn0_db, |e| Ok(theory::ber_optimum(two_pi_h, e)))
@@ -779,6 +866,9 @@ fn ce_ofdm_ber_optimum(two_pi_h: f64, ebn0_db: &Bound<'_, PyAny>) -> PyResult<Py
 ///
 /// Returns:
 ///     float: `B_y/(2B_m)`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -800,6 +890,9 @@ fn pm_occupied_bandwidth(sigma: f64, fraction: f64) -> PyResult<f64> {
 ///     oversampling (int): samples per chip.
 ///     waveform (str): `"lora"`, or for comparison `"vangelista"` (the discrete chirp of
 ///         Vangelista 2017) and `"fsk"` (one sample per chip).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -847,6 +940,9 @@ impl PyCss {
     ///
     /// Returns:
     ///     numpy.ndarray: `J M` unit-envelope samples.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn symbol<'py>(&self, py: Python<'py>, a: usize) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.symbol(a).py()?))
     }
@@ -858,6 +954,9 @@ impl PyCss {
     ///
     /// Returns:
     ///     numpy.ndarray: `J M` samples per symbol.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&uvec(symbols)?).py()?))
     }
@@ -870,6 +969,9 @@ impl PyCss {
     ///
     /// Returns:
     ///     numpy.ndarray: `M` energies per symbol.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn energies<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.energies(&cvec(samples)?).py()?))
     }
@@ -881,6 +983,9 @@ impl PyCss {
     ///
     /// Returns:
     ///     numpy.ndarray: one symbol per `J M` samples.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         Ok(iarr(py, self.inner.demodulate(&cvec(samples)?).py()?))
     }
@@ -895,6 +1000,9 @@ impl PyCss {
     ///
     /// Returns:
     ///     numpy.ndarray: `M` samples.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn interferer<'py>(&self, py: Python<'py>, s1: usize, s2: usize, tau: f64) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.interferer(s1, s2, tau).py()?))
     }
@@ -916,6 +1024,9 @@ impl PyCss {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the SER.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -943,6 +1054,9 @@ fn css_ser(sf: u32, snr_db: &Bound<'_, PyAny>, approximation: Option<&str>) -> P
 ///
 /// Returns:
 ///     float | numpy.ndarray: the BER.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(snr_db, |s| css_theory::ber(sf, s).py())
@@ -958,6 +1072,9 @@ fn css_ber(sf: u32, snr_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///
 /// Returns:
 ///     complex: `C(l, m)`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn css_cross_correlation(sf: u32, l: usize, m: usize) -> PyResult<C64> {
     css_theory::cross_correlation(sf, l, m).py()
@@ -971,6 +1088,9 @@ fn css_cross_correlation(sf: u32, l: usize, m: usize) -> PyResult<C64> {
 ///
 /// Returns:
 ///     float: `max Re C(l, m)` over `l ≠ m`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -990,6 +1110,9 @@ fn css_max_cross_correlation(sf: u32) -> PyResult<f64> {
 ///
 /// Returns:
 ///     numpy.ndarray: one value per frequency.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn css_continuous_spectrum<'py>(py: Python<'py>, sf: u32, f: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
     Ok(farr(py, css_theory::continuous_spectrum(sf, &fvec(f)?).py()?))
@@ -1004,6 +1127,9 @@ fn css_continuous_spectrum<'py>(py: Python<'py>, sf: u32, f: &Bound<'py, PyAny>)
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (units of `B`) and powers.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: i64) -> PyResult<(FArr<'py>, FArr<'py>)> {
     let lines = css_theory::spectral_lines(sf, count(n_max, "n_max")?).py()?;
@@ -1021,6 +1147,9 @@ fn css_spectral_lines<'py>(py: Python<'py>, sf: u32, n_max: i64) -> PyResult<(FA
 ///
 /// Returns:
 ///     float: the band in units of `B`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -1043,6 +1172,9 @@ fn css_occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> PyResult<f64> {
 ///
 /// Returns:
 ///     numpy.ndarray: `M` complex values.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn css_interference_pattern<'py>(py: Python<'py>, sf: u32, s1: usize, s2: usize, tau: f64) -> PyResult<CArr<'py>> {
     Ok(carr(py, css_theory::interference_pattern(sf, s1, s2, tau).py()?))
@@ -1061,6 +1193,9 @@ fn css_interference_pattern<'py>(py: Python<'py>, sf: u32, s1: usize, s2: usize,
 ///
 /// Returns:
 ///     float: the SER or the FER.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (sf, snr_db, pi_db, *, frame=None, eps=0.2))]
 fn css_ser_interference(sf: u32, snr_db: f64, pi_db: f64, frame: Option<usize>, eps: f64) -> PyResult<f64> {

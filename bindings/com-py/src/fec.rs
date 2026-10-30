@@ -43,6 +43,9 @@ where
 /// Args:
 ///     name (str): `"crc24a"`, `"crc24b"`, `"crc24c"`, `"crc16"`, `"crc11"` or `"crc6"`.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> crc = comrs.Crc("crc24a")
@@ -78,6 +81,9 @@ impl PyCrc {
     ///
     /// Returns:
     ///     numpy.ndarray: `width` parity bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for bits that are not 0 or 1, or not a 1-D array.
     fn checksum<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.checksum(&bvec(bits)?).into_pyarray(py))
     }
@@ -89,6 +95,9 @@ impl PyCrc {
     ///
     /// Returns:
     ///     numpy.ndarray: the message and the `width` parity bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for bits that are not 0 or 1, or not a 1-D array.
     fn attach<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.attach(&bvec(bits)?).into_pyarray(py))
     }
@@ -100,6 +109,9 @@ impl PyCrc {
     ///
     /// Returns:
     ///     bool: whether the parity bits match.
+    ///
+    /// Raises:
+    ///     ValueError: for bits that are not 0 or 1, or not a 1-D array.
     fn check(&self, word: &Bound<'_, PyAny>) -> PyResult<bool> {
         Ok(self.inner.check(&bvec(word)?))
     }
@@ -139,6 +151,9 @@ impl PyScrambler {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     fn sequence<'py>(&self, py: Python<'py>, n: i64) -> PyResult<BArr<'py>> {
         Ok(self.inner.sequence(count(n, "n")?).into_pyarray(py))
     }
@@ -150,6 +165,9 @@ impl PyScrambler {
     ///
     /// Returns:
     ///     numpy.ndarray: the bits XOR the sequence (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for bits that are not 0 or 1, or not a 1-D array.
     fn scramble<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.scramble(&bvec(bits)?).into_pyarray(py))
     }
@@ -161,6 +179,9 @@ impl PyScrambler {
     ///
     /// Returns:
     ///     numpy.ndarray: the LLRs of the bits (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn descramble_llr<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.descramble_llr(&fvec(llr)?)))
     }
@@ -192,6 +213,9 @@ impl PyInterleaver {
     ///
     /// Returns:
     ///     Interleaver: the interleaver.
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     ///
     /// Examples:
     ///     >>> import comrs
@@ -253,6 +277,9 @@ impl PyInterleaver {
     ///
     /// Returns:
     ///     numpy.ndarray: the permuted block, of the dtype of `x`.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn interleave<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let x = self.one_block(py, x)?;
         x.get_item(iarr(py, self.inner.perm.clone()))
@@ -265,6 +292,9 @@ impl PyInterleaver {
     ///
     /// Returns:
     ///     numpy.ndarray: the block in its original order, of the dtype of `y`.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn deinterleave<'py>(&self, py: Python<'py>, y: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let y = self.one_block(py, y)?;
         let out = py.import("numpy")?.call_method1("empty_like", (&y,))?;
@@ -315,6 +345,9 @@ impl PyInterleaver {
 ///     constraint (int): constraint length `K`.
 ///     hard_decision (bool): decode the signs of the LLRs only.
 ///     puncture (str | list[list[int]] | None): the puncturing pattern.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -393,6 +426,9 @@ impl PyConv {
     ///
     /// Returns:
     ///     int: the free distance.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn free_distance(&self) -> PyResult<u32> {
         comrs::fec::puncture::free_distance(&self.inner.code.trellis, &self.inner.puncturer).py()
     }
@@ -404,6 +440,9 @@ impl PyConv {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` coded bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     ///
     /// Examples:
     ///     >>> import comrs
@@ -421,6 +460,9 @@ impl PyConv {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -449,6 +491,9 @@ impl PyConv {
 ///     qpp (str | tuple[int, int] | None): the QPP interleaver `(f1, f2)`, or `"lte"`.
 ///     seed (int): seed of the random interleaver.
 ///     puncture (str | list[list[int]] | None): the puncturing pattern (three rows).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -577,6 +622,9 @@ impl PyTurbo {
     /// Returns:
     ///     numpy.ndarray: `n` coded bits per block (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.TurboCode(40).encode(comrs.bits(80, comrs.Rng(1))).size
@@ -592,6 +640,9 @@ impl PyTurbo {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -617,6 +668,9 @@ impl PyTurbo {
 ///     n (int): coded bits per block.
 ///     rows (list[list[int]]): the positions of the ones of every row of the
 ///         parity-check matrix.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "LdpcCode", module = "comrs")]
 pub struct PyLdpc {
     inner: LdpcCode,
@@ -644,6 +698,9 @@ impl PyLdpc {
     /// Returns:
     ///     LdpcCode: the code.
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> code = comrs.LdpcCode.peg(96, 48)
@@ -664,6 +721,9 @@ impl PyLdpc {
     ///     alpha (float): the scale or the offset of the min-sum rules.
     ///     layered (bool): the layered schedule (else flooding).
     ///     max_iterations (int): iterations at most.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[pyo3(signature = (
         rule=ldpc::DEFAULT_RULE.name(),
         *,
@@ -719,6 +779,9 @@ impl PyLdpc {
     /// Returns:
     ///     numpy.ndarray: `n` coded bits per block (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.LdpcCode.peg(96, 48).encode(comrs.bits(96, comrs.Rng(1))).size
@@ -734,6 +797,9 @@ impl PyLdpc {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -752,6 +818,9 @@ impl PyLdpc {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, int]: the `n` a posteriori LLRs and the iterations run.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode_llr<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<(FArr<'py>, usize)> {
         let l = fvec(llr)?;
         let (post, it) = py.detach(|| self.inner.decode_llr(&l)).py()?;
@@ -770,6 +839,9 @@ impl PyLdpc {
 ///     design_ebn0_db (float): the `Eb/N0` of the construction (dB).
 ///     crc (str, optional): the CRC of the list decoder (a name of `Crc`).
 ///     list_size (int): the list size `L` (1 for SC).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -831,6 +903,9 @@ impl PyPolar {
     /// Returns:
     ///     numpy.ndarray: `n` coded bits per block (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.PolarCode(64, 32).encode(comrs.bits(64, comrs.Rng(1))).size
@@ -846,6 +921,9 @@ impl PyPolar {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -876,6 +954,9 @@ impl PyPolar {
 ///     iterations (int): the maximum number of iterations.
 ///     layered (bool): the layered schedule (default), or flooding (``False``); both stop
 ///         early on a codeword.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -965,6 +1046,9 @@ impl PyNrLdpc {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn encode<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         encode(py, &self.inner, bits)
     }
@@ -976,6 +1060,9 @@ impl PyNrLdpc {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn decode<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         decode(py, &self.inner, llr)
     }
@@ -996,6 +1083,9 @@ impl PyNrLdpc {
 ///     n (int): transmitted bits per block (`E`).
 ///     link (str): ``"uplink"`` or ``"downlink"``.
 ///     list_size (int): the list size `L`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -1048,6 +1138,9 @@ impl PyNrPolar {
     ///
     /// Returns:
     ///     numpy.ndarray: `n` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn encode<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         encode(py, &self.inner, bits)
     }
@@ -1059,6 +1152,9 @@ impl PyNrPolar {
     ///
     /// Returns:
     ///     numpy.ndarray: `k` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn decode<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         decode(py, &self.inner, llr)
     }
@@ -1073,6 +1169,9 @@ impl PyNrPolar {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the capacity (bits per channel use) at every `Eb/N0`.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -1094,6 +1193,9 @@ fn biawgn_capacity(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>>
 /// Returns:
 ///     float | numpy.ndarray: the block error probability at every `Eb/N0`.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> p = comrs.normal_approximation(256, 128, [1.0, 3.0])
@@ -1112,6 +1214,9 @@ fn normal_approximation(n: usize, k: usize, ebn0_db: &Bound<'_, PyAny>) -> PyRes
 /// Returns:
 ///     float | numpy.ndarray: the limit (dB).
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.shannon_limit_ebn0_db(0.5), 3)
@@ -1126,6 +1231,9 @@ fn shannon_limit_ebn0_db(rate: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///
 /// Args:
 ///     composition (list[int]): occurrences of every symbol in a block.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -1157,6 +1265,9 @@ impl PyCcdm {
     ///
     /// Returns:
     ///     Ccdm: the matcher.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[staticmethod]
     fn from_distribution(p: &Bound<'_, PyAny>, n: i64) -> PyResult<Self> {
         Ok(PyCcdm { inner: Ccdm::from_distribution(&fvec(p)?, count(n, "n")?).py()? })
@@ -1199,6 +1310,9 @@ impl PyCcdm {
     ///
     /// Returns:
     ///     numpy.ndarray: ``n`` symbol indices (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn matched<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         let s = self.inner.matched(&bvec(bits)?).py()?;
         Ok(iarr(py, s))
@@ -1212,6 +1326,9 @@ impl PyCcdm {
     ///
     /// Returns:
     ///     numpy.ndarray: ``k`` bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn dematch<'py>(&self, py: Python<'py>, symbols: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         Ok(self.inner.dematch(&uvec(symbols)?).py()?.into_pyarray(py))
     }

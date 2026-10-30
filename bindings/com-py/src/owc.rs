@@ -64,6 +64,9 @@ fn emitters(
 ///
 /// Returns:
 ///     float: the mode.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn lambertian_mode(semi_angle_rad: f64) -> PyResult<f64> {
     indoor::lambertian_mode(semi_angle_rad).py()
@@ -101,6 +104,9 @@ fn owc_direction(py: Python<'_>, elevation_rad: f64, azimuth_rad: f64) -> FArr<'
 ///
 /// Returns:
 ///     float: the illuminance (lx).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn owc_illuminance(
     positions: &Bound<'_, PyAny>,
@@ -161,6 +167,9 @@ impl PyImpulseResponse {
     ///
     /// Returns:
     ///     numpy.ndarray: `H(f)` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn frequency_response<'py>(
         &self,
         py: Python<'py>,
@@ -220,6 +229,9 @@ impl PyImpulseResponse {
 ///     reflectance (float | dict): one reflectivity for every surface, or a dict of
 ///         `north`, `south`, `east`, `west`, `ceiling`, `floor` (missing ones: 0).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> room = comrs.OwcRoom([5.0, 5.0, 3.0], 0.8)
@@ -276,6 +288,9 @@ impl PyRoom {
     ///
     /// Returns:
     ///     OwcIllumination: the light on the elements.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (positions, directions, mode, power_w, *, bin_s, partitions))]
     #[allow(clippy::too_many_arguments, reason = "the emitters as arrays and the resolution")]
     fn illuminate(
@@ -330,6 +345,9 @@ impl PyIllumination {
     ///
     /// Returns:
     ///     list[OwcImpulseResponse]: one response per order, from the line of sight.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (position, direction, area_m2, fov_rad, *, filter_gain=1.0, concentrator_index=None))]
     fn impulse_responses(
         &self,
@@ -372,6 +390,9 @@ fn rytov_variance(cn2: f64, wavelength_m: f64, length_m: f64) -> f64 {
 ///
 /// Returns:
 ///     float: the attenuation (dB/km).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn fog_attenuation_db_per_km(visibility_km: f64, wavelength_nm: f64) -> PyResult<f64> {
     fso::attenuation_db_per_km(visibility_km, wavelength_nm).py()
@@ -383,6 +404,9 @@ fn fog_attenuation_db_per_km(visibility_km: f64, wavelength_nm: f64) -> PyResult
 /// Args:
 ///     alpha (float): the effective number of large-scale cells.
 ///     beta (float): the effective number of small-scale cells.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -414,6 +438,9 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     GammaGamma: the distribution.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[staticmethod]
     #[pyo3(signature = (rytov, wave="plane"))]
     fn from_rytov(rytov: f64, wave: &str) -> PyResult<Self> {
@@ -447,6 +474,9 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the density, of the shape of `i`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn pdf(&self, i: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(i, |x| Ok(self.inner.pdf(x)))
     }
@@ -459,6 +489,9 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
         Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
@@ -475,6 +508,9 @@ impl PyGammaGamma {
 ///     beam_radius_m (float): the beam radius at the receiver (m).
 ///     aperture_radius_m (float): the radius of the aperture (m).
 ///     jitter_m (float): the standard deviation of the displacement per direction (m).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "PointingError", module = "comrs")]
 #[derive(Clone, Copy)]
 pub struct PyPointingError {
@@ -523,6 +559,9 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the fraction, of the shape of `r_m`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn collected(&self, r_m: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(r_m, |x| Ok(self.inner.collected(x)))
     }
@@ -534,6 +573,9 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the density, of the shape of `h`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn pdf(&self, h: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(h, |x| Ok(self.inner.pdf(x)))
     }
@@ -546,6 +588,9 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
     fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
         Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
@@ -561,6 +606,9 @@ impl PyPointingError {
 ///     scintillation_index (float | None): the scintillation index of the log-normal
 ///         model.
 ///     pointing (PointingError | None): the pointing errors.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -619,6 +667,9 @@ impl PyFso {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
         Ok(farr(
             py,

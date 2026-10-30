@@ -20,6 +20,9 @@ use pyo3::prelude::*;
 ///     n_fft (int): the number of subcarriers `M`, even.
 ///     overlap (int): the overlapping factor `K` of the prototype (2, 3 or 4).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> f = comrs.Fbmc(16, overlap=4)
@@ -77,6 +80,9 @@ impl PyFbmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, a: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&fvec(a)?).py()?))
     }
@@ -89,6 +95,9 @@ impl PyFbmc {
     ///
     /// Returns:
     ///     numpy.ndarray: `y[n * M + m]` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(r)?).py()?))
     }
@@ -122,6 +131,9 @@ impl PyFbmc {
 ///
 /// Returns:
 ///     numpy.ndarray: the real symbols (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn oqam_stagger<'py>(py: Python<'py>, c: &Bound<'py, PyAny>, m: usize) -> PyResult<FArr<'py>> {
     Ok(farr(py, fbmc::oqam_stagger(&cvec(c)?, m).py()?))
@@ -135,6 +147,9 @@ fn oqam_stagger<'py>(py: Python<'py>, c: &Bound<'py, PyAny>, m: usize) -> PyResu
 ///
 /// Returns:
 ///     numpy.ndarray: the complex symbols (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn oqam_destagger<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, m: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, fbmc::oqam_destagger(&fvec(a)?, m).py()?))
@@ -150,6 +165,9 @@ fn oqam_destagger<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, m: usize) -> PyRe
 ///     subband_size (int): subcarriers per sub-band `Q`.
 ///     filter_len (int): `L`.
 ///     sidelobe_db (float): attenuation of the sidelobes of the filter (dB).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -199,6 +217,9 @@ impl PyUfmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&cvec(data)?).py()?))
     }
@@ -210,6 +231,9 @@ impl PyUfmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(samples)?).py()?))
     }
@@ -285,6 +309,9 @@ fn amplifier_bussgang(
 ///
 /// Returns:
 ///     numpy.ndarray: the window, maximum 1 (float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
 fn chebyshev_window(py: Python<'_>, n: i64, attenuation_db: f64) -> PyResult<FArr<'_>> {
     Ok(farr(py, comrs::dsp::window::chebyshev(count(n, "n")?, attenuation_db)))

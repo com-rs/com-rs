@@ -204,6 +204,9 @@ impl PyFrame {
 ///     base_dir (str | os.PathLike, optional): the directory the relative paths of the
 ///         block are resolved against (the directory of its specification file).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> f = comrs.Frame()
@@ -248,6 +251,9 @@ impl PyLinkBlock {
     /// Args:
     ///     frame (Frame): the frame, modified.
     ///     rng (Rng): the generator of the block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn apply(&self, frame: &mut PyFrame, mut rng: PyRefMut<'_, PyRng>) -> PyResult<()> {
         self.inner.apply(&mut frame.inner, &mut rng.inner).py()
     }
@@ -264,6 +270,9 @@ impl PyLinkBlock {
 /// Returns:
 ///     dict: ``{name: {value, lo, hi, kind, count, total}}``, ``kind`` being ``rate``
 ///     (``count`` errors among ``total`` events) or ``mean`` (of ``count`` values).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -293,6 +302,9 @@ fn frame_metrics<'py>(
 ///
 /// Returns:
 ///     str: the same document as JSON.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(name = "_yaml_to_json")]
 fn yaml_to_json(text: &str) -> PyResult<String> {
@@ -309,6 +321,9 @@ fn yaml_to_json(text: &str) -> PyResult<String> {
 ///
 /// Returns:
 ///     list[str]: one label per block.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(name = "_link_labels")]
 fn link_labels(py: Python<'_>, link: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {

@@ -18,6 +18,9 @@ use pyo3::prelude::*;
 ///     n_symbols (int): Doppler bins `N` (symbols of a frame).
 ///     n_cp (int): the cyclic prefix of a frame (samples).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> o = comrs.Otfs(16, 8, n_cp=4)
@@ -71,6 +74,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples, prefixes included (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&cvec(x)?).py()?))
     }
@@ -82,6 +88,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: the delay–Doppler samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(r)?).py()?))
     }
@@ -97,6 +106,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: `(MN, MN)` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn effective_channel<'py>(
         &self,
         py: Python<'py>,
@@ -125,6 +137,9 @@ impl PyOtfs {
 /// Returns:
 ///     list[tuple[complex, int, float]]: `(gain, delay in samples, Doppler in Hz)` per
 ///     path.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn delay_doppler_paths(
     profile: &Bound<'_, PyAny>,

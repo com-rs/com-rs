@@ -38,6 +38,9 @@ pub(crate) fn profile_or_taps(profile: &Bound<'_, PyAny>) -> PyResult<Vec<(f64, 
 ///     numpy.ndarray: the taps `(n_taps, 2)`, column 0 the delays (s) and column 1 the
 ///     powers (dB).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> taps = comrs.power_delay_profile("epa")
@@ -56,6 +59,9 @@ fn power_delay_profile<'py>(py: Python<'py>, name: &str) -> PyResult<FMat<'py>> 
 ///
 /// Returns:
 ///     float: the RMS delay spread (s).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -78,6 +84,9 @@ fn py_rms_delay_spread(taps: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///     doppler_hz (float): maximum Doppler shift (Hz), 0 for a static realisation.
 ///     n_rx (int): receive antennas.
 ///     n_tx (int): transmit antennas.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -149,6 +158,9 @@ impl PyTdl {
     /// Returns:
     ///     tuple[numpy.ndarray, ChannelTaps]: the received streams (`(n,)` or
     ///     `(n_rx, n)`) and the taps of the realisation.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn fade(
         &self,
         py: Python<'_>,
@@ -186,6 +198,9 @@ impl PyTaps {
     ///     numpy.ndarray: `(n_taps, n_samples, n_rx, n_tx)` (complex128):
     ///     `coefficients[l, n, r, t]` is tap `l` at sample `n` between transmit antenna
     ///     `t` and receive antenna `r`.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn coefficients(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let (n_taps, n, n_rx, n_tx) = (self.inner.delays().len(), self.inner.n_samples(), self.n_rx, self.n_tx);
         let a =
@@ -203,6 +218,9 @@ impl PyTaps {
     /// Returns:
     ///     numpy.ndarray: `(len(bins),)` for SISO, `(len(bins), n_rx, n_tx)` otherwise
     ///     (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn frequency_response(
         &self,
         py: Python<'_>,
@@ -246,6 +264,9 @@ impl PyTaps {
 ///     freq (int): subcarrier spacing of the lattice pattern.
 ///     time (int): symbol spacing of the lattice pattern.
 ///     seed (int): seed of the pilot symbols.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -299,6 +320,9 @@ impl PyGrid {
     /// Returns:
     ///     numpy.ndarray: `(n_pilots, 2)` (int64), the subcarrier `k` and the symbol `l`
     ///     of every pilot.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn pilot_positions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, numpy::PyArray2<i64>>> {
         mat(py, self.inner.pilot_positions().into_iter().map(|(k, l)| vec![k as i64, l as i64]).collect())
     }
@@ -322,6 +346,9 @@ impl PyGrid {
     ///
     /// Returns:
     ///     numpy.ndarray: `n_subcarriers · n_symbols` symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn map<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.map(&cvec(data)?).py()?))
     }
@@ -333,6 +360,9 @@ impl PyGrid {
     ///
     /// Returns:
     ///     numpy.ndarray: the `n_data` data symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn extract<'py>(&self, py: Python<'py>, grid: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         let g = cvec(grid)?;
         if g.len() != self.inner.n_subcarriers * self.inner.n_symbols {
@@ -373,6 +403,9 @@ impl PyGrid {
 ///
 /// Returns:
 ///     numpy.ndarray: the channel estimate at every resource element (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (grid, rx, noise_var, method="linear", *, delays=None, powers=None, max_delay=None, n_fft=None))]
 #[allow(clippy::too_many_arguments)]
@@ -410,6 +443,9 @@ fn ofdm_estimate<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: one OFDM block with its prefix (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (ofdm, *, seed=0))]
 fn ofdm_preamble<'py>(py: Python<'py>, ofdm: &PyOfdm, seed: u64) -> PyResult<CArr<'py>> {
@@ -424,6 +460,9 @@ fn ofdm_preamble<'py>(py: Python<'py>, ofdm: &PyOfdm, seed: u64) -> PyResult<CAr
 ///
 /// Returns:
 ///     numpy.ndarray: the metric at every delay (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn schmidl_cox<'py>(py: Python<'py>, r: &Bound<'py, PyAny>, half: usize) -> PyResult<FArr<'py>> {
     Ok(farr(py, sync::schmidl_cox(&cvec(r)?, half)))
@@ -439,6 +478,9 @@ fn schmidl_cox<'py>(py: Python<'py>, r: &Bound<'py, PyAny>, half: usize) -> PyRe
 /// Returns:
 ///     dict: ``timing`` (the middle of the plateau, inside the cyclic prefix,
 ///     samples), ``cfo`` (subcarrier spacings), ``peak`` (the metric).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn ofdm_synchronize<'py>(py: Python<'py>, r: &Bound<'py, PyAny>, ofdm: &PyOfdm) -> PyResult<Bound<'py, PyDict>> {
     let e = sync::synchronize(&cvec(r)?, &ofdm.inner).py()?;
