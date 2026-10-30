@@ -39,6 +39,20 @@
 //! of `z` with the reference computed by FFT (`O(P log P)` for all the offsets); the
 //! receiver then shifts the reference instead of the samples.
 //!
+//! # Repetitions in the signal
+//!
+//! A preamble of two identical halves (Schmidl & Cox 1997), a repeated symbol (Moose
+//! 1994) and the cyclic prefix of OFDM (van de Beek et al. 1997) are all found by the
+//! correlation of the signal with itself `lag` samples later, summed over a window,
+//!
+//! $$
+//! P(d) = \sum_{m=0}^{W-1} r^{*}[d + m]\, r[d + m + \text{lag}], \qquad
+//! E(d) = \sum_{m=0}^{W-1} |r[d + m]|^{2},
+//! $$
+//!
+//! [`delayed_correlation`] and [`windowed_energy`], computed as direct sums (the order of
+//! the operations of the published estimators).
+//!
 //! # Examples
 //! ```
 //! use com_dsp::sync::frame::{align, frame_sync};
@@ -209,6 +223,39 @@ pub fn periodic_offset(
     Ok(PeriodicOffset { offset: k, rotation: C64::from_polar(1.0, -phi), quality })
 }
 
+/// The correlation $P(d) = \sum_{m=0}^{W-1} r^{*}[d + m]\, r[d + m + \text{lag}]$ of `r`
+/// with itself `lag` samples later over a window of $W$ = `window` samples, for every
+/// start $d$ from 0 to `r.len() - lag - window` (empty if `r` is shorter).
+///
+/// # Examples
+/// ```
+/// use com_dsp::sync::frame::delayed_correlation;
+/// use com_math::C64;
+/// // a block repeated after 4 samples, rotated by 0.3 rad
+/// let b = [C64::new(1.0, 0.0), C64::new(0.0, 1.0), C64::new(-1.0, 0.0), C64::new(0.5, 0.5)];
+/// let mut r = b.to_vec();
+/// r.extend(b.iter().map(|v| v * C64::from_polar(1.0, 0.3)));
+/// let p = delayed_correlation(&r, 4, 4);
+/// assert_eq!(p.len(), 1);
+/// assert!((p[0].arg() - 0.3).abs() < 1e-12);
+/// ```
+pub fn delayed_correlation(r: &[C64], lag: usize, window: usize) -> Vec<C64> {
+    (0..=r.len().saturating_sub(lag + window))
+        .take_while(|&d| d + lag + window <= r.len())
+        .map(|d| (0..window).map(|m| r[d + m].conj() * r[d + m + lag]).sum())
+        .collect()
+}
+
+/// The energy $E(d) = \sum_{m=0}^{W-1} |r[d + m]|^{2}$ of `r` over a window of $W$ =
+/// `window` samples, for every start $d$ from 0 to `r.len() - window` (empty if `r` is
+/// shorter).
+pub fn windowed_energy(r: &[C64], window: usize) -> Vec<f64> {
+    (0..=r.len().saturating_sub(window))
+        .take_while(|&d| d + window <= r.len())
+        .map(|d| (0..window).map(|m| r[d + m].norm_sqr()).sum())
+        .collect()
+}
+
 /// The decision rule of [`locate_sync_word`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SyncRule {
@@ -271,4 +318,24 @@ pub fn locate_sync_word(r: &[f64], sync: &[f64], rule: SyncRule, ambiguous: bool
         }
     }
     Ok(best.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_windowed_sums_are_the_direct_sums_and_short_inputs_give_nothing() {
+        let r: Vec<C64> = (0..9).map(|n| C64::new(f64::from(n), 1.0 - f64::from(n) / 3.0)).collect();
+        let p = delayed_correlation(&r, 3, 4);
+        assert_eq!(p.len(), 3);
+        for (d, v) in p.iter().enumerate() {
+            let want: C64 = (0..4).map(|m| r[d + m].conj() * r[d + m + 3]).sum();
+            assert_eq!(*v, want);
+        }
+        let e = windowed_energy(&r, 4);
+        assert_eq!(e.len(), 6);
+        assert_eq!(e[2], (2..6).map(|n| r[n].norm_sqr()).sum::<f64>());
+        assert!(delayed_correlation(&r, 6, 4).is_empty() && windowed_energy(&r, 10).is_empty());
+    }
 }

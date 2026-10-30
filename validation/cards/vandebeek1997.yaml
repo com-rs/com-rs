@@ -1,0 +1,40 @@
+id: vandebeek1997
+title: Maximum-likelihood timing and frequency offset of OFDM from the cyclic prefix
+literature: vandebeek1997
+source:
+  kind: paper
+  reference: "J.-J. van de Beek, M. Sandell, P. O. Borjesson, ML estimation of time and frequency offset in OFDM systems, IEEE Trans. Signal Process. 45(7), 1800-1805, 1997"
+  locator: "eq. (2); eqs. (6)-(13); Fig. 6, the AWGN curves (N = 256)"
+  file: synchronisation/1997_vandebeek_ml-time-frequency-offset-ofdm_tsp.pdf
+description: >
+  The estimator of eqs. (12)-(13) (comrs::waveform::ofdm::sync::cp_ml) on a stream of
+  OFDM symbols of N = 256 subcarriers (QPSK) with a cyclic prefix of L samples, an
+  offset of 0.25 subcarrier spacing (comrs::hardware::oscillator::frequency_offset) and
+  AWGN; every window of 2N + L samples holds one whole symbol, whose prefix starts at a
+  uniform position. The mean squared errors of the timing (samples^2) and of the offset
+  (subcarrier spacings^2). The test simulates each point at the SNR of the figure plus
+  3.01 dB (the noise variance halved): the convention that reproduces the figure (see
+  the findings).
+run:
+  test: validation/tests/vandebeek1997.rs
+tier: campaign
+duration: "about 3 s on an Apple M6"
+tolerance: {factor: 1.6}
+why: "Fig. 6 read on log axes to about 0.1 decade (a factor 1.26), and the Monte Carlo of 4000 windows per point (about 5 % on a mean squared error); the paper used 125 000 symbols"
+findings:
+  - "Fig. 6 matches the library 3 dB to the left: at the SNR printed on the axis, with SNR = sigma_s^2/sigma_n^2 and sigma_n^2 = E|n|^2 as in eq. (8), the library gives a timing MSE of 0.25, 0.067, 0.017 (L = 15 at 10, 15, 20 dB) against 0.105, 0.028, 0.0087 read, and a frequency MSE of 1.8e-4, 1.8e-5 against 1.1e-4, 1.15e-5; at the printed SNR plus 3 dB it gives 0.095, 0.0087, 9.2e-5, 9.3e-6. The frequency MSE of the library at 20 dB, 1.76e-5, is the high-SNR variance (1 + 1/(2 SNR))/(4 pi^2 L SNR) = 1.7e-5 of the estimator; the figure lies a factor 2 below it. The paper's SNR seems to count the noise of one real dimension"
+  - "the cyclic prefix of L = 4 samples: the mean squared error is set by rare gross timing errors (one window in 3000 moves it by a factor 1000), so the curves of L = 4 are not compared with 4000 windows"
+  - "the dispersive channel of Fig. 6-7 (15 Rayleigh taps, exponential, 2 samples RMS) is not compared: the true timing is defined by the paper as the centre of gravity of the impulse response, which the test does not reproduce yet"
+cases:
+  - inputs: {part: bound, quantity: offset_for_30_db}
+    expected: 1.3e-2
+    tolerance: {atol: 5.0e-4}
+    why: "printed to two significant digits"
+    note: "eq. (2) without noise: the offset at which the SNR after the DFT falls to 30 dB (Moose's bound)"
+  - {inputs: {part: timing, cp: 15, snr_db: 10}, expected: 0.105}
+  - {inputs: {part: timing, cp: 15, snr_db: 15}, expected: 0.028}
+  - {inputs: {part: timing, cp: 15, snr_db: 20}, expected: 0.0087}
+  - {inputs: {part: frequency, cp: 15, snr_db: 10}, expected: 1.1e-4}
+  - {inputs: {part: frequency, cp: 15, snr_db: 20}, expected: 1.15e-5}
+  - {inputs: {part: frequency, cp: 8, snr_db: 10}, expected: 2.3e-4}
+  - {inputs: {part: frequency, cp: 8, snr_db: 20}, expected: 2.1e-5}

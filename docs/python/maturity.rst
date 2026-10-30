@@ -103,9 +103,9 @@ Waveforms
    * - OFDM, channel estimation and gain correction
      - A
      - Cimini 1985 Figs. 3–7; Coleri et al. 2002 Sec. VI-B (with an oversampled comb)
-   * - OFDM synchronisation (Schmidl–Cox)
+   * - OFDM synchronisation (Schmidl–Cox, Moose, van de Beek)
      - A
-     - Schmidl & Cox 1997 eqs. (19), (20), (28) and (43)
+     - Schmidl & Cox 1997, Moose 1994, van de Beek et al. 1997
    * - PAPR: distribution and reduction
      - B
      - Ochiai & Imai 2001 eqs. (11), (27)
