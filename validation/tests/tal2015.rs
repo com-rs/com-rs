@@ -12,28 +12,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
-use com_validation::{MIN_ERRORS, bpsk_awgn_llr};
-use comrs::fec::block::BlockCode;
+use com_validation::{MIN_ERRORS, fer};
 use comrs::fec::polar::PolarCode;
 use comrs::prelude::*;
 use serde_json::json;
 
-fn wer(list: usize, ebn0_db: f64, max_frames: usize, rng: &mut Rng) -> f64 {
+/// The word error rate of the code of the figure with a list of `list`, until
+/// `MIN_ERRORS` word errors or `max_frames` frames.
+fn wer(list: usize, ebn0_db: f64, max_frames: u64, rng: &mut Rng) -> f64 {
     let code = PolarCode::new(2048, 1024, 2.0).unwrap().with_list(list).unwrap();
-    let noise_var = 1.0 / (2.0 * 0.5 * db2lin(ebn0_db));
-    let (mut errors, mut frames) = (0u64, 0usize);
-    while errors < MIN_ERRORS && frames < max_frames {
-        if frames > 0 && frames % 2000 == 0 {
-            println!("  L = {list}, {ebn0_db} dB: {errors} errors in {frames} frames");
-        }
-        let info: Vec<u8> = (0..1024).map(|_| rng.below(2) as u8).collect();
-        let c = code.encode_block(&info).unwrap();
-        if code.decode_block(&bpsk_awgn_llr(&c, noise_var, rng)).unwrap() != info {
-            errors += 1;
-        }
-        frames += 1;
-    }
-    errors as f64 / frames as f64
+    let count = fer(&code, ebn0_db, MIN_ERRORS, max_frames, rng).unwrap();
+    println!("  L = {list}, {ebn0_db} dB: {} errors in {} frames", count.errors, count.trials);
+    count.rate()
 }
 
 #[test]

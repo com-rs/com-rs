@@ -23,7 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
-use com_validation::crossing;
+use com_validation::{crossing, sweep_crossing};
 use comrs::C64;
 use comrs::channel::awgn::awgn;
 use comrs::channel::optical::fiber::{FiberParams, linear_fiber_channel};
@@ -37,6 +37,7 @@ use comrs::dsp::sync::frame::{align, frame_sync};
 use comrs::hardware::converter::{Quantizer, optimal_loading, rms_per_dimension};
 use comrs::hardware::oscillator::{PhaseOrigin, wiener_phase};
 use comrs::mapping::constellation::{Constellation, ConstellationKind};
+use comrs::mapping::source;
 use comrs::math::lin2db;
 use comrs::math::search::bisect;
 use comrs::metrics::{ber, theory_ber};
@@ -57,10 +58,6 @@ fn qam16() -> Constellation {
     Constellation::qam(16).unwrap().normalized()
 }
 
-fn random_bits(n: usize, rng: &mut Rng) -> Vec<u8> {
-    (0..n).map(|_| rng.below(2) as u8).collect()
-}
-
 /// The BER of `z` (one sample per symbol, aligned) against `bits`, after `skip` symbols.
 fn bit_error_rate(c: &Constellation, z: &[C64], bits: &[u8], skip: usize) -> f64 {
     let b = c.bits_per_symbol();
@@ -73,7 +70,7 @@ fn bit_error_rate(c: &Constellation, z: &[C64], bits: &[u8], skip: usize) -> f64
 fn link_ber(alg: Option<Algorithm>, cd_ps_nm: f64, osnr_db: f64, n_sym: usize, rng: &mut Rng) -> f64 {
     let (c, sps) = (qam16(), 2usize);
     let fs = SYMBOL_RATE * sps as f64;
-    let bits = random_bits(n_sym * 4, rng);
+    let bits = source::bits(n_sym * 4, rng);
     let symbols = c.modulate(&bits).unwrap();
     let rrc = pulse_shape(PulseShape::Rrc { rolloff: 1.0 }, sps, 32 * sps + 1).unwrap();
     let tx = fir_filter(&rrc, &upsample(&symbols, sps));
@@ -115,15 +112,7 @@ fn decision_directed_loop(x: &[C64], mu: f64) -> Vec<f64> {
 /// 0.5 dB up to the first point below 10⁻³ (records of 400 000 symbols, the BER counted
 /// on the second half).
 fn required_osnr(alg: Option<Algorithm>, cd_ps_nm: f64, rng: &mut Rng) -> f64 {
-    let mut points = Vec::new();
-    for osnr in (0..20).map(|i| 15.0 + 0.5 * f64::from(i)) {
-        let b = link_ber(alg, cd_ps_nm, osnr, 400_000, rng);
-        points.push((osnr, b));
-        if b < 1e-3 {
-            break;
-        }
-    }
-    crossing(&points, 1e-3).unwrap_or(f64::INFINITY)
+    sweep_crossing(15.0, 0.5, 20, 1e-3, |_, osnr| link_ber(alg, cd_ps_nm, osnr, 400_000, rng)).unwrap_or(f64::INFINITY)
 }
 
 #[test]
@@ -177,7 +166,7 @@ struct Recovery {
 /// by the loop of eq. (11) of step `mu`.
 fn carrier_recovery(dnu_ts: f64, mu: f64, osnr_db: f64, n_sym: usize, rng: &mut Rng) -> Recovery {
     let c = qam16();
-    let bits = random_bits(n_sym * 4, rng);
+    let bits = source::bits(n_sym * 4, rng);
     let symbols = c.modulate(&bits).unwrap();
     let phase = wiener_phase((2.0 * std::f64::consts::PI * dnu_ts).sqrt(), n_sym, PhaseOrigin::Zero, rng);
     let x = derotate(&symbols, &phase, 1.0).unwrap();

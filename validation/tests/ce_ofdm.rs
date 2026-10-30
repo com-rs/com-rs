@@ -33,6 +33,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::crossing;
+use comrs::channel::awgn::add_noise;
 use comrs::mapping::constellation::Constellation;
 use comrs::prelude::*;
 use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
@@ -48,8 +49,8 @@ fn ber(ce: &CeOfdm, ebn0_db: f64, blocks: usize, seed: u64, detectors: &[Detecto
     let mut rng = Rng::new(seed);
     let (_, d) = comrs::mapping::source::symbols(&c, ce.n_data * blocks, None, &mut rng).unwrap();
     let sigma2 = ce.noise_variance(ebn0_db + comrs::math::lin2db(2.0));
-    let r: Vec<C64> =
-        ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma2.sqrt()).collect();
+    let mut r = ce.modulate(&d).unwrap();
+    add_noise(&mut r, sigma2, &mut rng);
     let truth = c.decide(&d);
     detectors
         .iter()
@@ -122,19 +123,16 @@ fn pacheco2006_fig1_simulated_bandwidth() {
         let blocks = 1000;
         let (_, d) = comrs::mapping::source::symbols(&c, k * blocks, None, &mut Rng::new(3)).unwrap();
         let s = ce.modulate(&d).unwrap();
-        let mut p = vec![0.0; n];
-        for block in s.chunks(n) {
-            for (acc, v) in p.iter_mut().zip(comrs::math::fft::fft(block)) {
-                *acc += v.norm_sqr();
-            }
-        }
+        // the periodogram of the blocks, centred: the carrier line in bin n/2
+        let (_, p) = comrs::dsp::spectrum::periodogram(&s, 1.0, n).unwrap();
+        let dc = n / 2;
         // the power within ±z bins, z = 1 … n/2, without the line
-        let total: f64 = p[1..].iter().sum();
+        let total: f64 = p.iter().enumerate().filter(|(i, _)| *i != dc).map(|(_, v)| v).sum();
         let mut inside = 0.0;
         let mut z = 0;
         while inside < 0.99 * total {
             z += 1;
-            inside += p[z] + p[n - z];
+            inside += p[dc + z] + p[dc - z];
         }
         let simulated = z as f64 / k as f64;
         let analysis = theory::occupied_bandwidth(sigma, 0.99).unwrap();

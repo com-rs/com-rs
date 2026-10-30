@@ -38,7 +38,7 @@
 //!    ultra-wideband long-haul optical communication systems," *J. Lightw. Technol.*,
 //!    38(5), 1019–1031, 2020.
 
-use super::fiber::{Amplification, FiberParams};
+use super::fiber::{Amplification, FiberParams, amplified_spans};
 use super::raman::Raman;
 use com_core::ensure;
 use com_core::prelude::*;
@@ -83,7 +83,7 @@ impl ManakovSsfm {
     ///
     /// # Errors
     /// [`Error::Config`] for a non-positive fixed step or rotation.
-    pub fn propagate(&self, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) -> Result<usize> {
+    pub fn propagate(&self, u: &mut DualPol, fs: f64, rng: Option<&mut Rng>) -> Result<usize> {
         match self.rule {
             StepRule::Fixed(h) | StepRule::NonlinearPhase(h) => {
                 ensure(h > 0.0, || format!("the step must be positive, got {h}"))?;
@@ -97,25 +97,30 @@ impl ManakovSsfm {
             max_iterations: self.max_iterations,
             tolerance: self.tolerance,
         };
-        if let Some(raman) = &self.raman {
-            let solver = ManakovSplitStep { medium: Medium { alpha_np_km: 0.0, ..solver.medium }, ..solver };
-            let mut steps = 0;
-            for _ in 0..f.n_spans {
-                let span = raman.field_span(f, &[&u.x, &u.y], fs)?;
-                steps += solver
-                    .run_with_gain(&mut u.x, &mut u.y, f.span_km, fs, &|z0, z1, out| span.field_gain(z0, z1, out))?;
-                span.amplify(&mut u.x, fs, &self.amplification, f.nf_db, rng.as_deref_mut());
-                span.amplify(&mut u.y, fs, &self.amplification, f.nf_db, rng.as_deref_mut());
-            }
-            return Ok(steps);
-        }
-        let mut steps = 0;
-        for _ in 0..f.n_spans {
-            steps += solver.run(&mut u.x, &mut u.y, f.span_km, fs)?;
-            self.amplification.apply(&mut u.x, f, f.span_km, fs, rng.as_deref_mut())?;
-            self.amplification.apply(&mut u.y, f, f.span_km, fs, rng.as_deref_mut())?;
-        }
-        Ok(steps)
+        let solver = match self.raman {
+            // the loss is in the gain profile of the span
+            Some(_) => ManakovSplitStep { medium: Medium { alpha_np_km: 0.0, ..solver.medium }, ..solver },
+            None => solver,
+        };
+        let DualPol { x, y } = u;
+        amplified_spans(
+            f,
+            f.span_km,
+            &self.amplification,
+            self.raman.as_ref(),
+            &mut [x, y],
+            fs,
+            rng,
+            |_, pol, raman| {
+                let (x, y) = pol.split_at_mut(1);
+                match raman {
+                    Some(span) => {
+                        solver.run_with_gain(x[0], y[0], f.span_km, fs, &|z0, z1, out| span.field_gain(z0, z1, out))
+                    }
+                    None => solver.run(x[0], y[0], f.span_km, fs),
+                }
+            },
+        )
     }
 
     /// The dual-polarisation digital back-propagation of this link with
@@ -129,6 +134,68 @@ impl ManakovSsfm {
             steps_per_span,
             xi,
             ..Dbp::new(f.medium(), f.span_km, f.n_spans, self.amplification.field_gain(f, f.span_km))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::optical::fiber::tests::signal;
+    use crate::optical::raman::{Direction, RamanPump};
+
+    /// The span loop of `ManakovSsfm::propagate` as it was written before the span driver.
+    fn former(link: &ManakovSsfm, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) -> usize {
+        let f = &link.fiber;
+        let solver = ManakovSplitStep {
+            medium: f.medium(),
+            rule: link.rule,
+            max_iterations: link.max_iterations,
+            tolerance: link.tolerance,
+        };
+        let mut steps = 0;
+        if let Some(raman) = &link.raman {
+            let solver = ManakovSplitStep { medium: Medium { alpha_np_km: 0.0, ..solver.medium }, ..solver };
+            for _ in 0..f.n_spans {
+                let span = raman.field_span(f, &[&u.x, &u.y], fs).unwrap();
+                steps += solver
+                    .run_with_gain(&mut u.x, &mut u.y, f.span_km, fs, &|z0, z1, out| span.field_gain(z0, z1, out))
+                    .unwrap();
+                span.amplify(&mut u.x, fs, &link.amplification, f.nf_db, rng.as_deref_mut());
+                span.amplify(&mut u.y, fs, &link.amplification, f.nf_db, rng.as_deref_mut());
+            }
+            return steps;
+        }
+        for _ in 0..f.n_spans {
+            steps += solver.run(&mut u.x, &mut u.y, f.span_km, fs).unwrap();
+            link.amplification.apply(&mut u.x, f, f.span_km, fs, rng.as_deref_mut()).unwrap();
+            link.amplification.apply(&mut u.y, f, f.span_km, fs, rng.as_deref_mut()).unwrap();
+        }
+        steps
+    }
+
+    /// The span driver gives the fields and the step counts of the former loop bit for
+    /// bit, with lumped and Raman amplification, with and without ASE.
+    #[test]
+    fn the_span_driver_is_the_former_span_loop() {
+        let fiber = FiberParams { n_spans: 2, span_km: 30.0, ..FiberParams::default() };
+        let u0 = DualPol::new(signal(256, 1, 3e-3), signal(256, 2, 3e-3)).unwrap();
+        let pump = RamanPump::at_wavelength(1450.0, 0.3, Direction::Counter);
+        let raman = Raman { pumps: vec![pump], step_km: 1.0, ..Raman::default() };
+        for (amplification, raman) in [
+            (Amplification::Edfa, None),
+            (Amplification::Ideal, None),
+            (Amplification::None, None),
+            (Amplification::Edfa, Some(raman)),
+        ] {
+            let link = ManakovSsfm { amplification, raman, ..ManakovSsfm::new(fiber.clone()) };
+            for seed in [None, Some(8)] {
+                let (mut a, mut b) = (u0.clone(), u0.clone());
+                let (mut ra, mut rb) = (seed.map(Rng::new), seed.map(Rng::new));
+                let steps = link.propagate(&mut a, 64e9, ra.as_mut()).unwrap();
+                assert_eq!(steps, former(&link, &mut b, 64e9, rb.as_mut()));
+                assert_eq!(a, b, "{:?}", link.amplification);
+            }
         }
     }
 }

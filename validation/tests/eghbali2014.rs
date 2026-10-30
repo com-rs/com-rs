@@ -3,8 +3,9 @@
 //! digital filters for compensation of chromatic dispersion in digital coherent optical
 //! receivers," *J. Lightw. Technol.* 32(8), 1449–1456, 2014:
 //!
-//! - Table I: the dispersion factors $K$ and the lengths $N$ of Savory's filter
-//!   (S. J. Savory, *Opt. Express* 16(2), 2008) of its two examples;
+//! - Table I: the lengths $N$ of Savory's filter (S. J. Savory, *Opt. Express* 16(2),
+//!   2008) of its two examples (their dispersion factors $K$ are the card
+//!   `validation/cards/eghbali2014_table1.yaml`);
 //! - eq. 19: over the whole band the least-squares filter is $D(n)$, checked against the
 //!   integral of eq. 12 by quadrature;
 //! - Sec. III-A2: the error energy $E$ of the least-squares filter falls with its length
@@ -22,6 +23,7 @@
 //! from ours (centred bins and taps).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use comrs::channel::awgn::add_noise;
 use comrs::dsp::compensation::cd::{
     cd_dispersion_factor, cd_fir_taps, cd_ls_error, cd_ls_taps, cd_savory_length, cd_savory_taps,
 };
@@ -45,11 +47,11 @@ fn db(e: f64) -> f64 {
     comrs::math::lin2db(e)
 }
 
+/// Table I: the lengths $N$ of Savory's filter, exactly (the factors $K$ of the table are
+/// the card `validation/cards/eghbali2014_table1.yaml`).
 #[test]
-fn eghbali2014_table1() {
-    for ((z, fs), (k, n)) in EXAMPLES.iter().zip([(19.9227, 251), (69.605, 875)]) {
-        let kk = cd_dispersion_factor(beta2(), *z, *fs);
-        assert!((kk / k - 1.0).abs() < 5e-5, "K = {kk}, Table I {k}");
+fn eghbali2014_table1_lengths() {
+    for ((z, fs), n) in EXAMPLES.iter().zip([251, 875]) {
         assert_eq!(cd_savory_length(beta2(), *z, *fs), n);
     }
 }
@@ -158,7 +160,8 @@ fn ber(taps: Option<&[C64]>, z_km: f64, fs: f64, ebn0_db: f64, n_sym: usize, rng
     let w = |i: usize| 2.0 * PI * ((i + n / 2) % n) as f64 / n as f64 - PI;
     let x: Vec<C64> = fft(&u).iter().enumerate().map(|(i, v)| v * g[i] * cis(-k * w(i) * w(i))).collect();
     let s2 = 1.0 / (4.0 * db2lin(ebn0_db));
-    let y: Vec<C64> = ifft(&x).iter().map(|v| v + rng.complex_gaussian() * s2.sqrt()).collect();
+    let mut y = ifft(&x);
+    add_noise(&mut y, s2, rng);
     let mut yf = fft(&y);
     if let Some(t) = taps {
         let mut h = vec![C64::new(0.0, 0.0); n];

@@ -22,8 +22,8 @@
   tested: "Figs. 4-5 (CM and BICM capacity, Gray and set partitioning, AWGN and Rayleigh) within 0.1 bit; Figs. 6-7 and Sec. III-C (cutoff rates of 16- to 256QAM); the quadrature against a Monte Carlo of eq. (19)"
   tests:
     - crates/com-mapping/src/bicm.rs::caire_1998_figs_4_5_capacity
-    - validation/tests/bicm.rs::caire_1998_fig_6_awgn_cutoff_rate
-    - validation/tests/bicm.rs::caire_1998_fig_7_rayleigh_cutoff_rate
+    - validation/tests/caire1998.rs::caire_1998_fig_6_awgn_cutoff_rate
+    - validation/tests/caire1998.rs::caire_1998_fig_7_rayleigh_cutoff_rate
   badge: green
   not_covered: "the quasi-Gray labellings of 8-, 32- and 128QAM; the orthogonal signals of Figs. 8-9"
   remarks:
@@ -182,8 +182,8 @@
   module: com_systems::pas, com_metrics::information
   tested: "Tables I and III (shaping gaps of ASK within 2e-4 dB) and Tables VI-X (PAS on the DVB-S2 codes within 0.05 dB); Fig. 8"
   tests:
-    - validation/tests/shaping.rs::bocherer_2015_table_i_and_iii_shaping_gaps_of_ask
-    - validation/tests/shaping.rs::bocherer_2015_table_vi_pas_dvbs2
+    - validation/tests/bocherer2015.rs::bocherer_2015_table_i_and_iii_shaping_gaps_of_ask
+    - validation/tests/bocherer2015.rs::bocherer_2015_table_vi_pas_dvbs2
     - specs/pas_64qam.yaml
   badge: green
 - id: schulte2016
@@ -192,7 +192,7 @@
   module: com_fec::ccdm
   tested: "Fig. 2 and eqs. (10), (17), (22): the 50 points, rates within 6e-7, divergences within 2e-4"
   tests:
-    - validation/tests/shaping.rs::schulte_bocherer_2016_fig2_ccdm_rate_and_divergence
+    - validation/tests/schulte2016.rs::schulte_bocherer_2016_fig2_ccdm_rate_and_divergence
   badge: green
   not_covered: "Ccdm::from_distribution rounds by largest remainders, not by eq. (10) (they differ at 990 lengths up to 1e4)"
 - id: liang2025
@@ -201,8 +201,8 @@
   module: com_metrics::information
   tested: "the ultimate shaping gain of eq. (27); the shaping gains of MB square QAM of Fig. 6"
   tests:
-    - validation/tests/shaping.rs::liang_kahn_2025_eq27_ultimate_shaping_gain
-    - validation/tests/shaping.rs::liang_kahn_2025_fig6_shaping_gain_of_256qam
+    - validation/tests/liang2025.rs::liang_kahn_2025_eq27_ultimate_shaping_gain
+    - validation/tests/liang2025.rs::liang_kahn_2025_fig6_shaping_gain_of_256qam
   badge: orange
   not_covered: "Fig. 6 is compared qualitatively (1.08 to 1.48 dB against about 1 to 1.4 dB read); the direct-detection channels"
 - id: polyanskiy2010
@@ -623,7 +623,7 @@
   module: com_channel::optical::gn
   tested: "the SCI of PM-QPSK of Fig. 1(a) at 1, 10, 20 and 50 spans (GN within 0.2 dB, EGN within 0.25 dB); the moments of the formats"
   tests:
-    - validation/tests/egn.rs::sci_of_pm_qpsk_follows_fig_1a_of_carena_2014
+    - validation/tests/carena2014.rs::sci_of_pm_qpsk_follows_fig_1a_of_carena_2014
     - crates/com-channel/src/optical/gn.rs::the_moments_of_the_formats_are_those_of_carena
   badge: green
   remarks:
@@ -736,7 +736,7 @@
   module: com_dsp::compensation::cd
   tested: "Table I (exact), eqs. 12-19, Figs. 5, 8 and 9"
   tests:
-    - validation/tests/cd_filters.rs
+    - validation/tests/eghbali2014.rs
     - validation/cards/eghbali2014_table1.yaml
   badge: green
   remarks:
@@ -880,7 +880,7 @@
   module: com_waveform::ofdm::nr
   tested: "the NR numerology (Sec. II) and the SSB (Sec. III-A)"
   tests:
-    - validation/tests/nr.rs
+    - validation/tests/lin2019.rs
   badge: green
 - id: astely2009
   area: Systems and standards
@@ -888,7 +888,7 @@
   module: com_waveform::ofdm::nr
   tested: "the LTE numerology (15 kHz, 4.7 and 16.7 us prefixes, 14 or 12 symbols)"
   tests:
-    - validation/tests/nr.rs
+    - validation/tests/lin2019.rs
   badge: green
 - id: eizmendi2014
   area: Systems and standards

@@ -118,6 +118,18 @@ pub fn effective_length(alpha: f64, length: f64) -> f64 {
     if alpha * length < 1e-12 { length } else { (1.0 - (-alpha * length).exp()) / alpha }
 }
 
+/// The frequency $f = c / \lambda$ (Hz) of the vacuum wavelength `wavelength_nm` (nm), $c$
+/// the [`SPEED_OF_LIGHT`].
+///
+/// # Examples
+/// ```
+/// assert!((com_math::nm2hz(1550.0) - 193.414e12).abs() < 1e9);
+/// ```
+#[inline]
+pub fn nm2hz(wavelength_nm: f64) -> f64 {
+    SPEED_OF_LIGHT / (wavelength_nm * 1e-9)
+}
+
 /// Mean power `(1/N) Σ |x_n|²` of a complex signal (0 for an empty slice).
 pub fn power(x: &[C64]) -> f64 {
     if x.is_empty() {

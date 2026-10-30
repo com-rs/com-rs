@@ -127,6 +127,20 @@ impl Rng {
         ((self.uniform() * n as f64) as usize).min(n.saturating_sub(1))
     }
 
+    /// A phase uniform on $[-\pi, \pi)$: $2\pi U - \pi$, $U$ of [`Rng::uniform`] (one draw;
+    /// the initial phases of the fading generators).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::rng::Rng;
+    /// let mut r = Rng::new(1);
+    /// assert!((0..1000).map(|_| r.phase()).all(|p| (-std::f64::consts::PI..std::f64::consts::PI).contains(&p)));
+    /// ```
+    #[inline]
+    pub fn phase(&mut self) -> f64 {
+        self.uniform() * 2.0 * std::f64::consts::PI - std::f64::consts::PI
+    }
+
     /// One fair random bit.
     #[inline]
     pub fn bit(&mut self) -> u8 {
@@ -288,6 +302,16 @@ mod tests {
         // xoshiro256** seeded by SplitMix64 from 0 (reference C implementation)
         assert_eq!(Rng::new(0).next_u64(), 0x99EC_5F36_CB75_F2B4);
         assert_eq!(fnv1a64(b"a"), 0xAF63_DC4C_8601_EC8C);
+    }
+
+    #[test]
+    fn a_phase_is_the_uniform_draw_scaled_to_minus_pi_pi() {
+        // the expression the fading generators wrote inline, bit for bit
+        let (mut a, mut b) = (Rng::new(3), Rng::new(3));
+        for _ in 0..1000 {
+            let pi = std::f64::consts::PI;
+            assert_eq!(a.phase().to_bits(), (b.uniform() * 2.0 * pi - pi).to_bits());
+        }
     }
 
     #[test]

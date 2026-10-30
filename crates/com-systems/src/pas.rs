@@ -91,37 +91,13 @@ pub struct Pas {
 impl Pas {
     /// PAS with the systematic LDPC `code`, $2^{m}$-PAM symbols $\pm(2a+1)\Delta$ and the
     /// target amplitude distribution `amplitudes` ($2^{m-1}$ values, normalised inside).
-    /// The $m - 1$ bits of every amplitude label take consecutive information positions.
+    /// The $m - 1$ bits of every amplitude label take consecutive information positions
+    /// ([`Pas::with_bit_mapper`] sorts them by level).
     ///
     /// # Errors
     /// [`com_core::Error::Config`] if the code length is not a multiple of $m$, if the
     /// code has fewer than $n_{c}(m-1)$ information bits, or for an invalid distribution.
     pub fn new(code: LdpcCode, m: usize, amplitudes: &[f64], delta: f64) -> Result<Pas> {
-        Pas::build(code, m, amplitudes, delta, None)
-    }
-
-    /// [`Pas::new`] with the bit mapper of Böcherer, Steiner & Schulte (2015, Sec. VII-B):
-    /// the amplitude bits are sorted by bit level, the $n_{c}$ bits of one level in a row,
-    /// and the levels follow in the order `levels`, a permutation of $2, \dots, m$ (level
-    /// $1$ is the sign, level $\ell \ge 2$ bit $\ell - 2$ of the amplitude label, most
-    /// significant first). The paper's bit mapper $\pi = (3, 2, 1)$ of 8-ASK is
-    /// `levels = [3, 2]`: the $n_{c}$ least significant amplitude bits take the first
-    /// information positions (the variable nodes of the highest degrees of the DVB-S2
-    /// codes), then the most significant ones, then the signs.
-    ///
-    /// # Errors
-    /// [`com_core::Error::Config`] if `levels` is not a permutation of $2, \dots, m$, and
-    /// as [`Pas::new`].
-    pub fn with_bit_mapper(code: LdpcCode, m: usize, amplitudes: &[f64], delta: f64, levels: &[usize]) -> Result<Pas> {
-        let mut sorted = levels.to_vec();
-        sorted.sort_unstable();
-        ensure(m >= 2 && sorted == (2..=m).collect::<Vec<_>>(), || {
-            format!("the bit levels must be a permutation of 2, …, {m}, got {levels:?}")
-        })?;
-        Pas::build(code, m, amplitudes, delta, Some(levels))
-    }
-
-    fn build(code: LdpcCode, m: usize, amplitudes: &[f64], delta: f64, levels: Option<&[usize]>) -> Result<Pas> {
         ensure(m >= 2, || "PAS needs at least 4-PAM (m ≥ 2)".into())?;
         ensure(amplitudes.len() == 1 << (m - 1), || {
             format!("{}-PAM has {} amplitudes, got {} probabilities", 1 << m, 1 << (m - 1), amplitudes.len())
@@ -138,9 +114,67 @@ impl Pas {
                 m - 1
             )
         })?;
-        let info = code.info_positions();
+        let dm = Ccdm::from_distribution(amplitudes, n_c)?;
+        let pam = Constellation::pam(1 << m)?.scaled(delta);
+        // the level (1 - 2s)(2a + 1)Δ is the point of the PAM of index 2^{m-1} + a
+        // (positive) or 2^{m-1} - 1 - a, and takes the label s 2^{m-1} + g(a)
+        let half = 1 << (m - 1);
+        let mut points = vec![C64::new(0.0, 0.0); 1 << m];
+        let mut label_priors = vec![0.0; 1 << m];
+        for (a, p) in dm.distribution().iter().enumerate() {
+            for (s, i) in [(0, half + a), (1, half - 1 - a)] {
+                points[s * half + gray(a)] = pam.points()[gray(i)];
+                label_priors[s * half + gray(a)] = p / 2.0;
+            }
+        }
+        let labelled = Constellation::from_points(points)?;
+        let mut pas = Pas {
+            code,
+            dm,
+            m,
+            pam,
+            labelled,
+            label_priors,
+            amplitude_info: Vec::new(),
+            amplitude_positions: Vec::new(),
+            extra_positions: Vec::new(),
+            sign_positions: Vec::new(),
+        };
+        pas.place_bits(None);
+        Ok(pas)
+    }
+
+    /// The same PAS with the bit mapper of Böcherer, Steiner & Schulte (2015, Sec.
+    /// VII-B): the amplitude bits are sorted by bit level, the $n_{c}$ bits of one level
+    /// in a row, and the levels follow in the order `levels`, a permutation of
+    /// $2, \dots, m$ (level $1$ is the sign, level $\ell \ge 2$ bit $\ell - 2$ of the
+    /// amplitude label, most significant first). The paper's bit mapper $\pi = (3, 2, 1)$
+    /// of 8-ASK is `levels = [3, 2]`: the $n_{c}$ least significant amplitude bits take
+    /// the first information positions (the variable nodes of the highest degrees of the
+    /// DVB-S2 codes), then the most significant ones, then the signs.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] if `levels` is not a permutation of $2, \dots, m$.
+    pub fn with_bit_mapper(mut self, levels: &[usize]) -> Result<Pas> {
+        let m = self.m;
+        let mut sorted = levels.to_vec();
+        sorted.sort_unstable();
+        ensure(sorted == (2..=m).collect::<Vec<_>>(), || {
+            format!("the bit levels must be a permutation of 2, …, {m}, got {levels:?}")
+        })?;
+        self.place_bits(Some(levels));
+        Ok(self)
+    }
+
+    /// The positions in the codeword of the amplitude bits (consecutive, or sorted by
+    /// the bit levels `levels`), of the extra data bits and of the signs.
+    fn place_bits(&mut self, levels: Option<&[usize]>) {
+        let (n, m) = (self.code.n(), self.m);
+        let n_c = n / m;
         let mb = m - 1;
-        let amplitude_info: Vec<usize> = match levels {
+        let n_amp = n_c * mb;
+        let info = self.code.info_positions();
+        self.amplitude_info = match levels {
             None => (0..n_amp).collect(),
             Some(levels) => {
                 // the slot of every level in the codeword
@@ -151,39 +185,13 @@ impl Pas {
                 (0..n_amp).map(|t| slot[t % mb] * n_c + t / mb).collect()
             }
         };
-        let amplitude_positions: Vec<usize> = amplitude_info.iter().map(|&t| info[t]).collect();
-        let extra_positions = info[n_amp..].to_vec();
+        self.amplitude_positions = self.amplitude_info.iter().map(|&t| info[t]).collect();
+        self.extra_positions = info[n_amp..].to_vec();
         let mut is_amp = vec![false; n];
-        for &p in &amplitude_positions {
+        for &p in &self.amplitude_positions {
             is_amp[p] = true;
         }
-        let sign_positions: Vec<usize> = (0..n).filter(|&p| !is_amp[p]).collect();
-        let dm = Ccdm::from_distribution(amplitudes, n_c)?;
-        let pam = Constellation::pam(1 << m)?.scaled(delta);
-        // the level (1 - 2s)(2a + 1)Δ is the point of the PAM of index 2^{m-1} + a
-        // (positive) or 2^{m-1} - 1 - a, and takes the label s 2^{m-1} + g(a)
-        let half = 1 << mb;
-        let mut points = vec![C64::new(0.0, 0.0); 1 << m];
-        let mut label_priors = vec![0.0; 1 << m];
-        for (a, p) in dm.distribution().iter().enumerate() {
-            for (s, i) in [(0, half + a), (1, half - 1 - a)] {
-                points[s * half + gray(a)] = pam.points()[gray(i)];
-                label_priors[s * half + gray(a)] = p / 2.0;
-            }
-        }
-        let labelled = Constellation::from_points(points)?;
-        Ok(Pas {
-            code,
-            dm,
-            m,
-            pam,
-            labelled,
-            label_priors,
-            amplitude_info,
-            amplitude_positions,
-            extra_positions,
-            sign_positions,
-        })
+        self.sign_positions = (0..n).filter(|&p| !is_amp[p]).collect();
     }
 
     /// The level $(1 - 2s)(2a + 1)\Delta$ of the sign bit `s` and the amplitude `a`.
@@ -230,12 +238,13 @@ impl Pas {
         pa.iter().rev().chain(&pa).map(|p| p / 2.0).collect()
     }
 
-    /// The PAM symbols of one codeword from [`Pas::info_bits`] bits (the matcher's bits
-    /// first).
+    /// The codeword of [`Pas::info_bits`] bits (the matcher's bits first): the Gray labels
+    /// of the matched amplitudes and the extra data bits in the information positions of
+    /// the code, and its parity.
     ///
     /// # Errors
     /// [`com_core::Error::Shape`] for another number of bits.
-    pub fn encode(&self, bits: &[u8]) -> Result<Vec<f64>> {
+    pub fn encode_codeword(&self, bits: &[u8]) -> Result<Vec<u8>> {
         expect_len(bits.len(), self.info_bits(), "bits")?;
         let (dm_bits, extra) = bits.split_at(self.dm.k());
         let a = self.dm.matched(dm_bits)?;
@@ -248,17 +257,42 @@ impl Pas {
             }
         }
         info[n_amp..].copy_from_slice(extra);
-        let c = self.code.encode_block(&info)?;
-        Ok(a.iter().zip(&self.sign_positions).map(|(&ai, &sp)| self.level(usize::from(c[sp]), ai)).collect())
+        self.code.encode_block(&info)
+    }
+
+    /// The PAM symbols of one codeword from [`Pas::info_bits`] bits (the matcher's bits
+    /// first): the levels of the signs and amplitude labels of [`Pas::encode_codeword`].
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] for another number of bits.
+    pub fn encode(&self, bits: &[u8]) -> Result<Vec<f64>> {
+        let c = self.encode_codeword(bits)?;
+        let mb = self.m - 1;
+        Ok(self
+            .sign_positions
+            .iter()
+            .enumerate()
+            .map(|(i, &sp)| {
+                let label: Vec<u8> = (0..mb).map(|j| c[self.amplitude_positions[i * mb + j]]).collect();
+                self.level(usize::from(c[sp]), gray_inverse(bits_to_index(&label)))
+            })
+            .collect())
     }
 
     /// The bit LLRs of the codeword (positive: bit 0) from the received PAM symbols `y`
-    /// with real noise of variance `noise_var` per symbol, with the priors of the
-    /// amplitudes.
+    /// with real noise of variance `noise_var`, with the priors of the amplitudes.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] for another number of symbols.
+    pub fn llr(&self, y: &[f64], noise_var: f64) -> Result<Vec<f64>> {
+        self.llr_with(y, &vec![noise_var; y.len()])
+    }
+
+    /// [`Pas::llr`] with the noise variance of every symbol.
     ///
     /// # Errors
     /// [`com_core::Error::Shape`] for another number of symbols or variances.
-    pub fn llr(&self, y: &[f64], noise_var: &[f64]) -> Result<Vec<f64>> {
+    pub fn llr_with(&self, y: &[f64], noise_var: &[f64]) -> Result<Vec<f64>> {
         expect_len(y.len(), self.n_symbols(), "symbols")?;
         expect_len(noise_var.len(), self.n_symbols(), "noise variances")?;
         let mb = self.m - 1;
@@ -289,9 +323,9 @@ impl Pas {
     /// [`Pas::decode`] with the noise variance of every symbol.
     ///
     /// # Errors
-    /// As [`Pas::llr`].
+    /// As [`Pas::llr_with`].
     pub fn decode_with(&self, y: &[f64], noise_var: &[f64]) -> Result<Vec<u8>> {
-        let llr = self.llr(y, noise_var)?;
+        let llr = self.llr_with(y, noise_var)?;
         let info = self.code.decode_block(&llr)?;
         let mb = self.m - 1;
         let n_amp = self.n_symbols() * mb;
@@ -347,7 +381,7 @@ mod tests {
         // bits first, then the most significant, then the middle ones
         let code = LdpcCode::peg(384, 300, 3, 4).unwrap();
         let pa = [0.3, 0.2, 0.15, 0.12, 0.1, 0.06, 0.04, 0.03];
-        let pas = Pas::with_bit_mapper(code.clone(), 4, &pa, 1.0, &[4, 2, 3]).unwrap();
+        let pas = Pas::new(code.clone(), 4, &pa, 1.0).unwrap().with_bit_mapper(&[4, 2, 3]).unwrap();
         let info = code.info_positions();
         for i in 0..96 {
             assert_eq!(pas.amplitude_positions[i * 3 + 2], info[i]);
@@ -357,17 +391,41 @@ mod tests {
         let mut rng = Rng::new(9);
         let bits: Vec<u8> = (0..pas.info_bits()).map(|_| rng.bit()).collect();
         let x = pas.encode(&bits).unwrap();
-        // the codeword read back from the levels carries the amplitudes of the symbols
-        let llr = pas.llr(&x, &vec![1e-4; x.len()]).unwrap();
+        // the codeword read back from the levels carries the amplitudes of the symbols,
+        // and is the codeword of the encoder
+        let llr = pas.llr(&x, 1e-4).unwrap();
         for (i, xi) in x.iter().enumerate() {
             let a = ((xi.abs() - 1.0) / 2.0).round() as usize;
             let label: Vec<u8> = (0..3).map(|j| u8::from(llr[pas.amplitude_positions[i * 3 + j]] < 0.0)).collect();
             assert_eq!(gray_inverse(bits_to_index(&label)), a);
         }
+        let c = pas.encode_codeword(&bits).unwrap();
+        assert!(llr.iter().zip(&c).all(|(l, b)| (*l < 0.0) == (*b == 1)));
         assert_eq!(pas.decode(&x, 1e-4).unwrap(), bits);
         // a mapper that is not a permutation of the levels is refused
-        assert!(Pas::with_bit_mapper(code.clone(), 4, &pa, 1.0, &[4, 2, 2]).is_err());
-        assert!(Pas::with_bit_mapper(code, 4, &pa, 1.0, &[1, 2, 3]).is_err());
+        let plain = Pas::new(code, 4, &pa, 1.0).unwrap();
+        assert!(plain.clone().with_bit_mapper(&[4, 2, 2]).is_err());
+        assert!(plain.with_bit_mapper(&[1, 2, 3]).is_err());
+    }
+
+    /// `encode` reads the amplitudes back from the labels of the codeword: the levels of
+    /// the former encoder (the matched amplitudes and the signs of the codeword), bit for
+    /// bit, with and without the bit mapper.
+    #[test]
+    fn the_symbols_are_the_levels_of_the_matched_amplitudes() {
+        let code = LdpcCode::peg(384, 300, 3, 4).unwrap();
+        let pa = [0.3, 0.2, 0.15, 0.12, 0.1, 0.06, 0.04, 0.03];
+        let plain = Pas::new(code, 4, &pa, 0.7).unwrap();
+        let mut rng = Rng::new(21);
+        for pas in [plain.clone(), plain.with_bit_mapper(&[3, 4, 2]).unwrap()] {
+            let bits: Vec<u8> = (0..pas.info_bits()).map(|_| rng.bit()).collect();
+            let a = pas.dm.matched(&bits[..pas.dm.k()]).unwrap();
+            let c = pas.encode_codeword(&bits).unwrap();
+            let former: Vec<f64> =
+                a.iter().zip(&pas.sign_positions).map(|(&ai, &sp)| pas.level(usize::from(c[sp]), ai)).collect();
+            assert_eq!(pas.encode(&bits).unwrap(), former);
+            assert!(pas.code().is_codeword(&c));
+        }
     }
 
     #[test]
@@ -381,7 +439,7 @@ mod tests {
         let mut rng = Rng::new(2);
         let y: Vec<f64> = (0..pas.n_symbols()).map(|_| 2.0 * rng.gaussian()).collect();
         let var: Vec<f64> = (0..pas.n_symbols()).map(|i| [0.3, 0.05, 1.5][i % 3]).collect();
-        let llr = pas.llr(&y, &var).unwrap();
+        let llr = pas.llr_with(&y, &var).unwrap();
         for (i, (&yi, &v)) in y.iter().zip(&var).enumerate() {
             let lse = |keep: &dyn Fn(usize, usize) -> bool| {
                 let t = (0..8).filter(|&j| keep(j / 4, j % 4));
@@ -397,6 +455,6 @@ mod tests {
             }
         }
         let x = pas.encode(&vec![0; pas.info_bits()]).unwrap();
-        assert!(pas.llr(&x, &vec![0.0; x.len()]).unwrap().iter().all(|l| l.is_finite()));
+        assert!(pas.llr(&x, 0.0).unwrap().iter().all(|l| l.is_finite()));
     }
 }

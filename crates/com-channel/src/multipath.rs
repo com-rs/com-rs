@@ -27,6 +27,7 @@
 //! # Examples
 //! ```
 //! use com_core::prelude::*;
+//! use com_channel::fading::Fading;
 //! use com_channel::multipath::{Profile, Tdl};
 //! let ch = Tdl::new(&Profile::Eva.taps(), 0.0, 15.36e6, 1, 1)?;   // static EVA at 15.36 MHz
 //! let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6))?;
@@ -51,10 +52,27 @@
 //!    waveforms for reduced-cyclic-prefix OTFS," *IEEE Trans. Veh. Technol.*, 68(1),
 //!    957–961, 2019.
 
+use crate::fading::Fading;
 use com_core::prelude::*;
 use com_core::{ensure, same_len};
-use com_math::{cis, db2lin};
+use com_math::{SPEED_OF_LIGHT, cis, db2lin};
 use std::f64::consts::PI;
+
+/// The maximum Doppler shift $f_{D} = v f_{c} / c$ (Hz) of a terminal moving at
+/// `speed_mps` (m/s) on the carrier `fc_hz` (Hz), $c$ the speed of light (Clarke 1968).
+///
+/// The papers give the speed in km/h ($v = $ `kmh / 3.6`) or in mph
+/// ($v = 0.447\,04 \times$ `mph`).
+///
+/// # Examples
+/// ```
+/// // 60 km/h at 2.5 GHz: about 139 Hz
+/// let fd = com_channel::multipath::max_doppler_hz(60.0 / 3.6, 2.5e9);
+/// assert!((fd - 138.98).abs() < 0.01);
+/// ```
+pub fn max_doppler_hz(speed_mps: f64, fc_hz: f64) -> f64 {
+    speed_mps * fc_hz / SPEED_OF_LIGHT
+}
 
 /// A power-delay profile.
 #[non_exhaustive]
@@ -451,8 +469,8 @@ impl Tdl {
     /// The channel of the taps `(delay in s, power in dB)` sampled at `sample_rate`.
     ///
     /// # Errors
-    /// [`Error::Config`] for no taps, a negative delay, a non-positive rate or no
-    /// antennas.
+    /// [`Error::Config`] for no taps, a negative delay, a non-positive rate, a negative
+    /// Doppler shift or no antennas.
     pub fn new(taps: &[(f64, f64)], doppler_hz: f64, sample_rate: f64, n_rx: usize, n_tx: usize) -> Result<Tdl> {
         ensure(doppler_hz >= 0.0, || format!("the Doppler shift must be non-negative, got {doppler_hz}"))?;
         ensure(n_rx >= 1 && n_tx >= 1, || format!("at least one antenna on each side, got {n_rx} × {n_tx}"))?;
@@ -521,11 +539,11 @@ impl Tdl {
                 let mut c = vec![C64::new(0.0, 0.0); n_samples * links];
                 for link in 0..links {
                     // Zheng & Xiao: angles (2πi - π + θ)/(4M), independent phases on I and Q
-                    let theta = rng.uniform() * 2.0 * PI - PI;
+                    let theta = rng.phase();
                     let comps: Vec<(f64, f64, f64)> = (0..m)
                         .map(|i| {
                             let alpha = (2.0 * PI * (i + 1) as f64 - PI + theta) / (4.0 * m as f64);
-                            (alpha.cos(), rng.uniform() * 2.0 * PI - PI, rng.uniform() * 2.0 * PI - PI)
+                            (alpha.cos(), rng.phase(), rng.phase())
                         })
                         .collect();
                     let scale = (p / m as f64).sqrt();
@@ -544,21 +562,6 @@ impl Tdl {
             })
             .collect();
         Taps { delays: self.delays.clone(), n_rx: self.n_rx, n_tx: self.n_tx, n_samples, coeffs, invariant: false }
-    }
-
-    /// Apply the channel to `x` (`n_tx` streams), the samples before the signal being
-    /// zero: the `n_rx` received streams and the taps of the realisation.
-    ///
-    /// # Errors
-    /// [`Error::Shape`] if `x` does not have `n_tx` streams, [`Error::Config`] if it is
-    /// not sampled at [`Tdl::sample_rate`].
-    pub fn fade(&self, x: &Signal, rng: &mut SimRng) -> Result<(Signal, Taps)> {
-        same_len(x.n_streams(), self.n_tx, "streams and transmit antennas")?;
-        same_rate(x.sample_rate(), self.sample_rate, "the TDL channel")?;
-        let n = x.n_samples();
-        let taps = self.draw(n, rng);
-        let y = taps.apply(&x.to_streams())?;
-        Ok((Signal::from_streams(&y, x.sample_rate())?, taps))
     }
 }
 
@@ -699,7 +702,7 @@ impl DelayDopplerModel {
             .iter()
             .map(|&(delay, p)| {
                 let gain = rng.complex_gaussian() * p.sqrt();
-                let theta = rng.uniform() * 2.0 * PI - PI;
+                let theta = rng.phase();
                 Path { gain, delay, doppler_hz: self.max_doppler_hz * theta.cos() }
             })
             .collect();
@@ -707,22 +710,55 @@ impl DelayDopplerModel {
     }
 }
 
+/// A single-antenna channel: the taps of a new [`DelayDopplerModel::draw`].
+impl Fading for DelayDopplerModel {
+    fn n_rx(&self) -> usize {
+        1
+    }
+
+    fn n_tx(&self) -> usize {
+        1
+    }
+
+    fn sample_rate(&self) -> Option<f64> {
+        Some(self.sample_rate)
+    }
+
+    fn draw_taps(&self, n_samples: usize, rng: &mut SimRng) -> Result<Taps> {
+        Ok(self.draw(rng).taps(n_samples))
+    }
+}
+
 /// The channel of a new realisation on a single-antenna signal sampled at the rate of
 /// the model ([`Error::Config`] otherwise).
 impl Propagate for DelayDopplerModel {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        same_len(x.n_streams(), 1, "streams of a single-antenna channel")?;
-        same_rate(x.sample_rate(), self.sample_rate, "the delay-Doppler channel")?;
-        let taps = self.draw(rng).taps(x.n_samples());
-        out.set_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
-        Ok(())
+        self.fade_into(x, rng, out).map(drop)
+    }
+}
+
+/// The taps of [`Tdl::draw`].
+impl Fading for Tdl {
+    fn n_rx(&self) -> usize {
+        self.n_rx
+    }
+
+    fn n_tx(&self) -> usize {
+        self.n_tx
+    }
+
+    fn sample_rate(&self) -> Option<f64> {
+        Some(self.sample_rate)
+    }
+
+    fn draw_taps(&self, n_samples: usize, rng: &mut SimRng) -> Result<Taps> {
+        Ok(self.draw(n_samples, rng))
     }
 }
 
 impl Propagate for Tdl {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        out.assign(&self.fade(x, rng)?.0);
-        Ok(())
+        self.fade_into(x, rng, out).map(drop)
     }
 }
 

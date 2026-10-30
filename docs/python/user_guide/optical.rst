@@ -61,7 +61,7 @@ returns the EGN model of Carena et al. (2014): the GN model corrected for the fo
 sixth moments of the symbols (:func:`comrs.format_moments`), for the self-channel
 interference and the cross-channel interference of every channel. In
 ``specs/wdm_gn.yaml`` it follows the simulated 16-QAM within 0.3 dB, where the GN model
-is up to 1.7 dB off. ``validation/tests/egn.rs`` checks it against Fig. 1(a) of the
+is up to 1.7 dB off. ``validation/tests/carena2014.rs`` checks it against Fig. 1(a) of the
 paper and against a Monte Carlo evaluation of the first-order perturbation.
 Specifications use it with ``theory: {function: gn_snr_db, format: 16-QAM, …}``.
 

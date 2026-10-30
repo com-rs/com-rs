@@ -18,8 +18,9 @@
 //!   500 km/h, as in the figure, but equal to CP-OFDM at 250 km/h (1.2e-2 against 8.5e-3
 //!   for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::max_doppler_hz;
-use comrs::channel::multipath::{Profile, Taps, Tdl};
+use comrs::channel::awgn::add_noise;
+use comrs::channel::multipath::{Profile, Taps, Tdl, max_doppler_hz};
+use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
 use comrs::waveform::ofdm::Ofdm;
@@ -116,7 +117,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
         };
         let rx = c.demodulate(&z[keep.start * M..keep.end * M]);
         let tx = &bits[keep.start * M * 6..keep.end * M * 6];
-        errors += rx.iter().zip(tx).filter(|(a, b)| a != b).count();
+        errors += bit_errors(&rx, tx).unwrap();
         total += tx.len();
     }
     errors as f64 / total as f64
@@ -147,19 +148,16 @@ fn nissel_2017_fig_2_fbmc_in_doubly_flat_fading() {
         let sigma2 = 1.0 / db2lin(snr_db);
         let (mut errors, mut total) = (0usize, 0usize);
         for _ in 0..3000 {
-            let bits: Vec<u8> = (0..64 * 4 * 4).map(|_| rng.below(2) as u8).collect();
+            let bits = source::bits(64 * 4 * 4, &mut rng);
             let x = c.modulate(&bits).unwrap();
             let h = rng.complex_gaussian();
-            let r: Vec<C64> = fbmc
-                .modulate(&oqam_stagger(&x, 64).unwrap())
-                .unwrap()
-                .iter()
-                .map(|v| v * h + rng.complex_gaussian() * sigma2.sqrt())
-                .collect();
+            let mut r: Vec<C64> =
+                fbmc.modulate(&oqam_stagger(&x, 64).unwrap()).unwrap().iter().map(|v| v * h).collect();
+            add_noise(&mut r, sigma2, &mut rng);
             let y = fbmc.demodulate(&r).unwrap();
             let est: Vec<f64> = y.iter().map(|v| (v / h).re).collect();
             let rx = c.demodulate(&oqam_destagger(&est, 64).unwrap());
-            errors += rx.iter().zip(&bits).filter(|(a, b)| a != b).count();
+            errors += bit_errors(&rx, &bits).unwrap();
             total += bits.len();
         }
         let want = ber_16qam_rayleigh(db2lin(snr_db) / 4.0).unwrap();

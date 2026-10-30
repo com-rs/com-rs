@@ -49,9 +49,11 @@
 //! convergence of the latter, and the failure of AMP on the ill-conditioned matrix.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::until_errors_with;
 use comrs::mapping::constellation::ConstellationKind;
 use comrs::mapping::theory::ser;
 use comrs::math::linalg::{matvec, qr, svd};
+use comrs::metrics::errors::symbol_errors;
 use comrs::mimo::message_passing::{
     AmpVariance, Domain, OampLinear, Prior, amp_state_evolution, amp_thresholds, lama, oamp, oamp_state_evolution,
 };
@@ -154,16 +156,14 @@ fn gaussian_channel(m: usize, n: usize, field: Domain, rng: &mut Rng) -> Array2<
 }
 
 fn noise(m: usize, s2: f64, field: Domain, rng: &mut Rng) -> Vec<C64> {
-    (0..m)
-        .map(|_| match field {
-            Domain::Complex => rng.complex_gaussian() * s2.sqrt(),
-            Domain::Real => C64::new(rng.gaussian() * s2.sqrt(), 0.0),
-        })
-        .collect()
+    match field {
+        Domain::Complex => rng.complex_noise(m, s2),
+        Domain::Real => (0..m).map(|_| C64::new(rng.gaussian() * s2.sqrt(), 0.0)).collect(),
+    }
 }
 
 fn mse(a: &[C64], b: &[C64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| (x - y).norm_sqr()).sum::<f64>() / a.len() as f64
+    comrs::metrics::mse(a, b).unwrap()
 }
 
 /// Mean over `runs` of the MSE of every iteration.
@@ -228,19 +228,19 @@ fn lama_on_128_by_64_16qam_is_close_to_the_io_bound() {
             ser(ConstellationKind::Qam, 16, lin2db(1.0 / (4.0 * s2))).unwrap()
         };
         let n0 = beta / db2lin(snr_db);
-        let (mut errors, mut total) = (0u64, 0u64);
-        while errors < 2000 {
-            let h = gaussian_channel(m, n, Domain::Complex, &mut rng);
+        let count = until_errors_with(&mut rng, 2000, u64::MAX, |rng| {
+            let h = gaussian_channel(m, n, Domain::Complex, rng);
             let idx: Vec<usize> = (0..n).map(|_| rng.below(16)).collect();
             let x: Vec<C64> = idx.iter().map(|&i| c.points()[i]).collect();
             let y: Vec<C64> =
-                matvec(&h.view(), &x).iter().zip(noise(m, n0, Domain::Complex, &mut rng)).map(|(a, b)| a + b).collect();
-            let t = lama(&h.view(), &y, n0, &prior, Domain::Complex, 8, AmpVariance::Postulated).unwrap();
-            errors += t.z.iter().zip(&idx).filter(|(z, i)| c.nearest(**z) != **i).count() as u64;
-            total += n as u64;
-        }
+                matvec(&h.view(), &x).iter().zip(noise(m, n0, Domain::Complex, rng)).map(|(a, b)| a + b).collect();
+            let t = lama(&h.view(), &y, n0, &prior, Domain::Complex, 8, AmpVariance::Postulated)?;
+            let decided: Vec<usize> = t.z.iter().map(|z| c.nearest(*z)).collect();
+            Ok((symbol_errors(&decided, &idx)? as u64, n as u64))
+        })
+        .unwrap();
         // "very close to the IO bound": within 0.5 dB with 64 streams and 8 iterations
-        let sim = errors as f64 / total as f64;
+        let sim = count.rate();
         assert!(sim > 0.9 * io(snr_db) && sim < io(snr_db - 0.5), "{snr_db} dB: LAMA {sim} vs IO bound {}", io(snr_db));
     }
 }

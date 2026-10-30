@@ -78,7 +78,7 @@
 //!   curve within 0.2 dB and the EGN curve within 0.25 dB at 1, 10, 20 and 50 spans;
 //!   between 2 and 5 spans the published EGN curve is up to 0.9 dB below its own
 //!   formulas, which a Monte Carlo evaluation of the first-order perturbation reproduces
-//!   within 0.1 dB (`validation/tests/egn.rs`);
+//!   within 0.1 dB (`validation/tests/carena2014.rs`);
 //! - Manakov simulations of 16-QAM over five channels and five spans
 //!   (`specs/wdm_gn.yaml`): within 0.3 dB from the ASE-limited regime to 4 dB above the
 //!   optimum, where the GN model is 1.7 dB off.
@@ -271,6 +271,10 @@ pub struct GnSummary {
     pub optimal_power_w: f64,
 }
 
+/// The launch power per channel (W) of the Raman profiles from which [`GnModel::eta`]
+/// and [`GnModel::optimal_power`] are computed: 1 mW (0 dBm).
+pub const RAMAN_REFERENCE_POWER_W: f64 = 1e-3;
+
 /// Segments of the span on which the power profiles are integrated piecewise
 /// exponentially: exact for the loss alone, within 0.003 dB of a fine quadrature for a
 /// counter-pumped span.
@@ -340,54 +344,55 @@ impl GnModel {
         spectrum.check()?;
         ensure(f.is_finite(), || format!("the frequency must be finite, got {f}"))?;
         let fib = &self.fiber;
-        let a = fib.alpha_np_km();
-        let b2 = fib.beta2_s2_km();
-        let ls = fib.span_km;
-        let ns = fib.n_spans as f64;
         let (lo, hi) = spectrum.band();
-        let df = self.resolution_hz.unwrap_or_else(|| {
-            let rs = spectrum.symbol_rate;
-            // the EGN correction evaluates its own phased-array factor on the nodes: its
-            // grid keeps sharpening with the number of spans (at 50 spans, R_s/256
-            // overestimates the correction of one channel by 45 %)
-            let egn = matches!(self.egn, Some(fm) if fm != FormatMoments::GAUSSIAN);
-            let base = match (self.coherent, egn) {
-                (true, true) => rs / 256.0 / (ns / 10.0).max(1.0),
-                (true, false) => rs / 256.0,
-                (false, _) => rs / 64.0,
-            };
-            // the link function varies along f2 on the scale α / (4π² |β2| |f1 - f|)
-            let far = (hi - f).abs().max((f - lo).abs());
-            let band = a / (4.0 * PI * PI * b2.abs() * far);
-            if band.is_finite() && band > 0.0 { base.min(band) } else { base }
-        });
+        let df = self.resolution_hz.unwrap_or_else(|| self.default_resolution(spectrum, f, lo, hi));
         ensure(df > 0.0 && df.is_finite(), || format!("the resolution must be positive, got {df}"))?;
         // a grid with f on a node: f1 + f2 - f is then a node too
         let k_lo = ((lo - f) / df).floor() as i64;
         let k_hi = ((hi - f) / df).ceil() as i64;
-        let m = (k_hi - k_lo + 1) as usize;
-        let node = |i: i64| f + (k_lo + i) as f64 * df;
-        let g: Vec<f64> = (0..m as i64).map(|i| spectrum.psd(node(i))).collect();
-        let e = (-a * ls).exp();
-        let c = 4.0 * PI * PI * b2 * ls;
-        // with Raman: half of ln G(z, f) of every node and of f on the segments
-        let half_log = profile.map(|p| {
-            let mut freqs: Vec<f64> = (0..m as i64).map(|i| fib.fc_hz + node(i)).collect();
-            freqs.push(fib.fc_hz + f);
-            let w = p.interpolator(&freqs);
-            let mut out: Vec<HalfLog> = (0..freqs.len())
-                .map(|_| HalfLog { h: vec![0.0; PROFILE_SEGMENTS + 1], x: vec![0.0; PROFILE_SEGMENTS + 1] })
-                .collect();
-            let mut buf = vec![0.0; freqs.len()];
-            for s in 0..=PROFILE_SEGMENTS {
-                p.log_gain_at(&w, ls * s as f64 / PROFILE_SEGMENTS as f64, &mut buf);
-                for (o, v) in out.iter_mut().zip(&buf) {
-                    o.h[s] = v / 2.0;
-                    o.x[s] = (v / 2.0).exp();
-                }
+        let grid = NodeGrid { f, df, k_lo, m: (k_hi - k_lo + 1) as usize };
+        let span = SpanLink::new(fib, &grid, profile);
+        let gn = self.gn_integral(spectrum, &grid, &span);
+        let corr = match self.egn {
+            Some(fm) if fm != FormatMoments::GAUSSIAN => {
+                let per_span = if self.coherent { 1.0 } else { fib.n_spans as f64 };
+                per_span * egn_correction(spectrum, f, df, fm, &|n1, n2| self.egn_mu(&grid, &span, n1, n2))
             }
-            out
-        });
+            _ => 0.0,
+        };
+        Ok(gn + corr)
+    }
+
+    /// The default grid step of an integration at `f` over the band `lo..hi` (see
+    /// [`GnModel::resolution_hz`]).
+    fn default_resolution(&self, spectrum: &WdmSpectrum, f: f64, lo: f64, hi: f64) -> f64 {
+        let fib = &self.fiber;
+        let rs = spectrum.symbol_rate;
+        let ns = fib.n_spans as f64;
+        // the EGN correction evaluates its own phased-array factor on the nodes: its
+        // grid keeps sharpening with the number of spans (at 50 spans, R_s/256
+        // overestimates the correction of one channel by 45 %)
+        let egn = matches!(self.egn, Some(fm) if fm != FormatMoments::GAUSSIAN);
+        let base = match (self.coherent, egn) {
+            (true, true) => rs / 256.0 / (ns / 10.0).max(1.0),
+            (true, false) => rs / 256.0,
+            (false, _) => rs / 64.0,
+        };
+        // the link function varies along f2 on the scale α / (4π² |β2| |f1 - f|)
+        let far = (hi - f).abs().max((f - lo).abs());
+        let band = fib.alpha_np_km() / (4.0 * PI * PI * fib.beta2_s2_km().abs() * far);
+        if band.is_finite() && band > 0.0 { base.min(band) } else { base }
+    }
+
+    /// The GN reference formula (see the module) on the nodes of `grid`: the sum over
+    /// the cells of $G(f_{1}) G(f_{2}) G(f_{1} + f_{2} - f) |\rho|^{2} \chi$ times
+    /// $\frac{16}{27} \gamma^{2} \Delta f^{2}$.
+    fn gn_integral(&self, spectrum: &WdmSpectrum, grid: &NodeGrid, span: &SpanLink) -> f64 {
+        let fib = &self.fiber;
+        let (f, df, k_lo, m) = (grid.f, grid.df, grid.k_lo, grid.m);
+        let (a, e, c, ls) = (span.alpha, span.decay, span.phase, span.length_km);
+        let ns = fib.n_spans as f64;
+        let g: Vec<f64> = (0..m as i64).map(|i| spectrum.psd(grid.node(i))).collect();
         // the integrand is symmetric in (f1, f2), and so is its evaluation (the phase
         // c (u v), the Fejér factor and the link function are computed symmetrically):
         // the cells below the diagonal are those above it
@@ -396,7 +401,7 @@ impl GnModel {
             if g[i] == 0.0 {
                 continue;
             }
-            let u = node(i as i64) - f;
+            let u = grid.node(i as i64) - f;
             for j in i..m {
                 // f1 + f2 - f is node i + j + k_lo
                 let k3 = i as i64 + j as i64 + k_lo;
@@ -407,8 +412,8 @@ impl GnModel {
                 if g3 == 0.0 {
                     continue;
                 }
-                let ph = c * (u * (node(j as i64) - f));
-                let rho2 = match &half_log {
+                let ph = c * (u * (grid.node(j as i64) - f));
+                let rho2 = match &span.half_log {
                     // |1 - e^{-αL} e^{jφ}|² / (α² + φ²/L²)
                     None => (1.0 - 2.0 * e * ph.cos() + e * e) / (a * a + (ph / ls) * (ph / ls)),
                     Some(hl) => link_function(&hl[i], &hl[j], &hl[k3 as usize], &hl[m], ph / ls, ls).norm_sqr(),
@@ -416,7 +421,7 @@ impl GnModel {
                 let chi = if self.coherent {
                     // the phase c u v changes by c v df along u and c u df along v over
                     // the cell
-                    fejer_cell_average(fib.n_spans, ph, c * (node(j as i64) - f) * df, c * u * df)
+                    fejer_cell_average(fib.n_spans, ph, c * (grid.node(j as i64) - f) * df, c * u * df)
                 } else {
                     ns
                 };
@@ -424,42 +429,42 @@ impl GnModel {
                 acc += if j == i { cell } else { 2.0 * cell };
             }
         }
-        let gn = 16.0 / 27.0 * fib.gamma_w_km * fib.gamma_w_km * acc * df * df;
-        let corr = match self.egn {
-            Some(fm) if fm != FormatMoments::GAUSSIAN => {
-                // μ(f1, f2, f) of the offsets n1 df, n2 df from f (Carena et al., Eqs. (10)–(12))
-                let mu = |n1: i64, n2: i64| -> C64 {
-                    let kappa = c / ls * (n1 as f64 * df) * (n2 as f64 * df);
-                    let link = match &half_log {
-                        None => {
-                            let w = C64::new(a, -kappa);
-                            if w.norm() * ls < 1e-12 {
-                                C64::new(ls, 0.0)
-                            } else {
-                                (C64::new(1.0, 0.0) - e * C64::new(0.0, kappa * ls).exp()) / w
-                            }
-                        }
-                        Some(hl) => {
-                            let at = |n: i64| &hl[(n - k_lo) as usize];
-                            link_function(at(n1), at(n2), at(n1 + n2), &hl[m], kappa, ls)
-                        }
-                    };
-                    let nu = if self.coherent {
-                        let x = kappa * ls / 2.0;
-                        let s = x.sin();
-                        let r = if s.abs() < 1e-9 { ns } else { (ns * x).sin() / s };
-                        C64::new(0.0, (ns - 1.0) * x).exp() * r
-                    } else {
-                        C64::new(1.0, 0.0)
-                    };
-                    link * nu * fib.gamma_w_km
-                };
-                let per_span = if self.coherent { 1.0 } else { ns };
-                per_span * egn_correction(spectrum, f, df, fm, &mu)
+        16.0 / 27.0 * fib.gamma_w_km * fib.gamma_w_km * acc * df * df
+    }
+
+    /// The link function $\gamma \mu(f_{1}, f_{2}, f)$ of the EGN model at the offsets
+    /// $n_{1} \Delta f$, $n_{2} \Delta f$ from $f$ (Carena et al. 2014, Eqs. (10)–(12)):
+    /// the span efficiency (of the power profiles with Raman spans) times the
+    /// phased-array term $e^{j (N_{s} - 1) x} \sin(N_{s} x) / \sin x$ of the coherent
+    /// accumulation, $x = \kappa L_{s} / 2$.
+    fn egn_mu(&self, grid: &NodeGrid, span: &SpanLink, n1: i64, n2: i64) -> C64 {
+        let fib = &self.fiber;
+        let (a, e, c, ls) = (span.alpha, span.decay, span.phase, span.length_km);
+        let ns = fib.n_spans as f64;
+        let df = grid.df;
+        let kappa = c / ls * (n1 as f64 * df) * (n2 as f64 * df);
+        let link = match &span.half_log {
+            None => {
+                let w = C64::new(a, -kappa);
+                if w.norm() * ls < 1e-12 {
+                    C64::new(ls, 0.0)
+                } else {
+                    (C64::new(1.0, 0.0) - e * C64::new(0.0, kappa * ls).exp()) / w
+                }
             }
-            _ => 0.0,
+            Some(hl) => {
+                let at = |n: i64| &hl[(n - grid.k_lo) as usize];
+                link_function(at(n1), at(n2), at(n1 + n2), &hl[grid.m], kappa, ls)
+            }
         };
-        Ok(gn + corr)
+        let nu = if self.coherent {
+            let x = kappa * ls / 2.0;
+            // sin(N x) / sin x = N diric(2x, N), with its limits at x = kπ
+            C64::new(0.0, (ns - 1.0) * x).exp() * (ns * com_math::diric(2.0 * x, fib.n_spans))
+        } else {
+            C64::new(1.0, 0.0)
+        };
+        link * nu * fib.gamma_w_km
     }
 
     /// The SNR of channel `ch` after a matched filter, ASE and NLI (linear).
@@ -478,16 +483,19 @@ impl GnModel {
         Ok(spectrum.powers_w[ch] / ((ase + nli) * spectrum.symbol_rate))
     }
 
-    /// The NLI coefficient $\eta = G_{\mathrm{NLI}}/P^{3}$ of channel `ch` for equal
-    /// channel powers ((W/Hz)/W³). With [`GnModel::raman`], the profiles depend on the
-    /// powers (ISRS, pump depletion): $\eta$ is that of 1 mW per channel.
+    /// The NLI coefficient $\eta = G_{\mathrm{NLI}}/P^{3}$ of channel `ch` of the grid, symbol
+    /// rate and roll-off of `spectrum`, for equal channel powers ((W/Hz)/W³; the powers
+    /// of `spectrum` are not used). With [`GnModel::raman`], the profiles depend on the
+    /// powers (ISRS, pump depletion): $\eta$ is that of [`RAMAN_REFERENCE_POWER_W`] per
+    /// channel.
     ///
     /// # Errors
     /// As [`GnModel::snr`].
-    pub fn eta(&self, freqs: &[f64], symbol_rate: f64, rolloff: f64, ch: usize) -> Result<f64> {
+    pub fn eta(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
+        let freqs = &spectrum.freqs;
         ensure(ch < freqs.len(), || format!("no channel {ch}: the grid has {} channels", freqs.len()))?;
-        let p = if self.raman.is_some() { 1e-3 } else { 1.0 };
-        let s = WdmSpectrum::uniform(freqs.to_vec(), p, symbol_rate, rolloff);
+        let p = if self.raman.is_some() { RAMAN_REFERENCE_POWER_W } else { 1.0 };
+        let s = WdmSpectrum::uniform(freqs.clone(), p, spectrum.symbol_rate, spectrum.rolloff);
         Ok(self.nli_psd(&s, freqs[ch])? / (p * p * p))
     }
 
@@ -501,29 +509,94 @@ impl GnModel {
         let n = spectrum.freqs.len();
         let ch = channel.unwrap_or(n / 2);
         ensure(ch < n, || format!("no channel {ch}: the spectrum has {n} channels"))?;
-        let (freqs, rs, rolloff) = (&spectrum.freqs, spectrum.symbol_rate, spectrum.rolloff);
         Ok(GnSummary {
             channel: ch,
-            nli_psd: self.nli_psd(spectrum, freqs[ch])?,
+            nli_psd: self.nli_psd(spectrum, spectrum.freqs[ch])?,
             ase_psd: self.ase_psd_channel(spectrum, ch)?,
             snr: self.snr(spectrum, ch)?,
-            eta: self.eta(freqs, rs, rolloff, ch)?,
-            optimal_power_w: self.optimal_power(freqs, rs, rolloff, ch)?,
+            eta: self.eta(spectrum, ch)?,
+            optimal_power_w: self.optimal_power(spectrum, ch)?,
         })
     }
 
-    /// The optimal launch power per channel $(G_{\mathrm{ASE}}/(2\eta))^{1/3}$ (W)
-    /// (with [`GnModel::raman`], for the profiles of 1 mW per channel).
+    /// The optimal launch power per channel $(G_{\mathrm{ASE}}/(2\eta))^{1/3}$ (W) on the
+    /// grid, symbol rate and roll-off of `spectrum` (with [`GnModel::raman`], for the
+    /// profiles of [`RAMAN_REFERENCE_POWER_W`] per channel).
     ///
     /// # Errors
     /// As [`GnModel::eta`].
-    pub fn optimal_power(&self, freqs: &[f64], symbol_rate: f64, rolloff: f64, ch: usize) -> Result<f64> {
+    pub fn optimal_power(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
         let ase = if self.raman.is_some() {
-            self.ase_psd_channel(&WdmSpectrum::uniform(freqs.to_vec(), 1e-3, symbol_rate, rolloff), ch)?
+            let reference = WdmSpectrum::uniform(
+                spectrum.freqs.clone(),
+                RAMAN_REFERENCE_POWER_W,
+                spectrum.symbol_rate,
+                spectrum.rolloff,
+            );
+            self.ase_psd_channel(&reference, ch)?
         } else {
             self.ase_psd()
         };
-        Ok((ase / (2.0 * self.eta(freqs, symbol_rate, rolloff, ch)?)).cbrt())
+        Ok((ase / (2.0 * self.eta(spectrum, ch)?)).cbrt())
+    }
+}
+
+/// The nodes $f + (k_{\mathrm{lo}} + i) \Delta f$, $i = 0, \dots, m - 1$, of an
+/// integration at $f$.
+struct NodeGrid {
+    f: f64,
+    df: f64,
+    k_lo: i64,
+    m: usize,
+}
+
+impl NodeGrid {
+    /// The frequency of node `i`.
+    fn node(&self, i: i64) -> f64 {
+        self.f + (self.k_lo + i) as f64 * self.df
+    }
+}
+
+/// The quantities of one span that the integrands need: the attenuation $\alpha$, the
+/// decay $e^{-\alpha L_{s}}$, the phase constant $4\pi^{2} \beta_{2} L_{s}$, the length,
+/// and with Raman amplification half of $\ln G(z, f)$ of every node and of $f$ (last) on
+/// the segments of the span.
+struct SpanLink {
+    alpha: f64,
+    decay: f64,
+    phase: f64,
+    length_km: f64,
+    half_log: Option<Vec<HalfLog>>,
+}
+
+impl SpanLink {
+    fn new(fib: &FiberParams, grid: &NodeGrid, profile: Option<&RamanProfile>) -> SpanLink {
+        let a = fib.alpha_np_km();
+        let ls = fib.span_km;
+        let half_log = profile.map(|p| {
+            let mut freqs: Vec<f64> = (0..grid.m as i64).map(|i| fib.fc_hz + grid.node(i)).collect();
+            freqs.push(fib.fc_hz + grid.f);
+            let w = p.interpolator(&freqs);
+            let mut out: Vec<HalfLog> = (0..freqs.len())
+                .map(|_| HalfLog { h: vec![0.0; PROFILE_SEGMENTS + 1], x: vec![0.0; PROFILE_SEGMENTS + 1] })
+                .collect();
+            let mut buf = vec![0.0; freqs.len()];
+            for s in 0..=PROFILE_SEGMENTS {
+                p.log_gain_at(&w, ls * s as f64 / PROFILE_SEGMENTS as f64, &mut buf);
+                for (o, v) in out.iter_mut().zip(&buf) {
+                    o.h[s] = v / 2.0;
+                    o.x[s] = (v / 2.0).exp();
+                }
+            }
+            out
+        });
+        SpanLink {
+            alpha: a,
+            decay: (-a * ls).exp(),
+            phase: 4.0 * PI * PI * fib.beta2_s2_km() * ls,
+            length_km: ls,
+            half_log,
+        }
     }
 }
 
@@ -714,7 +787,7 @@ mod tests {
         assert_eq!(got.channel, 2);
         assert_eq!(got.nli_psd, model.nli_psd(&s, s.freqs[2]).unwrap());
         assert_eq!(got.snr, model.snr(&s, 2).unwrap());
-        assert_eq!(got.optimal_power_w, model.optimal_power(&s.freqs, 32e9, 0.1, 2).unwrap());
+        assert_eq!(got.optimal_power_w, model.optimal_power(&s, 2).unwrap());
         assert_eq!(model.summary(&s, Some(0)).unwrap().ase_psd, model.ase_psd_channel(&s, 0).unwrap());
         assert!(model.summary(&s, Some(5)).is_err());
     }
@@ -858,7 +931,7 @@ mod tests {
             let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, rs, b);
             assert!(matches!(gn.nli_psd(&s, 0.0), Err(com_core::Error::Config(_))), "{rs} {b}");
             assert!(gn.snr(&s, 1).is_err());
-            assert!(gn.eta(&s.freqs, rs, b, 1).is_err());
+            assert!(gn.eta(&s, 1).is_err());
         }
         let s = WdmSpectrum::uniform(vec![0.0, f64::NAN], 1e-3, 32e9, 0.1);
         assert!(gn.nli_psd(&s, 0.0).is_err());

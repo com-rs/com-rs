@@ -17,13 +17,15 @@
 //!   quantisation noise together.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use com_validation::{MIN_ERRORS, within_three_sigma};
+use com_validation::{MIN_ERRORS, until_errors, within_three_sigma};
+use comrs::channel::awgn::add_noise;
 use comrs::hardware::converter::{
     Adc, Dac, Quantizer, enob_from_sinad_db, gaussian_mse, jitter_snr_db, optimal_loading, sqnr_sine_db,
     zero_order_hold_gain,
 };
 use comrs::mapping::constellation::ConstellationKind;
 use comrs::mapping::theory::ber;
+use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::Ofdm;
 use std::f64::consts::PI;
@@ -178,20 +180,20 @@ fn an_ofdm_link_through_an_adc_has_the_ber_of_the_total_noise() {
         let s2 = 1.0 / db2lin(snr_db);
         let total = s2 + 2.0 * gaussian_mse(&q, 0.5f64.sqrt());
         let theory = ber(ConstellationKind::Qam, 16, lin2db(1.0 / (4.0 * total))).unwrap();
-        let (mut errors, mut bits_total, mut batch) = (0u64, 0u64, 0u64);
-        while errors < MIN_ERRORS * 10 {
-            let mut rng = batch_rng(11, batch);
+        let count = until_errors(11, MIN_ERRORS * 10, u64::MAX, 1, |rng| {
+            let (mut errors, mut bits_total) = (0u64, 0u64);
             for _ in 0..50 {
-                let b: Vec<u8> = (0..256 * 4).map(|_| rng.bit()).collect();
-                let x = ofdm.modulate(&c.modulate(&b).unwrap()).unwrap();
-                let y: Vec<C64> = x.iter().map(|v| v + rng.complex_gaussian() * s2.sqrt()).collect();
-                let z = ofdm.demodulate(&adc.convert(&y, 1.0, &mut rng).unwrap()).unwrap();
-                let d = c.demodulate(&z);
-                errors += d.iter().zip(&b).filter(|(a, b)| a != b).count() as u64;
+                let b = source::bits(256 * 4, rng);
+                let mut y = ofdm.modulate(&c.modulate(&b)?)?;
+                add_noise(&mut y, s2, rng);
+                let z = ofdm.demodulate(&adc.convert(&y, 1.0, rng)?)?;
+                errors += bit_errors(&c.demodulate(&z), &b)? as u64;
                 bits_total += b.len() as u64;
             }
-            batch += 1;
-        }
+            Ok((errors, bits_total))
+        })
+        .unwrap();
+        let (errors, bits_total) = (count.errors, count.total);
         assert!(
             within_three_sigma(errors, bits_total, theory),
             "{bits} bits at {snr_db} dB: {errors}/{bits_total} vs {theory}"

@@ -12,7 +12,7 @@
 //!    equation to studies of signal propagation in optical fibers with randomly
 //!    varying birefringence," *J. Lightw. Technol.*, 15(9), 1997.
 
-use super::fiber::{Amplification, FiberParams};
+use super::fiber::{Amplification, FiberParams, amplified_spans};
 use com_core::ensure;
 use com_core::ensure_shape;
 use com_core::prelude::*;
@@ -187,8 +187,8 @@ impl PmdLink {
 /// Each PMD section is one asymmetric split step: in the frequency domain the scalar
 /// loss and dispersion and the section `D_k(ω) R_k`, then the nonlinear rotation
 /// `u ← u e^{j(8/9)γ L_eff ‖u‖²}` with `L_eff = (1 - e^{-αL_c})/α`; after every span the
-/// field is amplified (the EDFA of the fibre parameters, with ASE when a generator is
-/// given). [`Manakov::backpropagate_with_pmd`] is the exact inverse (the upper bound of
+/// field is amplified by [`Manakov::amplification`] (with the ASE of an EDFA when a
+/// generator is given). [`Manakov::backpropagate_with_pmd`] is the exact inverse (the upper bound of
 /// a receiver that knows the PMD), [`Manakov::equalize_pmd`] the lumped ideal MIMO
 /// equaliser `J(ω)⁻¹`.
 ///
@@ -206,10 +206,17 @@ pub struct Manakov {
     pub fiber: FiberParams,
     /// Its polarisation-mode dispersion (one split step per section).
     pub pmd: PmdLink,
+    /// The amplifier after every span (the EDFA of [`Manakov::new`]).
+    pub amplification: Amplification,
 }
 
 impl Manakov {
-    fn linear(&self, u: &mut DualPol, omega: &[f64], s: &PmdSection, inverse: bool) {
+    /// The link `fiber` with the PMD `pmd` and an EDFA after every span.
+    pub fn new(fiber: FiberParams, pmd: PmdLink) -> Manakov {
+        Manakov { fiber, pmd, amplification: Amplification::Edfa }
+    }
+
+    fn linear(&self, x: &mut [C64], y: &mut [C64], omega: &[f64], s: &PmdSection, inverse: bool) {
         let f = &self.fiber;
         let dz = self.pmd.section_km;
         let sign = if inverse { -1.0 } else { 1.0 };
@@ -218,7 +225,7 @@ impl Manakov {
         let r = if inverse { s.rotation.adjoint() } else { s.rotation };
         for (i, &w) in omega.iter().enumerate() {
             let h = cis(c * w * w) * g;
-            let (mut a, mut b) = (u.x[i] * h, u.y[i] * h);
+            let (mut a, mut b) = (x[i] * h, y[i] * h);
             if inverse {
                 let (p, q) = Jones::dgd(w, -s.dgd_s).apply(a, b);
                 (a, b) = r.apply(p, q);
@@ -226,48 +233,51 @@ impl Manakov {
                 let (p, q) = r.apply(a, b);
                 (a, b) = Jones::dgd(w, s.dgd_s).apply(p, q);
             }
-            u.x[i] = a;
-            u.y[i] = b;
+            x[i] = a;
+            y[i] = b;
         }
     }
 
-    fn nonlinear(&self, u: &mut DualPol, sign: f64) {
+    fn nonlinear(&self, x: &mut [C64], y: &mut [C64], sign: f64) {
         let f = &self.fiber;
         let a = f.alpha_np_km();
         let dz = self.pmd.section_km;
         let l_eff = effective_length(a, dz);
-        manakov_rotation(&mut u.x, &mut u.y, sign * 8.0 / 9.0 * f.gamma_w_km * l_eff);
+        manakov_rotation(x, y, sign * 8.0 / 9.0 * f.gamma_w_km * l_eff);
     }
 
     /// Propagate a dual-polarisation field sampled at `fs` (ASE from `rng` if given).
     ///
     /// # Errors
     /// [`Error::Shape`] if the PMD link does not match the number of spans.
-    pub fn propagate(&self, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) -> Result<()> {
-        ensure_shape(self.pmd.sections.len() == self.fiber.n_spans * self.pmd.sections_per_span, || {
+    pub fn propagate(&self, u: &mut DualPol, fs: f64, rng: Option<&mut Rng>) -> Result<()> {
+        let per_span = self.pmd.sections_per_span;
+        ensure_shape(self.pmd.sections.len() == self.fiber.n_spans * per_span, || {
             format!(
                 "the PMD link has {} sections for {} spans of {} sections",
                 self.pmd.sections.len(),
                 self.fiber.n_spans,
-                self.pmd.sections_per_span
+                per_span
             )
         })?;
         let n = u.len();
         let p = fft::plan(n);
         let omega = fft::angular_frequencies(n, fs);
-        let span_km = self.fiber.span_km;
-        for (k, s) in self.pmd.sections.iter().enumerate() {
-            p.forward(&mut u.x);
-            p.forward(&mut u.y);
-            self.linear(u, &omega, s, false);
-            p.inverse(&mut u.x);
-            p.inverse(&mut u.y);
-            self.nonlinear(u, 1.0);
-            if (k + 1) % self.pmd.sections_per_span == 0 {
-                Amplification::Edfa.apply(&mut u.x, &self.fiber, span_km, fs, rng.as_deref_mut())?;
-                Amplification::Edfa.apply(&mut u.y, &self.fiber, span_km, fs, rng.as_deref_mut())?;
+        let f = &self.fiber;
+        let DualPol { x, y } = u;
+        amplified_spans(f, f.span_km, &self.amplification, None, &mut [x, y], fs, rng, |k, pol, _| {
+            let (x, y) = pol.split_at_mut(1);
+            let (x, y) = (&mut *x[0], &mut *y[0]);
+            for s in &self.pmd.sections[k * per_span..(k + 1) * per_span] {
+                p.forward(x);
+                p.forward(y);
+                self.linear(x, y, &omega, s, false);
+                p.inverse(x);
+                p.inverse(y);
+                self.nonlinear(x, y, 1.0);
             }
-        }
+            Ok(0)
+        })?;
         Ok(())
     }
 
@@ -276,15 +286,16 @@ impl Manakov {
         let n = u.len();
         let p = fft::plan(n);
         let omega = fft::angular_frequencies(n, fs);
-        let gain = 1.0 / self.fiber.span_gain().sqrt();
+        // the inverse of the field gain of the amplifier after every span
+        let gain = 1.0 / self.amplification.field_gain(&self.fiber, self.fiber.span_km);
         for (i, s) in self.pmd.sections.iter().enumerate().rev() {
             if (i + 1) % self.pmd.sections_per_span == 0 {
                 u.scale(gain);
             }
-            self.nonlinear(u, -1.0);
+            self.nonlinear(&mut u.x, &mut u.y, -1.0);
             p.forward(&mut u.x);
             p.forward(&mut u.y);
-            self.linear(u, &omega, s, true);
+            self.linear(&mut u.x, &mut u.y, &omega, s, true);
             p.inverse(&mut u.x);
             p.inverse(&mut u.y);
         }
@@ -319,7 +330,7 @@ mod tests {
         let fiber = FiberParams { n_spans: 2, span_km: 20.0, ..FiberParams::default() };
         let mut r = Rng::new(4);
         let pmd = PmdLink::random(&fiber, 0.5, 10, &mut r).unwrap();
-        let m = Manakov { fiber: fiber.clone(), pmd };
+        let m = Manakov::new(fiber.clone(), pmd);
         let u0 = DualPol::new(signal(128, 2, 1e-3), signal(128, 3, 1e-3)).unwrap();
         let mut u = u0.clone();
         m.propagate(&mut u, 64e9, None).unwrap();
@@ -327,7 +338,7 @@ mod tests {
         assert!(u.x.iter().zip(&u0.x).all(|(a, b)| (a - b).norm() < 1e-9));
         // linear lossless link: dispersion compensation + J⁻¹ is exact
         let lin = FiberParams { gamma_w_km: 0.0, alpha_db_km: 0.0, ..fiber };
-        let m = Manakov { fiber: lin.clone(), pmd: PmdLink::random(&lin, 0.5, 10, &mut r).unwrap() };
+        let m = Manakov::new(lin.clone(), PmdLink::random(&lin, 0.5, 10, &mut r).unwrap());
         let mut u = u0.clone();
         m.propagate(&mut u, 64e9, None).unwrap();
         let mut v = DualPol::new(
@@ -346,6 +357,54 @@ mod tests {
         )
         .unwrap();
         m.equalize_pmd(&mut v, 64e9);
+        assert!(v.x.iter().zip(&u0.x).all(|(a, b)| (a - b).norm() < 1e-9));
+    }
+
+    /// `Manakov::propagate` before the span driver: the EDFA after every span.
+    fn former(m: &Manakov, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) {
+        let n = u.len();
+        let p = fft::plan(n);
+        let omega = fft::angular_frequencies(n, fs);
+        let span_km = m.fiber.span_km;
+        for (k, s) in m.pmd.sections.iter().enumerate() {
+            p.forward(&mut u.x);
+            p.forward(&mut u.y);
+            m.linear(&mut u.x, &mut u.y, &omega, s, false);
+            p.inverse(&mut u.x);
+            p.inverse(&mut u.y);
+            m.nonlinear(&mut u.x, &mut u.y, 1.0);
+            if (k + 1) % m.pmd.sections_per_span == 0 {
+                Amplification::Edfa.apply(&mut u.x, &m.fiber, span_km, fs, rng.as_deref_mut()).unwrap();
+                Amplification::Edfa.apply(&mut u.y, &m.fiber, span_km, fs, rng.as_deref_mut()).unwrap();
+            }
+        }
+    }
+
+    /// With its EDFAs, the span driver gives the fields of the former loop bit for bit;
+    /// the amplification is now chosen (an ideal gain restores the power of a lossy link).
+    #[test]
+    fn the_span_driver_is_the_former_span_loop_and_the_amplifier_is_chosen() {
+        let fiber = FiberParams { n_spans: 3, span_km: 20.0, ..FiberParams::default() };
+        let pmd = PmdLink::random(&fiber, 0.5, 4, &mut Rng::new(6)).unwrap();
+        let m = Manakov::new(fiber.clone(), pmd);
+        let u0 = DualPol::new(signal(128, 4, 1e-3), signal(128, 5, 1e-3)).unwrap();
+        for seed in [None, Some(2)] {
+            let (mut a, mut b) = (u0.clone(), u0.clone());
+            let (mut ra, mut rb) = (seed.map(Rng::new), seed.map(Rng::new));
+            m.propagate(&mut a, 64e9, ra.as_mut()).unwrap();
+            former(&m, &mut b, 64e9, rb.as_mut());
+            assert_eq!(a, b);
+        }
+        let linear = FiberParams { gamma_w_km: 0.0, ..fiber };
+        let ideal = Manakov { amplification: Amplification::Ideal, ..Manakov::new(linear.clone(), m.pmd.clone()) };
+        let mut u = u0.clone();
+        ideal.propagate(&mut u, 64e9, None).unwrap();
+        assert!((u.power() / u0.power() - 1.0).abs() < 1e-9);
+        let none = Manakov { amplification: Amplification::None, ..ideal.clone() };
+        let mut v = u0.clone();
+        none.propagate(&mut v, 64e9, None).unwrap();
+        assert!((v.power() / u0.power() / (-linear.alpha_np_km() * linear.total_km()).exp() - 1.0).abs() < 1e-9);
+        none.backpropagate_with_pmd(&mut v, 64e9);
         assert!(v.x.iter().zip(&u0.x).all(|(a, b)| (a - b).norm() < 1e-9));
     }
 

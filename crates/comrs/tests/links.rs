@@ -3,7 +3,6 @@
 //! closed forms.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::{Amplification, Ssfm};
 use comrs::dsp::signal;
 use comrs::hardware::optical::{Iqm, Photodiode, coherent_receiver};
@@ -119,7 +118,8 @@ fn linear_split_step_is_the_linear_channel_with_ideal_gain() {
     let ssfm = Ssfm { fiber: fiber.clone(), step_km: 5.0, amplification: Amplification::Ideal, raman: None };
     let y = ssfm.propagate(&x, fs, None).unwrap();
     let reference = fiber::linear_fiber_channel(&x, &fiber, fiber.total_km(), fs);
-    let gain = (fiber.alpha_np_km() / 2.0 * fiber.total_km()).exp();
+    // the ideal gain that restores the whole link
+    let gain = Amplification::Ideal.field_gain(&fiber, fiber.total_km());
     let err: f64 = y.iter().zip(&reference).map(|(a, b)| (a - b * gain).norm_sqr()).sum::<f64>();
     assert!(err / (power(&x) * x.len() as f64) < 1e-20);
 }
@@ -133,7 +133,7 @@ fn ase_of_a_chain_of_amplifiers_adds_up() {
     let silence = vec![C64::new(0.0, 0.0); 1 << 16];
     let y = ssfm.propagate(&silence, fs, Some(&mut rng)).unwrap();
     // every EDFA compensates the loss of the following span: the noises add up
-    let amp = Edfa { gain_db: fiber.span_gain_db(), nf_db: fiber.nf_db, fc_hz: fiber.fc_hz };
+    let amp = fiber.span_edfa();
     let expected = fiber.n_spans as f64 * amp.noise_variance(fs);
     assert!((power(&y) / expected - 1.0).abs() < 0.03, "{} against {expected}", power(&y));
 }

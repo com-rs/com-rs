@@ -91,11 +91,10 @@ pub fn lambertian_mode(semi_angle_rad: f64) -> Result<f64> {
 
 /// The unit vector of elevation `elevation_rad` above the horizontal plane and azimuth
 /// `azimuth_rad` from $x$ towards $y$ (the angles of Table I of Barry et al. 1993:
-/// $-\pi/2$ points straight down, $\pi/2$ straight up).
+/// $-\pi/2$ points straight down, $\pi/2$ straight up): the
+/// [`com_math::geometry::from_spherical`] direction of zenith $\pi/2 - \epsilon$.
 pub fn direction(elevation_rad: f64, azimuth_rad: f64) -> [f64; 3] {
-    let (se, ce) = elevation_rad.sin_cos();
-    let (sa, ca) = azimuth_rad.sin_cos();
-    [ce * ca, ce * sa, se]
+    com_math::geometry::from_spherical(FRAC_PI_2 - elevation_rad, azimuth_rad)
 }
 
 /// A generalized Lambertian emitter (see the module).

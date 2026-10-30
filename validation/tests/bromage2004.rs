@@ -28,7 +28,7 @@
 
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::raman::{Direction, Raman, RamanGain, RamanPump};
-use comrs::math::{PLANCK, SPEED_OF_LIGHT, bisect, db2lin, lin2db, np2db};
+use comrs::math::{PLANCK, bisect, db2lin, lin2db, nm2hz, np2db};
 
 const SIGNAL_NM: f64 = 1550.0;
 const PUMP_NM: f64 = 1450.0;
@@ -37,7 +37,7 @@ const PUMP_NM: f64 = 1450.0;
 fn flat_gain(c_r: f64, aeff_um2: f64) -> RamanGain {
     let offsets: Vec<f64> = (0..=40).map(|k| f64::from(k) * 1e12).collect();
     let g = c_r * aeff_um2 * 1e-12 / 1e3;
-    RamanGain::new(offsets, vec![g; 41], SPEED_OF_LIGHT / (PUMP_NM * 1e-9)).unwrap()
+    RamanGain::new(offsets, vec![g; 41], nm2hz(PUMP_NM)).unwrap()
 }
 
 /// The small-signal net gain (dB) of `length` km with the co- and counter-pump powers.
@@ -53,7 +53,7 @@ fn net_gain(c_r: f64, length: f64, alpha_s: f64, alpha_p: f64, co: f64, counter:
         .map(|(p, d)| pump(p, d))
         .collect();
     let raman = Raman { pumps, gain: flat_gain(c_r, 80.0), aeff_um2: 80.0, ..Raman::default() };
-    raman.solve(&fiber, &[(SPEED_OF_LIGHT / (SIGNAL_NM * 1e-9), 1e-7)]).unwrap().net_gain_db(0)
+    raman.solve(&fiber, &[(nm2hz(SIGNAL_NM), 1e-7)]).unwrap().net_gain_db(0)
 }
 
 /// Bromage's eq. (3) in dB.
@@ -80,7 +80,7 @@ fn bromage_2004_eqs_3_5_examples() {
 /// position (km) of the minimum of the signal, at the on-off gain `target`.
 fn figs_7_8(target: f64) -> (f64, f64, f64, f64) {
     let fiber = FiberParams { span_km: 100.0, alpha_db_km: 0.2, ..FiberParams::default() };
-    let fs = SPEED_OF_LIGHT / (SIGNAL_NM * 1e-9);
+    let fs = nm2hz(SIGNAL_NM);
     let solve = |power: f64| {
         let pump =
             RamanPump { alpha_db_km: Some(0.22), ..RamanPump::at_wavelength(PUMP_NM, power, Direction::Counter) };

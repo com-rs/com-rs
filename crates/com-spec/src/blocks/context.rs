@@ -177,7 +177,7 @@ impl PumpSpec {
             _ => Direction::Counter,
         };
         let frequency_hz = match (self.wavelength_nm, self.frequency_thz) {
-            (Some(w), None) => com_math::SPEED_OF_LIGHT / (w * 1e-9),
+            (Some(w), None) => com_math::nm2hz(w),
             (None, Some(f)) => f * 1e12,
             _ => return Err(Error::Config("raman: a pump needs wavelength_nm or frequency_thz".into())),
         };

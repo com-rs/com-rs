@@ -122,6 +122,13 @@ fn same(a: &Json, b: &Json) -> bool {
     }
 }
 
+/// Whether the inputs of `case` contain every entry of `keys` ([`same`] values), and no
+/// other entry when `exact`.
+fn matches(case: &Case, keys: &serde_json::Map<String, Json>, exact: bool) -> bool {
+    (!exact || case.inputs.len() == keys.len())
+        && keys.iter().all(|(k, v)| case.inputs.get(k).is_some_and(|w| same(v, w)))
+}
+
 impl Card {
     /// Load the card `validation/cards/<id>.yaml`.
     ///
@@ -164,7 +171,7 @@ impl Card {
     /// [`Error::Config`] if no case matches.
     pub fn part(mut self, part: &Json) -> Result<Card> {
         let keys = part.as_object().cloned().unwrap_or_default();
-        self.cases.retain(|c| keys.iter().all(|(k, v)| c.inputs.get(k).is_some_and(|w| same(v, w))));
+        self.cases.retain(|c| matches(c, &keys, false));
         if self.cases.is_empty() {
             return Err(Error::Config(format!("card {}: no case has the inputs {part}", self.id)));
         }
@@ -179,14 +186,9 @@ impl Card {
     /// the test and its card disagree.
     pub fn check(&mut self, inputs: &Json, measured: f64) {
         let keys = inputs.as_object().cloned().unwrap_or_default();
-        let matches: Vec<usize> = (0..self.cases.len())
-            .filter(|&i| {
-                let c = &self.cases[i].inputs;
-                c.len() == keys.len() && keys.iter().all(|(k, v)| c.get(k).is_some_and(|w| same(v, w)))
-            })
-            .collect();
-        assert!(matches.len() == 1, "card {}: {} cases have the inputs {inputs}", self.id, matches.len());
-        let case = &mut self.cases[matches[0]];
+        let found: Vec<usize> = (0..self.cases.len()).filter(|&i| matches(&self.cases[i], &keys, true)).collect();
+        assert!(found.len() == 1, "card {}: {} cases have the inputs {inputs}", self.id, found.len());
+        let case = &mut self.cases[found[0]];
         assert!(case.measured.is_none(), "card {}: the case {inputs} is measured twice", self.id);
         case.measured = Some(measured);
     }
@@ -195,15 +197,10 @@ impl Card {
     /// simulation, to print it).
     pub fn expected(&self, inputs: &Json) -> Option<f64> {
         let keys = inputs.as_object()?;
-        self.cases
-            .iter()
-            .find(|c| {
-                c.inputs.len() == keys.len() && keys.iter().all(|(k, v)| c.inputs.get(k).is_some_and(|w| same(v, w)))
-            })
-            .and_then(|c| match c.expected {
-                Expected::Value(e, _) => Some(e),
-                Expected::Range(..) => None,
-            })
+        self.cases.iter().find(|c| matches(c, keys, true)).and_then(|c| match c.expected {
+            Expected::Value(e, _) => Some(e),
+            Expected::Range(..) => None,
+        })
     }
 
     /// Print the table of the comparison and check it.

@@ -6,6 +6,7 @@ use crate::rng::PyRng;
 use crate::{
     CArr, FArr, FMat, IArr, IntoPy, carr, cvec, farr, fvec, iarr, mat, streams_in, streams_out, taps_in, taps_out, uvec,
 };
+use comrs::channel::fading::Fading;
 use comrs::channel::multipath::{Profile, Taps, Tdl, rms_delay_spread};
 use comrs::core::signal::Signal;
 use comrs::core::units::Hertz;

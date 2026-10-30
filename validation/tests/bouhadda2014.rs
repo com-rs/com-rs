@@ -19,20 +19,34 @@
 //!   against 1.2e-5 and 1.6e-4 read; the "loss of ≈7 dB" of FBMC "at a BER of 5e-3"
 //!   is 0.2 dB there (2.6 dB at 5e-4).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
-use com_validation::log_interp;
+use com_validation::sweep_crossing;
+use comrs::channel::awgn::add_noise;
 use comrs::dsp::nonlinear::bussgang;
 use comrs::hardware::amplifier::Saleh;
 use comrs::mapping::theory::ber_gray_qam;
+use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
 use comrs::waveform::ofdm::Ofdm;
 
 const M: usize = 64;
 
-/// BER of OFDM or FBMC/OQAM (`fbmc`) with `order`-QAM through the TWTA ($A_{\mathrm{sat}} = 1$, $\phi_{0}$)
-/// at the input back-off `ibo` (dB), AWGN at `ebn0_db` ($E_{b}$ of the useful output), with or
-/// without the correction by Bussgang's gain.
-fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: bool, blocks: usize, seed: u64) -> f64 {
+/// A link of the figures: OFDM or FBMC/OQAM, `order`-QAM, the TWTA ($A_{\mathrm{sat}} = 1$,
+/// $\phi_{0}$) at the input back-off `ibo` (dB), with or without the correction by
+/// Bussgang's gain.
+#[derive(Clone, Copy, Debug)]
+struct Link {
+    fbmc: bool,
+    order: usize,
+    phi0: f64,
+    ibo: f64,
+    correct: bool,
+}
+
+/// BER of `link` with AWGN at `ebn0_db` ($E_{b}$ of the useful output), over `blocks`
+/// blocks drawn from `seed`.
+fn ber(link: Link, ebn0_db: f64, blocks: usize, seed: u64) -> f64 {
+    let Link { fbmc, order, phi0, ibo, correct } = link;
     let c = Constellation::qam(order).unwrap().normalized();
     let bits_per = order.trailing_zeros() as usize;
     let twta = Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
@@ -46,16 +60,12 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
     let ofdm = Ofdm { oversampling: 1, ..Ofdm::new(M, M).unwrap() };
     let fb = Fbmc::new(M, 4).unwrap();
     for _ in 0..blocks {
-        let bits: Vec<u8> = (0..M * n_sym * bits_per).map(|_| rng.below(2) as u8).collect();
+        let bits = source::bits(M * n_sym * bits_per, &mut rng);
         let x = c.modulate(&bits).unwrap();
         let s = if fbmc { fb.modulate(&oqam_stagger(&x, M).unwrap()).unwrap() } else { ofdm.modulate(&x).unwrap() };
         let scale = power.sqrt();
-        let y: Vec<C64> = s
-            .iter()
-            .map(|v| {
-                twta.amplify(&[v * scale]).unwrap()[0] / scale + rng.complex_gaussian() * (sigma_w2 / power).sqrt()
-            })
-            .collect();
+        let mut y: Vec<C64> = s.iter().map(|v| twta.amplify(&[v * scale]).unwrap()[0] / scale).collect();
+        add_noise(&mut y, sigma_w2 / power, &mut rng);
         let gain = if correct { k } else { C64::new(1.0, 0.0) };
         let z: Vec<C64> = if fbmc {
             // correct the gain before taking the real part
@@ -65,8 +75,7 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
         } else {
             ofdm.demodulate(&y).unwrap().iter().map(|v| v / gain).collect()
         };
-        let rx = c.demodulate(&z);
-        errors += rx.iter().zip(&bits).filter(|(a, b)| a != b).count();
+        errors += bit_errors(&c.demodulate(&z), &bits).unwrap();
         total += bits.len();
     }
     errors as f64 / total as f64
@@ -84,18 +93,9 @@ fn theory(order: usize, phi0: f64, ibo: f64, ebn0_db: f64) -> f64 {
 }
 
 /// The $E_{b}/N_{0}$ (dB) at which `curve` crosses `target`, by interpolation of log BER on
-/// a grid of 0.5 dB.
-fn crossing(curve: impl Fn(f64) -> f64, target: f64) -> f64 {
-    let mut prev = (0.0, curve(0.0));
-    for k in 1..60 {
-        let e = 0.5 * k as f64;
-        let b = curve(e);
-        if b < target {
-            return log_interp(prev, (e, b), target);
-        }
-        prev = (e, b);
-    }
-    f64::NAN
+/// a grid of 0.5 dB from 0 to 29.5 dB (`NaN` if it stays above).
+fn ebn0_at(curve: impl Fn(f64) -> f64, target: f64) -> f64 {
+    sweep_crossing(0.0, 0.5, 60, target, |_, e| curve(e)).unwrap_or(f64::NAN)
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn bouhadda_2014_figs_10_11_corrected_gain() {
         for e in [10.0, 20.0, 30.0] {
             let t = theory(16, phi0, ibo, e);
             for fbmc in [false, true] {
-                let b = ber(fbmc, 16, phi0, ibo, e, true, 300, 1 + u64::from(fbmc));
+                let b = ber(Link { fbmc, order: 16, phi0, ibo, correct: true }, e, 300, 1 + u64::from(fbmc));
                 assert!((b / t - 1.0).abs() < 0.25, "φ0 {phi0} IBO {ibo} {e} dB FBMC {fbmc}: {b} against {t}");
             }
         }
@@ -119,15 +119,15 @@ fn bouhadda_2014_figs_10_11_corrected_gain() {
 #[ignore = "statistical validation: run with --ignored"]
 fn bouhadda_2014_fig_7_phase_rotation() {
     let p3 = std::f64::consts::FRAC_PI_3;
-    let ofdm = ber(false, 4, p3, 8.0, 30.0, false, 12_000, 3);
-    let fbmc = ber(true, 4, p3, 8.0, 30.0, false, 2000, 4);
+    let ofdm = ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 12_000, 3);
+    let fbmc = ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 2000, 4);
     assert!((ofdm / 1.2e-5).ln().abs() < 1.5f64.ln(), "OFDM floor {ofdm}");
     assert!((fbmc / 1.6e-4).ln().abs() < 1.5f64.ln(), "FBMC floor {fbmc}");
     // at 4 dB of back-off the floor of OFDM is far above the curve labelled so
-    assert!(ber(false, 4, p3, 4.0, 30.0, false, 300, 5) > 1e-2);
+    assert!(ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 4.0, correct: false }, 30.0, 300, 5) > 1e-2);
     let gap = |target: f64| {
-        crossing(|e| ber(true, 4, p3, 8.0, e, false, 3000, 6), target)
-            - crossing(|e| ber(false, 4, p3, 8.0, e, false, 3000, 7), target)
+        ebn0_at(|e| ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 6), target)
+            - ebn0_at(|e| ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 7), target)
     };
     let (g3, g4) = (gap(5e-3), gap(5e-4));
     assert!(g3.abs() < 0.6, "gap at 5e-3: {g3} dB");

@@ -11,7 +11,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
-use comrs::math::fft::fft;
+use comrs::dsp::spectrum::periodogram;
+use comrs::mapping::source;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::Ofdm;
 use comrs::waveform::ufmc::Ufmc;
@@ -21,25 +22,22 @@ const N: usize = 128;
 const Q: usize = 12;
 const PAD: usize = 16;
 
-/// The averaged spectrum (dB, normalised to the band) against the frequency in subcarriers.
+/// The averaged spectrum (dB, normalised to the band) against the frequency in subcarriers:
+/// the periodogram of the symbols zero-padded to `N · PAD` samples, at the rate of `N`
+/// samples per symbol (one subcarrier per unit of frequency).
 fn spectrum(modulate: impl Fn(&[C64]) -> Vec<C64>, rng: &mut Rng) -> Vec<(f64, f64)> {
     let qpsk = Constellation::psk(4).unwrap().normalized();
-    let mut acc = vec![0.0; N * PAD];
+    let mut padded = Vec::with_capacity(2000 * N * PAD);
     for _ in 0..2000 {
-        let data: Vec<C64> = (0..Q).map(|_| qpsk.points()[rng.below(4)]).collect();
+        let (_, data) = source::symbols(&qpsk, Q, None, rng).unwrap();
         let mut s = modulate(&data);
         s.resize(N * PAD, C64::new(0.0, 0.0));
-        for (a, v) in acc.iter_mut().zip(fft(&s)) {
-            *a += v.norm_sqr();
-        }
+        padded.extend(s);
     }
-    let freq = |k: usize| {
-        let k = k as f64 / PAD as f64;
-        if k >= N as f64 / 2.0 { k - N as f64 } else { k }
-    };
-    let band: Vec<f64> = (0..N * PAD).filter(|k| freq(*k).abs() < 5.0).map(|k| acc[k]).collect();
+    let (freqs, density) = periodogram(&padded, N as f64, N * PAD).unwrap();
+    let band: Vec<f64> = freqs.iter().zip(&density).filter(|(f, _)| f.abs() < 5.0).map(|(_, p)| *p).collect();
     let mean = band.iter().sum::<f64>() / band.len() as f64;
-    (0..N * PAD).map(|k| (freq(k), lin2db(acc[k] / mean))).collect()
+    freqs.iter().zip(&density).map(|(f, p)| (*f, lin2db(p / mean))).collect()
 }
 
 /// The envelope `d` subcarriers past the band (the last subcarrier at ±5.5).

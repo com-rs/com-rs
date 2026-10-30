@@ -12,11 +12,14 @@
 //! - Alamouti over $2 \times n_{r}$ has $L = 2 n_{r}$ branches of mean SNR $E_{b}/N_{0}/2$.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
-use com_validation::{MIN_ERRORS, within_three_sigma};
+use com_validation::{MIN_ERRORS, until_errors, within_three_sigma};
+use comrs::channel::awgn::add_noise;
 use comrs::channel::fading::Mimo;
+use comrs::mapping::constellation::bpsk;
 use comrs::mapping::theory::ber_rayleigh_mrc;
 use comrs::math::bisect;
 use comrs::math::linalg::{CMat, matvec};
+use comrs::metrics::errors::symbol_errors;
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::mimo::stbc::Ostbc;
 use comrs::prelude::*;
@@ -30,21 +33,21 @@ fn zero_forcing_over_rayleigh_fading() {
         let s2 = 1.0 / db2lin(ebn0_db);
         let ch = Mimo::rayleigh(nr, nt);
         let det = Linear::zf(c.clone());
-        let (mut errors, mut total, mut batch) = (0u64, 0u64, 0u64);
-        while errors < MIN_ERRORS {
-            let mut rng = batch_rng(31, batch);
+        let count = until_errors(31, MIN_ERRORS, u64::MAX, 1, |rng| {
+            let (mut errors, mut total) = (0u64, 0u64);
             for _ in 0..10_000 {
-                let h: CMat = ch.draw(&mut rng).unwrap();
+                let h: CMat = ch.draw(rng)?;
                 let idx: Vec<usize> = (0..nt).map(|_| rng.below(2)).collect();
                 let x: Vec<C64> = idx.iter().map(|&i| c.points()[i]).collect();
-                let y: Vec<C64> =
-                    matvec(&h.view(), &x).into_iter().map(|v| v + rng.complex_gaussian() * s2.sqrt()).collect();
-                let d = det.detect(&h.view(), &y, s2).unwrap();
-                errors += d.iter().zip(&idx).filter(|(a, b)| a != b).count() as u64;
+                let mut y = matvec(&h.view(), &x);
+                add_noise(&mut y, s2, rng);
+                errors += symbol_errors(&det.detect(&h.view(), &y, s2)?, &idx)? as u64;
                 total += nt as u64;
             }
-            batch += 1;
-        }
+            Ok((errors, total))
+        })
+        .unwrap();
+        let (errors, total) = (count.errors, count.total);
         let theory = ber_rayleigh_mrc(db2lin(ebn0_db), nr - nt + 1).unwrap();
         assert!(within_three_sigma(errors, total, theory), "{nt}x{nr}: {errors}/{total} vs {theory}");
     }
@@ -57,21 +60,23 @@ fn alamouti_over_rayleigh_fading() {
     for (nr, ebn0_db) in [(1usize, 12.0), (2, 6.0)] {
         let g = db2lin(ebn0_db);
         let ch = Mimo::rayleigh(nr, 2);
-        let (mut errors, mut total, mut batch) = (0u64, 0u64, 0u64);
-        while errors < MIN_ERRORS {
-            let mut rng = batch_rng(32, batch);
+        let count = until_errors(32, MIN_ERRORS, u64::MAX, 1, |rng| {
+            let (mut errors, mut total) = (0u64, 0u64);
             for _ in 0..5_000 {
                 let bits = [rng.bit(), rng.bit()];
-                let s: Vec<C64> = bits.iter().map(|&b| C64::new(1.0 - 2.0 * f64::from(b), 0.0)).collect();
-                let x = code.encode(&s).unwrap();
-                let h = ch.draw(&mut rng).unwrap();
-                let y: Array2<C64> = h.dot(&x).mapv(|v| v + rng.complex_gaussian() * (1.0 / g).sqrt());
-                let est = code.decode(&h.view(), &y.view(), 1.0 / g).unwrap().symbols;
+                let s: Vec<C64> = bpsk(&bits).iter().map(|&v| C64::new(v, 0.0)).collect();
+                let x = code.encode(&s)?;
+                let h = ch.draw(rng)?;
+                let mut y: Array2<C64> = h.dot(&x);
+                add_noise(y.as_slice_mut().expect("a standard layout"), 1.0 / g, rng);
+                let est = code.decode(&h.view(), &y.view(), 1.0 / g)?.symbols;
                 errors += est.iter().zip(bits).filter(|(e, b)| (e.re < 0.0) != (*b == 1)).count() as u64;
                 total += 2;
             }
-            batch += 1;
-        }
+            Ok((errors, total))
+        })
+        .unwrap();
+        let (errors, total) = (count.errors, count.total);
         let theory = ber_rayleigh_mrc(g / 2.0, 2 * nr).unwrap();
         assert!(within_three_sigma(errors, total, theory), "2x{nr}: {errors}/{total} vs {theory}");
     }
@@ -98,8 +103,8 @@ fn ber_curve(
             let h: CMat = ch.draw(rng)?;
             let idx: Vec<usize> = (0..nt).map(|_| rng.below(4)).collect();
             let x: Vec<C64> = idx.iter().map(|&i| c.points()[i]).collect();
-            let y: Vec<C64> =
-                matvec(&h.view(), &x).into_iter().map(|v| v + rng.complex_gaussian() * n0.sqrt()).collect();
+            let mut y = matvec(&h.view(), &x);
+            add_noise(&mut y, n0, rng);
             let d = det.detect(&h.view(), &y, n0)?;
             // the labels are the Gray bits of the points
             wrong += d.iter().zip(&idx).map(|(a, b)| u64::from((a ^ b).count_ones())).sum::<u64>();

@@ -8,11 +8,11 @@
 //!   Carlo simulation of that model, with com-rs constellations;
 //! - eqs. 40 and 41 (DBPSK and Gray DQPSK over Jakes' fading) against a Monte Carlo
 //!   simulation of pairs of channel samples correlated by $J_{0}(2\pi f_{D}T_{s})$;
-//! - Fig. 4 (16-QAM for $\rho_{1}$ from 0.999 to 1): the BER at 50 dB read on the
-//!   figure;
-//! - Fig. 3 (DBPSK): the floors read on the figure. The curve labelled $f_{D}T_{s} =
-//!   0.05$ floors near $1.3 \cdot 10^{-4}$, which eq. 40 gives for $f_{D}T_{s} = 0.005$
-//!   (0.05 gives $1.2 \cdot 10^{-2}$): a misprint of the label, and the test reads it so.
+//!
+//! Figs. 3 and 4 (the floors of DBPSK and of 16-QAM at 50 dB read on the figures, and
+//! the misprint of the label $f_{D}T_{s} = 0.05$ of Fig. 3, whose curve floors where
+//! eq. 40 puts 0.005) are the cards `validation/cards/chang2002_fig3_dbpsk_floors.yaml`
+//! and `chang2002_fig4_floors.yaml`, checked on the closed forms.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::within_three_sigma;
@@ -110,21 +110,4 @@ fn chang2002_eqs_40_41_differential_detection_over_jakes_fading() {
             );
         }
     }
-}
-
-#[test]
-fn chang2002_figs_3_and_4_read_on_the_figures() {
-    // Fig. 4, 16-QAM at 50 dB: ρ1 → BER read on the figure (±30 %)
-    let g = db2lin(50.0);
-    for (rho1, read) in [(1.0, 5e-6), (0.999_999, 9e-6), (0.999_99, 4e-5), (0.9999, 3.5e-4), (0.999, 3.5e-3)] {
-        let v = ber_16qam_imperfect_csi(g, rho1, 0.0, 1.0).unwrap();
-        assert!((v / read - 1.0).abs() < 0.3, "ρ1 = {rho1}: {v} vs {read}");
-    }
-    // Fig. 3, DBPSK at 50 dB: fD Ts = 0.01 → 5e-4, 0.001 → 1.3e-5, and the curve
-    // labelled 0.05 → 1.3e-4, which is fD Ts = 0.005
-    for (fd_ts, read) in [(0.01, 5e-4), (0.001, 1.3e-5), (0.005, 1.3e-4)] {
-        let v = ber_dbpsk_jakes(g, fd_ts).unwrap();
-        assert!((v / read - 1.0).abs() < 0.3, "fD Ts = {fd_ts}: {v} vs {read}");
-    }
-    assert!(ber_dbpsk_jakes(g, 0.05).unwrap() > 1e-2);
 }

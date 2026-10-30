@@ -45,7 +45,7 @@ serde_json.workspace = true
 default = ["optical", "spec"]
 # optical fibre and optical devices (`channel::optical`, `hardware::optical`)
 optical = ["com-channel/optical", "com-hardware/optical"]
-# declarative campaigns, recordings I/O (`com::spec`, `com::io`)
+# declarative campaigns, recordings I/O (`comrs::spec`, `comrs::io`)
 spec = ["dep:com-spec"]
 
 [[example]]

@@ -26,6 +26,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 use comrs::channel::awgn::add_noise;
 use comrs::dsp::filter::convolve_full;
+use comrs::metrics::errors::symbol_errors;
 use comrs::prelude::*;
 use comrs::waveform::css::{Css, Waveform, theory};
 
@@ -40,8 +41,7 @@ fn ser_channel(css: &Css, h: &[f64], snr_db: f64, n_sym: usize, seed: u64) -> f6
     let mut y = convolve_full(&hc, &x);
     y.truncate(x.len());
     add_noise(&mut y, comrs::math::db2lin(-snr_db), &mut rng);
-    let d = css.demodulate(&y).unwrap();
-    d.iter().zip(&s).filter(|(a, b)| a != b).count() as f64 / n_sym as f64
+    symbol_errors(&css.demodulate(&y).unwrap(), &s).unwrap() as f64 / n_sym as f64
 }
 
 /// SER under a same-SF interferer of power `pi_db`, random offsets (integer and phase-aligned if `aligned`).
@@ -49,7 +49,7 @@ fn ser_interferer(sf: u32, snr_db: f64, pi_db: f64, aligned: bool, n_sym: usize,
     let css = Css::lora(sf).unwrap();
     let m = css.m();
     let mut rng = Rng::new(seed);
-    let sigma = (1.0 / comrs::math::db2lin(snr_db)).sqrt();
+    let noise_var = 1.0 / comrs::math::db2lin(snr_db);
     let a = comrs::math::db2lin(pi_db).sqrt();
     let mut errors = 0;
     for _ in 0..n_sym {
@@ -63,11 +63,8 @@ fn ser_interferer(sf: u32, snr_db: f64, pi_db: f64, aligned: bool, n_sym: usize,
         let x = css.symbol(s).unwrap();
         let xi = css.interferer(s1, s2, tau).unwrap();
         let ph = comrs::math::cis(rng.uniform() * std::f64::consts::TAU);
-        let y: Vec<C64> = x
-            .iter()
-            .zip(&xi)
-            .map(|(v, vi)| ph * (v + vi * comrs::math::cis(w) * a) + rng.complex_gaussian() * sigma)
-            .collect();
+        let mut y: Vec<C64> = x.iter().zip(&xi).map(|(v, vi)| ph * (v + vi * comrs::math::cis(w) * a)).collect();
+        add_noise(&mut y, noise_var, &mut rng);
         if css.demodulate(&y).unwrap()[0] != s {
             errors += 1;
         }

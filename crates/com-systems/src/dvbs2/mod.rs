@@ -15,11 +15,12 @@
 //! 4. **Mapping** (§ 5.4, Figures 9 to 12): Gray QPSK and 8PSK, 4 + 12 APSK of ring ratio
 //!    $\gamma$ (Table 9), 4 + 12 + 16 APSK of ratios $\gamma_{1}$, $\gamma_{2}$ (Table 10),
 //!    unit average energy ([`constellation`]).
-//! 5. **PL framing** (§ 5.5): the PLHEADER (SOF `18D2E82`, the (64, 7) PLS code of the
-//!    MODCOD and the TYPE, scrambled, in $\pi/2$-BPSK), the $S$ slots of 90 symbols,
-//!    pilot blocks of 36 symbols $(1 + j)/\sqrt{2}$ every 16 slots, and the
-//!    multiplication by the Gold scrambling sequence $n$ of every symbol after the
-//!    header ([`scrambling_sequence`]).
+//! 5. **PL framing** (§ 5.5): the PLHEADER of [`PLHEADER_LEN`] symbols (SOF `18D2E82`,
+//!    the (64, 7) PLS code of the MODCOD and the TYPE, [`PlsCode`], scrambled, in
+//!    $\pi/2$-BPSK), the $S$ slots of [`SLOT_LEN`] symbols, pilot blocks of
+//!    [`PILOT_BLOCK`] symbols $(1 + j)/\sqrt{2}$ every [`SLOTS_PER_PILOT`] slots, and the
+//!    multiplication by the Gold scrambling sequence of code number $n$ of every symbol
+//!    after the header ([`scrambling_sequence`]).
 //!
 //! The receiver ([`Dvbs2::llr`], [`Dvbs2::decode`]) assumes the frame found: it
 //! descrambles, removes the header and the pilots, computes the exact bit LLRs of the
@@ -28,13 +29,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_systems::dvbs2::{CodeRate, Dvbs2, FrameSize, Modcod, Modulation};
+//! use com_systems::dvbs2::{CodeRate, Dvbs2, FrameSize, Modcod, Modulation, PlsCode};
 //! let link = Dvbs2::new(Modcod::new(Modulation::Apsk16, CodeRate::R3_4)?, FrameSize::Short, true, 0)?;
 //! assert_eq!(link.k(), 11712);
 //! assert_eq!(link.plframe_len(), 90 * (45 + 1) + 36 * 2);   // S = 45 slots, 2 pilot blocks
 //! let bb: Vec<u8> = (0..link.k()).map(|i| (i % 3 == 0) as u8).collect();
 //! let x = link.modulate(&bb)?;
-//! assert_eq!(com_systems::dvbs2::decode_plheader(&x[..90])?, (19, true, true));   // 16APSK 3/4, short, pilots
+//! // 16APSK 3/4, short, pilots
+//! assert_eq!(com_systems::dvbs2::decode_plheader(&x[..90])?, PlsCode { modcod: 19, short: true, pilots: true });
 //! assert_eq!(link.decode(&x, 1e-3)?, bb);
 //! # Ok::<(), com_core::Error>(())
 //! ```
@@ -61,6 +63,20 @@ use com_math::C64;
 use com_math::sequences::lfsr;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 use std::str::FromStr;
+
+/// Symbols of the PLHEADER, and bits of its $\pi/2$-BPSK (§ 5.5.2): the SOF and the PLS
+/// code.
+pub const PLHEADER_LEN: usize = 90;
+/// Symbols of a slot of the PLFRAME (§ 5.5.1).
+pub const SLOT_LEN: usize = 90;
+/// Bits of the BBHEADER (§ 5.1.6).
+pub const BBHEADER_LEN: usize = 80;
+/// Symbols of a pilot block (§ 5.5.3).
+pub const PILOT_BLOCK: usize = 36;
+/// Slots between two pilot blocks (§ 5.5.3).
+pub const SLOTS_PER_PILOT: usize = 16;
+/// Bits of the Start Of Frame (§ 5.5.2.1).
+const SOF_LEN: usize = 26;
 
 /// The modulations of DVB-S2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -109,13 +125,12 @@ impl FromStr for Modulation {
     }
 }
 
-/// A modulation and a code rate of Table 12.
+/// A modulation and a code rate of Table 12, checked when built ([`Modcod::new`]): its
+/// fields are private, so that every MODCOD has a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Modcod {
-    /// The modulation.
-    pub modulation: Modulation,
-    /// The code rate.
-    pub rate: CodeRate,
+    modulation: Modulation,
+    rate: CodeRate,
 }
 
 impl Modcod {
@@ -124,8 +139,19 @@ impl Modcod {
     /// # Errors
     /// [`Error::Config`] for a combination outside Table 12.
     pub fn new(modulation: Modulation, rate: CodeRate) -> Result<Modcod> {
-        let m = Modcod { modulation, rate };
-        m.number().map(|_| m)
+        table12_number(modulation, rate)
+            .map(|_| Modcod { modulation, rate })
+            .ok_or_else(|| Error::Config(format!("DVB-S2 has no MODCOD {modulation:?} {}", rate.name())))
+    }
+
+    /// The modulation.
+    pub fn modulation(self) -> Modulation {
+        self.modulation
+    }
+
+    /// The code rate.
+    pub fn rate(self) -> CodeRate {
+        self.rate
     }
 
     /// The MODCOD from names: `Modcod::from_name("16APSK", "3/4")`.
@@ -137,35 +163,13 @@ impl Modcod {
     }
 
     /// The MODCOD field (Table 12): 1 to 28.
-    ///
-    /// # Errors
-    /// [`Error::Config`] for a combination outside Table 12.
-    pub fn number(self) -> Result<u8> {
-        use CodeRate::{R1_2, R1_3, R1_4, R2_3, R2_5, R3_4, R3_5, R4_5, R5_6, R8_9, R9_10};
-        let rates: &[CodeRate] = match self.modulation {
-            Modulation::Qpsk => &[R1_4, R1_3, R2_5, R1_2, R3_5, R2_3, R3_4, R4_5, R5_6, R8_9, R9_10],
-            Modulation::Psk8 => &[R3_5, R2_3, R3_4, R5_6, R8_9, R9_10],
-            Modulation::Apsk16 => &[R2_3, R3_4, R4_5, R5_6, R8_9, R9_10],
-            Modulation::Apsk32 => &[R3_4, R4_5, R5_6, R8_9, R9_10],
-        };
-        let first = match self.modulation {
-            Modulation::Qpsk => 1,
-            Modulation::Psk8 => 12,
-            Modulation::Apsk16 => 18,
-            Modulation::Apsk32 => 24,
-        };
-        rates
-            .iter()
-            .position(|r| *r == self.rate)
-            .map(|i| first + i as u8)
-            .ok_or_else(|| Error::Config(format!("DVB-S2 has no MODCOD {:?} {}", self.modulation, self.rate.name())))
+    pub fn number(self) -> u8 {
+        table12_number(self.modulation, self.rate)
+            .unwrap_or_else(|| unreachable!("a Modcod is built by Modcod::new, from Table 12"))
     }
 
     /// The ideal $E_{s}/N_{0}$ (dB) at a PER of $10^{-7}$ of the normal FECFRAME, 50
     /// iterations (Table 13).
-    ///
-    /// Every MODCOD built by [`Modcod::new`] has an entry; another combination gives
-    /// `NaN`.
     pub fn threshold_db(self) -> f64 {
         const TABLE13: [f64; 28] = [
             -2.35, -1.24, -0.30, 1.00, 2.23, 3.10, 4.03, 4.68, 5.18, 6.20, 6.42, // QPSK
@@ -173,8 +177,27 @@ impl Modcod {
             8.97, 10.21, 11.03, 11.61, 12.89, 13.13, // 16APSK
             12.73, 13.64, 14.28, 15.69, 16.05, // 32APSK
         ];
-        self.number().map_or(f64::NAN, |n| TABLE13[usize::from(n) - 1])
+        TABLE13[usize::from(self.number()) - 1]
     }
+}
+
+/// The MODCOD field of Table 12 of a modulation and a code rate (1 to 28), `None`
+/// outside the table.
+fn table12_number(modulation: Modulation, rate: CodeRate) -> Option<u8> {
+    use CodeRate::{R1_2, R1_3, R1_4, R2_3, R2_5, R3_4, R3_5, R4_5, R5_6, R8_9, R9_10};
+    let rates: &[CodeRate] = match modulation {
+        Modulation::Qpsk => &[R1_4, R1_3, R2_5, R1_2, R3_5, R2_3, R3_4, R4_5, R5_6, R8_9, R9_10],
+        Modulation::Psk8 => &[R3_5, R2_3, R3_4, R5_6, R8_9, R9_10],
+        Modulation::Apsk16 => &[R2_3, R3_4, R4_5, R5_6, R8_9, R9_10],
+        Modulation::Apsk32 => &[R3_4, R4_5, R5_6, R8_9, R9_10],
+    };
+    let first = match modulation {
+        Modulation::Qpsk => 1,
+        Modulation::Psk8 => 12,
+        Modulation::Apsk16 => 18,
+        Modulation::Apsk32 => 24,
+    };
+    rates.iter().position(|r| *r == rate).map(|i| first + i as u8)
 }
 
 /// The ring ratio $\gamma$ of 16APSK (Table 9).
@@ -265,9 +288,8 @@ const APSK32_PLACE: [(u8, u8); 32] = [
 /// `l` (MSB first, the first bit of the interleaver output), Figures 9 to 12.
 ///
 /// # Errors
-/// [`Error::Config`] for a combination outside Table 12.
+/// As [`Constellation::from_points`] (never for the points of the tables).
 pub fn constellation(modcod: Modcod) -> Result<Constellation> {
-    modcod.number()?;
     let polar = |r: f64, phi: f64| C64::from_polar(r, phi);
     let points: Vec<C64> = match modcod.modulation {
         Modulation::Qpsk => (0..4)
@@ -330,10 +352,29 @@ const PLS_SCRAMBLE: u64 = 0b0111_0001_1001_1101_1000_0011_1100_1001_0101_0011_01
 /// The generator of the (32, 6) bi-orthogonal code (Figure 13b), first row first.
 const PLS_G: [u32; 6] = [0x5555_5555, 0x3333_3333, 0x0F0F_0F0F, 0x00FF_00FF, 0x0000_FFFF, 0xFFFF_FFFF];
 
-/// The 90 bits of a PLHEADER: SOF, then the scrambled (64, 7) PLS code of the MODCOD
-/// field (0 for a dummy frame) and the TYPE (short frame, pilots).
-pub fn plheader_bits(modcod: u8, short: bool, pilots: bool) -> Vec<u8> {
-    let mut out: Vec<u8> = (0..26).rev().map(|i| ((SOF >> i) & 1) as u8).collect();
+/// The content of the PLS code of a PLHEADER (§ 5.5.2.2): the MODCOD field and the TYPE.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PlsCode {
+    /// The MODCOD field, 1 to 28 ([`Modcod::number`]; 0 for a dummy frame), on 5 bits.
+    pub modcod: u8,
+    /// The first bit of the TYPE: a short FECFRAME.
+    pub short: bool,
+    /// The second bit of the TYPE: pilots.
+    pub pilots: bool,
+}
+
+impl PlsCode {
+    /// The 128 PLS codes: the MODCOD fields 0 to 31 with both TYPE bits.
+    fn all() -> impl Iterator<Item = PlsCode> {
+        (0..128u8).map(|c| PlsCode { modcod: c >> 2, short: (c >> 1) & 1 == 1, pilots: c & 1 == 1 })
+    }
+}
+
+/// The [`PLHEADER_LEN`] bits of a PLHEADER: SOF, then the scrambled (64, 7) PLS code of
+/// the MODCOD field and the TYPE of `code`.
+pub fn plheader_bits(code: PlsCode) -> Vec<u8> {
+    let PlsCode { modcod, short, pilots } = code;
+    let mut out: Vec<u8> = (0..SOF_LEN).rev().map(|i| ((SOF >> i) & 1) as u8).collect();
     let b: [u8; 6] =
         [(modcod >> 4) & 1, (modcod >> 3) & 1, (modcod >> 2) & 1, (modcod >> 1) & 1, modcod & 1, u8::from(short)];
     let mut y = 0u32;
@@ -364,41 +405,41 @@ pub fn pi2_bpsk(bits: &[u8]) -> Vec<C64> {
         .collect()
 }
 
-/// The MODCOD field and the TYPE (short frame, pilots) of a received PLHEADER (90
+/// The PLS code (MODCOD field and TYPE) of a received PLHEADER ([`PLHEADER_LEN`]
 /// symbols, frame aligned, carrier recovered): the PLS codeword of largest correlation
 /// with the $\pi/2$-BPSK symbols, maximum likelihood over AWGN.
 ///
 /// # Errors
-/// [`Error::Shape`] for fewer than 90 symbols.
-pub fn decode_plheader(rx: &[C64]) -> Result<(u8, bool, bool)> {
-    ensure_shape(rx.len() >= 90, || format!("a PLHEADER has 90 symbols, got {}", rx.len()))?;
+/// [`Error::Shape`] for fewer than [`PLHEADER_LEN`] symbols.
+pub fn decode_plheader(rx: &[C64]) -> Result<PlsCode> {
+    ensure_shape(rx.len() >= PLHEADER_LEN, || format!("a PLHEADER has {PLHEADER_LEN} symbols, got {}", rx.len()))?;
     // back to real BPSK values: undo the π/2 rotation
     let soft: Vec<f64> = rx
         .iter()
-        .take(90)
+        .take(PLHEADER_LEN)
         .enumerate()
         .map(|(i, z)| if i % 2 == 0 { (z.re + z.im) * FRAC_1_SQRT_2 } else { (z.im - z.re) * FRAC_1_SQRT_2 })
         .collect();
-    let mut best = (f64::NEG_INFINITY, 0u8, false, false);
-    for code in 0..128u8 {
-        let (modcod, short, pilots) = (code >> 2, (code >> 1) & 1 == 1, code & 1 == 1);
-        let bits = plheader_bits(modcod, short, pilots);
-        let corr: f64 = bits[26..].iter().zip(&soft[26..]).map(|(b, s)| (1.0 - 2.0 * f64::from(*b)) * s).sum();
+    let mut best = (f64::NEG_INFINITY, PlsCode { modcod: 0, short: false, pilots: false });
+    for code in PlsCode::all() {
+        let bits = plheader_bits(code);
+        let corr: f64 =
+            bits[SOF_LEN..].iter().zip(&soft[SOF_LEN..]).map(|(b, s)| (1.0 - 2.0 * f64::from(*b)) * s).sum();
         if corr > best.0 {
-            best = (corr, modcod, short, pilots);
+            best = (corr, code);
         }
     }
-    Ok((best.1, best.2, best.3))
+    Ok(best.1)
 }
 
-/// The complex scrambling sequence $C_{I} + j C_{Q} = e^{j R_{n}(i) \pi / 2}$ of code
-/// number `n`, `len` symbols (§ 5.5.4): Gold sequences of the m-sequences $1 + x^{7} +
-/// x^{18}$ and $1 + y^{5} + y^{7} + y^{10} + y^{18}$.
-pub fn scrambling_sequence(n: usize, len: usize) -> Vec<C64> {
+/// The complex scrambling sequence $C_{I} + j C_{Q} = e^{j R_{n}(i) \pi / 2}$ of the
+/// Gold code number `gold_code` ($n$), `len` symbols (§ 5.5.4): Gold sequences of the
+/// m-sequences $1 + x^{7} + x^{18}$ and $1 + y^{5} + y^{7} + y^{10} + y^{18}$.
+pub fn scrambling_sequence(gold_code: usize, len: usize) -> Vec<C64> {
     const P: usize = (1 << 18) - 1;
     let x = lfsr(&[0, 7], 18, &[1], P + 18);
     let y = lfsr(&[0, 5, 7, 10], 18, &[1; 18], P + 18);
-    let z = |i: usize| x[(i + n) % P] ^ y[i % P];
+    let z = |i: usize| x[(i + gold_code) % P] ^ y[i % P];
     (0..len)
         .map(|i| match 2 * z((i + 131_072) % P) + z(i) {
             0 => C64::new(1.0, 0.0),
@@ -431,9 +472,9 @@ pub fn bbheader_crc() -> Crc {
 /// [`Error::Config`] unless $80 \le K_{\mathrm{bch}} \le 65\,615$ (DFL holds on 16 bits),
 /// [`Error::Shape`] for another number of data bits.
 pub fn bbframe(data: &[u8], k_bch: usize, rolloff: u8) -> Result<Vec<u8>> {
-    let dfl = k_bch.checked_sub(80).and_then(|d| u16::try_from(d).ok());
+    let dfl = k_bch.checked_sub(BBHEADER_LEN).and_then(|d| u16::try_from(d).ok());
     let dfl = dfl.ok_or_else(|| Error::Config(format!("K_bch = {k_bch} is not between 80 and 65 615 bits")))?;
-    ensure_shape(data.len() + 80 == k_bch, || {
+    ensure_shape(data.len() + BBHEADER_LEN == k_bch, || {
         format!("a BBFRAME of {k_bch} bits carries {dfl} data bits, got {}", data.len())
     })?;
     // MATYPE-1: TS/GS 01, SIS 1, CCM 1, ISSYI 0, NPD 0, RO
@@ -448,13 +489,13 @@ pub fn bbframe(data: &[u8], k_bch: usize, rolloff: u8) -> Result<Vec<u8>> {
 /// The data field of a received BBFRAME and whether the CRC-8 of its BBHEADER holds.
 ///
 /// # Errors
-/// [`Error::Shape`] for fewer than the 80 bits of the BBHEADER.
+/// [`Error::Shape`] for fewer than the [`BBHEADER_LEN`] bits of the BBHEADER.
 pub fn bbframe_data(bbframe: &[u8]) -> Result<(Vec<u8>, bool)> {
-    ensure_shape(bbframe.len() >= 80, || {
+    ensure_shape(bbframe.len() >= BBHEADER_LEN, || {
         format!("a BBFRAME starts with an 80-bit BBHEADER, got {} bits", bbframe.len())
     })?;
     let clear = bb_scramble(bbframe);
-    Ok((clear[80..].to_vec(), bbheader_crc().check(&clear[..80])))
+    Ok((clear[BBHEADER_LEN..].to_vec(), bbheader_crc().check(&clear[..BBHEADER_LEN])))
 }
 
 /// A DVB-S2 transmitter and receiver of one MODCOD and frame configuration.
@@ -467,22 +508,36 @@ pub struct Dvbs2 {
     interleaver: Option<Interleaver>,
     constellation: Constellation,
     scrambler: Vec<C64>,
+    // whether each symbol of the PLFRAME after the header is a data symbol
+    data_positions: Vec<bool>,
 }
 
 impl Dvbs2 {
-    /// The link of a MODCOD, a frame size, with or without pilots, and the scrambling
-    /// code number `n` (0 for broadcasting).
+    /// The link of a MODCOD, a frame size, with or without pilots, and the Gold
+    /// scrambling code number `gold_code` (0 for broadcasting).
     ///
     /// # Errors
-    /// [`Error::Config`] for a combination outside Table 12, the short frame of rate
-    /// 9/10, or `n` above 262 141.
-    pub fn new(modcod: Modcod, frame: FrameSize, pilots: bool, n: usize) -> Result<Dvbs2> {
-        ensure(n <= 262_141, || format!("the scrambling code number must be at most 262 141, got {n}"))?;
+    /// [`Error::Config`] for the short frame of rate 9/10, or `gold_code` above
+    /// 262 141.
+    pub fn new(modcod: Modcod, frame: FrameSize, pilots: bool, gold_code: usize) -> Result<Dvbs2> {
+        ensure(gold_code <= 262_141, || {
+            format!("the scrambling code number must be at most 262 141, got {gold_code}")
+        })?;
         let fec = Dvbs2Fec::new(frame, modcod.rate)?;
         let interleaver = bit_interleaver(modcod, fec.n());
         let constellation = constellation(modcod)?;
-        let mut link = Dvbs2 { modcod, frame, pilots, fec, interleaver, constellation, scrambler: Vec::new() };
-        link.scrambler = scrambling_sequence(n, link.plframe_len() - 90);
+        let mut link = Dvbs2 {
+            modcod,
+            frame,
+            pilots,
+            fec,
+            interleaver,
+            constellation,
+            scrambler: Vec::new(),
+            data_positions: Vec::new(),
+        };
+        link.scrambler = scrambling_sequence(gold_code, link.plframe_len() - PLHEADER_LEN);
+        link.data_positions = link.build_data_positions();
         Ok(link)
     }
 
@@ -513,26 +568,26 @@ impl Dvbs2 {
 
     /// Slots of data $S$ (Table 11).
     pub fn slots(&self) -> usize {
-        self.fec.n() / self.modcod.modulation.bits_per_symbol() / 90
+        self.fec.n() / self.modcod.modulation.bits_per_symbol() / SLOT_LEN
     }
 
     /// Pilot blocks per frame, $\lfloor (S - 1)/16 \rfloor$ with pilots.
     pub fn pilot_blocks(&self) -> usize {
-        if self.pilots { (self.slots() - 1) / 16 } else { 0 }
+        if self.pilots { (self.slots() - 1) / SLOTS_PER_PILOT } else { 0 }
     }
 
     /// Symbols per PLFRAME $90 (S + 1) + 36 \lfloor (S - 1)/16 \rfloor$.
     pub fn plframe_len(&self) -> usize {
-        90 * (self.slots() + 1) + 36 * self.pilot_blocks()
+        PLHEADER_LEN + SLOT_LEN * self.slots() + PILOT_BLOCK * self.pilot_blocks()
     }
 
-    /// Whether a symbol of the PLFRAME (after the header) is a data symbol.
-    fn data_positions(&self) -> Vec<bool> {
-        let mut out = Vec::with_capacity(self.plframe_len() - 90);
+    /// Whether a symbol of the PLFRAME (after the header) is a data symbol, built once.
+    fn build_data_positions(&self) -> Vec<bool> {
+        let mut out = Vec::with_capacity(self.plframe_len() - PLHEADER_LEN);
         for s in 0..self.slots() {
-            out.extend(std::iter::repeat_n(true, 90));
-            if self.pilots && (s + 1) % 16 == 0 && s + 1 < self.slots() {
-                out.extend(std::iter::repeat_n(false, 36));
+            out.extend(std::iter::repeat_n(true, SLOT_LEN));
+            if self.pilots && (s + 1) % SLOTS_PER_PILOT == 0 && s + 1 < self.slots() {
+                out.extend(std::iter::repeat_n(false, PILOT_BLOCK));
             }
         }
         out
@@ -546,14 +601,13 @@ impl Dvbs2 {
         let coded = self.fec.encode(bbframe)?;
         let bits = self.interleaver.as_ref().map_or(coded.clone(), |p| p.interleave(&coded));
         let symbols = self.constellation.modulate(&bits)?;
-        let short = self.frame == FrameSize::Short;
-        let mut out = pi2_bpsk(&plheader_bits(self.modcod.number()?, short, self.pilots));
+        let code = PlsCode { modcod: self.modcod.number(), short: self.frame == FrameSize::Short, pilots: self.pilots };
+        let mut out = pi2_bpsk(&plheader_bits(code));
         let pilot = C64::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
-        let positions = self.data_positions();
-        let n_data = positions.iter().filter(|d| **d).count();
+        let n_data = self.slots() * SLOT_LEN;
         ensure_shape(symbols.len() == n_data, || format!("{} symbols for {n_data} data slots", symbols.len()))?;
         let mut data = symbols.into_iter();
-        for (is_data, c) in positions.into_iter().zip(&self.scrambler) {
+        for (&is_data, c) in self.data_positions.iter().zip(&self.scrambler) {
             let v = if is_data { data.next().unwrap_or(pilot) } else { pilot };
             out.push(v * c);
         }
@@ -570,11 +624,11 @@ impl Dvbs2 {
         ensure_shape(rx.len() == self.plframe_len(), || {
             format!("a PLFRAME has {} symbols, got {}", self.plframe_len(), rx.len())
         })?;
-        let data: Vec<C64> = rx[90..]
+        let data: Vec<C64> = rx[PLHEADER_LEN..]
             .iter()
             .zip(&self.scrambler)
-            .zip(self.data_positions())
-            .filter(|(_, d)| *d)
+            .zip(&self.data_positions)
+            .filter(|(_, d)| **d)
             .map(|((z, c), _)| z * c.conj())
             .collect();
         let llr = self.constellation.llr(&data, noise_var.max(1e-300), None, max_log)?;
@@ -609,7 +663,7 @@ mod tests {
 
     #[test]
     fn table_12_has_28_modcods_numbered_1_to_28() {
-        let n: Vec<u8> = modcods().iter().map(|m| m.number().unwrap()).collect();
+        let n: Vec<u8> = modcods().iter().map(|m| m.number()).collect();
         assert_eq!(n, (1..=28).collect::<Vec<u8>>());
         assert!(Modcod::new(Modulation::Psk8, CodeRate::R1_2).is_err());
     }
@@ -649,12 +703,10 @@ mod tests {
 
     #[test]
     fn the_plheader_decodes_and_the_pls_code_has_distance_32() {
-        for code in 0..128u8 {
-            let (m, s, p) = (code >> 2, (code >> 1) & 1 == 1, code & 1 == 1);
-            assert_eq!(decode_plheader(&pi2_bpsk(&plheader_bits(m, s, p))).unwrap(), (m, s, p));
+        for code in PlsCode::all() {
+            assert_eq!(decode_plheader(&pi2_bpsk(&plheader_bits(code))).unwrap(), code);
         }
-        let codewords: Vec<Vec<u8>> =
-            (0..128u8).map(|c| plheader_bits(c >> 2, (c >> 1) & 1 == 1, c & 1 == 1)[26..].to_vec()).collect();
+        let codewords: Vec<Vec<u8>> = PlsCode::all().map(|c| plheader_bits(c)[SOF_LEN..].to_vec()).collect();
         let dmin = (0..128)
             .flat_map(|a| ((a + 1)..128).map(move |b| (a, b)))
             .map(|(a, b)| codewords[a].iter().zip(&codewords[b]).filter(|(x, y)| x != y).count())
@@ -662,7 +714,7 @@ mod tests {
             .unwrap();
         assert_eq!(dmin, 32);
         // SOF, MSB first: 01 1000 1101 0010 1110 1000 0010
-        assert_eq!(&plheader_bits(4, false, false)[..8], &[0, 1, 1, 0, 0, 0, 1, 1]);
+        assert_eq!(&plheader_bits(PlsCode { modcod: 4, short: false, pilots: false })[..8], &[0, 1, 1, 0, 0, 0, 1, 1]);
     }
 
     #[test]
@@ -691,8 +743,8 @@ mod tests {
             let bb: Vec<u8> = (0..link.k()).map(|_| rng.bit()).collect();
             let x = link.modulate(&bb).unwrap();
             assert_eq!(x.len(), link.plframe_len());
-            let n = m.number().unwrap();
-            assert_eq!(decode_plheader(&x[..90]).unwrap(), (n, true, true));
+            let code = PlsCode { modcod: m.number(), short: true, pilots: true };
+            assert_eq!(decode_plheader(&x[..PLHEADER_LEN]).unwrap(), code);
             assert_eq!(link.decode(&x, 1e-3).unwrap(), bb, "{m:?}");
         }
     }
