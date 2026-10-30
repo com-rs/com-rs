@@ -235,8 +235,9 @@ impl Runner {
     /// Run the scenario on every condition of the grid.
     ///
     /// # Errors
-    /// [`Error::Config`] for a confidence level outside $(0, 1)$ (of the runner or of a
-    /// precision target, see [`check_confidence`](crate::stopping::check_confidence));
+    /// [`Error::Config`] for a grid that gives a key twice ([`Grid::check`]); for a
+    /// confidence level outside $(0, 1)$ (of the runner or of a precision target, see
+    /// [`check_confidence`](crate::stopping::check_confidence));
     /// for a stopping rule that can never stop, or whose target is a
     /// metric that the first batch of a condition does not record (or `min_errors` on a
     /// mean, see [`Stop::check_metrics`]); the first error of a `setup` or of a trial, of
@@ -245,6 +246,7 @@ impl Runner {
     pub fn run<S: Scenario>(mut self, scenario: &S, grid: &Grid) -> Result<Vec<ConditionResult>> {
         crate::stopping::check_confidence(self.confidence, "the runner")?;
         self.stop.check_confidences()?;
+        grid.check()?;
         if !self.fast_dev_run && !self.stop.is_bounded() {
             return Err(Error::Config(format!(
                 "the stopping rule `{}` can run forever: add Stop::max_trials or Stop::max_time with `or`",

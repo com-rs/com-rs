@@ -188,8 +188,11 @@ impl Format {
     /// Read a document in this format as JSON (the specifications, and the validation
     /// cards of `com-validation`).
     ///
+    /// A key repeated in a mapping is an error (the readers of YAML and JSON would keep
+    /// the last value without a word; TOML refuses it itself).
+    ///
     /// # Errors
-    /// [`Error::Config`] for a syntax error.
+    /// [`Error::Config`] for a syntax error or a repeated key.
     ///
     /// # Examples
     /// ```
@@ -199,10 +202,90 @@ impl Format {
     /// ```
     pub fn read(self, text: &str) -> Result<Json> {
         match self {
-            Format::Yaml => serde_norway::from_str(text).map_err(|e| Error::Config(format!("YAML: {e}"))),
-            Format::Json => serde_json::from_str(text).map_err(|e| Error::Config(format!("JSON: {e}"))),
+            Format::Yaml => serde_norway::from_str::<Unique>(text)
+                .map(|u| u.0)
+                .map_err(|e| Error::Config(format!("YAML: {e}"))),
+            Format::Json => {
+                serde_json::from_str::<Unique>(text).map(|u| u.0).map_err(|e| Error::Config(format!("JSON: {e}")))
+            }
             Format::Toml => toml::from_str(text).map_err(|e| Error::Config(format!("TOML: {e}"))),
         }
+    }
+}
+
+/// A JSON tree read from a document, refusing a key repeated in a mapping.
+struct Unique(Json);
+
+impl<'de> Deserialize<'de> for Unique {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Unique, D::Error> {
+        d.deserialize_any(UniqueVisitor).map(Unique)
+    }
+}
+
+/// The visitor of [`Unique`]: the values of `serde_json::Value`, the mappings checked.
+struct UniqueVisitor;
+
+impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
+    type Value = Json;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, v: bool) -> std::result::Result<Json, E> {
+        Ok(Json::Bool(v))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    /// A non-finite number becomes `null`, as in `serde_json::Value`.
+    fn visit_f64<E>(self, v: f64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    fn visit_str<E>(self, v: &str) -> std::result::Result<Json, E> {
+        Ok(Json::String(v.to_string()))
+    }
+
+    fn visit_string<E>(self, v: String) -> std::result::Result<Json, E> {
+        Ok(Json::String(v))
+    }
+
+    fn visit_unit<E>(self) -> std::result::Result<Json, E> {
+        Ok(Json::Null)
+    }
+
+    fn visit_none<E>(self) -> std::result::Result<Json, E> {
+        Ok(Json::Null)
+    }
+
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> std::result::Result<Json, D::Error> {
+        Unique::deserialize(d).map(|u| u.0)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<Json, A::Error> {
+        let mut out = Vec::new();
+        while let Some(Unique(v)) = seq.next_element()? {
+            out.push(v);
+        }
+        Ok(Json::Array(out))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> std::result::Result<Json, A::Error> {
+        let mut out = Map::new();
+        while let Some(k) = map.next_key::<String>()? {
+            let Unique(v) = map.next_value()?;
+            if out.insert(k.clone(), v).is_some() {
+                return Err(serde::de::Error::custom(format!("the key {k:?} is given twice in a mapping")));
+            }
+        }
+        Ok(Json::Object(out))
     }
 }
 
@@ -246,7 +329,8 @@ impl Spec {
     /// Parse a specification from a JSON tree.
     ///
     /// # Errors
-    /// [`Error::Config`] for a missing or unknown key, an invalid grid or rule.
+    /// [`Error::Config`] for a missing or unknown key, an invalid grid (a key given by
+    /// a case and by an axis, see [`Grid::check`]) or rule.
     pub fn from_json(v: Json) -> Result<Spec> {
         let source = v.clone();
         // a non-finite number of YAML or TOML (`.inf`, `nan`) becomes a JSON null, which
@@ -273,6 +357,7 @@ impl Spec {
         for (k, v) in &raw.grid {
             grid = grid.axis(k, grid_axis(k, v)?);
         }
+        grid.check()?;
         if raw.link.is_empty() {
             return Err(Error::Config("the link has no block".into()));
         }
@@ -415,6 +500,22 @@ mod tests {
         assert_eq!(c[17].label(), "m=16, snr_db=4, rate=2, kind=qam");
         assert!(matches!(c[1].get("rate"), Some(Value::F64(_))));
         assert!(matches!(c[3].get("snr_db"), Some(Value::I64(2))));
+    }
+
+    #[test]
+    fn a_key_given_twice_is_an_error() {
+        let e = Spec::from_yaml("name: g\nlink: [source]\ncases: [{m: 4}, {m: 16}]\ngrid: {m: [64]}").unwrap_err();
+        assert!(e.to_string().contains("\"m\" twice"), "{e}");
+        // a key repeated in a mapping of the document, of the grid or of a block
+        for text in [
+            "name: g\nlink: [source]\ngrid: {m: [4], m: [16]}",
+            "name: g\nlink: [{type: awgn, snr_db: 3, snr_db: 5}]",
+        ] {
+            let e = Spec::from_yaml(text).unwrap_err().to_string();
+            assert!(e.contains("\"m\" is given twice") || e.contains("\"snr_db\" is given twice"), "{e}");
+        }
+        let e = Spec::parse(r#"{"name": "g", "grid": {"m": [4], "m": [16]}, "link": ["source"]}"#, Format::Json);
+        assert!(e.unwrap_err().to_string().contains("given twice"));
     }
 
     #[test]

@@ -12,6 +12,10 @@
 //! - [`Grid::zip`] adds several axes that vary together (one value of each per step);
 //! - [`Grid::from_conditions`] takes an explicit list.
 //!
+//! Every key is given once: [`Grid::check`] (which the runner calls) refuses a key that
+//! two axes, zips or fixed values give, or that they give on top of an explicit
+//! condition, since the second value would replace the first and repeat conditions.
+//!
 //! # Examples
 //! ```
 //! use com_sim::grid::{Grid, Value};
@@ -248,18 +252,69 @@ impl Grid {
 
     /// Add axes that vary together: `rows[i]` gives one value per name.
     ///
-    /// # Panics
-    /// If a row does not have one value per name.
-    pub fn zip(mut self, names: &[&str], rows: Vec<Vec<Value>>) -> Grid {
-        assert!(rows.iter().all(|r| r.len() == names.len()), "every row needs one value per name");
+    /// # Errors
+    /// [`Error::Shape`] if a row does not have one value per name.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::grid::Grid;
+    /// let g = Grid::new().zip(&["m", "kind"], vec![vec![4usize.into(), "qam".into()], vec![8usize.into(), "psk".into()]])?;
+    /// assert_eq!(g.conditions()[1].label(), "m=8, kind=psk");
+    /// assert!(Grid::new().zip(&["m", "kind"], vec![vec![4usize.into()]]).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn zip(mut self, names: &[&str], rows: Vec<Vec<Value>>) -> Result<Grid> {
+        if let Some((i, r)) = rows.iter().enumerate().find(|(_, r)| r.len() != names.len()) {
+            return Err(Error::Shape(format!(
+                "grid: row {i} of the zip of {names:?} has {} values for {} names",
+                r.len(),
+                names.len()
+            )));
+        }
         self.parts.push(Part::Zip(names.iter().map(std::string::ToString::to_string).collect(), rows));
-        self
+        Ok(self)
     }
 
     /// Add a constant to every condition.
     pub fn fixed(mut self, name: &str, value: impl Into<Value>) -> Grid {
         self.parts.push(Part::Fixed(name.to_string(), value.into()));
         self
+    }
+
+    /// Check that every key is given once: by one axis, zip or fixed value, and not by
+    /// one of them on top of an explicit condition.
+    ///
+    /// # Errors
+    /// [`Error::Config`] naming the first key given twice.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::grid::{Condition, Grid};
+    /// assert!(Grid::new().axis("snr_db", [0.0, 1.0]).fixed("m", 4usize).check().is_ok());
+    /// let e = Grid::new().axis("snr_db", [0.0]).axis("snr_db", [1.0]).check().unwrap_err();
+    /// assert!(e.to_string().contains("\"snr_db\" twice"));
+    /// let cases = Grid::from_conditions(vec![Condition::new().with("m", 4usize)]);
+    /// assert!(cases.axis("m", [16usize]).check().is_err());
+    /// ```
+    pub fn check(&self) -> Result<()> {
+        let mut seen: Vec<&str> = Vec::new();
+        for p in &self.parts {
+            let names: Vec<&str> = match p {
+                Part::Axis(n, _) | Part::Fixed(n, _) => vec![n.as_str()],
+                Part::Zip(names, _) => names.iter().map(String::as_str).collect(),
+            };
+            for n in names {
+                let explicit = self.explicit.iter().flatten().any(|c| c.get(n).is_some());
+                if seen.contains(&n) || explicit {
+                    return Err(Error::Config(format!(
+                        "grid: the key {n:?} twice{}: the second value would replace the first and repeat conditions",
+                        if explicit { " (in the explicit conditions and an axis)" } else { "" }
+                    )));
+                }
+                seen.push(n);
+            }
+        }
+        Ok(())
     }
 
     /// The conditions, in order.
