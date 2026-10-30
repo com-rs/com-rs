@@ -50,36 +50,76 @@
 //!    pilot arrangement in OFDM systems," *IEEE Trans. Broadcast.*, 48(3), 223–229, 2002.
 
 use super::grid::ResourceGrid;
-use com_core::{Error, Result, ensure_shape};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_dsp::estimation::{Lmmse, frequency_correlation};
 use com_dsp::interpolation::{self, LowPass};
 use com_dsp::resample::resample_fft;
 use com_math::C64;
 use ndarray::Array2;
 
-/// A power-delay profile on the sampling grid of the OFDM symbol.
+/// A power-delay profile on the sampling grid of the OFDM symbol: checked when it is
+/// built, its fields read through getters.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PowerDelayProfile {
-    /// Delays (samples of the IFFT of size $N$).
-    pub delays: Vec<f64>,
-    /// Powers (linear, normalised to a unit sum by the constructors).
-    pub powers: Vec<f64>,
-    /// IFFT size $N$ the delays refer to.
-    pub n_fft: usize,
+    delays: Vec<f64>,
+    powers: Vec<f64>,
+    n_fft: usize,
 }
 
 impl PowerDelayProfile {
-    /// A profile from delays (samples) and linear powers, normalised.
-    pub fn new(delays: Vec<f64>, powers: &[f64], n_fft: usize) -> PowerDelayProfile {
-        let t: f64 = powers.iter().sum::<f64>().max(1e-300);
-        PowerDelayProfile { delays, powers: powers.iter().map(|p| p / t).collect(), n_fft }
+    /// A profile from delays (samples of the IFFT of size `n_fft`) and linear powers,
+    /// normalised to a unit sum.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] for as many delays as powers; [`Error::Config`] for no tap, a
+    /// zero FFT size, a negative or non-finite delay or power, or powers of zero sum.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ofdm::estimation::PowerDelayProfile;
+    /// let p = PowerDelayProfile::new(vec![0.0, 3.0], &[3.0, 1.0], 64)?;
+    /// assert_eq!(p.powers(), &[0.75, 0.25]);
+    /// assert!(PowerDelayProfile::new(vec![0.0], &[1.0, 1.0], 64).is_err());
+    /// assert!(PowerDelayProfile::new(vec![0.0], &[0.0], 64).is_err());
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn new(delays: Vec<f64>, powers: &[f64], n_fft: usize) -> Result<PowerDelayProfile> {
+        com_core::same_len(powers.len(), delays.len(), "powers and delays of the profile")?;
+        ensure(!delays.is_empty() && n_fft >= 1, || "a power-delay profile needs a tap and an FFT size".into())?;
+        ensure(delays.iter().all(|d| *d >= 0.0 && d.is_finite()), || {
+            format!("negative or non-finite delays {delays:?}")
+        })?;
+        ensure(powers.iter().all(|p| *p >= 0.0 && p.is_finite()), || {
+            format!("negative or non-finite powers {powers:?}")
+        })?;
+        let t: f64 = powers.iter().sum();
+        ensure(t > 0.0, || "the powers of the profile sum to zero".into())?;
+        Ok(PowerDelayProfile { delays, powers: powers.iter().map(|p| p / t).collect(), n_fft })
     }
 
     /// The uniform profile over `max_delay` samples (the robust design: the cyclic
-    /// prefix).
-    pub fn uniform(max_delay: usize, n_fft: usize) -> PowerDelayProfile {
+    /// prefix; one tap at least).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a zero FFT size.
+    pub fn uniform(max_delay: usize, n_fft: usize) -> Result<PowerDelayProfile> {
         let n = max_delay.max(1);
         PowerDelayProfile::new((0..n).map(|d| d as f64).collect(), &vec![1.0; n], n_fft)
+    }
+
+    /// The delays (samples of the IFFT of size [`PowerDelayProfile::n_fft`]).
+    pub fn delays(&self) -> &[f64] {
+        &self.delays
+    }
+
+    /// The powers (linear, of unit sum).
+    pub fn powers(&self) -> &[f64] {
+        &self.powers
+    }
+
+    /// The IFFT size $N$ the delays refer to.
+    pub fn n_fft(&self) -> usize {
+        self.n_fft
     }
 
     /// $R(\Delta k)$ between subcarriers $\Delta k$ apart
@@ -164,7 +204,8 @@ pub fn estimate(grid: &ResourceGrid, rx: &[C64], noise_var: f64, method: &Freque
 /// between that antenna and the transmit port.
 ///
 /// # Errors
-/// As [`estimate`]; [`Error::Config`] if a pilot symbol has no pilot of the port.
+/// As [`estimate`]; the errors of [`ResourceGrid::check`]; [`Error::Config`] if a pilot
+/// symbol has no pilot of the port.
 pub fn estimate_port(
     grid: &ResourceGrid,
     rx: &[C64],
@@ -173,6 +214,7 @@ pub fn estimate_port(
     port: usize,
     n_ports: usize,
 ) -> Result<Vec<C64>> {
+    grid.check()?;
     let (k_n, l_n) = (grid.n_subcarriers, grid.n_symbols);
     ensure_shape(rx.len() == k_n * l_n, || format!("{} REs for a grid of {k_n} × {l_n}", rx.len()))?;
     let symbols = grid.pilot_symbols();
@@ -278,7 +320,7 @@ mod tests {
     fn lmmse_beats_linear_interpolation_and_ls_has_the_noise_variance() {
         let grid =
             ResourceGrid { n_subcarriers: 64, n_symbols: 2, pattern: PilotPattern::Block { period: 1 }, seed: 1 };
-        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64);
+        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64).unwrap();
         let mut rng = Rng::new(2);
         let s2 = 0.1;
         let (mut e_ls, mut e_mm) = (0.0, 0.0);
@@ -335,7 +377,7 @@ mod tests {
             }
             out
         };
-        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64);
+        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64).unwrap();
         let mut rng = Rng::new(6);
         for pattern in [PilotPattern::Comb { spacing: 4 }, PilotPattern::Lattice { freq: 3, time: 2 }] {
             let grid = ResourceGrid { n_subcarriers: 48, n_symbols: 6, pattern, seed: 2 };
@@ -360,7 +402,7 @@ mod tests {
             let t = PilotTable::new(64, 2, (0..2).flat_map(|l| (0..64).map(move |k| ((k, l), C64::new(a, 0.0)))));
             ResourceGrid::from_table(t.unwrap())
         };
-        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64);
+        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64).unwrap();
         let mut rng = Rng::new(3);
         let s2 = 0.1;
         let mut mse = [[0.0; 2]; 2];

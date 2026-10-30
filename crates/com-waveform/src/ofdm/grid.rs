@@ -12,7 +12,11 @@
 //! | [`PilotPattern::Lattice`] | one subcarrier in `freq`, one symbol in `time` | both, at a lower overhead |
 //! | [`PilotPattern::Explicit`] | the positions and values of a [`PilotTable`] | the pilots of a standard (scattered, staggered, boosted) |
 //!
-//! The grid is stored symbol after symbol: RE $(k, l)$ is at index $l K + k$.
+//! The grid is stored symbol after symbol: RE $(k, l)$ is at index $l K + k$;
+//! [`ResourceGrid::data_indices`] lists the indices of the data REs in that order, the
+//! one walk of the grid that [`ResourceGrid::map`], [`ResourceGrid::extract`] and the
+//! OFDM link share. [`ResourceGrid::check`] refuses a spacing of zero (which
+//! [`ResourceGrid::is_pilot`] would otherwise read as one) and a table of another size.
 //!
 //! # Examples
 //! ```
@@ -22,7 +26,7 @@
 //! assert_eq!(g.pilot_positions().len(), 4 * 3);
 //! let d = vec![C64::new(1.0, 0.0); g.n_data()];
 //! let grid = g.map(&d)?;
-//! assert_eq!(g.extract(&grid), d);
+//! assert_eq!(g.extract(&grid)?, d);
 //! # Ok::<(), com_core::Error>(())
 //! ```
 //!
@@ -129,7 +133,8 @@ impl PilotTable {
 impl PilotPattern {
     /// The pattern of a name, `block`, `comb`, `lattice` or `none` (case-insensitive),
     /// with the spacings it uses: `period` for `block`, `spacing` for `comb`, `freq` and
-    /// `time` for `lattice` (the others are ignored).
+    /// `time` for `lattice`. The arguments a pattern does not use are ignored, and not
+    /// checked (the parsers of the specifications and of the bindings give them all).
     ///
     /// # Errors
     /// [`Error::Config`] for another name or a spacing of zero.
@@ -171,6 +176,34 @@ pub struct ResourceGrid {
 }
 
 impl ResourceGrid {
+    /// Validate the grid.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for an empty grid, a pilot period or spacing of zero, or a pilot
+    /// table of another size than the grid.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ofdm::grid::{PilotPattern, ResourceGrid};
+    /// let g = ResourceGrid { n_subcarriers: 12, n_symbols: 7, pattern: PilotPattern::Comb { spacing: 0 }, seed: 1 };
+    /// assert!(g.check().is_err() && g.map(&[]).is_err());
+    /// ```
+    pub fn check(&self) -> Result<()> {
+        let (k, l) = (self.n_subcarriers, self.n_symbols);
+        ensure(k >= 1 && l >= 1, || format!("a resource grid needs at least one RE, got {k} × {l}"))?;
+        let positive =
+            |v: usize, what: &str| ensure(v >= 1, || format!("the pilot {what} must be at least 1, got {v}"));
+        match &self.pattern {
+            PilotPattern::Block { period } => positive(*period, "period"),
+            PilotPattern::Comb { spacing } => positive(*spacing, "spacing"),
+            PilotPattern::Lattice { freq, time } => positive(*freq, "freq").and_then(|()| positive(*time, "time")),
+            PilotPattern::Explicit(t) => ensure(t.n_subcarriers == k && t.n_symbols == l, || {
+                format!("a pilot table of {} × {} for a grid of {k} × {l}", t.n_subcarriers, t.n_symbols)
+            }),
+            PilotPattern::None => Ok(()),
+        }
+    }
+
     /// The grid of a pilot table, of its size.
     pub fn from_table(table: PilotTable) -> ResourceGrid {
         ResourceGrid {
@@ -181,7 +214,8 @@ impl ResourceGrid {
         }
     }
 
-    /// Whether RE $(k, l)$ carries a pilot.
+    /// Whether RE $(k, l)$ carries a pilot (a spacing of zero, which
+    /// [`ResourceGrid::check`] refuses, is read as one).
     pub fn is_pilot(&self, k: usize, l: usize) -> bool {
         match &self.pattern {
             PilotPattern::Block { period } => l % (*period).max(1) == 0,
@@ -233,12 +267,27 @@ impl ResourceGrid {
         com_core::rng::member(self.seed, (l * self.n_subcarriers + k) as u64).qpsk()
     }
 
+    /// Every RE $(k, l)$, symbol after symbol (the order of the storage).
+    fn res(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        (0..self.n_symbols).flat_map(move |l| (0..self.n_subcarriers).map(move |k| (k, l)))
+    }
+
     /// The pilot REs $(k, l)$, symbol after symbol.
     pub fn pilot_positions(&self) -> Vec<(usize, usize)> {
-        (0..self.n_symbols)
-            .flat_map(|l| (0..self.n_subcarriers).map(move |k| (k, l)))
-            .filter(|&(k, l)| self.is_pilot(k, l))
-            .collect()
+        self.res().filter(|&(k, l)| self.is_pilot(k, l)).collect()
+    }
+
+    /// The indices $l K + k$ of the data REs, symbol after symbol: the order in which
+    /// [`ResourceGrid::map`] places the data and [`ResourceGrid::extract`] takes them.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::ofdm::grid::{PilotPattern, ResourceGrid};
+    /// let g = ResourceGrid { n_subcarriers: 4, n_symbols: 2, pattern: PilotPattern::Comb { spacing: 2 }, seed: 0 };
+    /// assert_eq!(g.data_indices(), vec![1, 3, 5, 7]);
+    /// ```
+    pub fn data_indices(&self) -> Vec<usize> {
+        self.res().filter(|&(k, l)| !self.is_pilot(k, l)).map(|(k, l)| l * self.n_subcarriers + k).collect()
     }
 
     /// The symbols that carry at least one pilot.
@@ -246,47 +295,86 @@ impl ResourceGrid {
         (0..self.n_symbols).filter(|&l| (0..self.n_subcarriers).any(|k| self.is_pilot(k, l))).collect()
     }
 
-    /// Number of data REs per grid.
+    /// Number of data REs per grid (counted, nothing allocated).
     pub fn n_data(&self) -> usize {
-        self.n_subcarriers * self.n_symbols - self.pilot_positions().len()
+        self.res().filter(|&(k, l)| !self.is_pilot(k, l)).count()
     }
 
     /// Place `data` (exactly [`ResourceGrid::n_data`] symbols) and the pilots: the grid,
     /// symbol after symbol.
     ///
     /// # Errors
-    /// [`Error::Shape`] for another number of data symbols.
+    /// The errors of [`ResourceGrid::check`]; [`Error::Shape`] for another number of data
+    /// symbols.
     pub fn map(&self, data: &[C64]) -> Result<Vec<C64>> {
-        ensure_shape(data.len() == self.n_data(), || {
-            format!("{} data symbols for a grid of {} data REs", data.len(), self.n_data())
-        })?;
+        self.check()?;
+        let n_data = self.n_data();
+        ensure_shape(data.len() == n_data, || format!("{} data symbols for a grid of {n_data} data REs", data.len()))?;
         let mut it = data.iter();
-        let mut out = Vec::with_capacity(self.n_subcarriers * self.n_symbols);
-        for l in 0..self.n_symbols {
-            for k in 0..self.n_subcarriers {
-                out.push(if self.is_pilot(k, l) {
-                    self.pilot(k, l)
-                } else {
-                    *it.next().unwrap_or(&C64::new(0.0, 0.0))
-                });
-            }
-        }
-        Ok(out)
+        Ok(self
+            .res()
+            .map(
+                |(k, l)| if self.is_pilot(k, l) { self.pilot(k, l) } else { *it.next().unwrap_or(&C64::new(0.0, 0.0)) },
+            )
+            .collect())
     }
 
     /// The data REs of a grid, in the order of [`ResourceGrid::map`].
-    pub fn extract<T: Copy>(&self, grid: &[T]) -> Vec<T> {
-        (0..self.n_symbols)
-            .flat_map(|l| (0..self.n_subcarriers).map(move |k| (k, l)))
-            .filter(|&(k, l)| !self.is_pilot(k, l))
-            .map(|(k, l)| grid[l * self.n_subcarriers + k])
-            .collect()
+    ///
+    /// # Errors
+    /// [`Error::Shape`] unless `grid` holds the $K L$ REs of the grid.
+    pub fn extract<T: Copy>(&self, grid: &[T]) -> Result<Vec<T>> {
+        let n = self.n_subcarriers * self.n_symbols;
+        ensure_shape(grid.len() == n, || format!("{} REs for a grid of {n}", grid.len()))?;
+        Ok(self.data_indices().into_iter().map(|i| grid[i]).collect())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The walks of the grid were written in `map`, `extract`, `n_data` and the OFDM
+    /// link before `data_indices`: the same indices, counts and grids for every pattern.
+    #[test]
+    fn the_data_indices_are_the_former_walks() {
+        let table = scattered(49, 8);
+        let patterns = [
+            PilotPattern::Block { period: 3 },
+            PilotPattern::Comb { spacing: 4 },
+            PilotPattern::Lattice { freq: 3, time: 2 },
+            PilotPattern::Explicit(Arc::new(table)),
+            PilotPattern::None,
+        ];
+        for pattern in patterns {
+            let g = ResourceGrid { n_subcarriers: 49, n_symbols: 8, pattern, seed: 5 };
+            let former: Vec<usize> = (0..8)
+                .flat_map(|l| (0..49).map(move |k| (k, l)))
+                .filter(|&(k, l)| !g.is_pilot(k, l))
+                .map(|(k, l)| l * 49 + k)
+                .collect();
+            assert_eq!(g.data_indices(), former);
+            assert_eq!(g.n_data(), 49 * 8 - g.pilot_positions().len());
+            let data: Vec<C64> = (0..g.n_data()).map(|i| C64::new(i as f64, -1.0)).collect();
+            let mut it = data.iter();
+            let mut old = Vec::new();
+            for l in 0..8 {
+                for k in 0..49 {
+                    old.push(if g.is_pilot(k, l) { g.pilot(k, l) } else { *it.next().unwrap() });
+                }
+            }
+            assert_eq!(g.map(&data).unwrap(), old);
+        }
+        let bad = ResourceGrid {
+            n_subcarriers: 12,
+            n_symbols: 7,
+            pattern: PilotPattern::Lattice { freq: 3, time: 0 },
+            seed: 0,
+        };
+        assert!(bad.check().is_err());
+        let wrong_size = ResourceGrid { n_subcarriers: 48, ..ResourceGrid::from_table(scattered(49, 8)) };
+        assert!(wrong_size.check().is_err());
+    }
 
     #[test]
     fn patterns_place_their_pilots() {
@@ -323,7 +411,8 @@ mod tests {
         let data: Vec<C64> = (0..g.n_data()).map(|i| C64::new(i as f64, 1.0)).collect();
         let grid = g.map(&data).unwrap();
         assert_eq!(grid[12], C64::new(-4.0 / 3.0, 0.0));
-        assert_eq!(g.extract(&grid), data);
+        assert_eq!(g.extract(&grid).unwrap(), data);
+        assert!(g.extract(&grid[1..]).is_err());
         let one = C64::new(1.0, 0.0);
         assert!(PilotTable::new(4, 2, [((4, 0), one)]).is_err());
         assert!(PilotTable::new(4, 2, [((0, 2), one)]).is_err());
