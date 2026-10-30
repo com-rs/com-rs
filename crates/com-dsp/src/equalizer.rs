@@ -63,6 +63,7 @@
 use com_core::{Error, Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::nearest::Slicer;
+use com_math::stats::{Correlation, Moments};
 
 /// An update rule of the adaptive equaliser.
 #[non_exhaustive]
@@ -168,8 +169,8 @@ impl EqualizerOutput {
     /// $$
     ///
     /// near 1 when both outputs converged to the same polarisation (the singularity, see
-    /// the module), near 0 when they carry independent streams (the denominator is
-    /// floored at the smallest positive number); `None` with another number of outputs.
+    /// the module), near 0 when they carry independent streams (0 when an output has no
+    /// energy, [`Correlation::coefficient`]); `None` with another number of outputs.
     ///
     /// # Examples
     /// ```
@@ -182,36 +183,40 @@ impl EqualizerOutput {
     pub fn output_correlation(&self) -> Option<f64> {
         let [a, b] = self.symbols.as_slice() else { return None };
         let h = a.len() / 2;
-        let c: C64 = a[h..].iter().zip(&b[h..]).map(|(u, v)| u * v.conj()).sum();
-        let e = |v: &[C64]| v.iter().map(C64::norm_sqr).sum::<f64>();
-        Some(c.norm() / (e(&a[h..]) * e(&b[h..])).sqrt().max(f64::MIN_POSITIVE))
+        Some(Correlation::between(&a[h..], &b[h..]).coefficient())
     }
 }
 
 impl AdaptiveEqualizer {
-    /// Equalise the modes `x` (equal lengths). `reference` gives the transmitted symbols
-    /// of every mode (needed by `Nlms`); `points` are the constellation points
-    /// (normalised to unit average energy inside), for the radii and the decisions.
+    /// Equalise the modes `x` (equal lengths; `Vec`s or slices). `reference` gives the
+    /// transmitted symbols of every mode (needed by `Nlms`); `points` are the
+    /// constellation points (normalised to unit average energy inside), for the radii and
+    /// the decisions.
     ///
     /// # Errors
     /// [`Error::Config`] for an invalid configuration or a missing reference,
     /// [`Error::Shape`] for modes of different lengths, a block shorter than the
     /// equaliser or a reference too short.
-    pub fn run(&self, x: &[Vec<C64>], reference: Option<&[Vec<C64>]>, points: &[C64]) -> Result<EqualizerOutput> {
+    pub fn run<M: AsRef<[C64]>>(
+        &self,
+        x: &[M],
+        reference: Option<&[Vec<C64>]>,
+        points: &[C64],
+    ) -> Result<EqualizerOutput> {
         let n = x.len();
         ensure(n >= 1, || "at least one mode".into())?;
         ensure(self.n_taps >= 1 && self.sps >= 1, || "n_taps and sps must be positive".into())?;
         ensure(!self.schedule.is_empty(), || "empty schedule".into())?;
-        let len = x[0].len();
-        ensure_shape(x.iter().all(|m| m.len() == len), || {
-            format!("the modes have different lengths: {:?}", x.iter().map(Vec::len).collect::<Vec<_>>())
+        let len = x[0].as_ref().len();
+        ensure_shape(x.iter().all(|m| m.as_ref().len() == len), || {
+            format!("the modes have different lengths: {:?}", x.iter().map(|m| m.as_ref().len()).collect::<Vec<_>>())
         })?;
         let pad = self.n_taps / 2;
         let padded: Vec<Vec<C64>> = x
             .iter()
             .map(|m| {
                 let mut p = vec![C64::new(0.0, 0.0); pad];
-                p.extend_from_slice(m);
+                p.extend_from_slice(m.as_ref());
                 p.extend(std::iter::repeat_n(C64::new(0.0, 0.0), pad));
                 p
             })
@@ -225,29 +230,13 @@ impl AdaptiveEqualizer {
             let r = reference.ok_or_else(|| Error::Config("NLMS needs reference symbols".into()))?;
             ensure_shape(r.len() == n && r.iter().all(|v| v.len() >= n_out), || {
                 format!(
-                    "the reference needs {n} modes of at least {n_out} symbols, got {} modes of {:?} symbols",
+                    "the reference needs {n} modes of at least {n_out} symbols, got {} modes of {:?}",
                     r.len(),
                     r.iter().map(Vec::len).collect::<Vec<_>>()
                 )
             })?;
         }
-        ensure(!points.is_empty(), || "empty constellation".into())?;
-        let scale = 1.0 / (points.iter().map(C64::norm_sqr).sum::<f64>() / points.len() as f64).sqrt();
-        let pts: Vec<C64> = points.iter().map(|p| p * scale).collect();
-        let slicer = Slicer::new(&pts);
-        let e2: f64 = pts.iter().map(C64::norm_sqr).sum::<f64>() / pts.len() as f64;
-        let e4: f64 = pts.iter().map(|p| p.norm_sqr().powi(2)).sum::<f64>() / pts.len() as f64;
-        let r_cma = e4 / e2;
-        let mut radii: Vec<f64> = pts.iter().map(|p| p.norm()).collect();
-        radii.sort_by(f64::total_cmp);
-        radii.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
-
-        let mut h = vec![vec![C64::new(0.0, 0.0); self.n_taps]; n * n];
-        for m in 0..n {
-            h[m + m * n][self.n_taps / 2] = C64::new(1.0, 0.0);
-        }
-        let mut out = vec![vec![C64::new(0.0, 0.0); n_out]; n];
-        let mut err = vec![vec![0.0; n_out]; n];
+        let laws = ErrorLaws::new(points, reference)?;
         let kikuchi = match self.singularity {
             Singularity::Kikuchi(k) => {
                 ensure(n == 2, || "the Kikuchi initialisation is for 2 × 2 equalisers".into())?;
@@ -255,6 +244,11 @@ impl AdaptiveEqualizer {
             }
             Singularity::None => None,
         };
+        let mut h = Butterfly::identity(n, self.n_taps);
+        let mut out = vec![vec![C64::new(0.0, 0.0); n_out]; n];
+        let mut err = vec![vec![0.0; n_out]; n];
+        let mut y = vec![C64::new(0.0, 0.0); n];
+        let mut norm2 = vec![0.0; n];
         for pass in 0..self.passes.max(1) {
             let mut stage = 0usize;
             let mut left = self.schedule[0].1;
@@ -270,68 +264,133 @@ impl AdaptiveEqualizer {
                 // complement of output 0
                 let alone = pass == 0 && kikuchi.is_some_and(|k0| k < k0);
                 if pass == 0 && kikuchi == Some(k) {
-                    let l = self.n_taps;
-                    for t in 0..l {
-                        h[1][t] = -h[2][l - 1 - t].conj();
-                        h[3][t] = h[0][l - 1 - t].conj();
-                    }
+                    h.unitary_complement();
                 }
                 let base = k * self.sps;
-                let mut y = vec![C64::new(0.0, 0.0); n];
-                for (mo, ym) in y.iter_mut().enumerate() {
-                    for (mi, xin) in padded.iter().enumerate() {
-                        let taps = &h[mo + mi * n];
-                        for t in 0..self.n_taps {
-                            *ym += taps[t] * xin[base + t];
-                        }
+                h.filter(&padded, base, &mut y);
+                if alg == Algorithm::Nlms {
+                    for (e, xin) in norm2.iter_mut().zip(&padded) {
+                        *e = xin[base..base + self.n_taps].iter().map(C64::norm_sqr).sum();
                     }
                 }
-                let norm2: Vec<f64> =
-                    padded.iter().map(|xin| xin[base..base + self.n_taps].iter().map(C64::norm_sqr).sum()).collect();
                 for mo in 0..n {
                     let ym = y[mo];
-                    let (e, e_abs2) = match alg {
-                        Algorithm::Cma => {
-                            let d = r_cma - ym.norm_sqr();
-                            (ym * d, d * d)
-                        }
-                        Algorithm::Rde => {
-                            let r = ym.norm();
-                            let rr = radii
-                                .iter()
-                                .copied()
-                                .min_by(|a, b| (a - r).abs().total_cmp(&(b - r).abs()))
-                                .unwrap_or(1.0);
-                            let d = rr * rr - ym.norm_sqr();
-                            (ym * d, d * d)
-                        }
-                        Algorithm::Nlms => {
-                            let Some(r) = reference else { unreachable!("checked before the passes") };
-                            let s = r[mo][k];
-                            let d = s - ym;
-                            (d, d.norm_sqr())
-                        }
-                        Algorithm::DdLms => {
-                            let d = pts[slicer.nearest(ym)] - ym;
-                            (d, d.norm_sqr())
-                        }
-                    };
+                    let (e, e_abs2) = laws.error(alg, ym, mo, k);
                     out[mo][k] = ym;
                     err[mo][k] = e_abs2;
                     if alone && mo > 0 {
                         continue;
                     }
                     for (mi, xin) in padded.iter().enumerate() {
-                        let scale = if alg == Algorithm::Nlms { mu / norm2[mi].max(1e-300) } else { mu };
-                        let taps = &mut h[mo + mi * n];
-                        for t in 0..self.n_taps {
-                            taps[t] += e * xin[base + t].conj() * scale;
+                        let scale = if alg == Algorithm::Nlms { mu / norm2[mi].max(NLMS_FLOOR) } else { mu };
+                        let taps = h.tap_mut(mo, mi);
+                        for (t, x) in taps.iter_mut().zip(&xin[base..]) {
+                            *t += e * x.conj() * scale;
                         }
                     }
                 }
             }
         }
-        Ok(EqualizerOutput { symbols: out, taps: h, error: err })
+        Ok(EqualizerOutput { symbols: out, taps: h.taps, error: err })
+    }
+}
+
+/// The floor of the input energy that normalises the step of NLMS (an input of zeros).
+const NLMS_FLOOR: f64 = 1e-300;
+
+/// The filters of the `n×n` butterfly: `taps[mo + mi·n]` from input `mi` to output `mo`
+/// (the layout of [`EqualizerOutput::taps`]).
+struct Butterfly {
+    n: usize,
+    taps: Vec<Vec<C64>>,
+}
+
+impl Butterfly {
+    /// The identity: the centre taps of the diagonal filters at 1.
+    fn identity(n: usize, n_taps: usize) -> Butterfly {
+        let mut taps = vec![vec![C64::new(0.0, 0.0); n_taps]; n * n];
+        for m in 0..n {
+            taps[m + m * n][n_taps / 2] = C64::new(1.0, 0.0);
+        }
+        Butterfly { n, taps }
+    }
+
+    fn tap(&self, mo: usize, mi: usize) -> &[C64] {
+        &self.taps[mo + mi * self.n]
+    }
+
+    fn tap_mut(&mut self, mo: usize, mi: usize) -> &mut [C64] {
+        &mut self.taps[mo + mi * self.n]
+    }
+
+    /// The outputs `y_m = Σ_N Σ_t h_{m,N}[t] x_N[base + t]`.
+    fn filter(&self, padded: &[Vec<C64>], base: usize, y: &mut [C64]) {
+        for (mo, ym) in y.iter_mut().enumerate() {
+            *ym = C64::new(0.0, 0.0);
+            for (mi, xin) in padded.iter().enumerate() {
+                for (t, x) in self.tap(mo, mi).iter().zip(&xin[base..]) {
+                    *ym += t * x;
+                }
+            }
+        }
+    }
+
+    /// Kikuchi's second stage (2 × 2): $h_{yx}[t] = -h_{xy}^{*}[L - 1 - t]$,
+    /// $h_{yy}[t] = h_{xx}^{*}[L - 1 - t]$.
+    fn unitary_complement(&mut self) {
+        let (xx, xy) = (self.tap(0, 0).to_vec(), self.tap(0, 1).to_vec());
+        let l = xx.len();
+        for t in 0..l {
+            self.tap_mut(1, 0)[t] = -xy[l - 1 - t].conj();
+            self.tap_mut(1, 1)[t] = xx[l - 1 - t].conj();
+        }
+    }
+}
+
+/// The error of every [`Algorithm`] (see the module), with what it needs: the
+/// constellation normalised to unit energy, its CMA radius and its radii.
+struct ErrorLaws<'a> {
+    points: Vec<C64>,
+    slicer: Slicer,
+    r_cma: f64,
+    radii: Vec<f64>,
+    reference: Option<&'a [Vec<C64>]>,
+}
+
+impl<'a> ErrorLaws<'a> {
+    fn new(points: &[C64], reference: Option<&'a [Vec<C64>]>) -> Result<ErrorLaws<'a>> {
+        ensure(!points.is_empty(), || "empty constellation".into())?;
+        let pts = crate::signal::pnorm(points);
+        let m = Moments::sample(&pts);
+        let mut radii: Vec<f64> = pts.iter().map(|p| p.norm()).collect();
+        radii.sort_by(f64::total_cmp);
+        radii.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        Ok(ErrorLaws { slicer: Slicer::new(&pts), points: pts, r_cma: m.m42 / m.m21, radii, reference })
+    }
+
+    /// The error `e` of output `mo` at symbol `k` and the squared error reported.
+    fn error(&self, alg: Algorithm, ym: C64, mo: usize, k: usize) -> (C64, f64) {
+        match alg {
+            Algorithm::Cma => {
+                let d = self.r_cma - ym.norm_sqr();
+                (ym * d, d * d)
+            }
+            Algorithm::Rde => {
+                let r = ym.norm();
+                let rr = self.radii.iter().copied().min_by(|a, b| (a - r).abs().total_cmp(&(b - r).abs())).unwrap_or(1.0);
+                let d = rr * rr - ym.norm_sqr();
+                (ym * d, d * d)
+            }
+            Algorithm::Nlms => {
+                let Some(r) = self.reference else { unreachable!("checked before the passes") };
+                let d = r[mo][k] - ym;
+                (d, d.norm_sqr())
+            }
+            Algorithm::DdLms => {
+                let d = self.points[self.slicer.nearest(ym)] - ym;
+                (d, d.norm_sqr())
+            }
+        }
     }
 }
 
