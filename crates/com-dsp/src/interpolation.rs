@@ -6,7 +6,7 @@
 //! - [`spline`], the cubic spline with not-a-knot ends (MATLAB `spline`);
 //! - [`lowpass`], the band-limited interpolator of MATLAB `interp` (Oetken, Parks &
 //!   Schüssler 1975), the noiseless LMMSE of [`crate::estimation::lmmse`] for a flat
-//!   spectrum, and [`LowPass`], the same built once for positions shared by several sets
+//!   spectrum, and [`LowPassInterpolator`], the same built once for positions shared by several sets
 //!   of values;
 //! - [`lagrange_cubic`], the cubic Lagrange (Farrow) interpolator of four samples at a
 //!   fractional position, that of the timing recovery;
@@ -202,7 +202,7 @@ pub fn spline(positions: &[usize], values: &[C64], n: usize) -> Result<Vec<C64>>
 /// mean square error for a signal of flat spectrum over the fraction `alpha` of the
 /// band of the known samples, i.e. the noiseless [`crate::estimation::lmmse`] with the
 /// correlation $R(\Delta) = \operatorname{sinc}(\alpha \Delta / L)$. The known values
-/// pass unchanged; near the ends the window is shifted inside ([`LowPass`] builds the
+/// pass unchanged; near the ends the window is shifted inside ([`LowPassInterpolator`] builds the
 /// interpolator once for several sets of values at the same positions). MATLAB's
 /// defaults are `half = 4`, `alpha = 0.5`.
 ///
@@ -225,23 +225,23 @@ pub fn spline(positions: &[usize], values: &[C64], n: usize) -> Result<Vec<C64>>
 /// ```
 pub fn lowpass(positions: &[usize], values: &[C64], n: usize, half: usize, alpha: f64) -> Result<Vec<C64>> {
     ensure_known(positions, values)?;
-    LowPass::new(positions, n, half, alpha)?.apply(values)
+    LowPassInterpolator::new(positions, n, half, alpha)?.apply(values)
 }
 
 /// The band-limited interpolator of [`lowpass`] for one set of positions, built once:
 /// the positions being uniformly spaced, every window of `2 * half` known values has
 /// the same correlation matrix, factored once; each window's system is solved once for
 /// the points it serves, and each point is the product of its correlations with that
-/// solution. [`LowPass::apply`] costs $O(N_{p} W^{2} + n W)$ for $N_{p}$ positions and
+/// solution. [`LowPassInterpolator::apply`] costs $O(N_{p} W^{2} + n W)$ for $N_{p}$ positions and
 /// windows of $W$ values, instead of $O(n W^{3})$ for a solve per point, with the same
 /// operations as before (the same results, bit for bit).
 ///
 /// # Examples
 /// ```
-/// use com_dsp::interpolation::{lowpass, LowPass};
+/// use com_dsp::interpolation::{lowpass, LowPassInterpolator};
 /// use com_math::C64;
 /// let pos: Vec<usize> = (0..16).map(|m| 8 * m).collect();
-/// let plan = LowPass::new(&pos, 128, 4, 0.5)?;
+/// let plan = LowPassInterpolator::new(&pos, 128, 4, 0.5)?;
 /// for a in [0.05, 0.1] {
 ///     let v: Vec<C64> = pos.iter().map(|&k| C64::from_polar(1.0, a * k as f64)).collect();
 ///     assert_eq!(plan.apply(&v)?, lowpass(&pos, &v, 128, 4, 0.5)?);
@@ -249,7 +249,7 @@ pub fn lowpass(positions: &[usize], values: &[C64], n: usize, half: usize, alpha
 /// # Ok::<(), com_core::Error>(())
 /// ```
 #[derive(Clone, Debug, PartialEq)]
-pub struct LowPass {
+pub struct LowPassInterpolator {
     n_known: usize,
     width: usize,
     /// The Cholesky factor of the regularised correlation of a window.
@@ -264,7 +264,7 @@ enum Point {
     Window { start: usize, r_qp: CMat },
 }
 
-impl LowPass {
+impl LowPassInterpolator {
     /// The interpolator of values known at the increasing, uniformly spaced `positions`
     /// onto `0..n` (see [`lowpass`]).
     ///
@@ -272,7 +272,7 @@ impl LowPass {
     /// [`com_core::Error::Shape`] without positions, [`com_core::Error::Config`] for
     /// unevenly spaced positions, `half = 0` or `alpha` outside $(0, 1]$;
     /// [`com_core::Error::Numerical`] for a singular system.
-    pub fn new(positions: &[usize], n: usize, half: usize, alpha: f64) -> Result<LowPass> {
+    pub fn new(positions: &[usize], n: usize, half: usize, alpha: f64) -> Result<LowPassInterpolator> {
         ensure_shape(!positions.is_empty(), || "no known position".into())?;
         ensure(half >= 1 && alpha > 0.0 && alpha <= 1.0, || {
             format!("need half ≥ 1 and 0 < alpha ≤ 1, got {half}, {alpha}")
@@ -280,7 +280,7 @@ impl LowPass {
         let np = positions.len();
         if np == 1 {
             let points = vec![Point::Known(0); n];
-            return Ok(LowPass { n_known: 1, width: 1, factor: CMat::zeros((0, 0)), points });
+            return Ok(LowPassInterpolator { n_known: 1, width: 1, factor: CMat::zeros((0, 0)), points });
         }
         let spacing = positions[1] - positions[0];
         ensure(spacing > 0 && positions.windows(2).all(|w| w[1] - w[0] == spacing), || {
@@ -303,7 +303,7 @@ impl LowPass {
                 Point::Window { start, r_qp }
             })
             .collect();
-        Ok(LowPass { n_known: np, width, factor, points })
+        Ok(LowPassInterpolator { n_known: np, width, factor, points })
     }
 
     /// The interpolation of `values`, one per known position.
@@ -466,7 +466,7 @@ mod tests {
             (1, 1, 2, 6, 2, 1.0),
         ] {
             let pos: Vec<usize> = (0..np).map(|m| offset + m * spacing).collect();
-            let plan = LowPass::new(&pos, n, half, alpha).unwrap();
+            let plan = LowPassInterpolator::new(&pos, n, half, alpha).unwrap();
             for _ in 0..3 {
                 let v: Vec<C64> = (0..np).map(|_| r.complex_gaussian()).collect();
                 assert_eq!(plan.apply(&v).unwrap(), former_lowpass(&pos, &v, n, half, alpha), "{np} pilots");
