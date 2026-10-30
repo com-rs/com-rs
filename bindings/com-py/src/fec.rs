@@ -18,13 +18,22 @@ use comrs::fec::turbo::TurboCode;
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyString;
 
-fn encode<'py>(py: Python<'py>, code: &(impl BlockCode + Sync), bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
+/// Encode whole blocks of bits with a code, the GIL released.
+fn encode<'py, C>(py: Python<'py>, code: &C, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>>
+where
+    C: BlockCode + Sync + ?Sized,
+{
     let b = bvec(bits)?;
     Ok(py.detach(|| code.encode_stream(&b)).py()?.into_pyarray(py))
 }
 
-fn decode<'py>(py: Python<'py>, code: &(impl BlockCode + Sync), llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
+/// Decode whole blocks of LLRs with a code, the GIL released.
+fn decode<'py, C>(py: Python<'py>, code: &C, llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>>
+where
+    C: BlockCode + Sync + ?Sized,
+{
     let l = fvec(llr)?;
     Ok(py.detach(|| code.decode_stream(&l)).py()?.into_pyarray(py))
 }
@@ -325,9 +334,6 @@ impl PyConv {
         hard_decision: bool,
         puncture: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        if !(2..=16).contains(&constraint) || generators.is_empty() {
-            return Err(PyValueError::new_err("constraint length 2 to 16 and at least one generator"));
-        }
         let code = ConvolutionalCode { trellis: Trellis::feedforward(constraint, &generators).py()?, k, hard_decision };
         let p = match puncture {
             Some(p) => puncturer(p)?,
@@ -474,12 +480,7 @@ impl PyTurbo {
         puncture: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let il = match qpp {
-            Some(q) if q.extract::<String>().is_ok_and(|s| s == "lte") => {
-                let (f1, f2) = comrs::fec::turbo::lte_qpp(k).ok_or_else(|| {
-                    PyValueError::new_err(format!("K = {k} is not a block size of LTE (TS 36.212, Table 5.1.3-3)"))
-                })?;
-                Interleaver::qpp(k, f1, f2).py()?
-            }
+            Some(q) if q.is_instance_of::<PyString>() => Interleaver::from_name(&q.extract::<String>()?, k).py()?,
             Some(q) => {
                 let (f1, f2): (usize, usize) =
                     q.extract().map_err(|_| PyValueError::new_err("qpp is \"lte\" or a pair (f1, f2)"))?;
@@ -549,9 +550,7 @@ impl PyTurbo {
     ///     >>> comrs.TurboCode(40).encode(comrs.bits(80, comrs.Rng(1))).size
     ///     264
     fn encode<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
-        let b = bvec(bits)?;
-        let code = self.inner.block();
-        Ok(py.detach(|| code.encode_stream(&b)).py()?.into_pyarray(py))
+        encode(py, self.inner.block(), bits)
     }
 
     /// Decode whole blocks of LLRs (iterative log-MAP).
@@ -569,9 +568,7 @@ impl PyTurbo {
     ///     >>> bool(np.array_equal(code.decode(2.0 - 4.0 * code.encode(b)), b))
     ///     True
     fn decode<'py>(&self, py: Python<'py>, llr: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
-        let l = fvec(llr)?;
-        let code = self.inner.block();
-        Ok(py.detach(|| code.decode_stream(&l)).py()?.into_pyarray(py))
+        decode(py, self.inner.block(), llr)
     }
 }
 
@@ -834,7 +831,8 @@ impl PyPolar {
 ///     base_graph (int, optional): 1 or 2 (default: the rule of Sec. 7.2.2).
 ///     rv (int): the redundancy version, 0 to 3.
 ///     qm (int): bits per modulation symbol of the bit interleaver (1: none).
-///     rule (str): the check-node rule (as `LdpcCode`).
+///     rule (str): the check-node rule (as `LdpcCode.set_decoder`).
+///     alpha (float): the scale or the offset of the min-sum rules.
 ///     iterations (int): the maximum number of iterations.
 ///     layered (bool): the layered schedule (default), or flooding (``False``); both stop
 ///         early on a codeword.
@@ -855,7 +853,18 @@ pub struct PyNrLdpc {
 #[pymethods]
 impl PyNrLdpc {
     #[new]
-    #[pyo3(signature = (k, n, *, base_graph=None, rv=0, qm=1, rule="sum_product", iterations=50, layered=true))]
+    #[pyo3(signature = (
+        k,
+        n,
+        *,
+        base_graph = None,
+        rv = 0,
+        qm = 1,
+        rule = ldpc::DEFAULT_RULE.name(),
+        alpha = ldpc::DEFAULT_ALPHA,
+        iterations = ldpc::DEFAULT_MAX_ITERATIONS,
+        layered = ldpc::DEFAULT_LAYERED,
+    ))]
     #[allow(clippy::too_many_arguments, reason = "keyword-only options of the Python constructor")]
     fn new(
         k: usize,
@@ -864,11 +873,12 @@ impl PyNrLdpc {
         rv: u8,
         qm: usize,
         rule: &str,
+        alpha: f64,
         iterations: usize,
         layered: bool,
     ) -> PyResult<Self> {
         let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
-        code.code.rule = CheckRule::from_name(rule, ldpc::DEFAULT_ALPHA).py()?;
+        code.code.rule = CheckRule::from_name(rule, alpha).py()?;
         code.code.max_iterations = iterations;
         code.code.layered = layered;
         Ok(PyNrLdpc { inner: code })
@@ -955,12 +965,7 @@ impl PyNrPolar {
     #[new]
     #[pyo3(signature = (k, n, *, link="uplink", list_size=8))]
     fn new(k: usize, n: usize, link: &str, list_size: usize) -> PyResult<Self> {
-        let code = match link {
-            "uplink" => comrs::fec::nr::NrPolar::uplink(k, n),
-            "downlink" => comrs::fec::nr::NrPolar::downlink(k, n),
-            other => return Err(PyValueError::new_err(format!("link is \"uplink\" or \"downlink\", got {other:?}"))),
-        }
-        .py()?;
+        let code = comrs::fec::nr::NrPolar::from_name(link, k, n).py()?;
         Ok(PyNrPolar { inner: code.with_list(list_size) })
     }
 

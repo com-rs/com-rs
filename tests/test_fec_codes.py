@@ -31,20 +31,22 @@ def distinct_positions(n, count, rng):
 
 def test_rs_properties_and_defaults():
     code = comrs.ReedSolomonCode(8, 16)
-    assert (code.n, code.k, code.t, code.m) == (255, 223, 16, 8)
+    assert (code.n_symbols, code.k_symbols, code.t, code.m) == (255, 223, 16, 8)
+    # n and k count bits, as for every code
+    assert (code.n, code.k) == (8 * 255, 8 * 223)
     assert code.rate == pytest.approx(223 / 255)
     assert (code.first_root, code.root_step, code.poly) == (1, 1, 0x11D)
     assert code.generator.size == 33 and code.generator[-1] == 1
     short = comrs.ReedSolomonCode(4, 3, n=12)
-    assert (short.n, short.k) == (12, 6)
+    assert (short.n_symbols, short.k_symbols, short.n, short.k) == (12, 6, 48, 24)
 
 
 def test_rs_symbol_round_trip_with_errors_up_to_t():
     code = comrs.ReedSolomonCode(8, 8)
     rng = comrs.Rng(1)
-    msg = rng.integers(256, code.k)
+    msg = rng.integers(256, code.k_symbols)
     c = code.encode_symbols(msg)
-    assert c.size == 255 and np.array_equal(c[: code.k], msg)
+    assert c.size == 255 and np.array_equal(c[: code.k_symbols], msg)
     decoded, corrected = code.decode_symbols(c)
     assert corrected == 0 and np.array_equal(decoded, msg)
     for e in range(1, code.t + 1):
@@ -56,7 +58,7 @@ def test_rs_symbol_round_trip_with_errors_up_to_t():
 def test_rs_erasures_and_failure():
     code = comrs.ReedSolomonCode(8, 8)
     rng = comrs.Rng(2)
-    msg = np.arange(code.k) * 3 % 256
+    msg = np.arange(code.k_symbols) * 3 % 256
     c = code.encode_symbols(msg)
     # 2t erasures and no error
     erasures = list(range(0, 2 * code.t))
@@ -78,30 +80,31 @@ def test_rs_erasures_and_failure():
     with pytest.raises(ValueError):
         code.decode_symbols(c[:-1])
     with pytest.raises(ValueError):
-        code.encode_symbols(np.full(code.k, 256))
+        code.encode_symbols(np.full(code.k_symbols, 256))
 
 
 def test_rs_bit_interfaces():
     code = comrs.ReedSolomonCode(4, 2, n=11)
     rng = comrs.Rng(3)
-    bits = comrs.bits(2 * code.k * code.m, rng)  # two blocks
+    assert (code.n, code.k) == (code.n_symbols * code.m, code.k_symbols * code.m)
+    bits = comrs.bits(2 * code.k, rng)  # two blocks
     coded = code.encode(bits)
-    assert coded.dtype == np.uint8 and coded.size == 2 * code.n * code.m
+    assert coded.dtype == np.uint8 and coded.size == 2 * code.n
     # one block of hard bits, with one symbol in error
-    block = coded[: code.n * code.m]
+    block = coded[: code.n]
     r = block.copy()
     r[4 * 3 : 4 * 3 + 2] ^= 1
     msg, corrected = code.decode_bits(r)
-    assert corrected == 1 and np.array_equal(msg, bits[: code.k * code.m])
+    assert corrected == 1 and np.array_equal(msg, bits[: code.k])
     # whole blocks of LLRs (hard decisions on the signs)
     llr = 3.0 * (1.0 - 2.0 * coded.astype(float))
     llr[0] = -llr[0]
     llr[-1] = -llr[-1]
     assert np.array_equal(code.decode(llr), bits)
     # the symbol packing used by the bit interface
-    symbols = comrs.pack_symbols(bits[: code.k * code.m], code.m)
+    symbols = comrs.pack_symbols(bits[: code.k], code.m)
     assert np.array_equal(code.encode_symbols(symbols), comrs.pack_symbols(block, code.m))
-    assert np.array_equal(comrs.unpack_symbols(symbols, code.m), bits[: code.k * code.m])
+    assert np.array_equal(comrs.unpack_symbols(symbols, code.m), bits[: code.k])
 
 
 def test_rs_dvb_204_188_etsi_en_300_744_sec_4_3_2():
@@ -110,7 +113,7 @@ def test_rs_dvb_204_188_etsi_en_300_744_sec_4_3_2():
     # polynomial of ISO/IEC 18004:2015, Table A.1, whose coefficients are the powers
     # α^120, α^104, ..., α^225, α^120 (x^15 down to x^0).
     dvb = comrs.ReedSolomonCode(8, 8, n=204, first_root=0)
-    assert (dvb.n, dvb.k, dvb.t, dvb.poly) == (204, 188, 8, 0x11D)
+    assert (dvb.n_symbols, dvb.k_symbols, dvb.t, dvb.poly) == (204, 188, 8, 0x11D)
     exponents = [120, 104, 107, 109, 102, 161, 76, 3, 91, 191, 147, 169, 182, 194, 225, 120]
     alpha = [1]
     for _ in range(254):
@@ -132,7 +135,7 @@ def test_rs_ccsds_255_223_sec_4_2():
     # CCSDS 131.0-B-5, Sec. 4.2: F(x) = x^8 + x^7 + x^2 + x + 1, roots α^(11 j),
     # j = 112..143; the root set is symmetric, so g(x) is self-reciprocal.
     ccsds = comrs.ReedSolomonCode(8, 16, poly=0x187, first_root=112, root_step=11)
-    assert (ccsds.n, ccsds.k, ccsds.t) == (255, 223, 16)
+    assert (ccsds.n_symbols, ccsds.k_symbols, ccsds.t) == (255, 223, 16)
     g = ccsds.generator
     assert g.size == 33 and np.array_equal(g, g[::-1])
     rng = comrs.Rng(5)
