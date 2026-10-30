@@ -677,10 +677,13 @@
   area: Optical
   ref: "O. V. Sinkin et al., Optimization of the split-step Fourier method, JLT 21(1), 2003"
   module: com_math::nlse
-  tested: "-"
-  tests: []
-  badge: red
-  not_covered: "the step rules"
+  tested: "Fig. 2 (soliton collision, constant steps): the global relative error of eq. (12) against the number of FFTs within a factor 2.1 (1.5 to 2 times the figure, unexplained); second order (slope 2.005)"
+  tests:
+    - validation/tests/sinkin2003.rs::sinkin_2003_fig_2_constant_steps
+  badge: orange
+  not_covered: "the local-error, walk-off and logarithmic step rules; the nonlinear-phase rule in the scalar scheme; Figs. 1, 3-7"
+  remarks:
+    - "Fig. 7(e) (constant steps, soliton collision) lies about 10 times below Fig. 2 for the same system and step size"
 - id: hager2021
   area: Optical
   ref: "C. Häger, H. D. Pfister, Physics-based deep learning for fiber-optic communication systems, JSAC 39(1), 2021"
@@ -839,6 +842,81 @@
     - tests/test_sigmf.py
   badge: green
   not_covered: "the sha512 checksum, compressed archives"
+- id: han2005
+  area: Waveforms
+  ref: "S. H. Han, J. H. Lee, An overview of peak-to-average power ratio reduction techniques for multicarrier transmission, IEEE Wireless Commun. 12(2), 2005"
+  module: com_waveform::{papr, ofdm}
+  tested: "Table 1 (16 BPSK blocks, L = 4), the PTS example of Fig. 3 and the SLM example to the printed 0.1 dB; eq. (6); the 0.1 % PAPR of Fig. 1 (11.3, 11.7, 8.1, 8.9 dB, unmodified and SLM 16) by Monte Carlo within 0.05 dB"
+  tests:
+    - validation/tests/han2005.rs::han_lee_2005_examples
+    - validation/tests/han2005.rs::han_lee_2005_fig_1
+  badge: green
+  not_covered: "clipping and filtering, tone reservation, tone injection and ACE (no numbers in the paper)"
+  remarks:
+    - "Table 1, right column: the first symbol of the first four blocks is -1, printed 1"
+    - "eq. (7): the second branch is |x| > A, printed |x| <= A"
+    - "SLM example: X(3) ties with X(2) at 3.0 dB"
+- id: larsson2014
+  area: MIMO
+  ref: "E. G. Larsson, O. Edfors, F. Tufvesson, T. L. Marzetta, Massive MIMO for next generation wireless systems, IEEE Commun. Mag. 52(2), 2014"
+  module: com_channel::fading, com_math::linalg
+  tested: "Fig. 6, i.i.d. curves: the quartiles of the singular value spread (20 log10 of the ratio) for 4, 32 and 128 antennas and 4 terminals, within 0.3 dB (0.5 dB for 4 antennas)"
+  tests:
+    - validation/tests/larsson2014.rs::larsson_2014_fig_6
+  badge: orange
+  not_covered: "the measured channels of Figs. 6-7; the MRT sum rates of Fig. 7 (no maximum-ratio precoder); Fig. 3; the 6400-antenna example (max-min power control, Hata model)"
+- id: lu2014
+  area: MIMO
+  ref: "L. Lu, G. Y. Li, A. L. Swindlehurst, A. Ashikhmin, R. Zhang, An overview of massive MIMO: benefits and challenges, IEEE JSTSP 8(5), 2014"
+  module: com_mimo::{capacity, detection}
+  tested: "eqs. (3), (5), (6) against the ergodic capacity of the i.i.d. channel; eq. (13): the sum capacity and the ZF and MMSE sum rates approach the limit (0.1-0.2 % at N = 256, K = 4)"
+  tests:
+    - validation/tests/lu2014.rs::lu_2014_eq_13
+  badge: orange
+  not_covered: "the matched filter of eqs. (14), (17)-(18), (44), (46) (no multi-user MRC/MRT); pilot contamination (Fig. 5); single-carrier transmission (Fig. 6); the paper gives no sum-rate figure"
+- id: eun1997
+  area: Hardware impairments
+  ref: "C. Eun, E. J. Powers, A new Volterra predistorter based on the indirect learning architecture, TSP 45(1), 1997"
+  module: com_dsp::compensation::dpd, com_hardware::amplifier
+  tested: "Sec. V, the satellite channel of Fig. 2: the NMSE of the memory polynomial (orders 1, 3, memory 3, indirect learning) is 7.7e-3 (16-PSK) and 4.2e-3 (16-QAM), 5 to 11 times above the 7e-4 and 8.0e-4 of the Volterra predistorter of Figs. 5-6"
+  tests:
+    - validation/tests/eun1997.rs::eun_powers_1997_figs_5_6
+  badge: orange
+  not_covered: "the full third-order Volterra predistorter (cross terms) and its RLS, eqs. (1)-(14); the pth-order inverse (NMSE 0.088 and 0.17)"
+  remarks:
+    - "Sec. III and the captions of Figs. 5-6 say 'direct Volterra' for the indirect predistorter"
+- id: fatadin2009
+  area: Receiver DSP
+  ref: "I. Fatadin, D. Ives, S. J. Savory, Blind equalization and carrier phase recovery in a 16-QAM optical coherent system, JLT 27(15), 2009"
+  module: com_dsp::equalizer, com_dsp::sync::carrier
+  tested: "Fig. 2 theory and its OSNR convention; Fig. 3 OSNR penalties of CMA (to 750 ps/nm), RDE (to 1000) and DD-LMS (to 500) within 0.3 dB; Figs. 7-8: the in-lock phase error of the decision-directed loop of eq. (11) within 0.02 rad and the BER at dnu Ts = 1e-5 within a factor 1.5"
+  tests:
+    - validation/tests/fatadin2009.rs::fatadin_2009_fig_3_cd_compensation
+    - validation/tests/fatadin2009.rs::fatadin_2009_figs_7_8_carrier_recovery
+  badge: orange
+  not_covered: "the cycle slips at dnu Ts >= 1e-4 and the DD-LMS beyond 500 ps/nm differ (card findings); the RLS-CMA (not implemented); the Bessel anti-aliasing and 50-GHz optical filters; Figs. 4-5, 9-17"
+- id: savory2010
+  area: Receiver DSP
+  ref: "S. J. Savory, Digital coherent optical receivers: algorithms and subsystems, JSTQE 16(5), 2010"
+  module: com_dsp::compensation::cd, com_mapping::theory
+  tested: "eq. (11): number, modulus and phases of the taps of the truncated impulse response (exact; the length kept odd); the OSNR of 28-GBd PDM-QPSK at a BER of 1e-3 (13.3 dB)"
+  tests:
+    - validation/tests/savory2010.rs::savory_2010_eq_11
+  badge: orange
+  not_covered: "the CMA singularity of Sec. VII (Fig. 7, control surfaces), the frequency estimators (56)-(57), the weighted Viterbi-Viterbi"
+  remarks:
+    - "eq. (11): with beta2 < 0, rho < 0, so 1/sqrt(rho) gives every tap a constant phase pi/4 away from the impulse response, and N = floor(|rho|) may be even"
+- id: faruk2017
+  area: Receiver DSP
+  ref: "M. S. Faruk, S. J. Savory, Digital signal processing for coherent transceivers employing multilevel formats, JLT 35(5), 2017"
+  module: com_dsp::compensation::cd
+  tested: "eq. (12): the least-squares CD taps over the whole band (14 values to 1e-9)"
+  tests:
+    - validation/tests/faruk2017.rs::faruk_2017_eq_12
+  badge: orange
+  not_covered: "Table I (IQ-imbalance tolerances: eq. (2) leaves the normalisation open and no convention tried reproduces every row), Fig. 4 (GSOP), Fig. 20 (quadrant differential coding), RLS and sign-sign CMA, probabilistic RDE, 4x4 MIMO"
+  remarks:
+    - "eqs. (11)-(12): N_c = floor(rho) must read floor(|rho|) (rho < 0 for standard fibre), and 1/sqrt(rho) is imaginary: a constant phase on every tap"
 - id: opticommpy
   area: Reference implementations
   ref: "OptiCommPy 0.11 (recorded outputs)"
