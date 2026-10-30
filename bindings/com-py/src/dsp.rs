@@ -1,5 +1,5 @@
 //! Digital signal processing: filters, resampling, dispersion compensation, adaptive
-//! equalisation, carrier and clock recovery.
+//! equalisation, carrier and clock recovery, windows.
 
 use crate::comm::PyConstellation;
 use crate::fiber::PyFiber;
@@ -698,8 +698,10 @@ fn bps<'py>(
 
 /// The symbol rate of OptiCommPy's `ddpll` (its `Ts = 1/32e9`), the default of [`ddpll`].
 const OPTICOMMPY_DDPLL_FS: f64 = 32e9;
+
 /// The VCO gain of OptiCommPy's `ddpll`.
 const OPTICOMMPY_DDPLL_KV: f64 = 0.1;
+
 /// The time constants of the loop filter of OptiCommPy's `ddpll`, `1/(2π 10 MHz)`.
 const OPTICOMMPY_DDPLL_TAU: f64 = 1.0 / (2.0 * std::f64::consts::PI * 10e6);
 
@@ -848,45 +850,58 @@ fn gardner_clock_recovery<'py>(
     Ok((carr(py, out.signal), farr(py, out.timing)))
 }
 
-/// Register the DSP functions.
+/// The Dolph–Chebyshev window (as `scipy.signal.windows.chebwin`).
+///
+/// Args:
+///     n (int): length.
+///     attenuation_db (float): level of the sidelobes below the main lobe (dB).
+///
+/// Returns:
+///     numpy.ndarray: the window, maximum 1 (float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
+#[pyfunction]
+fn chebyshev_window(py: Python<'_>, n: i64, attenuation_db: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, comrs::dsp::window::chebyshev(count(n, "n")?, attenuation_db)))
+}
+
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    for f in [
-        wrap_pyfunction!(pulse_shape, m)?,
-        wrap_pyfunction!(rrc_spectrum, m)?,
-        wrap_pyfunction!(rrc_taps, m)?,
-        wrap_pyfunction!(rc_taps, m)?,
-        wrap_pyfunction!(fir_filter, m)?,
-        wrap_pyfunction!(convolve, m)?,
-        wrap_pyfunction!(upsample, m)?,
-        wrap_pyfunction!(downsample, m)?,
-        wrap_pyfunction!(decimate, m)?,
-        wrap_pyfunction!(resample_fft, m)?,
-        wrap_pyfunction!(low_pass_fir, m)?,
-        wrap_pyfunction!(pnorm, m)?,
-        wrap_pyfunction!(anorm, m)?,
-        wrap_pyfunction!(freq_shift, m)?,
-        wrap_pyfunction!(moving_average, m)?,
-        wrap_pyfunction!(delay_fft, m)?,
-        wrap_pyfunction!(cdc, m)?,
-        wrap_pyfunction!(cd_taps_needed, m)?,
-        wrap_pyfunction!(cd_fir_taps, m)?,
-        wrap_pyfunction!(cd_dispersion_factor, m)?,
-        wrap_pyfunction!(cd_savory_taps, m)?,
-        wrap_pyfunction!(cd_ls_taps, m)?,
-        wrap_pyfunction!(cd_ls_error, m)?,
-        wrap_pyfunction!(adaptive_equalizer, m)?,
-        wrap_pyfunction!(derotate, m)?,
-        wrap_pyfunction!(unwrap, m)?,
-        wrap_pyfunction!(fourth_power_foe, m)?,
-        wrap_pyfunction!(viterbi_viterbi, m)?,
-        wrap_pyfunction!(bps, m)?,
-        wrap_pyfunction!(ddpll, m)?,
-        wrap_pyfunction!(gardner_ted, m)?,
-        wrap_pyfunction!(gardner_ted_nyquist, m)?,
-        wrap_pyfunction!(interpolate_cubic, m)?,
-        wrap_pyfunction!(gardner_clock_recovery, m)?,
-    ] {
-        m.add_function(f)?;
-    }
+    m.add_function(wrap_pyfunction!(pulse_shape, m)?)?;
+    m.add_function(wrap_pyfunction!(rrc_spectrum, m)?)?;
+    m.add_function(wrap_pyfunction!(rrc_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(rc_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(fir_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(convolve, m)?)?;
+    m.add_function(wrap_pyfunction!(upsample, m)?)?;
+    m.add_function(wrap_pyfunction!(downsample, m)?)?;
+    m.add_function(wrap_pyfunction!(decimate, m)?)?;
+    m.add_function(wrap_pyfunction!(resample_fft, m)?)?;
+    m.add_function(wrap_pyfunction!(low_pass_fir, m)?)?;
+    m.add_function(wrap_pyfunction!(pnorm, m)?)?;
+    m.add_function(wrap_pyfunction!(anorm, m)?)?;
+    m.add_function(wrap_pyfunction!(freq_shift, m)?)?;
+    m.add_function(wrap_pyfunction!(moving_average, m)?)?;
+    m.add_function(wrap_pyfunction!(delay_fft, m)?)?;
+    m.add_function(wrap_pyfunction!(cdc, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_taps_needed, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_fir_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_dispersion_factor, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_savory_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_ls_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_ls_error, m)?)?;
+    m.add_function(wrap_pyfunction!(adaptive_equalizer, m)?)?;
+    m.add_function(wrap_pyfunction!(derotate, m)?)?;
+    m.add_function(wrap_pyfunction!(unwrap, m)?)?;
+    m.add_function(wrap_pyfunction!(fourth_power_foe, m)?)?;
+    m.add_function(wrap_pyfunction!(viterbi_viterbi, m)?)?;
+    m.add_function(wrap_pyfunction!(bps, m)?)?;
+    m.add_function(wrap_pyfunction!(ddpll, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_ted, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_ted_nyquist, m)?)?;
+    m.add_function(wrap_pyfunction!(interpolate_cubic, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_clock_recovery, m)?)?;
+    m.add_function(wrap_pyfunction!(chebyshev_window, m)?)?;
     Ok(())
 }

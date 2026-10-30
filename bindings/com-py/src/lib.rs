@@ -50,6 +50,7 @@ macro_rules! wrapper_methods {
     };
 }
 
+mod amplifier;
 mod blind;
 mod cdl;
 mod chain;
@@ -63,6 +64,7 @@ mod fec_codes;
 mod fiber;
 mod gn;
 mod link_theory;
+mod math;
 mod mimo;
 mod multicarrier;
 mod nr;
@@ -73,6 +75,7 @@ mod owc;
 mod rng;
 mod sim;
 mod spec;
+mod spectrum;
 mod systems;
 mod verify;
 mod waveform;
@@ -293,6 +296,7 @@ pub(crate) fn mat<T: numpy::Element + Clone>(py: Python<'_>, rows: Vec<Vec<T>>) 
 fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     rng::register(m)?;
+    math::register(m)?;
     comm::register(m)?;
     blind::register(m)?;
     link_theory::register(m)?;
@@ -304,6 +308,8 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     devices::register(m)?;
     mimo::register(m)?;
     ofdm::register(m)?;
+    amplifier::register(m)?;
+    spectrum::register(m)?;
     multicarrier::register(m)?;
     ofdm_link::register(m)?;
     otfs::register(m)?;

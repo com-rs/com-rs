@@ -225,7 +225,7 @@ def fallible_bindings(lines):
 
 
 def test_every_fallible_binding_documents_its_exceptions():
-    files = sorted(p for p in BINDINGS.glob("*.rs") if p.name not in RAISES_PENDING)
+    files = sorted(p for p in BINDINGS.rglob("*.rs") if p.name not in RAISES_PENDING)
     assert len(files) > 10
     missing = [
         f"{path.name}: {name}"

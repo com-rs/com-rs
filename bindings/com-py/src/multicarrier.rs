@@ -1,13 +1,9 @@
-//! Filtered multicarrier waveforms (FBMC/OQAM, UFMC) and Bussgang's decomposition of a
-//! memoryless amplifier driven by a Gaussian signal.
+//! Filtered multicarrier waveforms: FBMC/OQAM and UFMC.
 
-use crate::{CArr, FArr, IntoPy, carr, count, cvec, farr, fvec};
-use comrs::dsp::nonlinear;
-use comrs::hardware::amplifier::{Model, Rapp, Saleh};
+use crate::{CArr, FArr, IntoPy, carr, cvec, farr, fvec};
 use comrs::waveform::fbmc::{self, Fbmc};
 use comrs::waveform::ufmc::Ufmc;
 use num_complex::Complex64 as C64;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// FBMC/OQAM (staggered multitone) with the PHYDYAS prototype filter.
@@ -239,90 +235,11 @@ impl PyUfmc {
     }
 }
 
-/// Bussgang's decomposition `y = K x + d` of a memoryless amplifier driven by a circular
-/// complex Gaussian signal: the complex gain and the power of the distortion.
-///
-/// The parameters of each model default to those of :func:`pa_rapp` and
-/// :func:`pa_saleh` (Rapp with `p = 2`, Saleh's fit of 1981).
-///
-/// Args:
-///     model (str): `"rapp"` (gain 1, `saturation`, `smoothness`) or
-///         `"saleh"` (`alpha_a`, `beta_a`, `alpha_p`, `beta_p`).
-///     power (float): the input power.
-///     saturation (float): Rapp's saturation amplitude.
-///     smoothness (float): Rapp's smoothness `p`.
-///     alpha_a (float): Saleh's AM/AM gain.
-///     beta_a (float): Saleh's AM/AM compression.
-///     alpha_p (float): Saleh's AM/PM gain (rad).
-///     beta_p (float): Saleh's AM/PM compression.
-///
-/// Returns:
-///     tuple[complex, float]: `K` and `σ_d²`.
-///
-/// Raises:
-///     ValueError: for an unknown model.
-///
-/// Examples:
-///     The TWTA of Bouhadda et al. (2014, Table 3) at 4 dB of input back-off, `φ₀ = π/6`:
-///
-///     >>> import comrs, math
-///     >>> k, d = comrs.amplifier_bussgang("saleh", 10 ** -0.4, alpha_a=1.0, beta_a=1.0,
-///     ...                                 alpha_p=math.pi / 6, beta_p=1.0)
-///     >>> round(k.real, 4), round(k.imag, 4)
-///     (0.5917, 0.1106)
-#[pyfunction]
-#[pyo3(signature = (
-    model,
-    power,
-    *,
-    saturation = Rapp::default().saturation,
-    smoothness = Rapp::default().smoothness,
-    alpha_a = Saleh::default().alpha_a,
-    beta_a = Saleh::default().beta_a,
-    alpha_p = Saleh::default().alpha_p,
-    beta_p = Saleh::default().beta_p,
-))]
-#[allow(clippy::too_many_arguments, reason = "the parameters of both amplifier models, by keyword")]
-fn amplifier_bussgang(
-    model: &str,
-    power: f64,
-    saturation: f64,
-    smoothness: f64,
-    alpha_a: f64,
-    beta_a: f64,
-    alpha_p: f64,
-    beta_p: f64,
-) -> PyResult<(C64, f64)> {
-    let b = match model.parse::<Model>().py()? {
-        Model::Rapp => nonlinear::bussgang_of(&Rapp { saturation, smoothness, ..Rapp::default() }, power),
-        Model::Saleh => nonlinear::bussgang_of(&Saleh { alpha_a, beta_a, alpha_p, beta_p }, power),
-        other => return Err(PyValueError::new_err(format!("no Bussgang decomposition for {other:?}"))),
-    };
-    Ok((b.gain, b.distortion))
-}
-
-/// The Dolph–Chebyshev window (as `scipy.signal.windows.chebwin`).
-///
-/// Args:
-///     n (int): length.
-///     attenuation_db (float): level of the sidelobes below the main lobe (dB).
-///
-/// Returns:
-///     numpy.ndarray: the window, maximum 1 (float64).
-///
-/// Raises:
-///     ValueError: for a negative count.
-#[pyfunction]
-fn chebyshev_window(py: Python<'_>, n: i64, attenuation_db: f64) -> PyResult<FArr<'_>> {
-    Ok(farr(py, comrs::dsp::window::chebyshev(count(n, "n")?, attenuation_db)))
-}
-
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFbmc>()?;
     m.add_class::<PyUfmc>()?;
     m.add_function(wrap_pyfunction!(oqam_stagger, m)?)?;
     m.add_function(wrap_pyfunction!(oqam_destagger, m)?)?;
-    m.add_function(wrap_pyfunction!(amplifier_bussgang, m)?)?;
-    m.add_function(wrap_pyfunction!(chebyshev_window, m)?)?;
     Ok(())
 }
