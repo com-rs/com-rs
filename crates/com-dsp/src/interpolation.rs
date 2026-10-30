@@ -6,7 +6,8 @@
 //! - [`spline`], the cubic spline with not-a-knot ends (MATLAB `spline`);
 //! - [`lowpass`], the band-limited interpolator of MATLAB `interp` (Oetken, Parks &
 //!   Schüssler 1975), the noiseless LMMSE of [`crate::estimation::lmmse`] for a flat
-//!   spectrum;
+//!   spectrum, and [`LowPass`], the same built once for positions shared by several sets
+//!   of values;
 //! - [`lagrange_cubic`], the cubic Lagrange (Farrow) interpolator of four samples at a
 //!   fractional position, that of the timing recovery;
 //! - and, for uniformly spaced values of a periodic block, the zero padding of the IDFT
@@ -35,10 +36,10 @@
 //!    1975.
 //! 3. C. de Boor, *A Practical Guide to Splines*, Springer, 1978, ch. IV (not-a-knot).
 
-use crate::estimation::lmmse;
+use crate::estimation::regularized;
 use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
-use com_math::linalg::CMat;
+use com_math::linalg::{CMat, cholesky, solve_cholesky};
 
 /// Linear interpolation of `values` known at the increasing `positions` onto
 /// `0..n` (constant beyond the first and last positions).
@@ -199,10 +200,11 @@ pub fn spline(positions: &[usize], values: &[C64], n: usize) -> Result<Vec<C64>>
 /// `positions` (spacing $L$) onto `0..n`, as MATLAB `interp` (Oetken, Parks & Schüssler
 /// 1975): every point is the combination of the `2 * half` nearest known values of least
 /// mean square error for a signal of flat spectrum over the fraction `alpha` of the
-/// band of the known samples, i.e. the noiseless [`lmmse`] with the correlation
-/// $R(\Delta) = \operatorname{sinc}(\alpha \Delta / L)$. The known values pass
-/// unchanged; near the ends the window is shifted inside. MATLAB's defaults are
-/// `half = 4`, `alpha = 0.5`.
+/// band of the known samples, i.e. the noiseless [`crate::estimation::lmmse`] with the
+/// correlation $R(\Delta) = \operatorname{sinc}(\alpha \Delta / L)$. The known values
+/// pass unchanged; near the ends the window is shifted inside ([`LowPass`] builds the
+/// interpolator once for several sets of values at the same positions). MATLAB's
+/// defaults are `half = 4`, `alpha = 0.5`.
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for unevenly spaced positions, `half = 0` or `alpha` outside
@@ -223,34 +225,118 @@ pub fn spline(positions: &[usize], values: &[C64], n: usize) -> Result<Vec<C64>>
 /// ```
 pub fn lowpass(positions: &[usize], values: &[C64], n: usize, half: usize, alpha: f64) -> Result<Vec<C64>> {
     ensure_known(positions, values)?;
-    ensure(half >= 1 && alpha > 0.0 && alpha <= 1.0, || {
-        format!("need half ≥ 1 and 0 < alpha ≤ 1, got {half}, {alpha}")
-    })?;
-    let np = positions.len();
-    if np == 1 {
-        return Ok(vec![values[0]; n]);
-    }
-    let spacing = positions[1] - positions[0];
-    ensure(spacing > 0 && positions.windows(2).all(|w| w[1] - w[0] == spacing), || "unevenly spaced positions".into())?;
-    let corr = |d: f64| C64::new(com_math::sinc(alpha * d / spacing as f64), 0.0);
-    let width = (2 * half).min(np);
-    let mut out = Vec::with_capacity(n);
-    for k in 0..n {
-        if let Ok(i) = positions.binary_search(&k) {
-            out.push(values[i]);
-            continue;
-        }
-        let j = interval(positions, k as f64);
-        let start = (j + 1).saturating_sub(half).min(np - width);
-        let idx = start..start + width;
-        let r_pp = CMat::from_shape_fn((width, width), |(a, b)| {
-            corr(positions[start + a] as f64 - positions[start + b] as f64)
-        });
-        let r_qp = CMat::from_shape_fn((1, width), |(_, b)| corr(k as f64 - positions[start + b] as f64));
-        out.push(lmmse(&r_qp, &r_pp, 1e-12, &values[idx])?[0]);
-    }
-    Ok(out)
+    LowPass::new(positions, n, half, alpha)?.apply(values)
 }
+
+/// The band-limited interpolator of [`lowpass`] for one set of positions, built once:
+/// the positions being uniformly spaced, every window of `2 * half` known values has
+/// the same correlation matrix, factored once; each window's system is solved once for
+/// the points it serves, and each point is the product of its correlations with that
+/// solution. [`LowPass::apply`] costs $O(N_{p} W^{2} + n W)$ for $N_{p}$ positions and
+/// windows of $W$ values, instead of $O(n W^{3})$ for a solve per point, with the same
+/// operations as before (the same results, bit for bit).
+///
+/// # Examples
+/// ```
+/// use com_dsp::interpolation::{lowpass, LowPass};
+/// use com_math::C64;
+/// let pos: Vec<usize> = (0..16).map(|m| 8 * m).collect();
+/// let plan = LowPass::new(&pos, 128, 4, 0.5)?;
+/// for a in [0.05, 0.1] {
+///     let v: Vec<C64> = pos.iter().map(|&k| C64::from_polar(1.0, a * k as f64)).collect();
+///     assert_eq!(plan.apply(&v)?, lowpass(&pos, &v, 128, 4, 0.5)?);
+/// }
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct LowPass {
+    n_known: usize,
+    width: usize,
+    /// The Cholesky factor of the regularised correlation of a window.
+    factor: CMat,
+    /// Every point: a known position, or the start of its window and its correlations.
+    points: Vec<Point>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Point {
+    Known(usize),
+    Window { start: usize, r_qp: CMat },
+}
+
+impl LowPass {
+    /// The interpolator of values known at the increasing, uniformly spaced `positions`
+    /// onto `0..n` (see [`lowpass`]).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] without positions, [`com_core::Error::Config`] for
+    /// unevenly spaced positions, `half = 0` or `alpha` outside $(0, 1]$;
+    /// [`com_core::Error::Numerical`] for a singular system.
+    pub fn new(positions: &[usize], n: usize, half: usize, alpha: f64) -> Result<LowPass> {
+        ensure_shape(!positions.is_empty(), || "no known position".into())?;
+        ensure(half >= 1 && alpha > 0.0 && alpha <= 1.0, || {
+            format!("need half ≥ 1 and 0 < alpha ≤ 1, got {half}, {alpha}")
+        })?;
+        let np = positions.len();
+        if np == 1 {
+            let points = vec![Point::Known(0); n];
+            return Ok(LowPass { n_known: 1, width: 1, factor: CMat::zeros((0, 0)), points });
+        }
+        let spacing = positions[1] - positions[0];
+        ensure(spacing > 0 && positions.windows(2).all(|w| w[1] - w[0] == spacing), || {
+            "unevenly spaced positions".into()
+        })?;
+        let corr = |d: f64| C64::new(com_math::sinc(alpha * d / spacing as f64), 0.0);
+        let width = (2 * half).min(np);
+        // the differences of positions in a window are multiples of the spacing, whatever
+        // the window: one correlation matrix, that of the noiseless LMMSE (regularised)
+        let r_pp = CMat::from_shape_fn((width, width), |(a, b)| corr(positions[a] as f64 - positions[b] as f64));
+        let factor = cholesky(&regularized(&r_pp, LOWPASS_REGULARIZATION).view())?;
+        let points = (0..n)
+            .map(|k| {
+                if let Ok(i) = positions.binary_search(&k) {
+                    return Point::Known(i);
+                }
+                let j = interval(positions, k as f64);
+                let start = (j + 1).saturating_sub(half).min(np - width);
+                let r_qp = CMat::from_shape_fn((1, width), |(_, b)| corr(k as f64 - positions[start + b] as f64));
+                Point::Window { start, r_qp }
+            })
+            .collect();
+        Ok(LowPass { n_known: np, width, factor, points })
+    }
+
+    /// The interpolation of `values`, one per known position.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] unless `values` has one value per known position.
+    pub fn apply(&self, values: &[C64]) -> Result<Vec<C64>> {
+        ensure_shape(values.len() == self.n_known, || {
+            format!("{} values at {} known positions", values.len(), self.n_known)
+        })?;
+        // the solution of each window, once
+        let mut solved: Vec<Option<CMat>> = vec![None; self.n_known];
+        let mut out = Vec::with_capacity(self.points.len());
+        for point in &self.points {
+            match point {
+                Point::Known(i) => out.push(values[*i]),
+                Point::Window { start, r_qp } => {
+                    if solved[*start].is_none() {
+                        let b = CMat::from_shape_fn((self.width, 1), |(a, _)| values[start + a]);
+                        solved[*start] = Some(solve_cholesky(&self.factor.view(), &b.view())?);
+                    }
+                    if let Some(z) = &solved[*start] {
+                        out.push(r_qp.dot(z)[[0, 0]]);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The regularisation $\sigma^{2}/E_{p}$ of the noiseless LMMSE of [`lowpass`].
+const LOWPASS_REGULARIZATION: f64 = 1e-12;
 
 /// The cubic Lagrange (Farrow) interpolator of four samples at the fractional position
 /// `t` $\in [-1, 1]$: `t = 0` returns `x[2]`, `t = 1` returns `x[3]`, `t = -1` returns
@@ -342,6 +428,51 @@ mod tests {
         };
         assert!(err(8) < err(4) && err(4) < err(2) && err(4) < 1e-4, "{} {} {}", err(2), err(4), err(8));
         assert!(lowpass(&[0, 2, 5], &v[..3], 6, 4, 0.5).is_err());
+    }
+
+    /// The band-limited interpolation as it was computed before: an LMMSE system built
+    /// and solved for every point.
+    fn former_lowpass(positions: &[usize], values: &[C64], n: usize, half: usize, alpha: f64) -> Vec<C64> {
+        let np = positions.len();
+        if np == 1 {
+            return vec![values[0]; n];
+        }
+        let spacing = positions[1] - positions[0];
+        let corr = |d: f64| C64::new(com_math::sinc(alpha * d / spacing as f64), 0.0);
+        let width = (2 * half).min(np);
+        (0..n)
+            .map(|k| {
+                if let Ok(i) = positions.binary_search(&k) {
+                    return values[i];
+                }
+                let j = interval(positions, k as f64);
+                let start = (j + 1).saturating_sub(half).min(np - width);
+                let r_pp = CMat::from_shape_fn((width, width), |(a, b)| {
+                    corr(positions[start + a] as f64 - positions[start + b] as f64)
+                });
+                let r_qp = CMat::from_shape_fn((1, width), |(_, b)| corr(k as f64 - positions[start + b] as f64));
+                crate::estimation::lmmse(&r_qp, &r_pp, 1e-12, &values[start..start + width]).unwrap()[0]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_lowpass_plan_is_the_former_solve_per_point() {
+        let mut r = Rng::new(12);
+        for (np, spacing, offset, n, half, alpha) in [
+            (32usize, 4usize, 0usize, 128usize, 4usize, 0.5),
+            (10, 6, 3, 70, 4, 0.8),
+            (5, 3, 1, 20, 4, 0.5),
+            (1, 1, 2, 6, 2, 1.0),
+        ] {
+            let pos: Vec<usize> = (0..np).map(|m| offset + m * spacing).collect();
+            let plan = LowPass::new(&pos, n, half, alpha).unwrap();
+            for _ in 0..3 {
+                let v: Vec<C64> = (0..np).map(|_| r.complex_gaussian()).collect();
+                assert_eq!(plan.apply(&v).unwrap(), former_lowpass(&pos, &v, n, half, alpha), "{np} pilots");
+            }
+            assert!(plan.apply(&vec![C64::new(1.0, 0.0); np + 1]).is_err());
+        }
     }
 
     #[test]

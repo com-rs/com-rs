@@ -161,66 +161,143 @@ pub fn max_cross_correlation(sf: u32) -> Result<f64> {
     Ok(best)
 }
 
-/// $\int_{t_{1}}^{t_{2}} e^{j2\pi(a t + b t^{2})} dt$ for $b > 0$, in Fresnel functions
-/// (Chiani and Elzanaty 2019, eq. (24)).
-fn fresnel_integral(a: f64, b: f64, t1: f64, t2: f64) -> C64 {
-    let k = |x: f64| {
-        let (c, s) = fresnel(x);
-        C64::new(c, s)
-    };
-    let r = b.sqrt();
-    let shift = a / (2.0 * b);
-    cis(-TAU * a * a / (4.0 * b)) / (2.0 * r) * (k(2.0 * r * (t2 + shift)) - k(2.0 * r * (t1 + shift)))
+/// $K(x) = C(x) + j S(x)$, the Fresnel integrals.
+fn fresnel_k(x: f64) -> C64 {
+    let (c, s) = fresnel(x);
+    C64::new(c, s)
 }
 
-/// The Fourier transform $X(f; \ell)$ of the waveform of symbol `l` (Chiani and Elzanaty
-/// 2019, eq. (25)), for $B = 1$ (`f` in units of $B$, time in chips).
-fn waveform_spectrum(m: usize, l: usize, f: f64) -> C64 {
-    let (mf, lf) = (m as f64, l as f64);
-    let b = 1.0 / (2.0 * mf);
-    let fold = mf - lf;
-    fresnel_integral(lf / mf - 0.5 - f, b, 0.0, fold) + fresnel_integral(lf / mf - 1.5 - f, b, fold, mf)
+/// The parts of the Fourier transform $X(f; \ell)$ of the waveform of symbol $\ell$
+/// (Chiani and Elzanaty 2019, eq. (25)) at one frequency `f` (units of $B$, time in
+/// chips) that every symbol shares. Each of the two chirp segments of eq. (25) is
+/// $\int e^{j2\pi(a t + b t^{2})} dt$ in Fresnel functions (their eq. (24)), $b = 1/(2M)$;
+/// two of their four arguments do not depend on $\ell$ and the third is common to both:
+///
+/// $$
+/// X(f; \ell) = \sqrt{\frac{M}{2}}\\, e^{-j\pi(\ell - c)^{2}/M} \left[K(\beta_{+}) - w
+/// K(\beta_{-}) + (w - 1) K\left(\sqrt{2/M}\\,(\ell - c)\right)\right],
+/// $$
+///
+/// with $c = M/2 + fM$, $\beta_{\pm} = \sqrt{2/M}\\,(\pm M/2 - fM)$ and
+/// $w = e^{-j 2\pi f M}$: one Fresnel evaluation per symbol instead of four.
+struct Shared {
+    /// $M$.
+    m: f64,
+    /// $c = M/2 + fM$.
+    c: f64,
+    /// $K(\beta_{+}) - w K(\beta_{-})$.
+    d: C64,
+    /// $w - 1$.
+    w1: C64,
+    /// $\sqrt{M/2}$.
+    root: f64,
+}
+
+/// $e^{-j\pi x^{2}/M}$, the phase of $X(f; \ell)$ at $x = \ell - c$.
+fn chirp_phase(m: usize, x: f64) -> C64 {
+    cis(-PI * x * x / m as f64)
+}
+
+impl Shared {
+    fn new(m: usize, f: f64) -> Shared {
+        let m = m as f64;
+        let s = (2.0 / m).sqrt();
+        let w = cis(-TAU * f * m);
+        let d = fresnel_k(s * (m / 2.0 - f * m)) - w * fresnel_k(s * (-m / 2.0 - f * m));
+        Shared { m, c: m / 2.0 + f * m, d, w1: w - 1.0, root: (m / 2.0).sqrt() }
+    }
+
+    /// $X(f; \ell)$ from the phase $e^{-j\pi x^{2}/M}$ ([`chirp_phase`]) and
+    /// $K(\sqrt{2/M}\\, x)$ of $x = \ell - c$.
+    fn spectrum(&self, phase: C64, k: C64) -> C64 {
+        phase * (self.d + self.w1 * k) * self.root
+    }
+
+    /// $G^{c}(f) B = \frac{1}{T_{s} M} (\sum_{\ell} |X(f; \ell)|^{2} - |\sum_{\ell} X(f;
+    /// \ell)|^{2}/M)$ (eq. (20)) from the terms $X(f; \ell)$, with $T_{s} = M$ chips and
+    /// $B = 1$.
+    fn density(&self, terms: impl Iterator<Item = C64>) -> f64 {
+        let (energy, sum) = terms.fold((0.0, C64::new(0.0, 0.0)), |(e, s), x| (e + x.norm_sqr(), s + x));
+        (energy - sum.norm_sqr() / self.m) / (self.m * self.m)
+    }
 }
 
 /// The continuous part of the power spectrum of LoRa modulated by independent uniform
 /// symbols, normalised as $G^{c}(f) B$, at the frequencies `f` in units of $B$ (Chiani
 /// and Elzanaty 2019, eqs. (20) and (25)); its integral is $1 - 1/M$.
 ///
+/// Eq. (20) sums over the $M$ symbols: each frequency costs $M + 2$ Fresnel evaluations
+/// (two of the four arguments of eq. (25) are shared by every symbol), $O(M)$.
+///
 /// # Errors
 /// As [`ser`].
 pub fn continuous_spectrum(sf: u32, f: &[f64]) -> Result<Vec<f64>> {
     let m = chips(sf)?;
-    let mf = m as f64;
+    let s = (2.0 / m as f64).sqrt();
     Ok(f.iter()
         .map(|&fk| {
-            let mut energy = 0.0;
-            let mut sum = C64::new(0.0, 0.0);
-            for l in 0..m {
-                let x = waveform_spectrum(m, l, fk);
-                energy += x.norm_sqr();
-                sum += x;
-            }
-            // 1/(T_s M) (Σ|X|² - |ΣX|²/M) with T_s = M chips and B = 1
-            (energy - sum.norm_sqr() / mf) / (mf * mf)
+            let shared = Shared::new(m, fk);
+            shared.density((0..m).map(|l| {
+                let x = l as f64 - shared.c;
+                shared.spectrum(chirp_phase(m, x), fresnel_k(s * x))
+            }))
         })
         .collect())
+}
+
+/// The continuous spectrum at the midpoints $f_{i} = (i + 1/2)/(8M)$, $i < n$, of the
+/// grid of [`occupied_bandwidth`]: there $\ell - c = (8\ell - 4M - i - 1/2)/8$ depends on
+/// $8\ell - i$ only, so the Fresnel function and the phase of eq. (25) are tabulated
+/// once on the $8(M - 1) + n$ values of $8\ell - i$, and each of the $nM$ terms costs
+/// three complex products.
+fn continuous_spectrum_grid(m: usize, n: usize) -> Vec<f64> {
+    let s = (2.0 / m as f64).sqrt();
+    let mf = m as f64;
+    // index j = 8ℓ - i + n - 1 ∈ [0, 8(M - 1) + n - 1]
+    let table: Vec<(C64, C64)> = (0..8 * (m - 1) + n)
+        .map(|j| {
+            let x = (j as f64 - (n - 1) as f64 - 4.0 * mf - 0.5) / 8.0;
+            (chirp_phase(m, x), fresnel_k(s * x))
+        })
+        .collect();
+    (0..n)
+        .map(|i| {
+            let shared = Shared::new(m, (i as f64 + 0.5) / (8.0 * mf));
+            shared.density((0..m).map(|l| {
+                let (phase, k) = table[8 * l + n - 1 - i];
+                shared.spectrum(phase, k)
+            }))
+        })
+        .collect()
 }
 
 /// The lines of the power spectrum, `(f, P)` at $f = nB/M$ for $|n| \le$ `n_max` (in
 /// units of $B$), $P = |\sum_{\ell} X(nB/M; \ell)|^{2}/(T_{s}^{2} M^{2})$ (Chiani and
 /// Elzanaty 2019, eq. (21)); they hold $1/M$ of the power (Property 4).
 ///
+/// At $f = n/M$, $w = 1$ and the sum over the symbols is the quadratic Gauss sum
+/// $\sum_{\ell = 0}^{M - 1} e^{-j\pi(\ell - c)^{2}/M} = \sqrt{M} e^{-j\pi/4}$ ($c$ an
+/// integer, $M$ even), so that
+///
+/// $$
+/// P_{n} = \frac{1}{2M^{2}} \left|K\left(\sqrt{2/M}\\,(M/2 - n)\right) +
+/// K\left(\sqrt{2/M}\\,(M/2 + n)\right)\right|^{2},
+/// $$
+///
+/// two Fresnel evaluations per line.
+///
 /// # Errors
 /// As [`ser`].
 pub fn spectral_lines(sf: u32, n_max: usize) -> Result<Vec<(f64, f64)>> {
     let m = chips(sf)?;
     let mf = m as f64;
+    let s = (2.0 / mf).sqrt();
     let n_max = n_max as i64;
     Ok((-n_max..=n_max)
         .map(|n| {
-            let f = n as f64 / mf;
-            let sum: C64 = (0..m).map(|l| waveform_spectrum(m, l, f)).sum();
-            (f, sum.norm_sqr() / (mf * mf * mf * mf))
+            let n = n as f64;
+            let d = fresnel_k(s * (mf / 2.0 - n)) + fresnel_k(s * (mf / 2.0 + n));
+            (n / mf, d.norm_sqr() / (2.0 * mf * mf))
         })
         .collect())
 }
@@ -229,6 +306,9 @@ pub fn spectral_lines(sf: u32, n_max: usize) -> Result<Vec<(f64, f64)>> {
 /// holds the fraction `fraction` of the power, lines included (Chiani and Elzanaty 2019,
 /// Table I, $B_{99}$ for 0.99), from the spectrum on a grid of $B/(8M)$ up to
 /// `span` $B$ on each side.
+///
+/// The $8M \cdot$ `span` points of the grid cost $O(M^{2}\\,\mathrm{span})$ products
+/// and $O(M\\,\mathrm{span})$ Fresnel evaluations (0.13 s at SF 12 and a span of $0.6B$).
 ///
 /// # Errors
 /// As [`ser`], and [`com_core::Error::Config`] unless `fraction` lies in (0, 1) and
@@ -241,16 +321,25 @@ pub fn occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> Result<f64> {
     let step = 1.0 / (8.0 * m as f64);
     let n = (span / step).ceil() as usize;
     // the spectrum is even: integrate 0 ≤ f ≤ span by the midpoint rule
-    let f: Vec<f64> = (0..n).map(|i| (i as f64 + 0.5) * step).collect();
-    let g = continuous_spectrum(sf, &f)?;
-    let lines = spectral_lines(sf, (span * m as f64).ceil() as usize)?;
+    let g = continuous_spectrum_grid(m, n);
+    let mut lines = spectral_lines(sf, (span * m as f64).ceil() as usize)?;
     // P(|f| ≤ z) on the grid of the cells
     let mut inside = lines.iter().filter(|(fl, _)| *fl == 0.0).map(|l| l.1).sum::<f64>();
+    // the lines of the cell (z - step, z]: a window of the lines sorted by |f|
+    lines.sort_by(|a, b| a.0.abs().total_cmp(&b.0.abs()));
+    let (mut lo, mut hi) = (0, 0);
     let mut prev = (0.0, inside);
     for (i, gi) in g.iter().enumerate() {
         let z = (i + 1) as f64 * step;
         inside += 2.0 * gi * step;
-        inside += lines.iter().filter(|(fl, _)| fl.abs() > z - step && fl.abs() <= z).map(|l| l.1).sum::<f64>();
+        while lo < lines.len() && lines[lo].0.abs() <= z - step {
+            lo += 1;
+        }
+        hi = hi.max(lo);
+        while hi < lines.len() && lines[hi].0.abs() <= z {
+            hi += 1;
+        }
+        inside += lines[lo..hi].iter().map(|l| l.1).sum::<f64>();
         if inside >= fraction {
             let (z0, p0) = prev;
             return Ok(2.0 * (z0 + (z - z0) * (fraction - p0) / (inside - p0)));
@@ -387,6 +476,89 @@ mod tests {
     use super::*;
     use crate::css::Waveform;
     use com_core::rng::Rng;
+
+    /// The former evaluation of eq. (25): both segments in Fresnel functions, four per
+    /// symbol, $\int_{t_{1}}^{t_{2}} e^{j2\pi(a t + b t^{2})} dt$ by eq. (24).
+    fn former_waveform_spectrum(m: usize, l: usize, f: f64) -> C64 {
+        let segment = |a: f64, b: f64, t1: f64, t2: f64| {
+            let r = b.sqrt();
+            let shift = a / (2.0 * b);
+            cis(-TAU * a * a / (4.0 * b)) / (2.0 * r)
+                * (fresnel_k(2.0 * r * (t2 + shift)) - fresnel_k(2.0 * r * (t1 + shift)))
+        };
+        let (mf, lf) = (m as f64, l as f64);
+        let b = 1.0 / (2.0 * mf);
+        let fold = mf - lf;
+        segment(lf / mf - 0.5 - f, b, 0.0, fold) + segment(lf / mf - 1.5 - f, b, fold, mf)
+    }
+
+    fn former_continuous_spectrum(m: usize, f: f64) -> f64 {
+        let mf = m as f64;
+        let x: Vec<C64> = (0..m).map(|l| former_waveform_spectrum(m, l, f)).collect();
+        let sum: C64 = x.iter().sum();
+        (x.iter().map(C64::norm_sqr).sum::<f64>() - sum.norm_sqr() / mf) / (mf * mf)
+    }
+
+    /// The former [`occupied_bandwidth`]: the spectrum by [`former_continuous_spectrum`],
+    /// the lines by the sum over the symbols, every line tested in every cell.
+    fn former_occupied_bandwidth(sf: u32, fraction: f64, span: f64) -> f64 {
+        let m = 1usize << sf;
+        let mf = m as f64;
+        let step = 1.0 / (8.0 * mf);
+        let n = (span / step).ceil() as usize;
+        let g: Vec<f64> = (0..n).map(|i| former_continuous_spectrum(m, (i as f64 + 0.5) * step)).collect();
+        let n_max = (span * mf).ceil() as i64;
+        let lines: Vec<(f64, f64)> = (-n_max..=n_max)
+            .map(|k| {
+                let f = k as f64 / mf;
+                let sum: C64 = (0..m).map(|l| former_waveform_spectrum(m, l, f)).sum();
+                (f, sum.norm_sqr() / (mf * mf * mf * mf))
+            })
+            .collect();
+        let mut inside = lines.iter().filter(|(fl, _)| *fl == 0.0).map(|l| l.1).sum::<f64>();
+        let mut prev = (0.0, inside);
+        for (i, gi) in g.iter().enumerate() {
+            let z = (i + 1) as f64 * step;
+            inside += 2.0 * gi * step;
+            inside += lines.iter().filter(|(fl, _)| fl.abs() > z - step && fl.abs() <= z).map(|l| l.1).sum::<f64>();
+            if inside >= fraction {
+                let (z0, p0) = prev;
+                return 2.0 * (z0 + (z - z0) * (fraction - p0) / (inside - p0));
+            }
+            prev = (z, inside);
+        }
+        2.0 * span
+    }
+
+    #[test]
+    fn the_spectrum_is_the_former_evaluation_of_eq_25() {
+        let mut rng = Rng::new(9);
+        for sf in [1u32, 3, 5, 8] {
+            let m = 1usize << sf;
+            // generic frequencies, the midpoints of the grid and the lines
+            let f: Vec<f64> = (0..40).map(|_| 3.0 * rng.uniform() - 1.5).collect();
+            let peak = former_continuous_spectrum(m, 0.0).max(1e-3);
+            for (fk, g) in f.iter().zip(continuous_spectrum(sf, &f).unwrap()) {
+                let want = former_continuous_spectrum(m, *fk);
+                assert!((g - want).abs() < 1e-12 * peak, "SF {sf}, f {fk}: {g} vs {want}");
+            }
+            let n = 8 * m + 5;
+            let mid: Vec<f64> = (0..n).map(|i| (i as f64 + 0.5) / (8.0 * m as f64)).collect();
+            let direct = continuous_spectrum(sf, &mid).unwrap();
+            for (a, b) in continuous_spectrum_grid(m, n).iter().zip(&direct) {
+                assert!((a - b).abs() < 1e-12 * peak, "SF {sf}: {a} vs {b}");
+            }
+            for (fl, p) in spectral_lines(sf, 3 * m).unwrap() {
+                let sum: C64 = (0..m).map(|l| former_waveform_spectrum(m, l, fl)).sum();
+                let want = sum.norm_sqr() / (m as f64).powi(4);
+                assert!((p - want).abs() < 1e-12 / m as f64, "SF {sf}, line {fl}: {p} vs {want}");
+            }
+        }
+        for (sf, span) in [(3u32, 3.0), (5, 3.0), (7, 0.6)] {
+            let (b, want) = (occupied_bandwidth(sf, 0.99, span).unwrap(), former_occupied_bandwidth(sf, 0.99, span));
+            assert!((b - want).abs() < 1e-10, "SF {sf}: {b} vs {want}");
+        }
+    }
 
     #[test]
     fn the_exact_ser_is_that_of_a_simulated_receiver() {

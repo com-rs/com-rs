@@ -457,7 +457,12 @@ impl PaprReduction for Ace {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Companding {
     /// μ-law (Wang, Tjhung & Ng 1999): $c(r) = V \ln(1 + \mu r/V) / \ln(1 + \mu)$, with
-    /// $V$ at `peak_db` above the average power.
+    /// $V$ at `peak_db` above the average power, times the gain that keeps the unit
+    /// average power of a Rayleigh envelope. The gain is computed once per block, by a
+    /// 64-point Gauss–Legendre rule within $10^{-13}$ (relative) of its integral for
+    /// $\mu/V \le 10^{5}$; it differs from that of the former 6000-point Simpson rule,
+    /// computed per sample, by that rule's error: $3 \cdot 10^{-7}$ (relative) at
+    /// $\mu = 4$ and 9 dB, up to $2.6 \cdot 10^{-4}$ at $\mu = 255$ and 0 dB.
     MuLaw {
         /// Compression parameter $\mu$.
         mu: f64,
@@ -474,41 +479,101 @@ pub enum Companding {
     },
 }
 
-impl Companding {
-    fn mu_law_scale(mu: f64, v: f64) -> f64 {
-        // E[c(r)²] for r² ~ Exp(1), by Simpson's rule on [0, 60]
-        let c = |t: f64| v * (1.0 + mu * t.sqrt() / v).ln() / (1.0 + mu).ln();
-        1.0 / com_math::simpson(|t| c(t).powi(2) * (-t).exp(), 0.0, 60.0, 6000).sqrt()
-    }
+/// The 64 nodes and weights of Gauss–Legendre on $[-1, 1]$ of the μ-law normalisation,
+/// computed once.
+fn mu_law_nodes() -> &'static (Vec<f64>, Vec<f64>) {
+    static NODES: std::sync::OnceLock<(Vec<f64>, Vec<f64>)> = std::sync::OnceLock::new();
+    NODES.get_or_init(|| com_math::gauss_legendre(64))
+}
 
-    /// Compress an envelope.
-    pub fn compress(&self, r: f64) -> f64 {
+/// A companding law with the constants of its parameters computed once (the
+/// normalisation of the μ-law is an integral): [`PaprReduction::reduce`] and
+/// [`PaprReduction::restore_time`] build it once per block.
+#[derive(Clone, Copy, Debug)]
+enum Law {
+    MuLaw { mu: f64, v: f64, gain: f64 },
+    Exponential { degree: f64, alpha: f64 },
+}
+
+impl Law {
+    fn compress(&self, r: f64) -> f64 {
         match *self {
-            Companding::MuLaw { mu, peak_db } => {
-                let v = amplitude(peak_db);
-                Companding::mu_law_scale(mu, v) * v * (1.0 + mu * r / v).ln() / (1.0 + mu).ln()
-            }
-            Companding::Exponential { degree: d } => {
-                let alpha = ((d + 2.0) / d).powf(d / 2.0);
-                (alpha * (1.0 - (-r * r).exp())).powf(1.0 / d)
-            }
+            Law::MuLaw { mu, v, gain } => gain * v * (1.0 + mu * r / v).ln() / (1.0 + mu).ln(),
+            Law::Exponential { degree: d, alpha } => (alpha * (1.0 - (-r * r).exp())).powf(1.0 / d),
         }
     }
 
-    /// Expand an envelope (the inverse of [`Companding::compress`]).
-    pub fn expand(&self, r: f64) -> f64 {
+    fn expand(&self, r: f64) -> f64 {
         match *self {
-            Companding::MuLaw { mu, peak_db } => {
-                let v = amplitude(peak_db);
-                let c = r / Companding::mu_law_scale(mu, v);
+            Law::MuLaw { mu, v, gain } => {
+                let c = r / gain;
                 v / mu * ((1.0 + mu).powf(c / v) - 1.0)
             }
-            Companding::Exponential { degree: d } => {
-                let alpha = ((d + 2.0) / d).powf(d / 2.0);
+            Law::Exponential { degree: d, alpha } => {
                 let u = (1.0 - r.powf(d) / alpha).max(1e-16);
                 (-u.ln()).sqrt()
             }
         }
+    }
+}
+
+impl Companding {
+    /// The gain $g = 1/\sqrt{E\\{c(R)^{2}\\}}$ of the μ-law that keeps the unit average power,
+    /// for a Rayleigh envelope $R$ of unit power ($R^{2} \sim \mathrm{Exp}(1)$) and $V$ =
+    /// `v`. With $a = \mu/V$ and the change of variable $s = \ln(1 + a r)$,
+    ///
+    /// $$
+    /// E\\{c(R)^{2}\\} = \frac{V^{2}}{\ln^{2}(1 + \mu)} \int_{0}^{\infty} 2 r e^{-r^{2}}
+    /// \ln^{2}(1 + a r)\\, dr = \frac{V^{2}}{\ln^{2}(1 + \mu)} \int_{0}^{\ln(1 + a r_{\max})}
+    /// \frac{2 r e^{-r^{2}} s^{2} e^{s}}{a}\\, ds, \qquad r = \frac{e^{s} - 1}{a},
+    /// $$
+    ///
+    /// an entire integrand in $s$, integrated by the 64-point Gauss–Legendre rule up to
+    /// $r_{\max} = 7$ (the tail beyond holds $e^{-49}$ of the power): within $10^{-13}$
+    /// (relative) of the integral for $a \le 10^{5}$. The former 6000-point Simpson rule on
+    /// $t = r^{2}$ erred by $6 \cdot 10^{-7}$ at $\mu = 4$, $V$ at 9 dB, and by up to
+    /// $5 \cdot 10^{-4}$ at $\mu = 255$ (the $\sqrt{t}$ of its integrand); the gain differs
+    /// from that of the former rule by half these errors.
+    fn mu_law_gain(mu: f64, v: f64) -> f64 {
+        let a = mu / v;
+        let half = (a * 7.0).ln_1p() / 2.0;
+        let (x, w) = mu_law_nodes();
+        let integral = x
+            .iter()
+            .zip(w)
+            .map(|(x, w)| {
+                let s = (x + 1.0) * half;
+                let r = s.exp_m1() / a;
+                w * 2.0 * r * (-r * r).exp() * s * s * s.exp() / a
+            })
+            .sum::<f64>()
+            * half;
+        let k = v / (1.0 + mu).ln();
+        1.0 / (k * k * integral).sqrt()
+    }
+
+    /// The law with the constants of its parameters.
+    fn law(&self) -> Law {
+        match *self {
+            Companding::MuLaw { mu, peak_db } => {
+                let v = amplitude(peak_db);
+                Law::MuLaw { mu, v, gain: Companding::mu_law_gain(mu, v) }
+            }
+            Companding::Exponential { degree } => {
+                Law::Exponential { degree, alpha: ((degree + 2.0) / degree).powf(degree / 2.0) }
+            }
+        }
+    }
+
+    /// Compress an envelope. Each call computes the normalisation of the μ-law (64
+    /// points); [`PaprReduction::reduce`] computes it once per block.
+    pub fn compress(&self, r: f64) -> f64 {
+        self.law().compress(r)
+    }
+
+    /// Expand an envelope (the inverse of [`Companding::compress`]).
+    pub fn expand(&self, r: f64) -> f64 {
+        self.law().expand(r)
     }
 
     fn apply(x: &mut [C64], f: impl Fn(f64) -> f64) {
@@ -525,12 +590,14 @@ impl PaprReduction for Companding {
             ensure(*degree > 0.0, || "the degree must be positive".into())?;
         }
         let mut x = ofdm.to_time(&ofdm.spread(data))?;
-        Companding::apply(&mut x, |r| self.compress(r));
+        let law = self.law();
+        Companding::apply(&mut x, |r| law.compress(r));
         Ok((x, 0))
     }
 
     fn restore_time(&self, block: &mut [C64]) {
-        Companding::apply(block, |r| self.expand(r));
+        let law = self.law();
+        Companding::apply(block, |r| law.expand(r));
     }
 }
 
@@ -622,6 +689,46 @@ mod tests {
         // the exponential companding of degree 2 caps the PAPR at 3 dB
         let (x, _) = ofdm.modulate_with(&data, &Companding::Exponential { degree: 2.0 }).unwrap();
         assert!(papr_db(&x) <= com_math::lin2db(2.0) + 0.3);
+    }
+
+    /// The μ-law as it was computed before: the gain by Simpson's rule on 6000 intervals
+    /// of $t = r^{2}$ for every sample.
+    fn mu_law_compress_simpson(mu: f64, peak_db: f64, r: f64) -> f64 {
+        let v = amplitude(peak_db);
+        let c = |t: f64| v * (1.0 + mu * t.sqrt() / v).ln() / (1.0 + mu).ln();
+        let gain = 1.0 / com_math::simpson(|t| c(t).powi(2) * (-t).exp(), 0.0, 60.0, 6000).sqrt();
+        gain * v * (1.0 + mu * r / v).ln() / (1.0 + mu).ln()
+    }
+
+    #[test]
+    fn the_mu_law_gain_is_the_integral_and_follows_the_former_simpson_rule() {
+        // E{c(R)²} by mpmath.quad at 30 digits (mpmath 1.3), and the error of the former
+        // 6000-point Simpson rule on the gain
+        for (mu, peak_db, power, simpson_error) in [
+            (4.0, 9.0, 2.089_224_506_453_305, 3.5e-7),
+            (255.0, 0.0, 0.912_706_126_294_248_1, 2.6e-4),
+            (255.0, 12.0, 8.026_021_096_858_328, 1.1e-4),
+            (100.0, 3.0, 1.531_119_965_389_956, 1.2e-4),
+            (10.0, 6.0, 1.910_143_981_626_004_6, 3e-6),
+        ] {
+            // the gain g normalises E{(g c(R))²} to 1
+            let gain = Companding::mu_law_gain(mu, amplitude(peak_db));
+            let e = 1.0 / (gain * gain);
+            assert!((e / power - 1.0).abs() < 1e-13, "μ {mu}, {peak_db} dB: {e} vs {power}");
+            let law = Companding::MuLaw { mu, peak_db };
+            for r in [0.01, 0.3, 1.0, 2.0, 4.5] {
+                let (new, old) = (law.compress(r), mu_law_compress_simpson(mu, peak_db, r));
+                assert!((new / old - 1.0).abs() < simpson_error, "μ {mu}, {peak_db} dB, r {r}: {new} vs {old}");
+                assert!((law.expand(new) / r - 1.0).abs() < 1e-12);
+            }
+        }
+        // the unit average power of a Rayleigh envelope, by Monte Carlo
+        let law = Companding::MuLaw { mu: 255.0, peak_db: 0.0 }.law();
+        let mut rng = Rng::new(11);
+        let n = 400_000;
+        let p = (0..n).map(|_| law.compress(rng.complex_gaussian().norm()).powi(2)).sum::<f64>() / f64::from(n);
+        // the power of the compressed envelope has a standard deviation below 1 / sqrt(n)
+        assert!((p - 1.0).abs() < 5e-3, "{p}");
     }
 
     #[test]
