@@ -68,7 +68,7 @@ fn mse_db(profile: &[(usize, f64)], band: usize, spacing: usize, snr_db: f64, tr
     let grid = ResourceGrid { n_subcarriers: band, n_symbols: 1, pattern: PilotPattern::Comb { spacing }, seed: 1 };
     // static Rayleigh taps of the profile, delays in samples (a sampling rate of 1)
     let taps: Vec<(f64, f64)> = profile.iter().map(|&(d, a)| (d as f64, comrs::math::lin2db(a * a))).collect();
-    let tdl = Tdl::new(TdlParams { taps, ..TdlParams::default() }).unwrap();
+    let tdl = Tdl::new(&TdlParams { taps, ..TdlParams::default() }).unwrap();
     let bins: Vec<usize> = (0..band).collect();
     let sigma2 = comrs::math::db2lin(-snr_db);
     let tx = grid.map(&vec![C64::new(1.0, 0.0); grid.n_data()]).unwrap();

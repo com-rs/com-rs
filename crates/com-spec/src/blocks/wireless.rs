@@ -304,7 +304,7 @@ impl TdlBlock {
 impl Block for TdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         fade(s, rng, |x, fs, rng| {
-            let tdl = Tdl::new(TdlParams {
+            let tdl = Tdl::new(&TdlParams {
                 taps: self.taps.clone(),
                 doppler_hz: self.doppler,
                 sample_rate: fs,

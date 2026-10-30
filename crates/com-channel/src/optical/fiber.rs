@@ -224,7 +224,7 @@ impl Amplification {
     /// As [`Edfa::apply`].
     pub fn apply(
         &self,
-        e: &mut Vec<C64>,
+        e: &mut [C64],
         fiber: &FiberParams,
         length_km: f64,
         fs: f64,

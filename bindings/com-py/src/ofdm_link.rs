@@ -122,7 +122,7 @@ impl PyTdl {
     #[pyo3(signature = (profile, fs, *, doppler_hz=0.0, n_rx=1, n_tx=1))]
     fn new(profile: &Bound<'_, PyAny>, fs: f64, doppler_hz: f64, n_rx: usize, n_tx: usize) -> PyResult<Self> {
         let taps = profile_or_taps(profile)?;
-        Ok(PyTdl { inner: Tdl::new(TdlParams { taps, doppler_hz, sample_rate: fs, n_rx, n_tx }).py()? })
+        Ok(PyTdl { inner: Tdl::new(&TdlParams { taps, doppler_hz, sample_rate: fs, n_rx, n_tx }).py()? })
     }
 
     /// numpy.ndarray: Delays of the taps (samples, int64).

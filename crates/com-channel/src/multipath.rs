@@ -30,7 +30,7 @@
 //! use com_channel::fading::Fading;
 //! use com_channel::multipath::{Profile, Tdl, TdlParams};
 //! // static EVA at 15.36 MHz
-//! let ch = Tdl::new(TdlParams { taps: Profile::Eva.taps(), sample_rate: 15.36e6, ..TdlParams::default() })?;
+//! let ch = Tdl::new(&TdlParams { taps: Profile::Eva.taps(), sample_rate: 15.36e6, ..TdlParams::default() })?;
 //! let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 64], Hertz(15.36e6))?;
 //! let (y, h) = ch.fade(&x, &mut batch_rng(1, 0))?;
 //! assert_eq!(y.len(), 64);
@@ -472,7 +472,7 @@ pub struct Tdl {
 /// ```
 /// use com_channel::multipath::{Profile, Tdl, TdlParams};
 /// let p = TdlParams { taps: Profile::Eva.taps(), doppler_hz: 70.0, sample_rate: 15.36e6, ..TdlParams::default() };
-/// let ch = Tdl::new(p)?;
+/// let ch = Tdl::new(&p)?;
 /// assert_eq!((ch.n_rx, ch.n_tx, ch.delays().last()), (1, 1, Some(&39)));      // 2.51 µs at 15.36 MHz
 /// # Ok::<(), com_core::Error>(())
 /// ```
@@ -522,7 +522,7 @@ impl Tdl {
     ///
     /// # Errors
     /// As [`TdlParams::check`].
-    pub fn new(params: TdlParams) -> Result<Tdl> {
+    pub fn new(params: &TdlParams) -> Result<Tdl> {
         let mut merged: Vec<(usize, f64)> = Vec::new();
         for (s, p) in params.grid()? {
             match merged.iter_mut().find(|(x, _)| *x == s) {
@@ -819,7 +819,7 @@ mod tests {
     // of the dense storage: EVA 4 × 4 over 10^6 samples takes 2.3 kB instead of 2.3 GB
     #[test]
     fn static_taps_are_stored_once_with_the_dense_coefficients() {
-        let ch = Tdl::new(TdlParams {
+        let ch = Tdl::new(&TdlParams {
             taps: Profile::Eva.taps(),
             sample_rate: 15.36e6,
             n_rx: 2,
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "sample 40 of a realisation of 40")]
     fn static_taps_reject_a_sample_beyond_the_realisation() {
-        let t = Tdl::new(TdlParams { taps: Profile::Epa.taps(), sample_rate: 15.36e6, ..TdlParams::default() })
+        let t = Tdl::new(&TdlParams { taps: Profile::Epa.taps(), sample_rate: 15.36e6, ..TdlParams::default() })
             .unwrap()
             .draw(40, &mut SimRng::new(1));
         let _ = t.coefficient(0, 40, 0, 0);
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn taps_have_their_powers_and_the_jakes_autocorrelation() {
-        let ch = Tdl::new(TdlParams {
+        let ch = Tdl::new(&TdlParams {
             taps: vec![(0.0, 0.0), (1e-5, -3.0)],
             doppler_hz: 100.0,
             sample_rate: 1e6,
@@ -900,7 +900,7 @@ mod tests {
     #[test]
     fn a_static_channel_is_a_convolution_and_its_frequency_response_matches() {
         let ch =
-            Tdl::new(TdlParams { taps: Profile::Epa.taps(), sample_rate: 30.72e6, ..TdlParams::default() }).unwrap();
+            Tdl::new(&TdlParams { taps: Profile::Epa.taps(), sample_rate: 30.72e6, ..TdlParams::default() }).unwrap();
         let mut rng = Rng::new(2);
         let x: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
         let (y, taps) = ch.fade(&Signal::from_stream(x.clone(), Hertz(30.72e6)).unwrap(), &mut rng).unwrap();
@@ -930,7 +930,7 @@ mod tests {
             let p = Profile::Exponential { rms_delay_s: rms, resolution_s: res };
             assert!(matches!(p.try_taps(), Err(Error::Config(_))), "{p:?}");
             assert_eq!(p.taps(), Vec::new());
-            assert!(Tdl::new(TdlParams { taps: p.taps(), sample_rate: 1e6, ..TdlParams::default() }).is_err());
+            assert!(Tdl::new(&TdlParams { taps: p.taps(), sample_rate: 1e6, ..TdlParams::default() }).is_err());
             assert!(DelayDopplerModel::new(&p.taps(), 0.0, 1e6).is_err());
         }
         let p = Profile::Exponential { rms_delay_s: 0.0, resolution_s: 1e-9 };
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn a_tdl_rejects_a_signal_of_another_sample_rate() {
-        let ch = Tdl::new(TdlParams {
+        let ch = Tdl::new(&TdlParams {
             taps: Profile::Eva.taps(),
             doppler_hz: 100.0,
             sample_rate: 15.36e6,

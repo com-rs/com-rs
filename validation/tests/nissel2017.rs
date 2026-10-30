@@ -62,7 +62,7 @@ fn through(taps: &Taps, start: usize, g: &[C64], q_start: usize, q: &[C64]) -> C
 /// exact diagonal of Q^H H G (Nissel & Rupp, eq. (8)), on the middle symbols.
 fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
     let c = Constellation::qam(64).unwrap().normalized();
-    let tdl = Tdl::new(TdlParams {
+    let tdl = Tdl::new(&TdlParams {
         taps: Profile::VehicularA.taps(),
         doppler_hz: doppler(kmh),
         sample_rate: FS,

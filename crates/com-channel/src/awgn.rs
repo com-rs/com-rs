@@ -72,7 +72,7 @@ impl Awgn {
 
 impl Propagate for Awgn {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        ensure_shape(x.len() > 0, || "empty signal".into())?;
+        ensure_shape(!x.is_empty(), || "empty signal".into())?;
         let power = x.power();
         x.map_streams(out, |s, xs| noisy(xs, self.noise_variance(power[s]), rng));
         Ok(())

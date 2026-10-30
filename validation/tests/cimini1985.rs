@@ -61,7 +61,7 @@ struct Link {
 /// BER of `link` at the SIR `sir_db`, over `blocks` blocks drawn from `seed`.
 fn ber(link: Link, sir_db: f64, blocks: usize, seed: u64) -> f64 {
     let Link { n, fd, corr, rho } = link;
-    let tdl = Tdl::new(TdlParams { taps: vec![(0.0, 0.0)], doppler_hz: fd, sample_rate: FS, ..TdlParams::default() })
+    let tdl = Tdl::new(&TdlParams { taps: vec![(0.0, 0.0)], doppler_hz: fd, sample_rate: FS, ..TdlParams::default() })
         .unwrap();
     let mut rng = Rng::new(seed);
     let g = comrs::math::db2lin(-sir_db);
@@ -190,7 +190,8 @@ fn cimini_1985_fig_6_gain_limit() {
 fn cimini_1985_eq_23_and_fig_7_delay_spread() {
     let delta = 50e-6;
     let two_ray =
-        Tdl::new(TdlParams { taps: vec![(0.0, 0.0), (delta, 0.0)], sample_rate: 1e6, ..TdlParams::default() }).unwrap();
+        Tdl::new(&TdlParams { taps: vec![(0.0, 0.0), (delta, 0.0)], sample_rate: 1e6, ..TdlParams::default() })
+            .unwrap();
     let rho_at = |f: f64| two_ray.frequency_correlation(1, (1e6 / f).round() as usize);
     for f in [500.0, 1000.0, 2000.0] {
         let s = std::f64::consts::TAU * f;

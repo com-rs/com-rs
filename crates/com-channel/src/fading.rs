@@ -85,7 +85,7 @@ use ndarray::Array2;
 ///     Ok(y.as_array().iter().map(C64::norm_sqr).sum::<f64>() / 64.0)
 /// }
 /// let mut rng = batch_rng(1, 0);
-/// assert!(received_power(&Tdl::new(TdlParams { taps: Profile::Eva.taps(), doppler_hz: 10.0, sample_rate: 15.36e6, n_rx: 2, ..TdlParams::default() })?, &mut rng)? > 0.0);
+/// assert!(received_power(&Tdl::new(&TdlParams { taps: Profile::Eva.taps(), doppler_hz: 10.0, sample_rate: 15.36e6, n_rx: 2, ..TdlParams::default() })?, &mut rng)? > 0.0);
 /// assert!(received_power(&Mimo::rayleigh(2, 2), &mut rng)? > 0.0);
 /// # Ok::<(), com_core::Error>(())
 /// ```
