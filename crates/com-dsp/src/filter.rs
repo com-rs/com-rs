@@ -269,6 +269,16 @@ pub enum LowPass {
     Gauss,
 }
 
+impl LowPass {
+    /// The name of the filter, as `from_str` reads it: `rect` or `gauss`.
+    pub fn name(self) -> &'static str {
+        match self {
+            LowPass::Rect => "rect",
+            LowPass::Gauss => "gauss",
+        }
+    }
+}
+
 impl std::str::FromStr for LowPass {
     type Err = Error;
 
@@ -326,6 +336,13 @@ pub fn moving_average(x: &[C64], n: usize) -> Vec<C64> {
 mod tests {
     use super::*;
     use crate::resample::*;
+
+    #[test]
+    fn the_low_pass_names_are_read_back() {
+        for f in [LowPass::Rect, LowPass::Gauss] {
+            assert_eq!(f.name().parse::<LowPass>().unwrap(), f);
+        }
+    }
 
     #[test]
     fn rrc_pair_is_nyquist_on_a_periodic_block() {
