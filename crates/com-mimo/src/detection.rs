@@ -14,10 +14,13 @@
 //! | [`KBest`] | breadth-first tree search keeping $K$ paths | $K M n_{t}$ | close to ML |
 //!
 //! Every detector returns the label (index) of the decided point of every transmit
-//! stream ([`MimoDetector::detect`]); the linear detectors, [`Ml`] and [`KBest`] also
-//! give bit log-likelihood ratios ([`MimoDetector::llr`], positive for a 0, most
-//! significant bit first, stream after stream). [`Coherent`] binds a detector to a
-//! channel matrix and implements the [`Detect`] trait on multi-stream containers.
+//! stream ([`MimoDetector::detect`]); the linear detectors, [`Ml`] and [`KBest`] (and the
+//! message-passing detectors of [`crate::message_passing`]) also give bit
+//! log-likelihood ratios ([`MimoDetector::llr`], positive for a 0, most significant bit
+//! first, stream after stream; [`MimoDetector::has_soft_output`]), and the linear and
+//! message-passing ones an estimate of every symbol with its noise variance
+//! ([`MimoDetector::soft_estimate`], an [`Estimates`]). [`Coherent`] binds a detector to
+//! a channel matrix and implements the [`Detect`] trait on multi-stream containers.
 //!
 //! # Model
 //!
@@ -60,9 +63,9 @@
 //! 3. Z. Guo and P. Nilsson, "Algorithm and implementation of the K-best sphere
 //!    decoding for MIMO detection," *IEEE J. Sel. Areas Commun.*, 24(3), 2006.
 
-use com_core::signal::Symbols;
+use com_core::signal::{KNOWN_BIT_LLR, Symbols};
 use com_core::traits::Detect;
-use com_core::{Error, Result, ensure};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
 use com_math::linalg::{CMat, hermitian, identity, inverse_hpd, matvec, qr};
@@ -71,8 +74,42 @@ use ndarray::{Array2, ArrayView2};
 /// Largest number of hypotheses $M^{n_{t}}$ of the exhaustive search.
 pub const ML_MAX_HYPOTHESES: usize = 1 << 22;
 
+/// The floor of the denominators of the unbiased MMSE estimate and of the noise
+/// variances of the soft outputs, so that a noiseless or saturated case stays finite.
+pub(crate) const FLOOR: f64 = 1e-300;
+
+/// The estimates $\hat x_{k}$ of the transmitted symbols and the variance of the noise
+/// of each, $\hat x_{k} = x_{k} + n_{k}$, $\mathbb{E}|n_{k}|^{2}$ = `noise_var[k]`: the
+/// output of a linear detector, of a message-passing detector (the decoupled channel)
+/// and of the decoder of a space-time block code.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Estimates {
+    /// The estimate of every symbol.
+    pub symbols: Vec<C64>,
+    /// The noise variance of every estimate.
+    pub noise_var: Vec<f64>,
+}
+
 /// A detector of the model $y = H x + w$.
 pub trait MimoDetector {
+    /// The alphabet of every stream (the labels of [`MimoDetector::detect`] index its
+    /// points).
+    fn constellation(&self) -> &Constellation;
+
+    /// Whether [`MimoDetector::llr`] gives bit LLRs (false: it returns an error).
+    fn has_soft_output(&self) -> bool {
+        false
+    }
+
+    /// The estimates of the transmitted symbols and their noise variances, when the
+    /// detector forms them (`None` for the detectors that decide on the lattice).
+    ///
+    /// # Errors
+    /// As [`MimoDetector::detect`].
+    fn soft_estimate(&self, _h: &ArrayView2<'_, C64>, _y: &[C64], _noise_var: f64) -> Result<Option<Estimates>> {
+        Ok(None)
+    }
+
     /// The label of the decided point of every transmit stream.
     ///
     /// # Errors
@@ -115,10 +152,13 @@ pub trait MimoDetector {
     }
 }
 
+/// [`Error::Shape`] unless `y` has one sample per receive antenna of `h`.
+pub(crate) fn check_shape(h: &ArrayView2<'_, C64>, y: &[C64]) -> Result<()> {
+    ensure_shape(y.len() == h.nrows(), || format!("{} received samples for {} receive antennas", y.len(), h.nrows()))
+}
+
 fn check(h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<()> {
-    if y.len() != h.nrows() {
-        return Err(Error::Shape(format!("{} received samples for {} receive antennas", y.len(), h.nrows())));
-    }
+    check_shape(h, y)?;
     ensure(noise_var > 0.0 && noise_var.is_finite(), || format!("the noise variance must be positive, got {noise_var}"))
 }
 
@@ -191,20 +231,21 @@ fn filter(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64
     let w = ginv.dot(&hh);
     let (mut bias, mut var) = (Vec::with_capacity(n), Vec::with_capacity(n));
     for k in 0..n {
-        let ekk = noise_var * ginv[[k, k]].re;
-        match criterion {
-            Criterion::Zf => {
-                bias.push(1.0);
-                var.push(ekk);
-            }
-            Criterion::Mmse => {
-                let b = (1.0 - ekk / es).max(1e-300);
-                bias.push(b);
-                var.push(es * ekk / (es - ekk).max(1e-300));
-            }
-        }
+        let (b, v) = unbiased(criterion, noise_var * ginv[[k, k]].re, es);
+        bias.push(b);
+        var.push(v);
     }
     Ok(Filter { w, bias, var })
+}
+
+/// The bias and the noise variance of the estimate of a stream whose error variance is
+/// $E_{kk}$: $(1, E_{kk})$ for ZF; for the unbiased MMSE estimate, $\beta_{k} = 1 -
+/// E_{kk}/E_{s}$ and $E_{s} E_{kk} / (E_{s} - E_{kk})$ (both floored).
+fn unbiased(criterion: Criterion, ekk: f64, es: f64) -> (f64, f64) {
+    match criterion {
+        Criterion::Zf => (1.0, ekk),
+        Criterion::Mmse => ((1.0 - ekk / es).max(FLOOR), es * ekk / (es - ekk).max(FLOOR)),
+    }
 }
 
 /// The filter of one stream (SISO, or SIMO combining) as scalars: $G = \|h\|^{2} +
@@ -229,11 +270,7 @@ impl SingleStream {
         if !(g > 0.0 && g.is_finite()) {
             return Err(Error::Numerical("the channel is rank deficient".into()));
         }
-        let ekk = noise_var / g;
-        let (bias, var) = match criterion {
-            Criterion::Zf => (1.0, ekk),
-            Criterion::Mmse => ((1.0 - ekk / es).max(1e-300), es * ekk / (es - ekk).max(1e-300)),
-        };
+        let (bias, var) = unbiased(criterion, noise_var / g, es);
         Ok(SingleStream { g, bias, var })
     }
 
@@ -267,15 +304,15 @@ impl Linear {
     ///
     /// # Errors
     /// As [`MimoDetector::detect`]; [`Error::Numerical`] for a rank-deficient channel.
-    pub fn estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<C64>, Vec<f64>)> {
+    pub fn estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Estimates> {
         check(h, y, noise_var)?;
         let (z, var) = self.single(h, y, noise_var)?;
         if let Some(z) = z {
-            return Ok((vec![z], vec![var]));
+            return Ok(Estimates { symbols: vec![z], noise_var: vec![var] });
         }
         let f = filter(h, self.criterion, self.constellation.energy(), noise_var)?;
-        let z = matvec(&f.w.view(), y).iter().zip(&f.bias).map(|(z, b)| z / b).collect();
-        Ok((z, f.var))
+        let symbols = matvec(&f.w.view(), y).iter().zip(&f.bias).map(|(z, b)| z / b).collect();
+        Ok(Estimates { symbols, noise_var: f.var })
     }
 
     /// The estimate and its variance for one stream, `None` for several streams.
@@ -290,19 +327,31 @@ impl Linear {
 }
 
 impl MimoDetector for Linear {
+    fn constellation(&self) -> &Constellation {
+        &self.constellation
+    }
+
+    fn has_soft_output(&self) -> bool {
+        true
+    }
+
+    fn soft_estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Option<Estimates>> {
+        self.estimate(h, y, noise_var).map(Some)
+    }
+
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        let (z, _) = self.estimate(h, y, noise_var)?;
-        Ok(self.constellation.decide(&z))
+        Ok(self.constellation.decide(&self.estimate(h, y, noise_var)?.symbols))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
-        let (z, var) = self.estimate(h, y, noise_var)?;
-        self.constellation.llr_with_variances(&z, &var, None, false)
+        let e = self.estimate(h, y, noise_var)?;
+        self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, false)
     }
 
     fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
-        let (z, var) = self.estimate(h, y, noise_var)?;
-        Ok((self.constellation.decide(&z), self.constellation.llr_with_variances(&z, &var, None, false)?))
+        let e = self.estimate(h, y, noise_var)?;
+        let llr = self.constellation.llr_with_variances(&e.symbols, &e.noise_var, None, false)?;
+        Ok((self.constellation.decide(&e.symbols), llr))
     }
 
     fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
@@ -388,6 +437,10 @@ impl Sic {
 }
 
 impl MimoDetector for Sic {
+    fn constellation(&self) -> &Constellation {
+        &self.constellation
+    }
+
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         check(h, y, noise_var)?;
         let stages = self.stages(h, noise_var)?;
@@ -503,6 +556,14 @@ fn update_bits(best: &mut [[f64; 2]], idx: &[usize], bits: usize, d: f64) {
 }
 
 impl MimoDetector for Ml {
+    fn constellation(&self) -> &Constellation {
+        &self.constellation
+    }
+
+    fn has_soft_output(&self) -> bool {
+        true
+    }
+
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         check(h, y, noise_var)?;
         Ok(self.best(&self.products(h)?, h.ncols(), y))
@@ -634,6 +695,10 @@ impl Sphere {
 }
 
 impl MimoDetector for Sphere {
+    fn constellation(&self) -> &Constellation {
+        &self.constellation
+    }
+
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         check(h, y, noise_var)?;
         let t = Triangular::new(h, "the sphere decoder")?;
@@ -652,11 +717,11 @@ impl MimoDetector for Sphere {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KBest {
     /// The alphabet of every stream.
-    pub constellation: Constellation,
-    /// Paths kept at every level.
-    pub k: usize,
+    constellation: Constellation,
+    /// Paths kept at every level (at least 1).
+    k: usize,
     /// Magnitude of the LLR of a bit whose counter-hypothesis left the list.
-    pub llr_clip: f64,
+    llr_clip: f64,
 }
 
 /// The surviving paths of [`KBest`], best first: the labels of path `p` (in the order
@@ -678,15 +743,35 @@ impl Paths {
 }
 
 impl KBest {
-    /// The search keeping `k` paths.
-    pub fn new(constellation: Constellation, k: usize) -> KBest {
-        KBest { constellation, k, llr_clip: 30.0 }
+    /// The search keeping `k` paths, the LLRs of the bits whose counter-hypothesis left
+    /// the list clipped at [`KNOWN_BIT_LLR`].
+    ///
+    /// # Errors
+    /// [`Error::Config`] for $k = 0$.
+    pub fn new(constellation: Constellation, k: usize) -> Result<KBest> {
+        ensure(k >= 1, || "K-best needs k ≥ 1".into())?;
+        Ok(KBest { constellation, k, llr_clip: KNOWN_BIT_LLR })
     }
 
-    /// The factors of the channel, after the checks of one channel use.
-    fn prepare(&self, h: &ArrayView2<'_, C64>) -> Result<Triangular> {
-        ensure(self.k >= 1, || "K-best needs k ≥ 1".into())?;
-        Triangular::new(h, "K-best")
+    /// The same search with the LLR magnitude `llr_clip` for a bit whose
+    /// counter-hypothesis left the list.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a magnitude that is not positive.
+    pub fn with_llr_clip(mut self, llr_clip: f64) -> Result<KBest> {
+        ensure(llr_clip > 0.0, || format!("the LLR clip must be positive, got {llr_clip}"))?;
+        self.llr_clip = llr_clip;
+        Ok(self)
+    }
+
+    /// Paths kept at every level.
+    pub fn k(&self) -> usize {
+        self.k
+    }
+
+    /// Magnitude of the LLR of a bit whose counter-hypothesis left the list.
+    pub fn llr_clip(&self) -> f64 {
+        self.llr_clip
     }
 
     /// The surviving paths of one rotated observation $z = Q^{H} y$.
@@ -738,9 +823,17 @@ impl KBest {
 }
 
 impl MimoDetector for KBest {
+    fn constellation(&self) -> &Constellation {
+        &self.constellation
+    }
+
+    fn has_soft_output(&self) -> bool {
+        true
+    }
+
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
         check(h, y, noise_var)?;
-        let t = self.prepare(h)?;
+        let t = Triangular::new(h, "K-best")?;
         Ok(self.search(&t.r, &t.rotate(y)).first(h.ncols()))
     }
 
@@ -750,28 +843,34 @@ impl MimoDetector for KBest {
 
     fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
         check(h, y, noise_var)?;
-        let t = self.prepare(h)?;
+        let t = Triangular::new(h, "K-best")?;
         let paths = self.search(&t.r, &t.rotate(y));
         Ok((paths.first(h.ncols()), self.soft(&paths, h.ncols(), noise_var)))
     }
 
     fn detect_block(&self, h: &ArrayView2<'_, C64>, y: &ArrayView2<'_, C64>, noise_var: f64) -> Result<Array2<usize>> {
         check_block(h, y, noise_var)?;
-        let t = self.prepare(h)?;
+        let t = Triangular::new(h, "K-best")?;
         by_column(h.ncols(), y, |col| Ok(self.search(&t.r, &t.rotate(col)).first(h.ncols())))
     }
 }
 
 /// A detector bound to a channel matrix: the [`Detect`] block of a link whose
-/// receiver knows the channel.
+/// receiver knows the channel; the decided points are those of the detector's
+/// constellation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Coherent<D> {
     /// The detector.
     pub detector: D,
     /// The channel matrix ($n_{r} \times n_{t}$).
     pub h: CMat,
-    /// The alphabet of the decided points (the detector's).
-    pub constellation: Constellation,
+}
+
+impl<D: MimoDetector> Coherent<D> {
+    /// The detector `detector` bound to the channel `h`.
+    pub fn new(detector: D, h: CMat) -> Coherent<D> {
+        Coherent { detector, h }
+    }
 }
 
 impl<D: MimoDetector> Detect for Coherent<D> {
@@ -779,7 +878,7 @@ impl<D: MimoDetector> Detect for Coherent<D> {
     /// (`n_tx` streams).
     fn detect_into(&mut self, y: &Symbols, noise_var: f64, out: &mut Symbols) -> Result<()> {
         let labels = self.detector.detect_block(&self.h.view(), &y.as_array().view(), noise_var)?;
-        let pts = self.constellation.points();
+        let pts = self.detector.constellation().points();
         out.assign(&labels.mapv(|i| pts[i]));
         Ok(())
     }
@@ -831,8 +930,8 @@ mod tests {
         let y: Vec<C64> = (0..3).map(|_| rng.complex_gaussian()).collect();
         for d in [Linear::zf(qpsk.clone()), Linear::mmse(qpsk.clone())] {
             let f = filter(&h.view(), d.criterion, qpsk.energy(), 0.3).unwrap();
-            let (z, var) = d.estimate(&h.view(), &y, 0.3).unwrap();
-            assert!((z[0] - matvec(&f.w.view(), &y)[0] / f.bias[0]).norm() < 1e-14 && var == f.var);
+            let e = d.estimate(&h.view(), &y, 0.3).unwrap();
+            assert!((e.symbols[0] - matvec(&f.w.view(), &y)[0] / f.bias[0]).norm() < 1e-14 && e.noise_var == f.var);
         }
         let zero = Array2::from_elem((2, 1), C64::new(0.0, 0.0));
         assert!(filter(&zero.view(), Criterion::Zf, es, 0.3).is_err());
@@ -854,10 +953,11 @@ mod tests {
                 Box::new(Sic::mmse(c.clone())),
                 Box::new(Ml::new(c.clone())),
                 Box::new(Sphere::new(c.clone())),
-                Box::new(KBest::new(c.clone(), 4)),
+                Box::new(KBest::new(c.clone(), 4).unwrap()),
             ];
             for d in &dets {
                 assert_eq!(d.detect(&h.view(), &y, 1e-6).unwrap(), idx);
+                assert_eq!(d.constellation(), &c);
             }
         }
     }
@@ -873,7 +973,7 @@ mod tests {
             let ml = Ml::new(c.clone()).detect(&h.view(), &y, 0.5).unwrap();
             assert_eq!(Sphere::new(c.clone()).detect(&h.view(), &y, 0.5).unwrap(), ml);
             // K-best with every path kept is ML too
-            assert_eq!(KBest::new(c.clone(), 64).detect(&h.view(), &y, 0.5).unwrap(), ml);
+            assert_eq!(KBest::new(c.clone(), 64).unwrap().detect(&h.view(), &y, 0.5).unwrap(), ml);
         }
     }
 
@@ -884,7 +984,10 @@ mod tests {
         let h = channel(4, 2, &mut rng);
         let x = [c.points()[5], c.points()[10]];
         let y = noisy(&h, &x, 1e-3, &mut rng);
-        for d in [&Linear::mmse(c.clone()) as &dyn MimoDetector, &Ml::new(c.clone()), &KBest::new(c.clone(), 8)] {
+        for d in
+            [&Linear::mmse(c.clone()) as &dyn MimoDetector, &Ml::new(c.clone()), &KBest::new(c.clone(), 8).unwrap()]
+        {
+            assert!(d.has_soft_output());
             let l = d.llr(&h.view(), &y, 1e-3).unwrap();
             assert_eq!(l.len(), 8);
             let bits: Vec<usize> = [5usize, 10].iter().flat_map(|i| (0..4).map(move |p| (i >> (3 - p)) & 1)).collect();
@@ -892,7 +995,9 @@ mod tests {
                 assert!(if b == 0 { *v > 0.0 } else { *v < 0.0 }, "{l:?}");
             }
         }
-        assert!(Sphere::new(c).llr(&h.view(), &y, 1e-3).is_err());
+        assert!(Sphere::new(c.clone()).llr(&h.view(), &y, 1e-3).is_err());
+        assert!(!Sphere::new(c.clone()).has_soft_output() && !Sic::mmse(c.clone()).has_soft_output());
+        assert!(KBest::new(c.clone(), 0).is_err() && KBest::new(c, 2).unwrap().with_llr_clip(-1.0).is_err());
     }
 
     #[test]
@@ -921,8 +1026,8 @@ mod tests {
             Box::new(Sic { constellation: c.clone(), criterion: Criterion::Mmse, ordered: false }),
             Box::new(Ml::new(c.clone())),
             Box::new(Sphere::new(c.clone())),
-            Box::new(KBest::new(c.clone(), 1)),
-            Box::new(KBest::new(c.clone(), 12)),
+            Box::new(KBest::new(c.clone(), 1).unwrap()),
+            Box::new(KBest::new(c.clone(), 12).unwrap()),
         ];
         for _ in 0..10 {
             let h = channel(4, 3, &mut rng);
@@ -964,7 +1069,7 @@ mod tests {
         let h = channel(3, 2, &mut rng);
         let x = Array2::from_shape_fn((2, 8), |_| c.points()[rng.below(4)]);
         let y = Symbols::new(h.dot(&x));
-        let mut d = Coherent { detector: Sphere::new(c.clone()), h, constellation: c };
+        let mut d = Coherent::new(Sphere::new(c), h);
         assert_eq!(d.detect_into_owned(&y).unwrap().as_array(), &x);
     }
 

@@ -86,7 +86,7 @@
 //! 2. J. Ma and L. Ping, "Orthogonal AMP," *IEEE Access*, 5, 2020–2033, 2017
 //!    (arXiv:1602.06509).
 
-use crate::detection::MimoDetector;
+use crate::detection::{Estimates, FLOOR, MimoDetector, check_shape};
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::linalg::svd;
@@ -523,7 +523,7 @@ pub fn lama(
         Trace { z: Vec::new(), noise_var: gamma, estimates: Vec::with_capacity(iterations), noise_vars: Vec::new() };
     for _ in 0..iterations {
         if variance == AmpVariance::Residual {
-            gamma = (r.iter().map(C64::norm_sqr).sum::<f64>() / m as f64).max(1e-300);
+            gamma = (r.iter().map(C64::norm_sqr).sum::<f64>() / m as f64).max(FLOOR);
         }
         let back = adjoint(&h.view(), &r);
         let z: Vec<C64> = s.iter().zip(&back).map(|(a, b)| a + b).collect();
@@ -636,7 +636,7 @@ pub fn oamp(
     let (u, lambda, v) = svd(h);
     let frob: f64 = lambda.iter().map(|l| l * l).sum();
     ensure(frob > 0.0, || "the channel is zero".into())?;
-    let floor = 1e-12 * prior.variance().max(1e-300);
+    let floor = 1e-12 * prior.variance().max(FLOOR);
     let mut s = vec![prior.mean(); n];
     let mut trace =
         Trace { z: Vec::new(), noise_var: 0.0, estimates: Vec::with_capacity(iterations), noise_vars: Vec::new() };
@@ -645,7 +645,7 @@ pub fn oamp(
         let energy: f64 = res.iter().map(C64::norm_sqr).sum();
         let v2 = ((energy - m as f64 * noise_var) / frob).max(floor);
         let (g, tau2) = decorrelated(&lambda, &linear.gains(&lambda, v2, noise_var), n, v2, noise_var);
-        let tau2 = tau2.max(1e-300);
+        let tau2 = tau2.max(FLOOR);
         // r = s + V diag(g) U^H res
         let proj: Vec<C64> = (0..lambda.len())
             .map(|i| u.column(i).iter().zip(&res).map(|(a, b)| a.conj() * b).sum::<C64>() * g[i])
@@ -685,102 +685,122 @@ pub fn oamp_state_evolution(
         let (_, tau2) = decorrelated(&lambda, &linear.gains(&lambda, v2, noise_var), n, v2, noise_var);
         let mmse = prior.mse(tau2, tau2, domain).0;
         out.push(StateEvolutionStep { noise_var: tau2, mse: mmse });
-        v2 = if mmse < tau2 { 1.0 / (1.0 / mmse.max(1e-300) - 1.0 / tau2) } else { tau2 };
+        v2 = if mmse < tau2 { 1.0 / (1.0 / mmse.max(FLOOR) - 1.0 / tau2) } else { tau2 };
     }
     out
 }
 
-/// The MIMO detector of LAMA: the hard decisions of the decoupled channel and its bit
-/// LLRs.
+/// The MIMO detector of LAMA: the hard decisions of the decoupled channel, its bit
+/// LLRs, and its estimates $z$ with the variance of the decoupled noise.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Amp {
     /// The alphabet of every stream.
-    pub constellation: Constellation,
-    /// Iterations.
-    pub iterations: usize,
+    constellation: Constellation,
+    /// Iterations (at least 1).
+    iterations: usize,
     /// The variance estimate of the decoupled channel.
     pub variance: AmpVariance,
 }
 
 impl Amp {
     /// LAMA with `iterations` iterations and the postulated variance.
-    pub fn new(constellation: Constellation, iterations: usize) -> Amp {
-        Amp { constellation, iterations, variance: AmpVariance::Postulated }
+    ///
+    /// # Errors
+    /// [`Error::Config`] for zero iterations.
+    pub fn new(constellation: Constellation, iterations: usize) -> Result<Amp> {
+        ensure(iterations >= 1, || "at least one iteration is needed".into())?;
+        Ok(Amp { constellation, iterations, variance: AmpVariance::Postulated })
+    }
+
+    /// Iterations.
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+
+    fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
+        check_shape(h, y)?;
+        let prior = Prior::uniform(&self.constellation);
+        lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)
     }
 }
 
-/// The MIMO detector of OAMP with the LMMSE estimator.
+/// The MIMO detector of OAMP with the LMMSE estimator (the outputs of [`Amp`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Oamp {
     /// The alphabet of every stream.
-    pub constellation: Constellation,
-    /// Iterations.
-    pub iterations: usize,
+    constellation: Constellation,
+    /// Iterations (at least 1).
+    iterations: usize,
     /// The linear estimator.
     pub linear: OampLinear,
 }
 
 impl Oamp {
     /// OAMP-LMMSE with `iterations` iterations.
-    pub fn new(constellation: Constellation, iterations: usize) -> Oamp {
-        Oamp { constellation, iterations, linear: OampLinear::Lmmse }
+    ///
+    /// # Errors
+    /// [`Error::Config`] for zero iterations.
+    pub fn new(constellation: Constellation, iterations: usize) -> Result<Oamp> {
+        ensure(iterations >= 1, || "at least one iteration is needed".into())?;
+        Ok(Oamp { constellation, iterations, linear: OampLinear::Lmmse })
     }
-}
 
-/// Hard decisions of the decoupled channel $z = x + n$.
-fn decide(c: &Constellation, trace: &Trace) -> Vec<usize> {
-    c.decide(&trace.z)
-}
+    /// Iterations.
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
 
-/// LLRs of the decoupled channel $z = x + n$, $n$ of variance `trace.noise_var` (floored:
-/// the state evolution reaches 0 without noise).
-fn soft(c: &Constellation, trace: &Trace) -> Result<Vec<f64>> {
-    c.llr(&trace.z, trace.noise_var.max(1e-300), None, false)
-}
-
-impl Amp {
     fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
-        let prior = Prior::uniform(&self.constellation);
-        lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)
-    }
-}
-
-impl MimoDetector for Amp {
-    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        Ok(decide(&self.constellation, &self.trace(h, y, noise_var)?))
-    }
-
-    fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
-        soft(&self.constellation, &self.trace(h, y, noise_var)?)
-    }
-
-    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
-        let t = self.trace(h, y, noise_var)?;
-        Ok((decide(&self.constellation, &t), soft(&self.constellation, &t)?))
-    }
-}
-
-impl Oamp {
-    fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
+        check_shape(h, y)?;
         let prior = Prior::uniform(&self.constellation);
         oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)
     }
 }
 
-impl MimoDetector for Oamp {
-    fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        Ok(decide(&self.constellation, &self.trace(h, y, noise_var)?))
-    }
-
-    fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
-        soft(&self.constellation, &self.trace(h, y, noise_var)?)
-    }
-
-    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
-        let t = self.trace(h, y, noise_var)?;
-        Ok((decide(&self.constellation, &t), soft(&self.constellation, &t)?))
-    }
+/// The noise variance of the decoupled channel $z = x + n$ of a trace, floored: the state
+/// evolution reaches 0 without noise.
+fn decoupled_var(trace: &Trace) -> f64 {
+    trace.noise_var.max(FLOOR)
 }
+
+/// The [`MimoDetector`] of a message-passing detector with a `trace` method: the
+/// decisions, the LLRs and the estimates of its decoupled channel.
+macro_rules! decoupled_detector {
+    ($t:ty) => {
+        impl MimoDetector for $t {
+            fn constellation(&self) -> &Constellation {
+                &self.constellation
+            }
+
+            fn has_soft_output(&self) -> bool {
+                true
+            }
+
+            fn soft_estimate(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Option<Estimates>> {
+                let t = self.trace(h, y, noise_var)?;
+                let v = decoupled_var(&t);
+                Ok(Some(Estimates { noise_var: vec![v; t.z.len()], symbols: t.z }))
+            }
+
+            fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
+                Ok(self.constellation.decide(&self.trace(h, y, noise_var)?.z))
+            }
+
+            fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
+                let t = self.trace(h, y, noise_var)?;
+                self.constellation.llr(&t.z, decoupled_var(&t), None, false)
+            }
+
+            fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+                let t = self.trace(h, y, noise_var)?;
+                Ok((self.constellation.decide(&t.z), self.constellation.llr(&t.z, decoupled_var(&t), None, false)?))
+            }
+        }
+    };
+}
+
+decoupled_detector!(Amp);
+decoupled_detector!(Oamp);
 
 #[cfg(test)]
 mod tests {
@@ -836,9 +856,19 @@ mod tests {
         let idx: Vec<usize> = (0..n).map(|_| rng.below(4)).collect();
         let x: Vec<C64> = idx.iter().map(|&i| c.points()[i]).collect();
         let y = com_math::linalg::matvec(&h.view(), &x);
-        assert_eq!(Amp::new(c.clone(), 20).detect(&h.view(), &y, 1e-6).unwrap(), idx);
-        assert_eq!(Oamp::new(c.clone(), 10).detect(&h.view(), &y, 1e-6).unwrap(), idx);
-        assert!(Amp::new(c, 0).detect(&h.view(), &y, 1e-6).is_err());
+        assert_eq!(Amp::new(c.clone(), 20).unwrap().detect(&h.view(), &y, 1e-6).unwrap(), idx);
+        assert_eq!(Oamp::new(c.clone(), 10).unwrap().detect(&h.view(), &y, 1e-6).unwrap(), idx);
+        assert!(Amp::new(c.clone(), 0).is_err() && Oamp::new(c.clone(), 0).is_err());
+        // a length mismatch is a Shape error, as MimoDetector::detect documents
+        for d in [&Amp::new(c.clone(), 5).unwrap() as &dyn MimoDetector, &Oamp::new(c.clone(), 5).unwrap()] {
+            assert!(matches!(d.detect(&h.view(), &y[1..], 1e-6), Err(Error::Shape(_))));
+            // the soft outputs are those of the decoupled channel
+            let e = d.soft_estimate(&h.view(), &y, 1e-6).unwrap().unwrap();
+            let (labels, llr) = d.detect_llr(&h.view(), &y, 1e-6).unwrap();
+            assert_eq!(c.decide(&e.symbols), labels);
+            let from = c.llr_with_variances(&e.symbols, &e.noise_var, None, false).unwrap();
+            assert!(from.iter().zip(&llr).all(|(a, b)| a.to_bits() == b.to_bits()));
+        }
     }
 
     #[test]
