@@ -243,8 +243,8 @@ A review of the whole library before the release settled its conventions
   (`com_dsp::interpolation`, gathered from the estimators and the timing recovery),
   spectral estimation (`com_dsp::spectrum`) and Bussgang's decomposition
   (`com_dsp::nonlinear`, shared by clipping and the amplifiers) in `com-dsp`;
-  `hard_decisions` and the seeded families of sequences (`rng::member`, `Rng::qpsk`)
-  in `com-core`; `add_noise` in `com-channel`; the frequency correlation of a power-delay
+  `hard_decisions` and the seeded families of sequences (`rng::member`) in `com-core`,
+  their QPSK draw in `com_mapping::source::qpsk`; `add_noise` in `com-channel`; the frequency correlation of a power-delay
   profile; the PRBS on the shared LFSR;
 - the channel stays in `com-channel`: the delay–Doppler channel of OTFS
   (`DelayDoppler`, `DelayDopplerModel`), the validation tests draw their channels there;
