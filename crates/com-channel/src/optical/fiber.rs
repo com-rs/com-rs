@@ -60,7 +60,7 @@
 //! 1. G. P. Agrawal, *Nonlinear Fiber Optics*, 5th ed., Academic Press, 2013.
 
 use super::edfa::Edfa;
-use super::raman::Raman;
+use super::raman::{FieldSpan, Raman};
 use com_core::ensure;
 use com_core::prelude::*;
 use com_dsp::compensation::dbp::Dbp;
@@ -248,6 +248,50 @@ impl Amplification {
     }
 }
 
+/// The loop over the spans of a link, shared by the propagators ([`Ssfm`],
+/// `manakov::ManakovSsfm`, `pmd::Manakov`): for each of the `fiber.n_spans` spans,
+/// `span(k, fields, raman_span)` propagates the polarisations `fields` over span `k`,
+/// then each polarisation, in order, is amplified with its noise drawn from `rng`:
+///
+/// - without Raman amplification, by [`Amplification::apply`] over `length_km` (the
+///   simulated length of the span);
+/// - with `raman`, by the restoring gain of the Raman profile of the span, which is
+///   solved for the fields at its input over `fiber` and handed to `span` (its
+///   distributed gain).
+///
+/// Returns the sum of the values of `span` (the steps taken).
+///
+/// # Errors
+/// The errors of `span`, of the Raman solver and of the amplifier.
+pub(crate) fn amplified_spans(
+    fiber: &FiberParams,
+    length_km: f64,
+    amplification: &Amplification,
+    raman: Option<&Raman>,
+    fields: &mut [&mut Vec<C64>],
+    fs: f64,
+    mut rng: Option<&mut Rng>,
+    mut span: impl FnMut(usize, &mut [&mut Vec<C64>], Option<&FieldSpan>) -> Result<usize>,
+) -> Result<usize> {
+    let mut total = 0;
+    for k in 0..fiber.n_spans {
+        if let Some(raman) = raman {
+            let views: Vec<&[C64]> = fields.iter().map(|f| f.as_slice()).collect();
+            let profile = raman.field_span(fiber, &views, fs)?;
+            total += span(k, fields, Some(&profile))?;
+            for f in fields.iter_mut() {
+                profile.amplify(f, fs, amplification, fiber.nf_db, rng.as_deref_mut());
+            }
+        } else {
+            total += span(k, fields, None)?;
+            for f in fields.iter_mut() {
+                amplification.apply(f, fiber, length_km, fs, rng.as_deref_mut())?;
+            }
+        }
+    }
+    Ok(total)
+}
+
 /// The arithmetic of the split steps of [`Ssfm::propagate_with`].
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -326,18 +370,37 @@ impl Ssfm {
     ///
     /// # Errors
     /// [`Error::Config`] for a non-positive step or a step longer than the span.
-    pub fn propagate(&self, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Result<Vec<C64>> {
-        if let Some(raman) = &self.raman {
-            return self.propagate_raman(raman, x, fs, rng);
-        }
+    pub fn propagate(&self, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Result<Vec<C64>> {
         let (n_steps, h) = self.steps()?;
-        let f = &self.fiber;
-        let steps = SplitStep::new(&f.medium(), h, h, n_steps, x.len(), fs);
+        let simulated_km = n_steps as f64 * h;
+        // with Raman amplification the profile of every span is solved for the slices of
+        // the field at its input, over the simulated length, and gives the loss
+        let (fiber, medium) = match self.raman {
+            Some(_) => {
+                let fiber = FiberParams { span_km: simulated_km, ..self.fiber.clone() };
+                let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
+                (fiber, medium)
+            }
+            None => (self.fiber.clone(), self.fiber.medium()),
+        };
+        let steps = SplitStep::new(&medium, h, h, n_steps, x.len(), fs);
         let mut e = x.to_vec();
-        for _ in 0..f.n_spans {
-            steps.run(&mut e);
-            self.amplification.apply(&mut e, f, n_steps as f64 * h, fs, rng.as_deref_mut())?;
-        }
+        amplified_spans(
+            &fiber,
+            simulated_km,
+            &self.amplification,
+            self.raman.as_ref(),
+            &mut [&mut e],
+            fs,
+            rng,
+            |_, f, raman| {
+                match raman {
+                    Some(span) => steps.run_with_gain(f[0], &|z0, z1, out| span.field_gain(z0, z1, out)),
+                    None => steps.run(f[0]),
+                }
+                Ok(0)
+            },
+        )?;
         Ok(e)
     }
 
@@ -350,22 +413,6 @@ impl Ssfm {
             Precision::F64 => self.propagate(x, fs, rng),
             Precision::F32 => self.propagate_f32(x, fs, rng),
         }
-    }
-
-    /// [`Ssfm::propagate`] with Raman amplification: the profile of every span is solved
-    /// for the slices of the field at its input, over the simulated length `n h`.
-    fn propagate_raman(&self, raman: &Raman, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Result<Vec<C64>> {
-        let (n_steps, h) = self.steps()?;
-        let fiber = FiberParams { span_km: n_steps as f64 * h, ..self.fiber.clone() };
-        let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
-        let steps = SplitStep::new(&medium, h, h, n_steps, x.len(), fs);
-        let mut e = x.to_vec();
-        for _ in 0..fiber.n_spans {
-            let span = raman.field_span(&fiber, &[&e], fs)?;
-            steps.run_with_gain(&mut e, &|z0, z1, out| span.field_gain(z0, z1, out));
-            span.amplify(&mut e, fs, &self.amplification, fiber.nf_db, rng.as_deref_mut());
-        }
-        Ok(e)
     }
 
     /// The digital back-propagation of this link with `steps_per_span` steps per span
@@ -415,7 +462,7 @@ impl Ssfm {
     /// # Errors
     /// As [`Ssfm::propagate`], and [`Error::Config`] with Raman amplification (double
     /// precision only).
-    pub fn propagate_f32(&self, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Result<Vec<C64>> {
+    pub fn propagate_f32(&self, x: &[C64], fs: f64, rng: Option<&mut Rng>) -> Result<Vec<C64>> {
         ensure(self.raman.is_none(), || "the Raman amplification is simulated in double precision only".into())?;
         let (n_steps, h) = self.steps()?;
         let n = x.len();
@@ -425,22 +472,27 @@ impl Ssfm {
         let f = &self.fiber;
         let steps = SplitStepF32::new(&f.medium(), h, n_steps, n, fs);
         let simulated_km = n_steps as f64 * h;
-        let ideal_gain = self.amplification.field_gain(f, simulated_km) as f32;
-        let mut e: Vec<C32> = x.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
-        for _ in 0..f.n_spans {
-            steps.run(&mut e);
-            match self.amplification {
-                Amplification::Edfa => {
-                    // the ASE is drawn in double precision
-                    let mut e64: Vec<C64> = e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect();
-                    self.amplification.apply(&mut e64, f, simulated_km, fs, rng.as_deref_mut())?;
-                    e = e64.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
+        // the ideal gain in single precision, with the steps; the EDFA (and its ASE) in
+        // double precision, between the spans, on the field rounded to single precision
+        let (amplification, ideal_gain) = match self.amplification {
+            Amplification::Ideal => (Amplification::None, Some(self.amplification.field_gain(f, simulated_km) as f32)),
+            ref other => (other.clone(), None),
+        };
+        let to_f32 = |e: &[C64]| -> Vec<C32> { e.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect() };
+        let to_f64 = |e: &[C32]| -> Vec<C64> { e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect() };
+        let mut e = to_f64(&to_f32(x));
+        amplified_spans(f, simulated_km, &amplification, None, &mut [&mut e], fs, rng, |_, fields, _| {
+            let mut e32 = to_f32(fields[0]);
+            steps.run(&mut e32);
+            if let Some(g) = ideal_gain {
+                for v in &mut e32 {
+                    *v *= g;
                 }
-                Amplification::Ideal => e.iter_mut().for_each(|v| *v *= ideal_gain),
-                Amplification::None => {}
             }
-        }
-        Ok(e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect())
+            *fields[0] = to_f64(&e32);
+            Ok(0)
+        })?;
+        Ok(to_f64(&to_f32(&e)))
     }
 }
 
@@ -539,6 +591,95 @@ pub(crate) mod tests {
             let y = sim.propagate(&x, 64e9, None).unwrap();
             let z = sim.backpropagate(&y, 64e9, (80.0 / step).ceil() as usize).unwrap();
             assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-9 * a.norm().max(1e-3)), "step {step}");
+        }
+    }
+
+    /// The span loops of `Ssfm::propagate` (lumped or Raman amplification) and
+    /// `Ssfm::propagate_f32` as they were written before the span driver.
+    pub(crate) mod former {
+        use super::*;
+        use crate::optical::raman::Raman;
+
+        pub(crate) fn propagate(s: &Ssfm, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Vec<C64> {
+            let (n_steps, h) = s.steps().unwrap();
+            if let Some(raman) = &s.raman {
+                return propagate_raman(s, raman, x, fs, rng);
+            }
+            let f = &s.fiber;
+            let steps = SplitStep::new(&f.medium(), h, h, n_steps, x.len(), fs);
+            let mut e = x.to_vec();
+            for _ in 0..f.n_spans {
+                steps.run(&mut e);
+                s.amplification.apply(&mut e, f, n_steps as f64 * h, fs, rng.as_deref_mut()).unwrap();
+            }
+            e
+        }
+
+        fn propagate_raman(s: &Ssfm, raman: &Raman, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Vec<C64> {
+            let (n_steps, h) = s.steps().unwrap();
+            let fiber = FiberParams { span_km: n_steps as f64 * h, ..s.fiber.clone() };
+            let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
+            let steps = SplitStep::new(&medium, h, h, n_steps, x.len(), fs);
+            let mut e = x.to_vec();
+            for _ in 0..fiber.n_spans {
+                let span = raman.field_span(&fiber, &[&e], fs).unwrap();
+                steps.run_with_gain(&mut e, &|z0, z1, out| span.field_gain(z0, z1, out));
+                span.amplify(&mut e, fs, &s.amplification, fiber.nf_db, rng.as_deref_mut());
+            }
+            e
+        }
+
+        pub(crate) fn propagate_f32(s: &Ssfm, x: &[C64], fs: f64, mut rng: Option<&mut Rng>) -> Vec<C64> {
+            let (n_steps, h) = s.steps().unwrap();
+            let f = &s.fiber;
+            let steps = SplitStepF32::new(&f.medium(), h, n_steps, x.len(), fs);
+            let simulated_km = n_steps as f64 * h;
+            let ideal_gain = s.amplification.field_gain(f, simulated_km) as f32;
+            let mut e: Vec<C32> = x.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
+            for _ in 0..f.n_spans {
+                steps.run(&mut e);
+                match s.amplification {
+                    Amplification::Edfa => {
+                        let mut e64: Vec<C64> = e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect();
+                        s.amplification.apply(&mut e64, f, simulated_km, fs, rng.as_deref_mut()).unwrap();
+                        e = e64.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
+                    }
+                    Amplification::Ideal => e.iter_mut().for_each(|v| *v *= ideal_gain),
+                    Amplification::None => {}
+                }
+            }
+            e.iter().map(|v| C64::new(f64::from(v.re), f64::from(v.im))).collect()
+        }
+    }
+
+    /// The span driver gives the fields of the former loops bit for bit: every
+    /// amplification, with and without ASE, in double and single precision, and with
+    /// Raman pumps.
+    #[test]
+    fn the_span_driver_is_the_former_span_loops() {
+        use crate::optical::raman::{Direction, Raman, RamanPump};
+        let fiber = FiberParams { n_spans: 3, span_km: 40.0, ..FiberParams::default() };
+        let x = signal(512, 7, 4e-3);
+        for amplification in [Amplification::Edfa, Amplification::Ideal, Amplification::None] {
+            let s = Ssfm { fiber: fiber.clone(), step_km: 3.0, amplification, raman: None };
+            for seed in [None, Some(5)] {
+                let (mut a, mut b) = (seed.map(Rng::new), seed.map(Rng::new));
+                assert_eq!(s.propagate(&x, 64e9, a.as_mut()).unwrap(), former::propagate(&s, &x, 64e9, b.as_mut()));
+                let (mut a, mut b) = (seed.map(Rng::new), seed.map(Rng::new));
+                assert_eq!(
+                    s.propagate_f32(&x, 64e9, a.as_mut()).unwrap(),
+                    former::propagate_f32(&s, &x, 64e9, b.as_mut()),
+                    "{:?}",
+                    s.amplification
+                );
+            }
+        }
+        let pump = RamanPump::at_wavelength(1450.0, 0.3, Direction::Counter);
+        let raman = Raman { pumps: vec![pump], step_km: 1.0, ..Raman::default() };
+        for amplification in [Amplification::Edfa, Amplification::None] {
+            let s = Ssfm { fiber: fiber.clone(), step_km: 4.0, amplification, raman: Some(raman.clone()) };
+            let (mut a, mut b) = (Rng::new(3), Rng::new(3));
+            assert_eq!(s.propagate(&x, 64e9, Some(&mut a)).unwrap(), former::propagate(&s, &x, 64e9, Some(&mut b)));
         }
     }
 
