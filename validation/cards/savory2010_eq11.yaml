@@ -1,0 +1,40 @@
+id: savory2010_eq11
+title: Length and taps of the truncated impulse response compensating chromatic dispersion
+literature: savory2010
+source:
+  kind: paper
+  reference: "S. J. Savory, Digital coherent optical receivers: algorithms and subsystems, IEEE J. Sel. Topics Quantum Electron. 16(5), 1164-1179, 2010"
+  locator: "eq. (11) and footnotes 11 and 15, Sec. VI-A (beta2 = -21 ps2/km)"
+  file: fiber/2010_savory_digital-coherent-optical-receivers_jstqe.pdf
+description: >
+  The FIR filter compensating the dispersion of L km of fibre of beta2 = -21 ps2/km
+  sampled every T_ADC (comrs::dsp::compensation::cd::cd_savory_length and
+  cd_savory_taps): its number of taps, the modulus of its taps and their phase relative
+  to the centre tap. The expected values are eq. (11) evaluated at these parameters, with
+  rho = 2 pi beta2 L / T_ADC^2 (-41.379, -206.893, -413.785 and -43.236). The paper takes
+  the field as exp(j(wt - bz)) (footnote 11) and com-rs as exp(-j(wt - bz)): the phases
+  of the library are those of eq. (11) conjugated, and the test conjugates them.
+run:
+  test: validation/tests/savory2010.rs::savory_2010_eq_11
+tier: ci
+tolerance: {atol: 1.0e-9}
+why: "eq. (11) evaluated in double precision and printed to 10 decimals"
+findings:
+  - "eq. (11) takes N = floor(|rho|) taps, which is even for 500 km at 56 GSa/s (206); com-rs takes the odd length 2 floor(|rho|/2) + 1 of Savory, Opt. Express 16(2), 2008 (207), so that the filter has a centre tap: one tap more whenever floor(|rho|) is even"
+  - "with beta2 < 0, rho is negative and the factor 1/sqrt(rho) of eq. (11) is imaginary: taken literally it gives every tap a constant phase of -pi/2 (pi/2 once conjugated), where the impulse response of the compensation, sqrt(j/(4 pi K)) of the 2008 paper and of com-rs, has pi/4. A constant phase is removed by the carrier recovery; the modulus 1/sqrt(|rho|) and the phases relative to the centre tap agree"
+  - "the lower bound of footnote 15, N_lb = floor(|2 pi beta2 L/(T_sym T_ADC)|), has no function in com-rs (cd_taps_needed is the rule of OptiCommPy)"
+cases:
+  - {inputs: {quantity: taps, length_km: 100.0, fs: 5.6e+10}, expected: 41}
+  - inputs: {quantity: taps, length_km: 500.0, fs: 5.6e+10}
+    expected: 206
+    tolerance: {atol: 1}
+    why: "floor(|rho|) = 206 is even: com-rs keeps an odd length (a centre tap), 207 (see the findings)"
+  - {inputs: {quantity: taps, length_km: 1000.0, fs: 5.6e+10}, expected: 413}
+  - {inputs: {quantity: taps, length_km: 80.0, fs: 6.4e+10}, expected: 43}
+  - {inputs: {quantity: modulus, length_km: 1000.0, fs: 5.6e+10, offset: 0}, expected: 0.0491600585}
+  - {inputs: {quantity: modulus, length_km: 1000.0, fs: 5.6e+10, offset: 1}, expected: 0.0491600585}
+  - {inputs: {quantity: modulus, length_km: 1000.0, fs: 5.6e+10, offset: 5}, expected: 0.0491600585}
+  - {inputs: {quantity: modulus, length_km: 1000.0, fs: 5.6e+10, offset: 206}, expected: 0.0491600585}
+  - {inputs: {quantity: phase, length_km: 1000.0, fs: 5.6e+10, offset: 1}, expected: 0.0075923226}
+  - {inputs: {quantity: phase, length_km: 1000.0, fs: 5.6e+10, offset: 5}, expected: 0.1898080661}
+  - {inputs: {quantity: phase, length_km: 1000.0, fs: 5.6e+10, offset: 206}, expected: 1.7453530267}

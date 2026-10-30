@@ -1,0 +1,19 @@
+id: savory2010_osnr
+title: OSNR of 28-GBd PDM-QPSK at a BER of 1e-3
+literature: savory2010
+source:
+  kind: paper
+  reference: "S. J. Savory, Digital coherent optical receivers: algorithms and subsystems, IEEE J. Sel. Topics Quantum Electron. 16(5), 1164-1179, 2010"
+  locator: "Sec. VII-E2: 28 GBd PDM-QPSK at an OSNR of 13.3 dB (0.1 nm) gives a BER of 1e-3"
+  file: fiber/2010_savory_digital-coherent-optical-receivers_jstqe.pdf
+description: >
+  The OSNR counts the noise of both polarisations in 12.5 GHz and the signal of both: per
+  polarisation Es/N0 = OSNR 12.5/28, and Eb/N0 = Es/N0 - 10 log10(2) =
+  13.3 + 10 log10(12.5/28) - 3.0103 = 6.7872 dB; the function is the exact BER of Gray
+  QPSK over AWGN.
+run:
+  function: comrs.theory_ber_gray
+tolerance: {rtol: 0.1}
+why: "the OSNR is printed to 0.1 dB; 0.05 dB moves the BER of QPSK at 1e-3 by 8 %"
+cases:
+  - {inputs: {m: 4, ebn0_db: 6.7872, kind: qam}, expected: 1.0e-3}

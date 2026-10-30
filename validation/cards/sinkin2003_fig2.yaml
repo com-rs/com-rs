@@ -1,0 +1,46 @@
+id: sinkin2003_fig2
+title: Global error of the constant-step split-step method on a collision of two solitons
+literature: sinkin2003
+source:
+  kind: paper
+  reference: "O. V. Sinkin, R. Holzlöhner, J. Zweck, C. R. Menyuk, Optimization of the split-step Fourier method in modeling optical-fiber communications systems, J. Lightw. Technol. 21(1), 61-68, 2003"
+  locator: "Fig. 2 (constant steps) with the system of Sec. III-B, eqs. (3) and (12); Sec. III-E (order)"
+  file: fiber/2003_sinkin_split-step-fourier-optimization_jlt.pdf
+description: >
+  Two first-order solitons sech(eta t) of eta = 0.44 /ps (peak 8.8 mW), 100 ps and 800 GHz
+  apart, over 400 km of lossless fibre of beta'' = -0.1 ps2/km and gamma = 2.2 /(W km),
+  with 3072 Fourier modes over 400 ps: they collide at 200 km. The symmetric split step of
+  eq. (3) with constant steps (com_math::nlse::SplitStep, the solver of
+  comrs::channel::optical::fiber::Ssfm), the number of FFTs being two per step and two at
+  the ends; the global relative error of eq. (12), ||u_n - u_a|| / ||u_a||
+  (comrs::metrics::evm_data_aided, square-rooted), against a solution u_a with steps of 1 m
+  (400 000 steps; the paper uses steps of about 5 cm). The cases are the constant-step
+  points of Fig. 2, at the number of FFTs read on the figure.
+run:
+  test: validation/tests/sinkin2003.rs::sinkin_2003_fig_2_constant_steps
+tier: campaign
+duration: "10.5 s on an Apple M6 (release; 9 s for the reference)"
+tolerance: {factor: 2.1}
+why: >
+  the points read on the logarithmic axes to about 20 %; the measured errors are 1.5 to
+  2.0 times those of the figure at every number of FFTs, from 2e-7 to 1e-1, a systematic
+  gap (about 35 % more steps for the same error) that is not explained: 2.1 is the
+  agreement obtained
+findings:
+  - "the error is 1.5 to 2.0 times that of Fig. 2 at every point (3.5e-7 against 2e-7 at 70 000 FFTs, 1.5e-1 against 8.5e-2 at 320 FFTs), with the same slope: the order of the scheme is 2.005 here, 'approximately 2' in Sec. III-E. The gap is not explained: the scheme, the pulses and the counting of the FFTs follow the paper; the solver of ManakovSplitStep (trapezoidal nonlinear step, iterated) is worse (1.1e-3 against 1.7e-4 at 1600 steps)"
+  - "Fig. 7(e) (constant steps, soliton collision) contradicts Fig. 2 of the same system: at a step of about 11 m it gives about 2e-8, where Fig. 2 gives 2e-7 at the same 70 000 FFTs (400 km / 35 000 steps), and at 1 km about 3e-5 where Fig. 2 gives 2.3e-3; com-rs agrees with Fig. 2 to a factor 2 and not with Fig. 7(e). It is not compared"
+  - "Fig. 1 (second- and fifth-order solitons) is not compared: the paper does not give the propagation distance"
+  - "the local-error method (eqs. 7-11, step doubling and extrapolation) and the walk-off and logarithmic step rules (eqs. 5-6) are not implemented; the nonlinear phase-rotation rule (eq. 4) exists only in the Manakov solver (StepRule::NonlinearPhase of com_math::nlse::ManakovSplitStep, with a trapezoidal, iterated nonlinear step), not in the scheme of eq. (3): Figs. 1-7 for these methods are not compared"
+  - "the dispersion-managed and CRZ systems of Figs. 4-6 are not compared: gamma, the bit patterns and the pulse chirp are not all given"
+cases:
+  - {inputs: {ffts: 70000}, expected: 2.0e-7}
+  - {inputs: {ffts: 30000}, expected: 1.0e-6}
+  - {inputs: {ffts: 9500}, expected: 1.0e-5}
+  - {inputs: {ffts: 3200}, expected: 9.0e-5}
+  - {inputs: {ffts: 1600}, expected: 3.8e-4}
+  - {inputs: {ffts: 750}, expected: 2.3e-3}
+  - {inputs: {ffts: 440}, expected: 1.8e-2}
+  - {inputs: {ffts: 320}, expected: 8.5e-2}
+  - inputs: {claim: order}
+    expected: {min: 1.8, max: 2.2}
+    note: "Sec. III-E: the constant-step method is globally second order, the slopes of Fig. 7 'approximately 2'; measured between 70 000 and 3200 FFTs"
