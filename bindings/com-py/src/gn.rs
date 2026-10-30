@@ -4,7 +4,6 @@
 use crate::fiber::PyFiber;
 use crate::{FArr, IntoPy, farr, fvec, json};
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum, closed_form_nli_psd};
-use comrs::hardware::optical as devices;
 use comrs::math::dbm2w;
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
@@ -258,7 +257,7 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 ///     [-50000000000.0, 0.0, 50000000000.0]
 #[pyfunction]
 fn wdm_grid(py: Python<'_>, n: usize, spacing: f64) -> FArr<'_> {
-    farr(py, devices::wdm_grid(n, spacing))
+    farr(py, comrs::dsp::signal::wdm_grid(n, spacing))
 }
 
 /// Register the bindings of this module.

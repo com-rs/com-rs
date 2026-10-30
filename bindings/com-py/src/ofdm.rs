@@ -81,7 +81,8 @@ impl PyOfdm {
         dc_null: bool,
         dft_spread: bool,
     ) -> PyResult<Self> {
-        let inner = Ofdm { n_fft, n_active: n_subcarriers, oversampling, n_cp, dc_null, dft_spread };
+        let inner =
+            Ofdm { n_active: n_subcarriers, oversampling, n_cp, dc_null, dft_spread, ..Ofdm::new(n_fft, 1).py()? };
         inner.check().py()?;
         Ok(PyOfdm { inner })
     }
@@ -551,7 +552,7 @@ fn pa_rapp<'py>(
     saturation: f64,
     smoothness: f64,
 ) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Rapp { gain, saturation, smoothness }.amplify(&cvec(x)?)))
+    Ok(carr(py, Rapp { gain, saturation, smoothness }.amplify(&cvec(x)?).py()?))
 }
 
 /// The static predistorter of Rapp's amplifier: the inverse AM/AM, up to `max_output`
@@ -576,7 +577,7 @@ fn rapp_predistort<'py>(
     smoothness: f64,
     max_output: f64,
 ) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Rapp { gain, saturation, smoothness }.predistort(&cvec(x)?, max_output)))
+    Ok(carr(py, Rapp { gain, saturation, smoothness }.predistort(&cvec(x)?, max_output).py()?))
 }
 
 /// Saleh's travelling-wave tube amplifier (AM/AM and AM/PM; Saleh 1981, default
@@ -601,7 +602,7 @@ fn pa_saleh<'py>(
     alpha_p: f64,
     beta_p: f64,
 ) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Saleh { alpha_a, beta_a, alpha_p, beta_p }.amplify(&cvec(x)?)))
+    Ok(carr(py, Saleh { alpha_a, beta_a, alpha_p, beta_p }.amplify(&cvec(x)?).py()?))
 }
 
 /// The memory-polynomial amplifier of Ding et al. (2004): orders 1, 3, 5, memory 3.

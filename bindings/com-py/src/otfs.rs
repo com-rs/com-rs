@@ -3,6 +3,8 @@
 use crate::rng::PyRng;
 use crate::{CArr, IntoPy, carr, cvec, taps_in};
 use comrs::channel::multipath::{DelayDopplerModel, Profile};
+use comrs::core::channel::Path;
+use comrs::core::units::Hertz;
 use comrs::waveform::otfs::Otfs;
 use num_complex::Complex64 as C64;
 use numpy::{IntoPyArray, PyArray2};
@@ -104,7 +106,10 @@ impl PyOtfs {
         paths: Vec<(C64, usize, f64)>,
         fs: f64,
     ) -> PyResult<Bound<'py, PyArray2<C64>>> {
-        Ok(self.inner.effective_channel(&paths, fs).py()?.into_pyarray(py))
+        let paths: Vec<Path> =
+            paths.into_iter().map(|(gain, delay, doppler_hz)| Path { gain, delay, doppler_hz }).collect();
+        let o = Otfs { sample_rate: Hertz(fs), ..self.inner };
+        Ok(o.effective_channel(&paths).py()?.to_dense().into_pyarray(py))
     }
 
     fn __repr__(&self) -> String {

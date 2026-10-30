@@ -311,8 +311,8 @@ impl PyCpm {
     /// Returns:
     ///     float: `d²` (infinite if no sequence merges within `max_len` symbols).
     #[pyo3(signature = (*, max_len=3))]
-    fn min_distance2(&self, py: Python<'_>, max_len: usize) -> f64 {
-        py.detach(|| self.inner.min_distance2(max_len))
+    fn min_distance2(&self, py: Python<'_>, max_len: usize) -> PyResult<f64> {
+        py.detach(|| self.inner.min_distance2(max_len)).py()
     }
 
     fn __repr__(&self) -> String {
@@ -459,9 +459,8 @@ impl PyCeOfdm {
     #[new]
     #[pyo3(signature = (n_data, h, *, oversampling=4, n_cp=0))]
     fn new(n_data: usize, h: f64, oversampling: usize, n_cp: usize) -> PyResult<Self> {
-        let inner = CeOfdm { n_data, oversampling, h, n_cp };
-        // validate through the theory, which checks the parameters
-        theory::snr(&inner, 0.0).py()?;
+        let inner = CeOfdm { n_cp, ..CeOfdm::new(n_data, oversampling, h).py()? };
+        inner.check().py()?;
         Ok(PyCeOfdm { inner })
     }
 
