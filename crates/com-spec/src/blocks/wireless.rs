@@ -622,7 +622,7 @@ impl Block for OfdmRx {
             Estimation::Ls => Some(FrequencyInterpolation::Linear),
             Estimation::Lmmse => {
                 let max_delay = (f.ofdm.n_cp * f.ofdm.oversampling).max(1);
-                Some(FrequencyInterpolation::Lmmse(PowerDelayProfile::uniform(max_delay, f.ofdm.fft_len())))
+                Some(FrequencyInterpolation::Lmmse(PowerDelayProfile::uniform(max_delay, f.ofdm.fft_len())?))
             }
         };
         let gain = layer_gain(s, nt);
