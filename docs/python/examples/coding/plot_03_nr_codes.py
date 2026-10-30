@@ -18,6 +18,7 @@ information with puncturing, shortening and repetition.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import bpsk_awgn_decisions
 
 import comrs
 from comrs.plot import BLUE, CRIMSON, TEAL
@@ -52,12 +53,9 @@ rng = comrs.Rng(31)
 
 
 def bler(code, ebn0_db, blocks):
-    k, n = code.k, code.n
-    b = comrs.bits(k * blocks, rng)
-    c = code.encode(b).astype(float)
-    s2 = 1 / (2 * k / n * 10 ** (ebn0_db / 10))
-    y = 1 - 2 * c + np.sqrt(s2) * rng.gaussian(c.size)
-    return np.mean(np.any((code.decode(2 * y / s2) != b).reshape(blocks, k), axis=1))
+    b = comrs.bits(code.k * blocks, rng)
+    errors = bpsk_awgn_decisions(code, b, ebn0_db, rng) != b
+    return np.mean(np.any(errors.reshape(blocks, code.k), axis=1))
 
 
 cases = [

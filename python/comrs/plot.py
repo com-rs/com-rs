@@ -17,7 +17,9 @@ Function               View
 =====================  ===============================================================
 
 The colours are named constants of this module (``comrs.plot.BLUE``, ``GREY``, the
-categorical cycle ``SERIES``…), shared by the gallery and the documentation.
+categorical cycle ``SERIES``…), shared by the gallery and the documentation;
+:func:`style` sets the figure style of the documentation (``comrs.plot.style()`` before
+plotting, in a script run outside the gallery).
 
 matplotlib is needed (``pip install matplotlib``); it is imported when a function is
 called.
@@ -35,14 +37,17 @@ Example:
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from comrs._comrs import Frame
 from comrs._comrs import psd as _psd
 
-__all__ = ["constellation", "curves", "eye", "psd", "time"]
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+
+__all__ = ["constellation", "curves", "eye", "psd", "style", "time"]
 
 # The palette of the figures of com-rs (these functions, the gallery and the
 # documentation): a colour is named, never written as a value.
@@ -53,7 +58,7 @@ INK = "#1f1f1d"  # a curve or a label in black
 LABEL = "#2b2a28"  # axis labels; the darkest curve of a family
 MUTED = "#52514e"  # ticks; closed forms and annotations
 GREY = "#8a8984"  # reference lines: capacity, AWGN, limits, chance
-GREY_WARM = "#8a8780"  # values read on a published figure, cut-off lines
+GREY_WARM = GREY  # values read on a published figure, cut-off lines (was #8a8780)
 EDGE = "#b9b8b3"  # the axes
 RULE = "#d0cfca"  # lines through the origin
 GRID = "#e6e5e1"  # the grid, shaded bands
@@ -74,10 +79,12 @@ SERIES = [BLUE, ORANGE, GREEN, AMBER, PINK, DEEP_GREEN, VIOLET, RED]
 
 # a second categorical set, for the curves that a figure compares by hand (ColorBrewer
 # Dark2, two more blues and a red)
+# (TEAL is kept apart from GREEN: it is darker, and the curves of this set are drawn
+# next to the cycle; COBALT, once #2a6fdb, is BLUE)
 TEAL = "#1b9e77"
 RUST = "#d95f02"
 PURPLE = "#7570b3"
-COBALT = "#2a6fdb"
+COBALT = BLUE
 SKY = "#8fb8e6"
 CRIMSON = "#c0392b"
 
@@ -85,12 +92,60 @@ CRIMSON = "#c0392b"
 STREAM_COLORS = [COBALT, RUST, TEAL, PURPLE]
 
 
-def _axes(ax):
+def style() -> None:
+    """Set the figure style of the documentation and of the gallery in the matplotlib
+    settings (``rcParams``): recessive axes, thin marks, the colours of this module
+    and the categorical cycle :data:`SERIES`.
+
+    Example:
+        >>> import comrs
+        >>> comrs.plot.style()  # doctest: +SKIP
+    """
+    import matplotlib as mpl
+    from matplotlib.rcsetup import cycler
+
+    mpl.rcParams.update(
+        {
+            "figure.figsize": (7.0, 4.4),
+            "figure.dpi": 110,
+            "figure.facecolor": BACKGROUND,
+            "axes.facecolor": BACKGROUND,
+            "savefig.facecolor": BACKGROUND,
+            "axes.prop_cycle": cycler(color=SERIES),
+            "axes.edgecolor": EDGE,
+            "axes.labelcolor": LABEL,
+            "axes.titlesize": 12,
+            "axes.titleweight": "semibold",
+            "axes.titlecolor": TEXT,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.grid": True,
+            "axes.grid.which": "major",
+            "grid.color": GRID,
+            "grid.linewidth": 0.6,
+            "xtick.color": MUTED,
+            "ytick.color": MUTED,
+            "xtick.minor.visible": False,
+            "lines.linewidth": 2.0,
+            "lines.markersize": 6.5,
+            "legend.frameon": False,
+            "legend.fontsize": 9,
+            "font.size": 10,
+            "text.color": TEXT,
+        }
+    )
+
+
+def _axes(ax: Axes | None) -> Axes:
     import matplotlib.pyplot as plt
 
     if ax is None:
         _, ax = plt.subplots()
     return ax
+
+
+def _stream_color(i: int) -> str:
+    return STREAM_COLORS[i % len(STREAM_COLORS)]
 
 
 def _streams(x: Any) -> tuple[list[np.ndarray], float, float | None, np.ndarray | None]:
@@ -118,7 +173,7 @@ def _label(i: int, n: int, names: tuple[str, ...]) -> str | None:
 
 def constellation(
     x: Any,
-    ax=None,
+    ax: Axes | None = None,
     *,
     stream: int | None = None,
     skip: int = 0,
@@ -128,7 +183,7 @@ def constellation(
     size: float = 2.0,
     alpha: float = 0.35,
     names: tuple[str, ...] = ("x", "y"),
-):
+) -> Axes:
     """The samples in the complex plane.
 
     Args:
@@ -162,7 +217,7 @@ def constellation(
                 z.real, z.imag, bins=200, range=[[-lim, lim], [-lim, lim]], cmap="Blues", norm="log"
             )
         else:
-            ax.plot(z.real, z.imag, ".", markersize=size, alpha=alpha, color=STREAM_COLORS[i % 4],
+            ax.plot(z.real, z.imag, ".", markersize=size, alpha=alpha, color=_stream_color(i),
                     label=_label(i, len(streams), names))  # fmt: skip
     if reference is not True and reference is not False:
         points = np.asarray(getattr(reference, "points", reference))
@@ -177,7 +232,7 @@ def constellation(
 
 def eye(
     x: Any,
-    ax=None,
+    ax: Axes | None = None,
     *,
     sps: int | None = None,
     n_symbols: int = 2,
@@ -185,7 +240,7 @@ def eye(
     skip: int = 0,
     part: str = "real",
     stream: int = 0,
-):
+) -> Axes:
     """The eye diagram: ``traces`` segments of ``n_symbols`` symbols overlaid.
 
     Args:
@@ -222,14 +277,14 @@ def eye(
 
 def time(
     x: Any,
-    ax=None,
+    ax: Axes | None = None,
     *,
     part: str = "iq",
     fs: float | None = None,
     start: int = 0,
     n: int | None = 400,
     stream: int = 0,
-):
+) -> Axes:
     """The signal against time.
 
     Args:
@@ -267,16 +322,16 @@ def time(
 
 def psd(
     x: Any,
-    ax=None,
+    ax: Axes | None = None,
     *,
     fs: float | None = None,
     nfft: int = 1024,
     names: tuple[str, ...] = ("x", "y"),
-):
+) -> Axes:
     """The power spectral density (Welch, Hann window, 50 % overlap) of every stream,
-    in dB, against the frequency: in GHz or MHz for a sampling rate in hertz, relative
-    to the symbol rate for a frame on a normalised time axis, to the sampling rate for
-    an array without ``fs``.
+    in dB, against the frequency: in GHz, MHz, kHz or Hz for a sampling rate in hertz
+    (``fs``, or that of a frame), relative to the symbol rate for a frame on a
+    normalised time axis, to the sampling rate for an array without ``fs``.
 
     Args:
         x (Frame | array_like): a frame or a complex array (rows: streams).
@@ -292,12 +347,18 @@ def psd(
     streams, _, f_fs, _ = _streams(x)
     # a frame on a normalised time axis (symbol rate 1): frequencies in symbol rates
     per_symbol = fs is None and isinstance(x, Frame) and x.symbol_rate == 1.0
+    in_hz = fs is not None or (f_fs is not None and not per_symbol)
     fs = fs or f_fs or 1.0
-    scale, unit = (1e9, "GHz") if fs >= 1e9 else (1e6, "MHz") if fs >= 1e6 else (1.0, "")
+    scale, unit = (1.0, "")
+    if in_hz:
+        scale, unit = next(
+            (s, u) for s, u in [(1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz")]
+            if fs >= s or u == "Hz"
+        )  # fmt: skip
     for i, z in enumerate(streams):
         f, p = _psd(z, fs, nfft=min(nfft, max(16, z.size)))
         ax.plot(np.asarray(f) / scale, 10 * np.log10(np.maximum(np.asarray(p), 1e-300)),
-                color=STREAM_COLORS[i % 4], label=_label(i, len(streams), names))  # fmt: skip
+                color=_stream_color(i), label=_label(i, len(streams), names))  # fmt: skip
     xlabel = (
         f"frequency ({unit})"
         if unit
@@ -305,7 +366,7 @@ def psd(
         if per_symbol
         else "frequency / sampling rate"
     )
-    ax.set(xlabel=xlabel, ylabel="PSD (dB/Hz)" if unit else "PSD (dB)")
+    ax.set(xlabel=xlabel, ylabel="PSD (dB/Hz)" if in_hz else "PSD (dB)")
     if len(streams) > 1:
         ax.legend(loc="upper right")
     return ax
@@ -317,13 +378,13 @@ def curves(
     metric: str,
     *,
     by: str | None = None,
-    ax=None,
+    ax: Axes | None = None,
     theory: Callable[..., Any] | None = None,
     errorbars: bool = True,
     logy: bool | None = None,
     min_count: int = 0,
     **condition: Any,
-):
+) -> Axes:
     """A metric of :class:`comrs.Results` against the variable ``x``, one curve per
     value of ``by``, for the conditions that match ``condition``.
 
@@ -343,13 +404,18 @@ def curves(
 
     Returns:
         matplotlib.axes.Axes: the axes.
+
+    Raises:
+        KeyError: for a variable or a metric that the results do not have.
     """
     from comrs.results import Results
 
     ax = _axes(ax)
     res = results if isinstance(results, Results) else Results(results)
     groups = res.values(by) if by is not None else [None]
-    kind = next((r["metrics"][metric].get("kind") for r in res if metric in r["metrics"]), "mean")
+    if res and metric not in res.metrics:
+        raise KeyError(f"no metric {metric!r}: the results have {res.metrics}")
+    kind = next((r["metrics"][metric].get("kind") for r in res if metric in r["metrics"]), None)
     logy = (kind == "rate") if logy is None else logy
     markers = "osD^v<>"
     for i, g in enumerate(groups):

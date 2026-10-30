@@ -66,14 +66,14 @@ fig, ax = plt.subplots()
 s = np.linspace(10, 24, 141)
 ax.semilogy(
     s,
-    [comrs.theory_ber(16, e - 10 * np.log10(4), "qam") for e in s],
+    comrs.theory_ber(16, s - comrs.lin2db(4), "qam"),
     color=GREY,
     linewidth=1.4,
     label="16-QAM over AWGN",
 )
 for (name, chain), marker in zip(variants.items(), ["o", "s"], strict=True):
     res = chain.run(**campaign)
-    ber = np.array([r["metrics"]["ber"]["value"] for r in res])
+    _, ber = res.series("snr_db", "ber")
     keep = ber > 0
     ax.semilogy(snr[keep], ber[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(

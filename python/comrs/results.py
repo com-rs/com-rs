@@ -28,14 +28,21 @@ import json
 import math
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
+    from comrs._comrs import Frame
 
 __all__ = ["Results", "Trace", "compare"]
 
 
-class Results(list):
+class Results(list[dict[str, Any]]):
     """The results of a campaign: one ``dict`` per condition with ``condition``,
     ``status``, ``trials``, ``wall_s`` and ``metrics`` (``{name: {value, lo, hi, kind,
     count, total}}``).
@@ -76,7 +83,11 @@ class Results(list):
 
         Returns:
             Results: the selection, with the specification.
+
+        Raises:
+            KeyError: for a variable that no condition has (a misspelt name).
         """
+        self._known(self.variables, condition, "variable")
         keep = [
             r for r in self if all(_same(r["condition"].get(k), v) for k, v in condition.items())
         ]
@@ -111,6 +122,11 @@ class Results(list):
             tuple[numpy.ndarray, ...]: ``(x, value)``, or ``(x, value, lo, hi)`` with
             ``interval``.
 
+        Raises:
+            KeyError: for a variable or a metric that no condition has.
+            ValueError: when a value of ``x`` repeats: the selection holds several
+                curves (fix the other variables with ``condition``).
+
         Example:
             >>> import comrs
             >>> res = comrs.Results([
@@ -121,6 +137,8 @@ class Results(list):
             >>> x.tolist(), ser.tolist()
             ([0.0, 5.0], [0.1, nan])
         """
+        self._known(self.variables, [x], "variable")
+        self._known(self.metrics, [metric], "metric")
         sel = self.where(**condition)
         xs, ys, lo, hi = [], [], [], []
         for r in sel:
@@ -132,10 +150,24 @@ class Results(list):
             ys.append(m["value"] if ok else np.nan)
             lo.append(m["lo"] if ok else np.nan)
             hi.append(m["hi"] if ok else np.nan)
+        repeated = sorted({v for v in xs if xs.count(v) > 1}, key=str)
+        if repeated:
+            others = [v for v in self.variables if v != x and v not in condition]
+            raise ValueError(
+                f"{x} = {repeated} appears several times: several curves are selected; "
+                f"fix the other variables ({', '.join(others)}) by keyword"
+            )
         out: tuple[np.ndarray, ...] = (np.asarray(xs), np.asarray(ys, dtype=float))
         if interval:
             out += (np.asarray(lo, dtype=float), np.asarray(hi, dtype=float))
         return out
+
+    def _known(self, names: list[str], given: Iterable[str], what: str) -> None:
+        """Raise a KeyError for the names of ``given`` that are not in ``names`` (results
+        with conditions only: an empty selection has no names)."""
+        unknown = [n for n in given if n not in names]
+        if unknown and len(self):
+            raise KeyError(f"no {what} {unknown}: the results have {names}")
 
     def rows(self) -> list[dict[str, Any]]:
         """One flat row per condition.
@@ -198,7 +230,7 @@ class Results(list):
         names.sort(key=lambda n: (order.get(n, len(order)), n))
         names.append("link.time_ms")
 
-        def mean(name):
+        def mean(name: str) -> float:
             v = [r["metrics"][name]["value"] for r in rows if name in r["metrics"]]
             return sum(v) / len(v)
 
@@ -212,7 +244,7 @@ class Results(list):
             for n in names
         ]
 
-    def to_frame(self):
+    def to_frame(self) -> pd.DataFrame:
         """The rows as a table (pandas is needed).
 
         Returns:
@@ -232,10 +264,10 @@ class Results(list):
         metric: str,
         *,
         by: str | None = None,
-        ax=None,
+        ax: Axes | None = None,
         theory: Callable[..., Any] | None = None,
         **kwargs: Any,
-    ):
+    ) -> Axes:
         """Plot a metric against a variable, one curve per value of ``by``.
 
         Args:
@@ -270,7 +302,7 @@ class Results(list):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         doc = {"comrs_version": __version__, "spec": self.spec, "results": list(self)}
-        path.write_text(json.dumps(doc, indent=1, default=_json_default))
+        path.write_text(json.dumps(doc, indent=1, default=_json_default), encoding="utf-8")
         return path
 
     @classmethod
@@ -284,7 +316,7 @@ class Results(list):
         Returns:
             Results: the results and their specification.
         """
-        doc = json.loads(Path(path).read_text())
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
         if isinstance(doc, list):
             return cls(doc)
         items = doc.get("results", doc.get("conditions", []))
@@ -363,11 +395,13 @@ def compare(chains: Mapping[str, Any], *, variable: str = "variant", **run: Any)
     return out
 
 
-class Trace(dict):
+class Trace(dict[str, "Frame"]):
     """The frame after every block of one trial (``{name: Frame}``, in the order of the
     chain), from :meth:`comrs.Chain.trace`."""
 
-    def plot(self, kind: str = "constellation", stages: Iterable[str] | None = None, **kwargs: Any):
+    def plot(
+        self, kind: str = "constellation", stages: Iterable[str] | None = None, **kwargs: Any
+    ) -> Figure:
         """One panel per stage.
 
         Args:
@@ -398,22 +432,31 @@ class Trace(dict):
         return fig
 
     def save(self, path: str | Path) -> Path:
-        """Write the samples of every stage to a NumPy ``.npz`` file: ``<name>`` (the
-        first stream), ``<name>_1``, ``<name>_2``… (the other polarisations or
-        antennas), ``<name>_sps`` (the samples per symbol) and ``tx_symbols`` (the
-        transmitted symbols).
+        """Write the samples of every stage to a NumPy ``.npz`` file, one namespace per
+        stage, so that no name of a stage collides with another key:
+        ``stage/<name>/stream0``, ``stage/<name>/stream1``… (the polarisations or
+        antennas), ``stage/<name>/sps`` (the samples per symbol), and ``tx_symbols``
+        (the transmitted symbols).
 
         Args:
             path (str | os.PathLike): the file.
 
         Returns:
             pathlib.Path: the path written.
+
+        Example:
+            >>> import comrs, numpy as np, tempfile, pathlib
+            >>> from comrs import blocks as B
+            >>> t = comrs.Chain(tx=B.Source(n_symbols=8)).trace({}, comrs.Rng(1))
+            >>> with tempfile.TemporaryDirectory() as d:
+            ...     sorted(np.load(t.save(pathlib.Path(d) / "t.npz")).files)
+            ['stage/tx/sps', 'stage/tx/stream0', 'tx_symbols']
         """
         arrays: dict[str, np.ndarray] = {}
         for name, f in self.items():
             for i, s in enumerate(f.streams):
-                arrays[name if i == 0 else f"{name}_{i}"] = np.asarray(s)
-            arrays[f"{name}_sps"] = np.asarray(f.sps)
+                arrays[f"stage/{name}/stream{i}"] = np.asarray(s)
+            arrays[f"stage/{name}/sps"] = np.asarray(f.sps)
         last = next(reversed(self.values()), None)
         if last is not None:
             arrays["tx_symbols"] = np.asarray(last.tx_symbols)

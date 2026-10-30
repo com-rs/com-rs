@@ -21,7 +21,16 @@ from collections import Counter
 from pathlib import Path
 
 import yaml
-from _common import ROOT, THEME_TITLES, fail, missing_test, stale, write
+from _common import (
+    ROOT,
+    THEME_TITLES,
+    fail,
+    md_to_rst,
+    missing_test,
+    rst_table,
+    splice,
+    write_or_check,
+)
 
 SOURCE = ROOT / "validation" / "maturity.yaml"
 MATURITY = ROOT / "docs" / "MATURITY.md"
@@ -117,51 +126,30 @@ def render_maturity(entries: list[dict]) -> str:
 
 
 def render_readme(entries: list[dict]) -> str:
-    out = [f"<!-- {BEGIN} -->", "", summary(entries)]
+    """The table of README.md, between its marker lines."""
+    out = ["", summary(entries)]
     for theme, rows in by_theme(entries):
         out += ["", f"**{theme}**", "", "| Module | Level | Strongest evidence |", "|---|---|---|"]
         out += [f"| {e.get('short', e['name'])} | {e['level']} | {e['summary']} |" for e in rows]
-    return "\n".join([*out, "", f"<!-- {END} -->"])
-
-
-def rst(text: str) -> str:
-    """Markdown inline code to reStructuredText."""
-    return re.sub(r"(?<!`)`([^`]+)`(?!`)", r"``\1``", text)
+    return "\n".join([*out, ""]) + "\n"
 
 
 def render_python(entries: list[dict]) -> str:
-    out = [f".. {BEGIN}", "", summary(entries)]
+    """The tables of docs/python/maturity.rst, between its marker lines."""
+    out = ["", summary(entries)]
     for theme, rows in by_theme(entries):
-        out += [
-            "",
-            theme,
-            "-" * len(theme),
-            "",
-            ".. list-table::",
-            "   :header-rows: 1",
-            "   :widths: 40 8 52",
-            "",
-            "   * - Module",
-            "     - Level",
-            "     - Strongest evidence",
+        out += ["", theme, "-" * len(theme), ""]
+        cells = [
+            [
+                md_to_rst(e.get("short", e["name"]))
+                + ("" if e.get("python", True) else " (Rust only)"),
+                e["level"],
+                md_to_rst(e["summary"]),
+            ]
+            for e in rows
         ]
-        for e in rows:
-            name = rst(e.get("short", e["name"])) + (
-                "" if e.get("python", True) else " (Rust only)"
-            )
-            out += [f"   * - {name}", f"     - {e['level']}", f"     - {rst(e['summary'])}"]
-    return "\n".join([*out, "", f".. {END}"])
-
-
-def splice(text: str, block: str, begin: str, end: str, path: Path) -> str:
-    """`text` with the generated block between the lines holding `begin` and `end`."""
-    lines = text.split("\n")
-    try:
-        i = next(k for k, line in enumerate(lines) if begin in line)
-        j = next(k for k, line in enumerate(lines) if end in line and k > i)
-    except StopIteration:
-        raise SystemExit(f"{path}: no generated block (lines with {begin!r} and {end!r})") from None
-    return "\n".join([*lines[:i], block, *lines[j + 1 :]])
+        out += rst_table(["Module", "Level", "Strongest evidence"], cells, [40, 8, 52])[:-1]
+    return "\n".join([*out, ""]) + "\n"
 
 
 def outputs(entries: list[dict]) -> dict[Path, str]:
@@ -184,14 +172,10 @@ def main() -> int:
     missing = check_tests(entries)
     if missing:
         return fail("tests cited in validation/maturity.yaml that do not exist:", missing)
-    pages = outputs(entries)
-    out_of_date = [path for path, text in pages.items() if stale(path, text)]
-    if args.check:
-        rel = [path.relative_to(ROOT) for path in out_of_date]
-        return fail("out of date (run `just maturity`):", rel) if rel else 0
-    for path in out_of_date:
-        write(path, pages[path])
-    return 0
+    status = 0
+    for path, text in outputs(entries).items():
+        status |= write_or_check(path, text, args.check, fix="`just maturity`")
+    return status
 
 
 if __name__ == "__main__":

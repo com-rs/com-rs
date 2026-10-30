@@ -22,6 +22,7 @@ uncoded BPSK.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import bpsk_awgn_decisions
 
 import comrs
 from comrs.plot import BACKGROUND, GREY
@@ -39,10 +40,7 @@ def error_rates(ebn0_db, seed, min_block_errors=100, max_blocks=40_000, batch=50
     while block_errors < min_block_errors and blocks < max_blocks:
         rng = comrs.Rng.stream(seed, "peg504", int(10 * ebn0_db), t)
         b = comrs.bits(code.k * batch, rng)
-        c = code.encode(b)
-        s2 = 1 / (2 * code.rate * 10 ** (ebn0_db / 10))
-        y = (1.0 - 2.0 * c) + np.sqrt(s2) * rng.gaussian(c.size)
-        e = (code.decode(2 * y / s2) != b).reshape(batch, -1)
+        e = (bpsk_awgn_decisions(code, b, ebn0_db, rng) != b).reshape(batch, -1)
         bit_errors += int(e.sum())
         block_errors += int(e.any(axis=1).sum())
         blocks += batch
@@ -56,8 +54,8 @@ rates[rates == 0] = np.nan  # no error observed: nothing to draw
 
 fig, ax = plt.subplots()
 fine = np.linspace(0, 4, 81)
-ax.semilogy(fine, [comrs.qfunc(np.sqrt(2 * 10 ** (e / 10))) for e in fine], ":", color=GREY,
-            linewidth=1.4, label="uncoded BPSK")  # fmt: skip
+ax.semilogy(fine, comrs.theory_ber(2, fine, "psk"), ":", color=GREY, linewidth=1.4,
+            label="uncoded BPSK")  # fmt: skip
 ax.semilogy(
     points, rates[:, 0], "o-", markeredgecolor=BACKGROUND, label="PEG (504, 252), bit error rate"
 )

@@ -5,18 +5,20 @@ documentation, in `docs/API.md`.
 
 The index is the inventory to read before adding a function, so that a prototype that
 exists is reused instead of written again. `just api-index` regenerates it; CI checks
-that it is up to date (`--check`); `--duplicates` lists the names defined in more than
-one module, the candidates for a shared helper, and `--duplicates --check` fails on such
+that it is up to date (`--check`); `--duplicates` lists the names (of functions
+and of types) defined in more than one module, the candidates for a shared helper, and `--duplicates --check` fails on such
 a name that `docs/api-duplicates.txt` does not accept.
 
-The parser is deliberately simple (line-based): it understands the style of this
+The Rust parser is deliberately simple (line-based): it understands the style of this
 repository (one item per `pub` line, `///` documentation above it, `#[cfg(test)]`
-closing the public part of a file), not the whole Rust grammar.
+closing the public part of a file), not the whole Rust grammar. The Python files are
+read by the parser of Python (`ast`), so that a signature is never cut.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from collections import defaultdict
@@ -35,16 +37,13 @@ RUST_IMPL = re.compile(
     r"^impl(?:<[^>]*>)?\s+(?:(?P<trait>[A-Za-z0-9_:<>, ]+?)\s+for\s+)?(?P<type>[A-Za-z_][A-Za-z0-9_]*)"
 )
 RUST_MACRO_ITEM = re.compile(r"^\s*(?:pub\s+)?struct\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\{")
-PY_ITEM = re.compile(
-    r"^(?P<indent>\s*)(?:async\s+)?(?P<kind>def|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
-)
 
 
 def rust_items(path: Path) -> list[tuple[str, str, str]]:
     """`(kind, signature, doc)` of the public items of a Rust file, methods prefixed by
     their type (`Ssfm::propagate`); the private items of `impl` blocks of public types
     are left out, and so is everything after `#[cfg(test)]`."""
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     out = []
     impl_type: str | None = None
     impl_indent = 0
@@ -106,42 +105,79 @@ def rust_items(path: Path) -> list[tuple[str, str, str]]:
     return out
 
 
+def _segment(src: str, node: ast.AST) -> str:
+    """The source text of a node, on one line."""
+    return re.sub(r"\s+", " ", ast.get_source_segment(src, node) or ast.unparse(node))
+
+
+def _parameters(src: str, a: ast.arguments) -> str:
+    """The parameters of a function as written (annotations and defaults), with the
+    markers `/` and `*`."""
+
+    def one(arg: ast.arg, default: ast.expr | None, prefix: str = "") -> str:
+        text = prefix + _segment(src, arg)
+        if default is None:
+            return text
+        sep = " = " if arg.annotation is not None else "="
+        return f"{text}{sep}{_segment(src, default)}"
+
+    positional = a.posonlyargs + a.args
+    defaults: list[ast.expr | None] = [None] * (len(positional) - len(a.defaults))
+    defaults += a.defaults
+    parts = [one(arg, d) for arg, d in zip(positional, defaults, strict=True)]
+    if a.posonlyargs:
+        parts.insert(len(a.posonlyargs), "/")
+    if a.vararg is not None:
+        parts.append(one(a.vararg, None, "*"))
+    elif a.kwonlyargs:
+        parts.append("*")
+    parts += [one(arg, d) for arg, d in zip(a.kwonlyargs, a.kw_defaults, strict=True)]
+    if a.kwarg is not None:
+        parts.append(one(a.kwarg, None, "**"))
+    return ", ".join(parts)
+
+
+def _python_item(src: str, node: ast.AST, name: str) -> tuple[str, str, str] | None:
+    """`(kind, signature, doc)` of a function or class node, None for another node."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+        sig = f"{prefix} {name}({_parameters(src, node.args)})"
+        if node.returns is not None:
+            sig += f" -> {_segment(src, node.returns)}"
+        kind = "def"
+    elif isinstance(node, ast.ClassDef):
+        bases = [_segment(src, b) for b in node.bases]
+        bases += [f"{k.arg}={_segment(src, k.value)}" if k.arg else f"**{_segment(src, k.value)}"
+                  for k in node.keywords]  # fmt: skip
+        sig = f"class {name}" + (f"({', '.join(bases)})" if bases else "")
+        kind = "class"
+    else:
+        return None
+    doc = ast.get_docstring(node) or ""
+    return kind, sig, doc.strip().splitlines()[0] if doc.strip() else ""
+
+
 def python_items(path: Path) -> list[tuple[str, str, str]]:
     """`(kind, signature, doc)` of the public functions and classes of a Python file,
-    methods prefixed by their class."""
-    lines = path.read_text().splitlines()
+    methods (and nested classes) prefixed by their class, read by the parser of Python
+    (`ast`): the whole signature, its annotations and its return type."""
+    src = path.read_text(encoding="utf-8")
     out = []
-    cls: str | None = None
-    for i, line in enumerate(lines):
-        m = PY_ITEM.match(line)
-        if not m:
+    for node in ast.parse(src).body:
+        name = getattr(node, "name", "")
+        if not name or name.startswith("_"):
             continue
-        indent, kind, name = len(m.group("indent")), m.group("kind"), m.group("name")
-        if name.startswith("_") and name != "__init__":
+        item = _python_item(src, node, name)
+        if item is None:
             continue
-        if indent == 0:
-            cls = name if kind == "class" else None
-        elif indent == 4 and cls:
-            name = f"{cls}.{name}"
-        else:
-            continue
-        sig_lines = []
-        for j in range(i, min(i + 12, len(lines))):
-            s = lines[j].strip()
-            sig_lines.append(s)
-            if s.endswith(":"):
-                break
-        sig = re.sub(r"\s+", " ", " ".join(sig_lines)).rstrip(":")
-        sig = re.sub(rf"^(def|class)\s+{re.escape(name.split('.')[-1])}", rf"\1 {name}", sig)
-        doc = ""
-        for j in range(i + 1, min(i + 4, len(lines))):
-            s = lines[j].strip()
-            if s.startswith(('"""', "'''")):
-                doc = s.strip("\"'").strip()
-                break
-            if s and not s.startswith("#"):
-                break
-        out.append((kind, sig, doc))
+        out.append(item)
+        if isinstance(node, ast.ClassDef):
+            for child in node.body:
+                cname = getattr(child, "name", "")
+                if not cname or (cname.startswith("_") and cname != "__init__"):
+                    continue
+                if (sub := _python_item(src, child, f"{name}.{cname}")) is not None:
+                    out.append(sub)
     return out
 
 
@@ -196,42 +232,44 @@ def render(index) -> str:
     return "\n".join(lines) + "\n"
 
 
+# The names of a function that are an interface, not a copy, whatever the module
+COMMON_VERBS = {
+    "new", "default", "fmt", "from", "len", "is_empty", "__init__", "build", "parse",
+    "apply", "name", "infos", "iter", "get", "set", "clone", "with", "into",
+}  # fmt: skip
+# The kinds of item compared: the functions, and the types (Rust structs, enums,
+# traits and aliases; Python classes). The parameters of a declarative block
+# (`block_params!`) are left out: they are named after the type the block wraps.
+FUNCTIONS = {"fn", "def"}
+TYPES = {"struct", "enum", "trait", "type", "class"}
+PYTHON = "comrs (Python)"
+ITEM_NAME = re.compile(r"(?:(?:async\s+)?fn|def|struct|enum|trait|type|class)\s+([A-Za-z0-9_:.]+)")
+
+
 def duplicates(index) -> list[tuple[str, list[str]]]:
-    """Function names defined in more than one module (methods by their last
-    component), with the places."""
+    """Names defined in more than one module, with the places: the functions (methods
+    by their last component), and the types (structs, enums, traits, classes).
+
+    A type is compared with the types of its language only: a Python class named after
+    the Rust type it wraps (the classes of `comrs.blocks`) is its interface, not a
+    copy; and a type never meets a function (`Constellation` and `constellation`)."""
     where: dict[str, list[str]] = defaultdict(list)
+    types: dict[tuple[bool, str], list[str]] = defaultdict(list)
     for crate, files in index.items():
         for path, items in files.items():
             for kind, sig, _ in items:
-                if kind not in ("fn", "def"):
-                    continue
-                m = re.match(r"(?:fn|def)\s+([A-Za-z0-9_:.]+)", sig)
+                m = ITEM_NAME.match(sig)
                 if not m:
                     continue
-                name = m.group(1).split("::")[-1].split(".")[-1]
-                if name in (
-                    "new",
-                    "default",
-                    "fmt",
-                    "from",
-                    "len",
-                    "is_empty",
-                    "__init__",
-                    "build",
-                    "parse",
-                    "apply",
-                    "name",
-                    "infos",
-                    "iter",
-                    "get",
-                    "set",
-                    "clone",
-                    "with",
-                    "into",
-                ):
-                    continue
-                where[name].append(f"{crate}:{path}")
-    return sorted((n, p) for n, p in where.items() if len(set(p)) > 1)
+                if kind in FUNCTIONS:
+                    name = m.group(1).split("::")[-1].split(".")[-1]
+                    if name not in COMMON_VERBS:
+                        where[name].append(f"{crate}:{path}")
+                elif kind in TYPES and "." not in m.group(1):  # not a nested class
+                    types[(crate == PYTHON, m.group(1))].append(f"{crate}:{path}")
+    found = [(n, p) for n, p in where.items() if len(set(p)) > 1]
+    found += [(n, p) for (_, n), p in types.items() if len(set(p)) > 1]
+    return sorted(found)
 
 
 def main() -> int:

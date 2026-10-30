@@ -200,45 +200,35 @@ def spec(case: str, ebn0: list[float], vectors: int, trials: int, seed: int) -> 
 
 
 def run_spec_lib(args, todo: list[str]) -> list[dict]:
-    import comrs
-
-    threads = 1 if args.threads == "1" else 0
     trials = 40
     out = []
     for case in todo:
         sz = sizes(args.quick, case)
-        res = {
-            "case": case,
-            "precision": "float64",
-            "threads_option": threads,
-            "ebn0_offset_db": SPEC_OFFSET_DB,
-        }
-        if not args.timing_only:
-            t0 = time.perf_counter()
-            r = comrs.run_spec(spec(case, EBN0, sz["vectors"], trials, args.seed), threads=threads)
-            res["sweep_s"] = time.perf_counter() - t0
+
+        def points(rows: list[dict], case=case, vectors=sz["vectors"]) -> list[dict]:
             pts = []
-            for e, row in zip(EBN0, r, strict=True):
+            for e, row in zip(EBN0, rows, strict=True):
                 ber = row["metrics"]["ber"]
                 pts.append(
                     common.rate_point(
-                        ber["count"],
-                        ber["total"],
-                        theory_ber(case, e),
-                        ebn0_db=e,
-                        vectors=sz["vectors"],
+                        ber["count"], ber["total"], theory_ber(case, e), ebn0_db=e, vectors=vectors
                     )
                 )
-            res["points"] = pts
+            return pts
+
         n = sz["timing"]
-        s = spec(case, [TIMING_EBN0], n, trials, args.seed + 1)
-        res["timing"] = common.time_it(lambda s=s: comrs.run_spec(s, threads=threads))
-        res["timing"].update(
-            units=n,
-            unit="vector",
-            workload=f"{n} vectors at Eb/N0 = {TIMING_EBN0} dB, {trials} trials",
+        out.append(
+            common.spec_case(
+                args,
+                {"case": case, "precision": "float64", "ebn0_offset_db": SPEC_OFFSET_DB},
+                spec(case, EBN0, sz["vectors"], trials, args.seed),
+                spec(case, [TIMING_EBN0], n, trials, args.seed + 1),
+                points,
+                units=n,
+                unit="vector",
+                workload=f"{n} vectors at Eb/N0 = {TIMING_EBN0} dB, {trials} trials",
+            )
         )
-        out.append(res)
     return out
 
 

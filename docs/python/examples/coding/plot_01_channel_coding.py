@@ -21,18 +21,12 @@ closes most of the gap — the reason why 5G NR uses it for its control channels
 import matplotlib.pyplot as plt
 import numpy as np
 
+# the trial of BPSK over AWGN with a code (the LLRs of comrs.Constellation("psk", 2)),
+# shared with the tests that check these curves
+from _gallery_utils import coded_error_rates as simulate
+
 import comrs
 from comrs.plot import BACKGROUND, GREY, MUTED
-
-
-def simulate(code, ebn0_db, blocks, seed=1):
-    """Bit and block error rates over AWGN."""
-    b = comrs.bits(code.k * blocks, comrs.Rng(seed))
-    c = code.encode(b)
-    s2 = 1 / (2 * code.rate * 10 ** (ebn0_db / 10))
-    y = (1.0 - 2.0 * c) + np.sqrt(s2) * comrs.Rng(seed + 1).gaussian(c.size)
-    e = (code.decode(2 * y / s2) != b).reshape(blocks, -1)
-    return e.mean(), e.any(axis=1).mean()
 
 
 def curve(code, points, bits=400_000):
@@ -50,7 +44,7 @@ fig, ax = plt.subplots()
 eb = np.linspace(-1, 10, 221)
 ax.semilogy(
     eb,
-    [comrs.qfunc(np.sqrt(2 * 10 ** (e / 10))) for e in eb],
+    comrs.theory_ber(2, eb, "psk"),
     color=GREY,
     linewidth=1.4,
     label="uncoded BPSK",
@@ -102,7 +96,7 @@ short = {
     "LDPC (256, 128)": comrs.LdpcCode.peg(256, 128, var_degree=3, seed=1),
 }
 for (name, code), marker in zip(short.items(), ["o", "s", "D"], strict=True):
-    bler = np.array([simulate(code, e, 1000)[1] for e in pts])
+    bler = np.array([simulate(code, e, 1000, seed=1)[1] for e in pts])
     keep = bler > 0
     ax.semilogy(pts[keep], bler[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(

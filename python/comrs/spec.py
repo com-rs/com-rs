@@ -131,5 +131,11 @@ def settings(
     if isinstance(out.get("metrics"), list | tuple):
         out["metrics"] = {"report": list(out["metrics"])}
     if isinstance(out.get("grid"), Mapping):
-        out["grid"] = {k: v if isinstance(v, Mapping) else list(v) for k, v in out["grid"].items()}
+        out["grid"] = _grid_axes(out["grid"])
     return out
+
+
+def _grid_axes(axes: Mapping[str, Any]) -> dict[str, Any]:
+    """The axes of a grid as a specification writes them: a list of values (from any
+    iterable), or a mapping (``{"from", "to", "step"}``, ``{"linspace": …}``)."""
+    return {k: v if isinstance(v, Mapping) else list(v) for k, v in axes.items()}

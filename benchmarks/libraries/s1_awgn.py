@@ -12,11 +12,8 @@ decisions, error count), median of 5 runs after a warm-up run.
 
 from __future__ import annotations
 
-import json
 import math
-import subprocess
 import time
-from pathlib import Path
 
 import common
 import numpy as np
@@ -221,90 +218,34 @@ def spec_points(results: list[dict], m: int) -> list[dict]:
     return pts
 
 
-def run_spec_lib(args, todo: list[str]) -> list[dict]:
-    import comrs
-
+def run_spec_lib(args, todo: list[str], *, rust: bool = False) -> list[dict]:
+    """``comrs-spec`` (``comrs.run_spec``), or with ``rust`` ``comrs-rust`` (the binary)."""
     sz = sizes(args.quick)
-    threads = 1 if args.threads == "1" else 0
+    n = sz["timing_bits"]
+    workload = f"{n} bits at Eb/N0 = {TIMING_EBN0} dB, {TIMING_TRIALS} trials"
+    if rust:
+        workload += " (process wall time, start-up included)"
     out = []
     for case in todo:
         m = ORDERS[case]
-        res = {"case": case, "precision": "float64", "threads_option": threads}
-        if not args.timing_only:
-            t0 = time.perf_counter()
-            r = comrs.run_spec(
-                spec(m, EBN0, sz["bits_per_point"], sz["trials"], args.seed), threads=threads
+        out.append(
+            common.spec_case(
+                args,
+                {"case": case, "precision": "float64"},
+                spec(m, EBN0, sz["bits_per_point"], sz["trials"], args.seed),
+                spec(m, [TIMING_EBN0], n, TIMING_TRIALS, args.seed + 1),
+                lambda rows, m=m: spec_points(rows, m),
+                rust=rust,
+                units=n,
+                unit="bit",
+                workload=workload,
             )
-            res["sweep_s"] = time.perf_counter() - t0
-            res["points"] = spec_points(r, m)
-        n = sz["timing_bits"]
-        s = spec(m, [TIMING_EBN0], n, TIMING_TRIALS, args.seed + 1)
-        res["timing"] = common.time_it(lambda s=s: comrs.run_spec(s, threads=threads))
-        res["timing"].update(
-            units=n,
-            unit="bit",
-            workload=f"{n} bits at Eb/N0 = {TIMING_EBN0} dB, {TIMING_TRIALS} trials",
         )
-        out.append(res)
     return out
-
-
-def rust_binary() -> Path:
-    return common.ROOT / "target" / "release" / "comrs"
-
-
-def run_rust_cli(spec_dict: dict, work: Path, threads: int) -> tuple[dict, float]:
-    """Run the comrs binary on a specification; the wall time of the process."""
-    work.mkdir(parents=True, exist_ok=True)
-    path = work / f"{spec_dict['name']}.json"
-    path.write_text(json.dumps(spec_dict))
-    out_dir = work / f"{spec_dict['name']}_out"
-    cmd = [
-        str(rust_binary()),
-        "run",
-        str(path),
-        "--out",
-        str(out_dir),
-        "--threads",
-        str(threads),
-        "--quiet",
-    ]
-    t0 = time.perf_counter()
-    subprocess.run(cmd, check=True, capture_output=True)
-    wall = time.perf_counter() - t0
-    report = json.loads((out_dir / f"{spec_dict['name']}.json").read_text())
-    return report, wall
 
 
 def run_rust_lib(args, todo: list[str]) -> list[dict]:
-    sz = sizes(args.quick)
-    threads = 1 if args.threads == "1" else 0
-    work = Path(args.work) / "rust"
-    out = []
-    for case in todo:
-        m = ORDERS[case]
-        res = {
-            "case": case,
-            "precision": "float64",
-            "threads_option": threads,
-            "binary": str(rust_binary()),
-        }
-        if not args.timing_only:
-            report, wall = run_rust_cli(
-                spec(m, EBN0, sz["bits_per_point"], sz["trials"], args.seed), work, threads
-            )
-            res["sweep_s"] = wall
-            res["points"] = spec_points(report["conditions"], m)
-        n = sz["timing_bits"]
-        s = spec(m, [TIMING_EBN0], n, TIMING_TRIALS, args.seed + 1)
-        res["timing"] = common.time_it(lambda s=s: run_rust_cli(s, work, threads))
-        res["timing"].update(
-            units=n,
-            unit="bit",
-            workload=f"{n} bits at Eb/N0 = {TIMING_EBN0} dB, {TIMING_TRIALS} trials (process wall time, start-up included)",
-        )
-        out.append(res)
-    return out
+    return run_spec_lib(args, todo, rust=True)
 
 
 RUNNERS = {

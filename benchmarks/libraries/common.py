@@ -1,5 +1,6 @@
 """Shared machinery of the library benchmarks: arguments, threads, timing, intervals,
-machine and version information, JSON output.
+machine and version information, the runs of com-rs on a specification (``comrs.run_spec``
+and the ``comrs`` binary), JSON output.
 
 Every scenario script runs one library at a time, in its own process, so that the
 thread settings (read by NumPy, numba, PyTorch and rayon when they start) apply from
@@ -256,10 +257,91 @@ def threading_info() -> dict:
     return info
 
 
+def spec_threads(args: argparse.Namespace) -> int:
+    """The ``threads`` option of ``comrs.run_spec`` and of the ``comrs`` binary for
+    ``--threads``: 1, or 0 (every core)."""
+    return 1 if args.threads == "1" else 0
+
+
+def rust_binary() -> Path:
+    """The ``comrs`` command-line binary of the repository (``run_all.py`` builds it)."""
+    return ROOT / "target" / "release" / "comrs"
+
+
+def run_rust_cli(spec_dict: dict, work: Path, threads: int) -> tuple[dict, float]:
+    """Run the comrs binary on a specification: its JSON report and the wall time of
+    the process."""
+    work.mkdir(parents=True, exist_ok=True)
+    path = work / f"{spec_dict['name']}.json"
+    path.write_text(json.dumps(spec_dict), encoding="utf-8")
+    out_dir = work / f"{spec_dict['name']}_out"
+    cmd = [
+        str(rust_binary()),
+        "run",
+        str(path),
+        "--out",
+        str(out_dir),
+        "--threads",
+        str(threads),
+        "--quiet",
+    ]
+    t0 = time.perf_counter()
+    subprocess.run(cmd, check=True, capture_output=True)
+    wall = time.perf_counter() - t0
+    report = json.loads((out_dir / f"{spec_dict['name']}.json").read_text(encoding="utf-8"))
+    return report, wall
+
+
+def spec_case(
+    args: argparse.Namespace,
+    res: dict,
+    sweep: dict,
+    timing: dict,
+    points: Callable[[list[dict]], list[dict]],
+    *,
+    rust: bool = False,
+    key: str = "timing",
+    **workload: object,
+) -> dict:
+    """One case of the com-rs runners on specifications: ``comrs.run_spec``
+    (``comrs-spec``) or, with ``rust``, the ``comrs`` binary (``comrs-rust``, the wall
+    time of the process).
+
+    Unless ``--timing-only``, the ``sweep`` specification is run once (``sweep_s``) and
+    its conditions become ``points``; the ``timing`` specification is timed by
+    :func:`time_it` under ``key``, with the ``workload`` fields (``units``, ``unit``,
+    ``workload``). ``res`` (the case, its precision…) gets ``threads_option``, with
+    ``rust`` the ``binary`` (relative to the repository), and these results."""
+    threads = spec_threads(args)
+    res["threads_option"] = threads
+    if rust:
+        res["binary"] = str(rust_binary().relative_to(ROOT))
+        work = Path(args.work) / "rust"
+
+        def run(s: dict) -> tuple[list[dict], float]:
+            report, wall = run_rust_cli(s, work, threads)
+            return report["conditions"], wall
+    else:
+        import comrs
+
+        def run(s: dict) -> tuple[list[dict], float]:
+            t0 = time.perf_counter()
+            rows = comrs.run_spec(s, threads=threads)
+            return rows, time.perf_counter() - t0
+
+    if not args.timing_only:
+        rows, wall = run(sweep)
+        res["sweep_s"] = wall
+        res["points"] = points(rows)
+    res[key] = time_it(lambda: run(timing))
+    res[key].update(workload)
+    return res
+
+
 def write_json(path: str | Path, payload: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=1, sort_keys=False) + "\n")
+    path.write_text(json.dumps(payload, indent=1, sort_keys=False) + "\n", encoding="utf-8")
 
 
 def main(scenario: str, cases: dict[str, dict], runners: dict[str, Callable]) -> None:
@@ -273,9 +355,8 @@ def main(scenario: str, cases: dict[str, dict], runners: dict[str, Callable]) ->
         "threads": args.threads,
         "quick": args.quick,
         "timing_only": args.timing_only,
-        "env": {
-            v: os.environ.get(v) for v in [*THREAD_VARS, "NUMBA_DISABLE_JIT", "NUMBA_CACHE_DIR"]
-        },
+        # the cache directory of numba is left out: a local path, new for every run
+        "env": {v: os.environ.get(v) for v in [*THREAD_VARS, "NUMBA_DISABLE_JIT"]},
         "versions": versions(),
     }
     t0 = time.perf_counter()

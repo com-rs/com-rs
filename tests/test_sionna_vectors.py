@@ -30,14 +30,17 @@ import json
 
 import numpy as np
 import pytest
-from oracle import DIR
+from oracle import DIR, missing
 
 import comrs
 
 if not (DIR / "sionna_vectors.npz").exists():
-    pytest.skip("run tools/record_sionna_vectors.py", allow_module_level=True)
+    missing(
+        "tests/oracle/sionna_vectors.npz is missing: run tools/record_sionna_vectors.py",
+        module=True,
+    )
 V = dict(np.load(DIR / "sionna_vectors.npz"))
-META = json.loads((DIR / "sionna_vectors.json").read_text())
+META = json.loads((DIR / "sionna_vectors.json").read_text(encoding="utf-8"))
 
 
 def get(key):

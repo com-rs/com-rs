@@ -1,6 +1,6 @@
 """
-The LoRa modulation against three papers
-========================================
+The LoRa modulation: error rates, spectrum and interference
+===========================================================
 
 Chirp spread spectrum, the modulation of LoRa (``comrs.Css``), in four panels, each to
 open next to the figure of the paper it reproduces. The SNR is that of a sample at one
@@ -95,7 +95,7 @@ ax = axes[1, 0]
 f = np.linspace(0, 1, 401)
 for sf in (3, 5, 7):
     g = comrs.css_continuous_spectrum(sf, f)
-    ax.plot(f, 10 * np.log10(np.maximum(g, 1e-12)), label=f"SF {sf}")
+    ax.plot(f, comrs.lin2db(np.maximum(g, 1e-12)), label=f"SF {sf}")
 ax.set(
     ylim=(-50, 5),
     xlabel="$f/B$",

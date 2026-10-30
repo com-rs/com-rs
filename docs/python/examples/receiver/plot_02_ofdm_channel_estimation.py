@@ -15,8 +15,6 @@ one or the uniform profile over the cyclic prefix of the robust design (Edfors e
 1998) — and linearly in time.
 """
 
-import math
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -67,7 +65,7 @@ def link(eb, estimator, frames=150, seed=1):
         bits = comrs.bits(2 * grid.n_data, rng)
         x = ofdm.modulate(grid.map(c.modulate(bits)))
         y, taps = ch.fade(x, rng)
-        s2 = N / (2 * K * 10 ** (eb / 10))
+        s2 = N / (2 * K * comrs.db2lin(eb))
         rx = ofdm.demodulate(y + rng.complex_noise(y.size, s2))
         h = np.tile(taps.frequency_response(0, ofdm.bins, N), 14)
         nv = s2 * K / N
@@ -103,10 +101,10 @@ for name, marker in zip(names[:3], ["o", "s", "D"], strict=True):
     )
 ax1.set(xlabel="$E_b/N_0$ (dB)", ylabel="MSE of the channel estimate", title="estimation error")
 ax1.legend()
-g = 10 ** (np.linspace(0, 30, 121) / 10)
+fine = np.linspace(0, 30, 121)
 ax2.semilogy(
-    np.linspace(0, 30, 121),
-    0.5 * (1 - np.sqrt(g / (1 + g))),
+    fine,
+    comrs.theory_ber_rayleigh_mrc(fine, 1),
     color=GREY,
     linewidth=1.4,
     label="Rayleigh, theory",
@@ -127,5 +125,5 @@ fig.tight_layout()
 eb = 10.0
 print(
     f"{eb} dB: simulated {res['perfect CSI'][2][0]:.4f}, theory "
-    f"{0.5 * (1 - math.sqrt(10 ** (eb / 10) / (1 + 10 ** (eb / 10)))):.4f}"
+    f"{comrs.theory_ber_rayleigh_mrc(eb, 1):.4f}"
 )

@@ -21,23 +21,20 @@ phase with one step per span), fixed since.
 """
 
 import matplotlib.pyplot as plt
-import numpy as np
 import yaml
 from _gallery_utils import SPECS
 
 import comrs
 from comrs.plot import BACKGROUND
 
-text = (SPECS / "validation/hager2021_fig5.yaml").read_text()
+text = (SPECS / "validation/hager2021_fig5.yaml").read_text(encoding="utf-8")
 spec = yaml.safe_load(text)
 results = comrs.run_spec(text.replace("stop: {max_trials: 4}", "stop: {max_trials: 2}"))
 
 fig, ax = plt.subplots()
 labels = {"linear": "linear equalisation", "dbp1": "DBP, 1 step per span"}
 for (receiver, label), marker in zip(labels.items(), ["o", "s"], strict=True):
-    rows = [r for r in results if r["condition"]["receiver"] == receiver]
-    x = np.array([r["condition"]["power_dbm"] for r in rows])
-    snr = np.array([r["metrics"]["snr_eff_db"]["value"] for r in rows])
+    x, snr = results.series("power_dbm", "snr_eff_db", receiver=receiver)
     (line,) = ax.plot(x, snr, marker=marker, markeredgecolor=BACKGROUND, label=f"comrs, {label}")
     published = next(e for e in spec["expect"] if e["where"]["receiver"] == receiver)["curve"]
     ax.plot(published["x"], published["y"], "x", color=line.get_color(), markersize=7, mew=1.6,
@@ -55,8 +52,7 @@ fig.tight_layout()
 # %%
 # The largest difference with the published points, over the powers common to both.
 for receiver, label in labels.items():
-    rows = {r["condition"]["power_dbm"]: r["metrics"]["snr_eff_db"]["value"] for r in results
-            if r["condition"]["receiver"] == receiver}  # fmt: skip
+    rows = dict(zip(*results.series("power_dbm", "snr_eff_db", receiver=receiver), strict=True))
     published = next(e for e in spec["expect"] if e["where"]["receiver"] == receiver)["curve"]
     diffs = [
         abs(rows[x] - y) for x, y in zip(published["x"], published["y"], strict=True) if x in rows

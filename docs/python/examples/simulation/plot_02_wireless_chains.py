@@ -28,22 +28,18 @@ collects the time diversity, where the BER of the coded bits only falls as
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import SPECS
+
+# the BICM chain is shared with the test that checks these curves
+from _gallery_utils import SPECS, bicm_chain
 
 import comrs
 from comrs import blocks as B
 from comrs.plot import BACKGROUND, COBALT, GREY, RUST
 
 
-def rate(results, metric, key=None, value=None):
-    """The values of a rate metric, NaN below 20 errors."""
-    out = []
-    for r in results:
-        if key is not None and r["condition"][key] != value:
-            continue
-        m = r["metrics"][metric]
-        out.append(m["value"] if m["count"] >= 20 else np.nan)
-    return np.array(out)
+def rate(results, metric, **condition):
+    """The values of a rate metric against E_b/N_0, NaN below 20 errors."""
+    return results.series("ebn0_db", metric, min_count=20, **condition)[1]
 
 
 # %%
@@ -61,11 +57,14 @@ for scheme, branches, marker, label in [
     ("spatial", 1, "s", "spatial multiplexing, ZF 2 × 2"),
 ]:
     (line,) = ax.semilogy(
-        eb, rate(res, "ber", "scheme", scheme), marker=marker, markeredgecolor=BACKGROUND,
+        eb, rate(res, "ber", scheme=scheme), marker=marker, markeredgecolor=BACKGROUND,
         linestyle="none", label=label,
     )  # fmt: skip
     ax.semilogy(
-        fine, comrs.theory_ber_rayleigh_mrc(fine - 3.0103, branches), ":", color=line.get_color()
+        fine,
+        comrs.theory_ber_rayleigh_mrc(fine - comrs.lin2db(2), branches),
+        ":",
+        color=line.get_color(),
     )
 ax.semilogy(
     fine, comrs.theory_ber_rayleigh_mrc(fine, 1), color=GREY, linewidth=1.2, label="SISO Rayleigh"
@@ -100,7 +99,7 @@ for est, marker, label in [
     ("ls", "D", "LS, linear interpolation"),
 ]:
     ax.semilogy(
-        eb, rate(res, "ber", "estimation", est), marker=marker, markeredgecolor=BACKGROUND,
+        eb, rate(res, "ber", estimation=est), marker=marker, markeredgecolor=BACKGROUND,
         label=label,
     )  # fmt: skip
 ax.semilogy(fine := np.linspace(0, 25, 101), comrs.theory_ber_rayleigh_mrc(fine, 1), ":",
@@ -113,27 +112,17 @@ ax.legend(loc="lower left")
 fig.tight_layout()
 
 # %%
-# BICM: an LDPC code of 1024 bits with 16-QAM over AWGN and fast Rayleigh fading.
-code = {"type": "ldpc", "n": 1024, "k": 512, "seed": 1}
-
-
-def bicm(fading):
-    blocks = [B.FecEncode(code=code, blocks=4, interleave=True), B.Map(constellation="16-QAM")]
-    if fading:
-        blocks.append(B.Rayleigh(coherence=1))
-    blocks.append(B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")))
-    if fading:
-        blocks.append(B.MimoRx())
-    blocks += [B.Demap(), B.FecDecode(code=code, interleave=True)]
-    return comrs.Chain(*blocks)
-
+# BICM: an LDPC code of 1024 bits with 16-QAM over AWGN and fast Rayleigh fading:
+# ``FecEncode(code, blocks=4, interleave=True)``, ``Map("16-QAM")``, with fading
+# ``Rayleigh(coherence=1)``, ``AwgnEbn0``, with fading ``MimoRx``, ``Demap`` and
+# ``FecDecode`` (``bicm_chain``).
 
 fig, ax = plt.subplots()
 for fading, eb, color, name in [
     (False, np.arange(2.0, 5.6, 0.5), COBALT, "AWGN"),
     (True, np.arange(5.0, 10.6, 0.5), RUST, "fast Rayleigh"),
 ]:
-    res = bicm(fading).run(
+    res = bicm_chain(fading).run(
         grid={"ebn0_db": list(eb)},
         metrics=["ber", "coded_ber"],
         stop={"min_errors": {"coded_ber": 200}, "min_trials": 4, "max_trials": 400},

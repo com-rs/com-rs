@@ -125,7 +125,7 @@ print(f"measured I/Q correlation at 26 dB: {rho['value']:.3f}, expected {expecte
 
 fig, ax = plt.subplots()
 res.plot("snr_db", "ber", by="variant", ax=ax,
-         theory=lambda s, _: [comrs.theory_ber(16, v - 10 * np.log10(4), "qam") for v in s])  # fmt: skip
+         theory=lambda s, _: comrs.theory_ber(16, s - comrs.lin2db(4), "qam"))  # fmt: skip
 ax.set(xlabel="SNR per symbol (dB)", ylabel="bit error rate", ylim=(1e-5, 0.5),
        title="16-QAM, β = 0.1 + 0.15j; dotted: closed form")  # fmt: skip
 fig.tight_layout()

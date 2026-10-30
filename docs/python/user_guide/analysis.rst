@@ -68,10 +68,11 @@ Signals
 
 :meth:`Chain.trace <comrs.Chain.trace>` runs one trial and keeps the frame after every
 block: a :class:`~comrs.Trace`, which plots every stage and saves them to a ``.npz``
-file. The functions of :mod:`comrs.plot` draw a frame or an array —
-:func:`~comrs.plot.constellation`, :func:`~comrs.plot.eye`, :func:`~comrs.plot.time`,
-:func:`~comrs.plot.psd` — and take its samples per symbol, sampling rate, constellation
-and polarisations from the frame:
+file (``stage/<name>/stream0``, ``stage/<name>/sps``…). The functions of
+:mod:`comrs.plot` draw a frame or an array — :func:`~comrs.plot.constellation`,
+:func:`~comrs.plot.eye`, :func:`~comrs.plot.time`, :func:`~comrs.plot.psd` — and take its
+samples per symbol, sampling rate, constellation and polarisations from the frame;
+:func:`comrs.plot.style` sets the figure style of this documentation:
 
 .. code-block:: python
 

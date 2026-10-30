@@ -1,9 +1,9 @@
 """
-Proakis & Salehi, Sec. 3.3-2: MSK has the error rate of BPSK
-============================================================
+Proakis & Salehi 2008, Sec. 3.3-2: MSK has the error rate of BPSK
+=================================================================
 
 Minimum-shift keying is continuous-phase FSK with a modulation index of 1/2. Section
-3.3-2 of J. G. Proakis and M. Salehi, *Digital Communications*, 5th ed., shows that
+3.3-2 of J. G. Proakis and M. Salehi, *Digital Communications*, 5th ed., 2008, shows that
 its signal is an offset QPSK whose quadrature pulses are half sinusoids, so that
 coherent detection over AWGN decides the bits with the BER of BPSK,
 :math:`Q(\\sqrt{2 E_b/N_0})`, once the bits are precoded so that each decides a sign
@@ -59,7 +59,7 @@ results = comrs.run_spec(
 
 
 def bpsk(ebn0_db):
-    return np.vectorize(comrs.qfunc)(np.sqrt(2 * 10 ** (np.asarray(ebn0_db) / 10)))
+    return comrs.theory_ber(2, ebn0_db, "psk")
 
 
 fig, ax = plt.subplots()
@@ -68,10 +68,7 @@ ax.semilogy(fine, bpsk(fine), color=MUTED, linewidth=1.4, label="BPSK, $Q(\\sqrt
 ax.semilogy(fine, 2 * bpsk(fine) * (1 - bpsk(fine)), ":", color=MUTED, linewidth=1.4,
             label="differentially decoded BPSK, $2p(1-p)$")  # fmt: skip
 for precode, marker, label in [(True, "o", "MSK, precoded"), (False, "s", "MSK, not precoded")]:
-    rows = [r for r in results if r["condition"]["precode"] is precode]
-    ber = np.array([r["metrics"]["ber"]["value"] for r in rows])
-    lo = np.array([r["metrics"]["ber"]["lo"] for r in rows])
-    hi = np.array([r["metrics"]["ber"]["hi"] for r in rows])
+    _, ber, lo, hi = results.series("ebn0_db", "ber", interval=True, precode=precode)
     ax.errorbar(EBN0, ber, yerr=[ber - lo, hi - ber], fmt=marker, markeredgecolor=BACKGROUND,
                 capsize=0, label=label)  # fmt: skip
 ax.set(
@@ -86,7 +83,5 @@ fig.tight_layout()
 
 # %%
 # The precoded points lie on the BPSK curve within their intervals.
-for r in results:
-    if r["condition"]["precode"]:
-        e = r["condition"]["ebn0_db"]
-        print(f"Eb/N0 = {e:.0f} dB: MSK {r['metrics']['ber']['value']:.3e}, BPSK {bpsk(e):.3e}")
+for e, ber in zip(*results.series("ebn0_db", "ber", precode=True), strict=True):
+    print(f"Eb/N0 = {e:.0f} dB: MSK {ber:.3e}, BPSK {bpsk(e):.3e}")

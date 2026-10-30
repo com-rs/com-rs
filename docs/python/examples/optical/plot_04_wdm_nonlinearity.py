@@ -44,7 +44,7 @@ fine = np.linspace(-9, 5, 29)
 gn = [comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1) for p in fine]
 ase = np.array([g["ase_psd"] for g in gn]) * 32e9
 closed = np.array([comrs.gn_closed_form(fiber, 5, 32e9, 50e9, p) for p in fine]) * 32e9
-p_w = 1e-3 * 10 ** (fine / 10)
+p_w = comrs.dbm2w(fine)
 
 fig, ax = plt.subplots()
 ax.plot(fine, [g["snr_db"] for g in gn], color=INK, linewidth=1.6, label="GN model")
@@ -52,12 +52,12 @@ egn = [
     comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1, modulation="16-QAM")["snr_db"] for p in fine
 ]
 ax.plot(fine, egn, color=RUST, linewidth=1.6, label="EGN model, 16-QAM")
-ax.plot(fine, 10 * np.log10(p_w / (ase + closed)), "--", color=INK, linewidth=1.0,
+ax.plot(fine, comrs.lin2db(p_w / (ase + closed)), "--", color=INK, linewidth=1.0,
         label="GN closed form (incoherent)")  # fmt: skip
-ax.plot(fine, 10 * np.log10(p_w / ase), ":", color=GREY, label="ASE only")
+ax.plot(fine, comrs.lin2db(p_w / ase), ":", color=GREY, label="ASE only")
 for fmt, marker, color, label in [("gaussian", "o", INK, "Gaussian symbols"),
                                   ("16-QAM", "s", RUST, "16-QAM")]:  # fmt: skip
-    snr = [r["metrics"]["snr_db"]["value"] for r in res if r["condition"]["format"] == fmt]
+    _, snr = res.series("power_dbm", "snr_db", format=fmt)
     ax.plot(powers, snr, marker=marker, color=color, markeredgecolor=BACKGROUND, linestyle="none",
             label=label)  # fmt: skip
 ax.set(
@@ -94,7 +94,7 @@ for comp, marker, label in [
         stop={"max_trials": 2},
         fiber=long_haul,
     )
-    ax.plot(powers, [r["metrics"]["snr_db"]["value"] for r in res], marker=marker,
+    ax.plot(powers, res.series("power_dbm", "snr_db")[1], marker=marker,
             markeredgecolor=BACKGROUND, label=label)  # fmt: skip
 ax.set(
     xlabel="launch power (dBm)", ylabel="SNR (dB)",

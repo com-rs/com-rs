@@ -2,15 +2,12 @@
 and the verification of specifications from Python."""
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import qpsk_spec
+from conftest import ROOT, qpsk_spec
 
 import comrs
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_sigmf_round_trip_with_metadata(tmp_path):

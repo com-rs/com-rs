@@ -96,7 +96,7 @@ print(
 
 
 def err_db(taps, b=FS1 / 2):
-    return 10 * np.log10(max(comrs.cd_ls_error(taps, fib, SPAN, FS1, band_hz=b), 1e-16))
+    return comrs.lin2db(max(comrs.cd_ls_error(taps, fib, SPAN, FS1, band_hz=b), 1e-16))
 
 
 lengths = np.arange(101, 352, 10)
@@ -143,7 +143,7 @@ def ber_16qam(taps, ebn0_db, rng):
     u[::2] = a
     k = 0.0 if taps is None else k1
     y = np.fft.ifft(np.fft.fft(u) * g * np.exp(-1j * k * w**2))
-    y = y + rng.complex_noise(y.size, 1 / (4 * 10 ** (ebn0_db / 10)))
+    y = y + rng.complex_noise(y.size, 1 / (4 * comrs.db2lin(ebn0_db)))
     yf = np.fft.fft(y) * g
     if taps is not None:
         h = np.zeros(y.size, complex)

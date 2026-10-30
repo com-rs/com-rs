@@ -16,6 +16,7 @@ decoder) collects the receive diversity that the linear detectors lose.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import mimo_ofdm_ser
 
 import comrs
 from comrs.plot import AMBER, BACKGROUND, GREY
@@ -37,7 +38,7 @@ ax1.legend()
 
 
 def cfo_rmse(snr_db, trials=200):
-    s2 = 10 ** (-snr_db / 10)
+    s2 = comrs.db2lin(-snr_db)
     err = []
     for t in range(trials):
         g = comrs.Rng.stream(2, "cfo", int(snr_db + 100), t)
@@ -76,20 +77,9 @@ ch = comrs.TdlChannel("epa", 1.92e6, n_rx=2, n_tx=2)
 
 
 def ser(snr_db, method, frames=150):
-    err = tot = 0
-    for f in range(frames):
-        g = comrs.Rng.stream(3, "mimo-ofdm", int(snr_db), f)
-        idx = g.integers(4, 2 * 96 * 4).reshape(2, -1)
-        x = np.stack([mofdm.modulate(c.points[i]) for i in idx])
-        y, taps = ch.fade(x, g)
-        s2 = 2 * 128 / (96 * 10 ** (snr_db / 10))
-        y = y + g.complex_noise(y.size, s2).reshape(y.shape)
-        rx = np.stack([mofdm.demodulate(v) for v in y])
-        hh = np.tile(taps.frequency_response(0, mofdm.bins, 128), (4, 1, 1))
-        d = comrs.mimo_detect(hh, rx.T, c, s2 * 96 / 128, method)
-        err += int((d != idx.T).sum())
-        tot += idx.size
-    return err / tot
+    """Four OFDM symbols per frame, one channel per frame, per-subcarrier detection
+    (shared with the test that checks these curves)."""
+    return mimo_ofdm_ser(mofdm, ch, c, snr_db, method, frames, seed=3, condition=int(snr_db))
 
 
 fig, ax = plt.subplots()

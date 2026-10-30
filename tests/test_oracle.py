@@ -28,13 +28,34 @@ Re-recording is a deliberate act: the commit that changes the fixtures says why 
 names the version of OptiCommPy (the ``version`` field of the files).
 """
 
+import json
+
 import numpy as np
+import oracle as recorded_oracles
 import pytest
-from oracle import oracle
+from oracle import DIR, oracle
 
 import comrs
 
 TOOL = "OptiCommPy"
+
+
+@pytest.mark.parametrize(("ci", "outcome"), [("true", "fail"), ("", "skip")])
+def test_a_missing_oracle_fails_in_ci_and_skips_elsewhere(monkeypatch, ci, outcome):
+    monkeypatch.setattr(recorded_oracles, "RECORD", False)
+    monkeypatch.setenv("CI", ci)
+    expected = pytest.fail.Exception if outcome == "fail" else pytest.skip.Exception
+    with pytest.raises(expected, match="no_such_oracle"):
+        oracle("no_such_oracle", lambda: None, tool=TOOL)
+
+
+def test_every_recorded_oracle_has_its_arrays():
+    docs = sorted(DIR.glob("*.json"))
+    assert docs, "tests/oracle/ holds no recorded oracle"
+    for path in docs:
+        npz = json.loads(path.read_text(encoding="utf-8")).get("npz")
+        assert npz is None or (DIR / npz).exists(), f"{path.name}: {npz} is missing"
+
 
 CONSTELLATIONS = [
     ("qam", 4),

@@ -36,7 +36,6 @@ import comrs
 from comrs.plot import BACKGROUND, MUTED
 
 TWO_PI_H = [0.3, 0.5, 0.7, 1.0]
-qfunc = np.vectorize(comrs.qfunc)
 EBN0 = np.arange(0.0, 36.0, 5.0)
 M = 8
 results = comrs.run_spec(
@@ -45,7 +44,7 @@ results = comrs.run_spec(
         "seed": 1,
         "grid": {
             "h": [round(x / (2 * math.pi), 6) for x in TWO_PI_H],
-            "esn0_db": [round(e + 10 * math.log10(6), 4) for e in EBN0],
+            "esn0_db": [round(e + comrs.lin2db(6), 4) for e in EBN0],
         },
         "link": [
             {"type": "source", "constellation": "64-QAM", "n_symbols": 126 * 32},
@@ -61,19 +60,17 @@ results = comrs.run_spec(
 
 def eq15(ebn0_db, two_pi_h):
     k = math.log2(M)
-    e = 10 ** (ebn0_db / 10)
-    return 2 * (M - 1) / (M * k) * qfunc(two_pi_h * np.sqrt(6 * k / (M * M - 1) * e))
+    e = comrs.db2lin(ebn0_db)
+    return 2 * (M - 1) / (M * k) * comrs.qfunc(two_pi_h * np.sqrt(6 * k / (M * M - 1) * e))
 
 
 fig, ax = plt.subplots(figsize=(7.5, 5.2))
 fine = np.linspace(0, 35, 141)
 for i, two_pi_h in enumerate(TWO_PI_H):
     h = round(two_pi_h / (2 * math.pi), 6)
-    rows = [r for r in results if r["condition"]["h"] == h]
-    ber = np.array([r["metrics"]["ber"]["value"] for r in rows])
-    keep = np.array([r["metrics"]["ber"]["count"] for r in rows]) >= 20
+    _, ber = results.series("esn0_db", "ber", min_count=20, h=h)  # NaN: fewer than 20 errors
     (line,) = ax.semilogy(fine, eq15(fine, two_pi_h), linewidth=1.4)
-    ax.semilogy(EBN0[keep], ber[keep], "osD^"[i], color=line.get_color(), markeredgecolor=BACKGROUND,
+    ax.semilogy(EBN0, ber, "osD^"[i], color=line.get_color(), markeredgecolor=BACKGROUND,
                 label=f"$2\\pi h$ = {two_pi_h}")  # fmt: skip
 ax.plot([], [], color=MUTED, linewidth=1.4, label="eq. (15)")
 ax.set(
@@ -94,12 +91,7 @@ fig.tight_layout()
 # the paper's curves at low :math:`E_b/N_0`.
 for two_pi_h in TWO_PI_H:
     h = round(two_pi_h / (2 * math.pi), 6)
-    r = next(
-        r
-        for r in results
-        if r["condition"]["h"] == h
-        and r["condition"]["esn0_db"] == round(25 + 10 * math.log10(6), 4)
-    )
+    (r,) = results.where(h=h, esn0_db=round(25 + comrs.lin2db(6), 4))
     print(
         f"2πh = {two_pi_h}: BER {r['metrics']['ber']['value']:.2e} at 25 dB, eq. (15) {eq15(25.0, two_pi_h):.2e}"
     )

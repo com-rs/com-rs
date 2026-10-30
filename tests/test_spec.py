@@ -1,12 +1,9 @@
 """Declarative campaigns from Python: the specifications of ``specs/``."""
 
-from pathlib import Path
-
 import pytest
+from conftest import SPECS
 
 import comrs
-
-SPECS = Path(__file__).resolve().parents[1] / "specs"
 
 
 def test_a_specification_as_text_dict_and_file_gives_the_same_results(tmp_path):
@@ -32,7 +29,7 @@ stop: {max_trials: 32}
         "stop": {"max_trials": 32},
     }
     path = tmp_path / "forms.yaml"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     results = [comrs.run_spec(s) for s in (text, as_dict, path, str(path))]
     for r in results[1:]:
         assert [c["metrics"] for c in r] == [c["metrics"] for c in results[0]]
@@ -56,8 +53,8 @@ def test_reports_are_written(tmp_path):
         csv_path=tmp_path / "r.csv",
         json_path=tmp_path / "r.json",
     )
-    assert (tmp_path / "r.csv").read_text().startswith("index,m,ebn0_db,status")
-    assert '"scenario": "qam_awgn"' in (tmp_path / "r.json").read_text()
+    assert (tmp_path / "r.csv").read_text(encoding="utf-8").startswith("index,m,ebn0_db,status")
+    assert '"scenario": "qam_awgn"' in (tmp_path / "r.json").read_text(encoding="utf-8")
 
 
 def test_conditions_and_blocks():
@@ -91,7 +88,7 @@ def test_a_misspelt_path_is_an_error_not_a_specification():
     with pytest.raises(ValueError, match="link"):
         comrs.spec.load({"name": "x", "link": []})
     path = SPECS / "qam_awgn.yaml"
-    assert comrs.spec.load(path) == comrs.spec.load(path.read_text())
+    assert comrs.spec.load(path) == comrs.spec.load(path.read_text(encoding="utf-8"))
 
 
 def test_the_relative_paths_of_a_file_are_relative_to_its_directory(tmp_path, monkeypatch):

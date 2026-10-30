@@ -68,7 +68,7 @@ results = link.run(**campaign)
 
 
 def qpsk(snr_db):
-    return [comrs.theory_ber(4, s - 10 * np.log10(2), "qam") for s in snr_db]
+    return comrs.theory_ber(4, np.asarray(snr_db) - comrs.lin2db(2), "qam")
 
 
 fig, ax = plt.subplots()

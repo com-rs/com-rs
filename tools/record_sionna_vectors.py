@@ -26,11 +26,11 @@ from __future__ import annotations
 import io
 import sys
 import urllib.request
-from pathlib import Path
 
 import numpy as np
+from _common import ROOT
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+sys.path.insert(0, str(ROOT / "tests"))
 from oracle import DIR as OUT
 from oracle import archive, dumps
 
@@ -144,7 +144,7 @@ def main() -> None:
         "generator_matrices": dict(sorted(generator_files().items())),
         "generator_seed": SEED,
     }
-    (OUT / "sionna_vectors.json").write_text(dumps(doc))
+    (OUT / "sionna_vectors.json").write_text(dumps(doc), encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -103,8 +103,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -8508,8 +8507,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -8661,8 +8659,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -8795,8 +8792,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -8853,8 +8849,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -8876,7 +8871,7 @@
      "case": "conv",
      "precision": "float64",
      "threads_option": 1,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "sweep_s": 2.5207927500014193,
      "points": [
       {
@@ -8988,8 +8983,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -9011,7 +9005,7 @@
      "case": "conv",
      "precision": "float64",
      "threads_option": 0,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "timing_chain": {
       "warmup_s": 0.014463833009358495,
       "median_s": 0.013761290989350528,
@@ -9047,8 +9041,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -9206,8 +9199,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -9281,8 +9273,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793347885400102000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -17446,8 +17437,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793347904154557000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -17523,8 +17513,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -17600,8 +17589,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -17677,8 +17665,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -26090,8 +26077,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",

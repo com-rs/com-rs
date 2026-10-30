@@ -70,7 +70,7 @@ for (name, y), color in zip(signals.items(), [GREY, ORANGE, BLUE], strict=True):
     aclr = comrs.aclr_db(f, s, bw, bw)
     ax.plot(
         f8,
-        10 * np.log10(s8 + 1e-30),
+        comrs.lin2db(s8 + 1e-30),
         color=color,
         linewidth=1.4,
         label=f"{name} (ACLR {aclr:.0f} dB)" if aclr < 200 else f"{name}",
@@ -94,7 +94,7 @@ scales = np.array([0.06, 0.08, 0.1, 0.12, 0.15, 0.18, 0.2])
 def evm_db(y, scale):
     rx = ofdm.demodulate(y / (scale * g))
     a = np.vdot(d, rx) / np.vdot(d, d)
-    return 10 * np.log10(np.mean(np.abs(rx / a - d) ** 2))
+    return comrs.lin2db(np.mean(np.abs(rx / a - d) ** 2))
 
 
 res = {"amplifier": ([], []), "DPD + amplifier": ([], [])}

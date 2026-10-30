@@ -4,7 +4,7 @@ over AWGN."""
 
 import numpy as np
 import pytest
-from scipy.special import erfc
+from _gallery_utils import coded_error_rates
 from scipy.stats import binom
 
 import comrs
@@ -311,23 +311,13 @@ def test_punctured_turbo_code():
 
 def test_punctured_rate_3_4_over_awgn_is_better_than_uncoded():
     # soft Viterbi of the rate-3/4 (133, 171) code over BPSK and AWGN: the BER
-    # decreases with Eb/N0 and is far below uncoded BPSK at 4.5 dB (uncoded: 9.4e-3,
+    # decreases with Eb/N0 and is far below uncoded BPSK at 4.5 dB (uncoded: 8.8e-3,
     # coded about 1e-4)
-    k = 2000
-    code = comrs.ConvolutionalCode(k, puncture="ieee80211_3_4")
-    rng = comrs.Rng(10)
-    ber = []
-    for ebn0_db in (2.5, 3.5, 4.5):
-        esn0 = 10 ** (ebn0_db / 10) * code.rate
-        errors, total = 0, 0
-        for _ in range(100):
-            b = comrs.bits(k, rng)
-            x = 1.0 - 2.0 * code.encode(b).astype(float)
-            y = comrs.awgn(x, 10 * np.log10(esn0), rng)
-            llr = 4.0 * esn0 * y.real  # 2 y / (σ²/2), σ² = 1/SNR
-            errors += int(np.sum(code.decode(llr) != b))
-            total += k
-        ber.append(errors / total)
-    uncoded = 0.5 * erfc(np.sqrt(10 ** (4.5 / 10)))
+    code = comrs.ConvolutionalCode(2000, puncture="ieee80211_3_4")
+    ber = [
+        coded_error_rates(code, ebn0_db, 100, seed=10 + 2 * i)[0]
+        for i, ebn0_db in enumerate((2.5, 3.5, 4.5))
+    ]
+    uncoded = comrs.theory_ber(2, 4.5, "psk")
     assert ber[0] > ber[1] > ber[2] > 0
     assert ber[2] < uncoded / 10

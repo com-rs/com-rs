@@ -104,7 +104,7 @@ def ber_curve(reduction, ebn0s, blocks=400, seed=2, expand=True):
     out = []
     for i, eb in enumerate(ebn0s):
         # Eb/N0 = (block energy / bits) / σ²: the block energy p·L·N carries 4 k bits
-        s2 = p * ofdm.fft_len / (4 * k * 10 ** (eb / 10))
+        s2 = p * ofdm.fft_len / (4 * k * comrs.db2lin(eb))
         y = x + comrs.Rng.stream(seed, "awgn", i, 0).complex_noise(x.size, s2)
         if expand:
             z = ofdm.demodulate(y, reduction, side=side)
@@ -120,7 +120,7 @@ fig, ax = plt.subplots()
 eb = np.linspace(0, 16, 161)
 ax.semilogy(
     eb,
-    [comrs.theory_ber(16, e, "qam") for e in eb],
+    comrs.theory_ber(16, eb, "qam"),
     color=GREY,
     linewidth=1.4,
     label="16-QAM, AWGN",
