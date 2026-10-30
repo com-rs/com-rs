@@ -104,10 +104,12 @@ jobs:
           # the types of the package and of the stub of the extension ([tool.mypy])
           mypy
           python tools/api_index.py --check
+          python tools/api_index.py --duplicates --check
           python tools/literature_table.py --check
           python tools/maturity_table.py --check
           python tools/cards.py --check
           python3 tools/benchmarks_page.py --check
+          python tools/highlights.py --check
           # the generated stub of the extension and classes of the blocks
           python tools/gen_stubs.py --check
           python tools/gen_blocks.py --check

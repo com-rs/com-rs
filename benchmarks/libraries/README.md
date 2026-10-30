@@ -37,7 +37,9 @@ uv pip install -r benchmarks/libraries/requirements.txt
 maturin develop --release                    # comrs, from this checkout
 cd benchmarks/libraries
 python run_all.py                            # builds target/release/comrs first
+python footprint.py                          # results/footprint.json: what each library installs
 python ../../tools/benchmarks_page.py        # docs/python/benchmarks.rst
+python ../../tools/highlights.py             # the highlights of the front pages, docs/python/why.rst
 ```
 
 `python run_all.py --quick` runs everything at small sizes in about two minutes, to

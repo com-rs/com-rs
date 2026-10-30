@@ -6,7 +6,8 @@ documentation, in `docs/API.md`.
 The index is the inventory to read before adding a function, so that a prototype that
 exists is reused instead of written again. `just api-index` regenerates it; CI checks
 that it is up to date (`--check`); `--duplicates` lists the names defined in more than
-one module, the candidates for a shared helper.
+one module, the candidates for a shared helper, and `--duplicates --check` fails on such
+a name that `docs/api-duplicates.txt` does not accept.
 
 The parser is deliberately simple (line-based): it understands the style of this
 repository (one item per `pub` line, `///` documentation above it, `#[cfg(test)]`
@@ -21,9 +22,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from _common import ROOT, write_or_check
+from _common import ROOT, fail, write_or_check
 
 OUTPUT = ROOT / "docs" / "API.md"
+ACCEPTED = ROOT / "docs" / "api-duplicates.txt"
 RUST_ITEM = re.compile(
     r"^(?P<indent>\s*)pub\s+"
     r"(?P<kind>(?:const\s+|async\s+|unsafe\s+)?fn|struct|enum|trait|type|const|static)\s+"
@@ -241,9 +243,30 @@ def main() -> int:
     a = ap.parse_args()
     index = collect()
     if a.duplicates:
-        for name, places in duplicates(index):
-            print(f"{name}: {', '.join(sorted(set(places)))}")
-        return 0
+        found = duplicates(index)
+        if not a.check:
+            for name, places in found:
+                print(f"{name}: {', '.join(sorted(set(places)))}")
+            return 0
+        accepted = {
+            line.split("#")[0].strip()
+            for line in ACCEPTED.read_text(encoding="utf-8").splitlines()
+            if line.split("#")[0].strip()
+        }
+        new = [f"{n}: {', '.join(sorted(set(p)))}" for n, p in found if n not in accepted]
+        gone = sorted(accepted - {n for n, _ in found})
+        status = 0
+        if new:
+            status = fail(
+                "names defined in several modules, not in docs/api-duplicates.txt (factor them, "
+                "or add them with the reason they are not copies):",
+                new,
+            )
+        if gone:
+            status = fail(
+                "names of docs/api-duplicates.txt no longer defined twice (remove them):", gone
+            )
+        return status
     return write_or_check(OUTPUT, render(index), a.check, fix="`just api-index`")
 
 

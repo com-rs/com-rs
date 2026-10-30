@@ -597,13 +597,18 @@ done):
 8. `mypy` (`[tool.mypy]` of `pyproject.toml`): the types of the package and of the
    generated stub, the tests checked as callers of the stub only (a method stubbed
    `-> None` whose value is used fails)
-9. `python3 tools/api_index.py --check` (`docs/API.md` is up to date)
+9. `python3 tools/api_index.py --check` (`docs/API.md` is up to date) and `--duplicates
+   --check` (no public name defined in several modules that `docs/api-duplicates.txt`
+   does not accept: factor it, or add it with the reason it is not a copy)
 10. `python tools/literature_table.py --check` and `python tools/maturity_table.py
     --check` (`docs/LITERATURE.md`, `docs/MATURITY.md` and the maturity tables are up to
     date, and every test they cite exists)
 11. `python tools/cards.py --check` (every validation card agrees with the repository)
 12. `python3 tools/benchmarks_page.py --check` (`docs/python/benchmarks.rst` is up to
-    date with `benchmarks/libraries/results/`)
+    date with `benchmarks/libraries/results/`) and `python tools/highlights.py --check`
+    (the highlights of `README.md` and `docs/python/index.rst` and the page
+    `docs/python/why.rst`, computed from the manifests, the benchmark and the
+    validation files)
 13. `python tools/gen_stubs.py --check` and `python tools/gen_blocks.py --check` (the
     generated stub and `comrs.blocks` are up to date; they need the extension built)
 
@@ -616,7 +621,7 @@ permissions; it runs the quick tests only:
 | `test` | Linux, macOS, Windows | `cargo test`; `comrs verify $VALIDATION_SPECS` |
 | `msrv` | Linux, Rust 1.85 | `cargo build` |
 | `deny` | Linux | `cargo deny check` (licences, advisories, `deny.toml`) |
-| `python` | Linux, macOS, Windows × Python 3.11, 3.12, 3.13 | `maturin develop --release` with the dependency groups `test` and `lint`; on Linux with 3.12 only: `ruff check`, `ruff format --check`, `mypy`, `api_index.py --check`, `literature_table.py --check`, `maturity_table.py --check`, `cards.py --check`, `benchmarks_page.py --check`, `gen_stubs.py --check`, `gen_blocks.py --check`; then `python -m pytest` |
+| `python` | Linux, macOS, Windows × Python 3.11, 3.12, 3.13 | `maturin develop --release` with the dependency groups `test` and `lint`; on Linux with 3.12 only: `ruff check`, `ruff format --check`, `mypy`, `api_index.py --check` and `--duplicates --check`, `literature_table.py --check`, `maturity_table.py --check`, `cards.py --check`, `benchmarks_page.py --check`, `highlights.py --check`, `gen_stubs.py --check`, `gen_blocks.py --check`; then `python -m pytest` |
 | `docs-python` | Linux | `sphinx-build -W --keep-going` of `docs/python`; the site is uploaded on pushes to `main` |
 | `deploy-docs` | Linux, pushes to `main` | publishes the site to GitHub Pages |
 
@@ -651,6 +656,7 @@ Generated files are committed and checked:
 | `docs/LITERATURE.md` | `tools/literature_table.py`, from `validation/literature.yaml` (`just literature`) | `--check` |
 | `docs/MATURITY.md`, the maturity tables of `README.md` and `docs/python/maturity.rst` | `tools/maturity_table.py`, from `validation/maturity.yaml` (`just maturity`) | `--check` |
 | `docs/python/benchmarks.rst` | `tools/benchmarks_page.py`, from `benchmarks/libraries/results/` (`just bench-libraries`) | `--check` |
+| the highlights of `README.md` and `docs/python/index.rst`, `docs/python/why.rst` | `tools/highlights.py`, from the manifests, `benchmarks/libraries/results/` (with `footprint.json`) and the validation files | `--check` |
 | `crates/*/katex-header.html` | `just katex` | `cmp` |
 | `tests/oracle/*` | `tests/oracle.py` with `COMRS_RECORD_ORACLE=1` (dependency group `oracle`) | the tests read them |
 | `validation/aff3ct/*.json` | `tools/record_aff3ct.py`, with AFF3CT installed | the tests read them |

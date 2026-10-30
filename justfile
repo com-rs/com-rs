@@ -38,10 +38,12 @@ check:
     ruff format --check python tests docs/python tools benchmarks/libraries
     mypy
     python3 tools/api_index.py --check
+    python3 tools/api_index.py --duplicates --check
     python tools/literature_table.py --check
     python tools/maturity_table.py --check
     python tools/cards.py --check
     python3 tools/benchmarks_page.py --check
+    python tools/highlights.py --check
     python tools/gen_stubs.py --check
     python tools/gen_blocks.py --check
 
@@ -112,11 +114,12 @@ check-specs:
 validate:
     cargo run --release -p com-spec -- verify specs/validation/*.yaml
 
-# Results and speed against komm, OptiCommPy and Sionna (benchmarks/libraries/README.md:
-# a venv with benchmarks/libraries/requirements.txt, on a quiet machine, about 15 minutes);
-# regenerates docs/python/benchmarks.rst
+# Results, speed and footprint against komm, OptiCommPy and Sionna
+# (benchmarks/libraries/README.md: a venv with benchmarks/libraries/requirements.txt, on a
+# quiet machine, about 15 minutes); regenerates docs/python/benchmarks.rst, the
+# highlights of README.md and docs/python/index.rst, and docs/python/why.rst
 bench-libraries:
-    cd benchmarks/libraries && python run_all.py && python ../../tools/benchmarks_page.py
+    cd benchmarks/libraries && python run_all.py && python footprint.py && python ../../tools/benchmarks_page.py && python ../../tools/highlights.py
 
 # Speed against OptiCommPy (writes benchmarks/results.md)
 bench: develop

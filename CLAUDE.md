@@ -22,13 +22,24 @@ in [docs/adr/](docs/adr/). Read the guide before adding a block or a crate.
 
 ## Before adding a function or a block
 
-Read [docs/API.md](docs/API.md), the generated index of every public item (signature
-and first line of documentation): reuse the prototype that exists, or move it one
-layer down, instead of writing it again. `just api-index` regenerates the index (CI
-checks it is up to date); `just api-duplicates` lists the names defined in several
-modules. When a feature comes from a paper or a standard, name the reference in the
-reply so that it can be downloaded into `references/` and the code checked against
-its figures and tables (`specs/validation/`, tests named after the reference).
+Follow these steps, in order, and write them down in the reply (or in the brief of a
+subagent) before writing the code:
+
+1. **Read the prototypes.** Search [docs/API.md](docs/API.md), the generated index of
+   every public item (signature and first line of documentation), for what the feature
+   needs: the kernels, closed forms, containers and blocks that exist already.
+2. **Say what is reused.** List the existing items the feature will call; reuse the
+   prototype that exists, or move it one layer down when another crate needs it,
+   instead of writing it again.
+3. **Place it.** Name the crate and module by the placement rule above, and the ADR if
+   a new edge is needed.
+4. **Name the reference.** When the feature comes from a paper or a standard, name it so
+   that it can be downloaded into `references/<theme>/` and the code checked against its
+   figures and tables (a validation card, `specs/validation/`, tests named after the
+   reference).
+5. **Check.** `just api-index` regenerates the index; `just check` fails on a name
+   defined in several modules that `docs/api-duplicates.txt` does not accept (factor
+   it, or add it with the reason it is not a copy).
 
 ## Before declaring a task done
 
@@ -46,7 +57,9 @@ Run `just check`: the checks of CI, in its order.
 - `mypy` (`[tool.mypy]` of `pyproject.toml`: the types of the package and of the stub
   `python/comrs/_comrs.pyi`, with the tests as callers of the stub: a method stubbed
   `-> None` whose value is used fails)
-- `python3 tools/api_index.py --check` (docs/API.md is up to date)
+- `python3 tools/api_index.py --check` (docs/API.md is up to date) and `--duplicates
+  --check` (no name defined in several modules that docs/api-duplicates.txt does not
+  accept)
 - `python tools/literature_table.py --check` (docs/LITERATURE.md is up to date and every
   test named in `validation/literature.yaml` exists)
 - `python tools/maturity_table.py --check` (docs/MATURITY.md and the maturity tables of
@@ -54,6 +67,9 @@ Run `just check`: the checks of CI, in its order.
   and every test it cites exists)
 - `python tools/cards.py --check` (every validation card of `validation/cards/` points at
   an existing runner, literature entry and theme folder; `just card <id>` reruns one)
+- `python tools/highlights.py --check` (the highlights of README.md and
+  docs/python/index.rst and the page docs/python/why.rst are computed from the
+  repository: the manifests, the benchmark, the validation files)
 - `python3 tools/benchmarks_page.py --check` (docs/python/benchmarks.rst is generated from
   the recorded results of `benchmarks/libraries/results/`)
 - `python tools/gen_stubs.py --check` (the type stubs `python/comrs/_comrs.pyi` match the
