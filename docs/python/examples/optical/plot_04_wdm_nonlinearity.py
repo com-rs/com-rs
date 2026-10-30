@@ -27,10 +27,11 @@ about 7 dB.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, INK, RUST, SPECS
+from _gallery_utils import SPECS
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, GREY, INK, RUST
 
 # %%
 # The SNR of the centre channel against the launch power, simulated and GN model.

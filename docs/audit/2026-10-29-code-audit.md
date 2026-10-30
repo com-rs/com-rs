@@ -191,4 +191,18 @@ former computation (bit-identical, or within a stated tolerance):
 The `_into` contract is decided by ADR 0011: the output is resized and filled in place,
 scratch may allocate unless a profile shows it; `BlockCode` has slice methods
 (`encode_block_into`, `decode_block_into`) and every `_into` method of the workspace now
-reuses its output. Sections 4 to 6 are not started.
+reuses its output. Sections 4 and 6 are fixed (30 October 2026); section 5 (API consistency) is not
+started. One kernel per method now: the memory polynomial (`com_dsp::compensation::dpd`),
+the EDFA ASE (`com_channel::optical::edfa::ase_density`), the symbol posterior
+(`com-metrics`, private), the PAS demapper on `com_mapping::demapper`, NR on
+`Ofdm::to_time`, `centred_bin`/`fftshift`/`freq_shift` everywhere, GF(2) elimination on
+`gf2::Matrix`, `com_math::geometry`, the Manakov rotation, the quantiser of a signal
+(`Quantizer::for_signal`); the detector names, the parameter groups of the blocks
+(`DetectorSpec`, `LdpcSettings`), the theme list and the palette (`comrs.plot`) have one
+source; the trial recording, the metrics and the guards of the bindings call the
+crates; the tools share `tools/_common.py`. `erfc` is accurate to 8·10⁻¹⁶ (Cody 1969):
+the closed forms move by at most 1.1·10⁻⁷ relative, no verdict changes. The guide, the
+drifted docs and the weak tests are fixed, and mypy checks the stubs and the package
+in CI. Every result of the benchmark (92 cases), of the validation cards and of the CI
+specifications is unchanged, apart from `posterior_rates` (10⁻¹⁴), the PAS LLRs
+(10⁻¹²) and the closed forms of `erfc`.

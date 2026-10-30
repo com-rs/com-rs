@@ -16,6 +16,9 @@ Function               View
                        confidence intervals and an optional closed form
 =====================  ===============================================================
 
+The colours are named constants of this module (``comrs.plot.BLUE``, ``GREY``, the
+categorical cycle ``SERIES``…), shared by the gallery and the documentation.
+
 matplotlib is needed (``pip install matplotlib``); it is imported when a function is
 called.
 
@@ -41,8 +44,45 @@ from comrs._comrs import psd as _psd
 
 __all__ = ["constellation", "curves", "eye", "psd", "time"]
 
+# The palette of the figures of com-rs (these functions, the gallery and the
+# documentation): a colour is named, never written as a value.
+
+# neutrals, from the darkest
+TEXT = "#0b0b0b"  # titles and text
+INK = "#1f1f1d"  # a curve or a label in black
+LABEL = "#2b2a28"  # axis labels; the darkest curve of a family
+MUTED = "#52514e"  # ticks; closed forms and annotations
+GREY = "#8a8984"  # reference lines: capacity, AWGN, limits, chance
+GREY_WARM = "#8a8780"  # values read on a published figure, cut-off lines
+EDGE = "#b9b8b3"  # the axes
+RULE = "#d0cfca"  # lines through the origin
+GRID = "#e6e5e1"  # the grid, shaded bands
+PAPER = "#f3f1ec"  # the empty cells of a resource grid
+BACKGROUND = "#fcfcfb"  # figures and axes, and the edges of the markers on them
+
+# the categorical slots, in their fixed order (a validated light palette): the colour
+# cycle of every figure
+BLUE = "#2a78d6"
+ORANGE = "#eb6834"
+GREEN = "#1baf7a"
+AMBER = "#eda100"
+PINK = "#e87ba4"
+DEEP_GREEN = "#008300"
+VIOLET = "#6250d6"
+RED = "#e34948"
+SERIES = [BLUE, ORANGE, GREEN, AMBER, PINK, DEEP_GREEN, VIOLET, RED]
+
+# a second categorical set, for the curves that a figure compares by hand (ColorBrewer
+# Dark2, two more blues and a red)
+TEAL = "#1b9e77"
+RUST = "#d95f02"
+PURPLE = "#7570b3"
+COBALT = "#2a6fdb"
+SKY = "#8fb8e6"
+CRIMSON = "#c0392b"
+
 #: Colours of the antennas or polarisations, in order.
-STREAM_COLORS = ["#2a6fdb", "#d95f02", "#1b9e77", "#7570b3"]
+STREAM_COLORS = [COBALT, RUST, TEAL, PURPLE]
 
 
 def _axes(ax):
@@ -127,7 +167,7 @@ def constellation(
     if reference is not True and reference is not False:
         points = np.asarray(getattr(reference, "points", reference))
     if reference is not False and points is not None:
-        ax.plot(points.real, points.imag, "+", color="#1f1f1d", markersize=7, mew=1.2)
+        ax.plot(points.real, points.imag, "+", color=INK, markersize=7, mew=1.2)
     ax.set_aspect("equal")
     ax.set(xlabel="in phase", ylabel="quadrature")
     if stream is None and len(streams) > 1 and not density:
@@ -321,10 +361,10 @@ def curves(
         label = None if by is None else f"{by} = {g}" if not isinstance(g, str) else g
         if errorbars:
             line = ax.errorbar(xs, ys, yerr=[ys - lo, hi - ys], marker=markers[i % len(markers)],
-                               markeredgecolor="#fcfcfb", capsize=2, label=label)[0]  # fmt: skip
+                               markeredgecolor=BACKGROUND, capsize=2, label=label)[0]  # fmt: skip
         else:
             (line,) = ax.plot(
-                xs, ys, marker=markers[i % len(markers)], markeredgecolor="#fcfcfb", label=label
+                xs, ys, marker=markers[i % len(markers)], markeredgecolor=BACKGROUND, label=label
             )
         if theory is not None and xs.size:
             fine = np.linspace(np.min(xs), np.max(xs), 200)

@@ -20,10 +20,10 @@ bit for bit for the sequences and the positions, to 10⁻¹⁴ for the waveforms
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE, CRIMSON, PAPER, SKY, TEAL
 from matplotlib.colors import ListedColormap
 
 import comrs
+from comrs.plot import BLUE, CRIMSON, PAPER, SKY, TEAL
 
 # %%
 # Numerology

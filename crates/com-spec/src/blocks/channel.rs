@@ -8,7 +8,7 @@ use com_core::Result;
 use com_core::ensure;
 use com_core::rng::Rng;
 use com_dsp::filter;
-use com_hardware::converter::{self, Adc, Dac, Quantizer};
+use com_hardware::converter::{Adc, Dac, Quantizer};
 use com_hardware::iq;
 use com_hardware::oscillator::{PhaseOrigin, frequency_offset, increment_sd, wiener_phase};
 use com_math::C64;
@@ -332,26 +332,10 @@ block_params! {
     }
 }
 
-/// The quantiser of a converter block: the full scale, or the loading (optimal for a
-/// Gaussian input by default) times the RMS value of one dimension of the samples.
-fn block_quantizer(
-    name: &str,
-    bits: u32,
-    full_scale: Option<f64>,
-    loading: Option<f64>,
-    samples: &[C64],
-) -> Result<Quantizer> {
-    if let Some(a) = full_scale {
-        return Quantizer::new(bits, a);
-    }
-    let rms = converter::rms_per_dimension(samples);
-    ensure(rms > 0.0, || format!("{name}: the samples are zero, give the full scale"))?;
-    Quantizer::with_loading(bits, rms, loading.unwrap_or_else(|| converter::optimal_loading(bits)))
-}
-
 impl Block for AdcSpec {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        let quantizer = block_quantizer("adc", self.bits, self.full_scale, self.loading, &s.samples)?;
+        let quantizer = Quantizer::for_signal(self.bits, self.full_scale, self.loading, &s.samples)
+            .map_err(|e| e.context("adc"))?;
         let adc = Adc { quantizer, enob: self.enob, jitter_s: self.jitter_s, bandwidth_hz: self.bandwidth_hz };
         s.samples = adc.convert(&s.samples, s.fs(), rng).map_err(|e| e.context("adc"))?;
         Ok(())
@@ -370,7 +354,8 @@ block_params! {
 
 impl Block for DacSpec {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
-        let quantizer = block_quantizer("dac", self.bits, self.full_scale, self.loading, &s.samples)?;
+        let quantizer = Quantizer::for_signal(self.bits, self.full_scale, self.loading, &s.samples)
+            .map_err(|e| e.context("dac"))?;
         let dac = Dac { quantizer, hold: 1, bandwidth_hz: self.bandwidth_hz };
         s.samples = dac.convert(&s.samples, s.fs()).map_err(|e| e.context("dac"))?;
         Ok(())

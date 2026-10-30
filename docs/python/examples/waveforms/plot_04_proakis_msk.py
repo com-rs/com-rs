@@ -20,9 +20,9 @@ checks the precoded case in CI within 4 % at 2, 4 and 6 dB.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, MUTED
 
 EBN0 = np.arange(0.0, 9.0, 1.0)
 results = comrs.run_spec(

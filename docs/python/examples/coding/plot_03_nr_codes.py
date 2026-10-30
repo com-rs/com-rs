@@ -18,9 +18,9 @@ information with puncturing, shortening and repetition.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE, CRIMSON, TEAL
 
 import comrs
+from comrs.plot import BLUE, CRIMSON, TEAL
 
 # %%
 # The LDPC code: base graphs and lifting

@@ -29,9 +29,9 @@ OptiCommPy (``tests/test_oracle.py`` compares them on the same inputs);
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, GREY, MUTED
 
 VPI = 2.0
 

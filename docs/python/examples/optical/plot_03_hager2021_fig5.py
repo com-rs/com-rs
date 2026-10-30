@@ -23,9 +23,10 @@ phase with one step per span), fixed since.
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-from _gallery_utils import BACKGROUND, SPECS
+from _gallery_utils import SPECS
 
 import comrs
+from comrs.plot import BACKGROUND
 
 text = (SPECS / "validation/hager2021_fig5.yaml").read_text()
 spec = yaml.safe_load(text)

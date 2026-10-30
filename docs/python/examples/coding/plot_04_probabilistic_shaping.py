@@ -23,10 +23,10 @@ optimised for the shaped bit channels.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, COBALT, GREY, MUTED, RUST
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, COBALT, GREY, MUTED, RUST
 
 # %%
 # The rates of uniform and shaped 64-QAM against the capacity.

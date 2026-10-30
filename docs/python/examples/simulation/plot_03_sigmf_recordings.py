@@ -26,9 +26,9 @@ import tempfile
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE, GREY_WARM
 
 import comrs
+from comrs.plot import BLUE, GREY_WARM
 
 # %%
 # A recording

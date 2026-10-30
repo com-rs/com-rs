@@ -28,9 +28,9 @@ through the time-domain channel.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import GRID, LABEL
 
 import comrs
+from comrs.plot import GRID, LABEL
 
 N, K, BLOCKS = 64, 36, 2000
 rng = comrs.Rng(2014)

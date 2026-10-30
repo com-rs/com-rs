@@ -22,9 +22,9 @@ standard figure of merit.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, GREY, MUTED
 
 BLOCKS = 4000
 t = np.arange(4.0, 12.6, 0.1)

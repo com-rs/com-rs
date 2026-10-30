@@ -11,9 +11,9 @@ of the bit error rate accurate at high SNR.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, BLUE, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, BLUE, MUTED
 
 fig, axes = plt.subplots(1, 3, figsize=(9.5, 3.6))
 for ax, (kind, m) in zip(axes, [("qam", 16), ("psk", 8), ("pam", 4)], strict=True):

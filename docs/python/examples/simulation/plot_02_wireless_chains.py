@@ -28,10 +28,11 @@ collects the time diversity, where the BER of the coded bits only falls as
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, COBALT, GREY, RUST, SPECS, ber_rayleigh_mrc
+from _gallery_utils import SPECS
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, COBALT, GREY, RUST
 
 
 def rate(results, metric, key=None, value=None):
@@ -64,10 +65,10 @@ for scheme, branches, marker, label in [
         linestyle="none", label=label,
     )  # fmt: skip
     ax.semilogy(
-        fine, ber_rayleigh_mrc(comrs.db2lin(fine - 3.0103), branches), ":", color=line.get_color()
+        fine, comrs.theory_ber_rayleigh_mrc(fine - 3.0103, branches), ":", color=line.get_color()
     )
 ax.semilogy(
-    fine, ber_rayleigh_mrc(comrs.db2lin(fine), 1), color=GREY, linewidth=1.2, label="SISO Rayleigh"
+    fine, comrs.theory_ber_rayleigh_mrc(fine, 1), color=GREY, linewidth=1.2, label="SISO Rayleigh"
 )
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", ylim=(1e-6, 0.5), xlim=(0, 16),
@@ -102,7 +103,7 @@ for est, marker, label in [
         eb, rate(res, "ber", "estimation", est), marker=marker, markeredgecolor=BACKGROUND,
         label=label,
     )  # fmt: skip
-ax.semilogy(fine := np.linspace(0, 25, 101), ber_rayleigh_mrc(comrs.db2lin(fine), 1), ":",
+ax.semilogy(fine := np.linspace(0, 25, 101), comrs.theory_ber_rayleigh_mrc(fine, 1), ":",
             color=GREY, label="Rayleigh, closed form")  # fmt: skip
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", xlim=(0, 25),

@@ -31,9 +31,9 @@ Four panels, each to open next to the figure of the paper it reproduces:
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import MUTED
 
 import comrs
+from comrs.plot import MUTED
 
 TAU = 2 * np.pi
 QPSK = comrs.Constellation("qam", 4).normalized()

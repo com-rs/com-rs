@@ -22,10 +22,11 @@ same SNR. Both campaigns run on the parallel Rust runner.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, COBALT, GREY, SPECS
+from _gallery_utils import SPECS
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, COBALT, GREY
 
 spec = SPECS / "coherent_link.yaml"
 link = comrs.Chain.from_spec(spec)

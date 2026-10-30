@@ -10,10 +10,10 @@ Monte Carlo campaign on every core, with a stopping rule and confidence interval
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, MUTED
 
 # %%
 # **The generator.** There is no global random state: every function that draws takes

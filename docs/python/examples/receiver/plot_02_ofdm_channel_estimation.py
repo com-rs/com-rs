@@ -19,9 +19,9 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 N, K, CP, FS = 256, 200, 16, 3.84e6
 ofdm = comrs.Ofdm(N, K, oversampling=1, n_cp=CP)

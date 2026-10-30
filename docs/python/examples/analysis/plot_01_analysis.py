@@ -24,10 +24,10 @@ root-raised-cosine link with phase noise.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import GREY
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import GREY
 
 # %%
 # Variants: the window of blind phase search.

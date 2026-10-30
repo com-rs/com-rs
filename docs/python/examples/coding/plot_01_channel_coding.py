@@ -20,9 +20,9 @@ closes most of the gap — the reason why 5G NR uses it for its control channels
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, GREY, MUTED
 
 
 def simulate(code, ebn0_db, blocks, seed=1):

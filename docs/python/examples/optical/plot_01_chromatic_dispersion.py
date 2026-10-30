@@ -12,9 +12,9 @@ accumulated dispersion (:func:`comrs.cd_fir_taps`).
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 import comrs
+from comrs.plot import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 RS, SPS = 32e9, 2
 FS = RS * SPS

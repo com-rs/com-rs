@@ -22,9 +22,9 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 NR = NT = 4
 c = comrs.Constellation("qam", 4).normalized()

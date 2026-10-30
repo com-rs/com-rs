@@ -21,9 +21,9 @@ by the adjacent channel leakage ratio, ACLR).
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, BLUE, GREY, MUTED, ORANGE
 
 import comrs
+from comrs.plot import BACKGROUND, BLUE, GREY, MUTED, ORANGE
 
 r = np.linspace(0.0, 2.0, 400)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.8))

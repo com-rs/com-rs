@@ -31,9 +31,9 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, MUTED
 
 TWO_PI_H = [0.3, 0.5, 0.7, 1.0]
 qfunc = np.vectorize(comrs.qfunc)

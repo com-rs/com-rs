@@ -29,9 +29,9 @@ information or rate:
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 N, BLOCKS = 128, 1500
 ofdm = comrs.Ofdm(N, N)

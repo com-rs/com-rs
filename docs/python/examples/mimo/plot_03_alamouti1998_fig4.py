@@ -22,10 +22,10 @@ CI. Open Fig. 4 of the paper next to this figure: the five curves are the same.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED, ber_rayleigh_mrc
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, MUTED
 
 
 def system(n_tx, n_rx):
@@ -54,7 +54,11 @@ eb = np.linspace(0, 50, 251)
 for (name, (nt, nr, order, share, last)), marker in zip(
     systems.items(), ["o", "s", "D", "^", "v"], strict=True
 ):
-    (line,) = ax.semilogy(eb, ber_rayleigh_mrc(share * 10 ** (eb / 10), order), linewidth=1.4)
+    (line,) = ax.semilogy(
+        eb,
+        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(share * 10 ** (eb / 10)), order),
+        linewidth=1.4,
+    )
     res = system(nt, nr).run(
         grid={"ebn0_db": list(range(0, last + 1, 4))},
         metrics={"report": ["ber"], "scale": "none"},
@@ -81,7 +85,9 @@ fig.tight_layout()
 # with half the power per antenna, which is the conclusion of the paper.
 for order in [2, 4]:
     g = 10 ** (np.linspace(10, 30, 201) / 10)
-    ratio = ber_rayleigh_mrc(g, order) / ber_rayleigh_mrc(g / 2, order)
+    ratio = comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g), order) / comrs.theory_ber_rayleigh_mrc(
+        comrs.lin2db(g / 2), order
+    )
     print(
         f"order {order}: the BER ratio of MRRC to the new scheme tends to {ratio[-1]:.3f} = 2^-{order}"
     )

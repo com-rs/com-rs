@@ -16,10 +16,10 @@ rate with its Wilson interval. BPSK and QPSK share the same curve
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 from comrs import sim
+from comrs.plot import BACKGROUND, MUTED
 
 ORDERS = [2, 4, 8, 16]
 

@@ -23,9 +23,9 @@ Every curve below is checked against its closed form by
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 rng = comrs.Rng(1)
 

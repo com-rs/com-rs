@@ -28,9 +28,9 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 # %%
 # The thresholds of LAMA

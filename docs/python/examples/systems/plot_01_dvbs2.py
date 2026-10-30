@@ -28,10 +28,10 @@ code has an effective rate of 4/9 (Table 5b).
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, COBALT, GREY, INK, PURPLE, RULE, RUST, TEAL
 
 import comrs
 from comrs import blocks as B
+from comrs.plot import BACKGROUND, COBALT, GREY, INK, PURPLE, RULE, RUST, TEAL
 
 # %%
 # The spectral efficiency of the 28 MODCODs at the thresholds of Table 13.

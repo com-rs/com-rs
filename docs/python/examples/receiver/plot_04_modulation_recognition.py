@@ -25,9 +25,9 @@ sample per symbol, with the timing and the carrier recovered.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, LABEL, ORANGE
 
 import comrs
+from comrs.plot import BACKGROUND, GREY, LABEL, ORANGE
 
 rng = comrs.Rng(1)
 NAMES = ["BPSK", "QPSK", "8-PSK", "16-QAM", "64-QAM"]

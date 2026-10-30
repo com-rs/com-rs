@@ -18,9 +18,9 @@ errors, and the sweep of a constellation stops once its BER falls below
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, MUTED
 
 results = comrs.run_spec(
     """

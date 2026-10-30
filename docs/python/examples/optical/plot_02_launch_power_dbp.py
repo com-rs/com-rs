@@ -20,9 +20,9 @@ moves to a higher power and a higher SNR (Ip & Kahn, *J. Lightw. Technol.* 26(20
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
+from comrs.plot import BACKGROUND, MUTED
 
 RS, SPS, N = 32e9, 4, 4096
 FS = RS * SPS

@@ -35,9 +35,9 @@ settled by an exact computation or by the paper's own figures:
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 import comrs
+from comrs.plot import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 rng = comrs.Rng(32)
 

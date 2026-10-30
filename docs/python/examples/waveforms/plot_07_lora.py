@@ -30,9 +30,9 @@ LoRa is a trademark of Semtech; this models the published descriptions for resea
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import MUTED
 
 import comrs
+from comrs.plot import MUTED
 
 
 def ser_sim(css, snr_db, n, seed, taps=(1.0,)):

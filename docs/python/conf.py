@@ -10,15 +10,16 @@ from pathlib import Path
 
 import comrs
 
-# `reset_style` below is referenced by name by the gallery, and the examples import
-# `_gallery_utils` (the folders of the repository, the palette); the themes are those of
-# `tools/_common.py`
+# `reset_style` below is referenced by name by the gallery; the examples that read the
+# specifications of the repository import `_gallery_utils`; the palette is that of
+# `comrs.plot`, the themes those of `tools/_common.py`
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.append(str(HERE.parents[1] / "tools"))
 
 from _common import GALLERY_THEMES  # noqa: E402
-from _gallery_utils import BACKGROUND, EDGE, GRID, LABEL, MUTED, SERIES, TEXT  # noqa: E402
+
+from comrs.plot import BACKGROUND, EDGE, GRID, LABEL, MUTED, SERIES, TEXT  # noqa: E402
 
 project = "comrs"
 author = "Vincent Choqueuse"

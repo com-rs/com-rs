@@ -16,9 +16,9 @@ decoder) collects the receive diversity that the linear detectors lose.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import AMBER, BACKGROUND, GREY
 
 import comrs
+from comrs.plot import AMBER, BACKGROUND, GREY
 
 ofdm = comrs.Ofdm(128, 100, n_cp=16)
 c = comrs.Constellation("qam", 4).normalized()

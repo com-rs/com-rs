@@ -32,9 +32,9 @@ same values with tolerances (``docs/LITERATURE.md`` lists the gaps that remain).
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import GREY, LABEL, MUTED
 
 import comrs
+from comrs.plot import GREY, LABEL, MUTED
 
 fig, axes = plt.subplots(1, 3, figsize=(14, 4.4), width_ratios=[1.15, 1, 1])
 

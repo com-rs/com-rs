@@ -18,9 +18,9 @@ seed.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 N = 200_000
 points = np.arange(0.0, 41.0, 4.0)

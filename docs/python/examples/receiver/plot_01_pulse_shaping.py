@@ -11,9 +11,9 @@ of the pulse tails and the sensitivity to timing errors — which the eye diagra
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BLUE
 
 import comrs
+from comrs.plot import BLUE
 
 SPS = 16
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.8))

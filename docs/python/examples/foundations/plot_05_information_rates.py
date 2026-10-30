@@ -16,9 +16,9 @@ The curves are computed by Gauss–Hermite quadrature (:func:`comrs.theory_mi`,
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY, ORANGE
 
 import comrs
+from comrs.plot import BACKGROUND, GREY, ORANGE
 
 snr = np.arange(-5.0, 30.5, 1.0)
 fig, ax = plt.subplots()

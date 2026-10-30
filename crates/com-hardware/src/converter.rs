@@ -101,6 +101,22 @@ impl Quantizer {
         Quantizer::new(bits, loading * rms)
     }
 
+    /// The quantiser of a signal: the full scale `full_scale` if given, otherwise
+    /// `loading` (the optimal loading of [`optimal_loading`] by default) times the RMS
+    /// value of one dimension of `x` (an automatic gain control before the converter).
+    ///
+    /// # Errors
+    /// As [`Quantizer::new`]; [`com_core::Error::Config`] if the full scale is not given
+    /// and `x` is zero.
+    pub fn for_signal(bits: u32, full_scale: Option<f64>, loading: Option<f64>, x: &[C64]) -> Result<Quantizer> {
+        if let Some(a) = full_scale {
+            return Quantizer::new(bits, a);
+        }
+        let rms = rms_per_dimension(x);
+        ensure(rms > 0.0, || "the signal is zero: give the full scale".to_string())?;
+        Quantizer::with_loading(bits, rms, loading.unwrap_or_else(|| optimal_loading(bits)))
+    }
+
     /// The step $\Delta = 2A/2^{N}$.
     pub fn step(&self) -> f64 {
         2.0 * self.full_scale / 2f64.powi(self.bits as i32)
@@ -352,6 +368,17 @@ fn band_limit(x: &[C64], fs: f64, bandwidth: Option<f64>) -> Result<Vec<C64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quantizer_of_a_signal_follows_its_rms_unless_the_full_scale_is_given() {
+        let x = vec![C64::new(2.0, -2.0); 8];
+        assert_eq!(Quantizer::for_signal(8, Some(3.0), None, &x).unwrap(), Quantizer::new(8, 3.0).unwrap());
+        let q = Quantizer::for_signal(8, None, Some(4.0), &x).unwrap();
+        assert_eq!(q, Quantizer::with_loading(8, rms_per_dimension(&x), 4.0).unwrap());
+        let auto = Quantizer::for_signal(8, None, None, &x).unwrap();
+        assert_eq!(auto, Quantizer::with_loading(8, 2.0, optimal_loading(8)).unwrap());
+        assert!(Quantizer::for_signal(8, None, None, &[C64::new(0.0, 0.0); 4]).is_err());
+    }
 
     #[test]
     fn levels_steps_and_clipping() {

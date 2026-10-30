@@ -7,27 +7,6 @@ use comrs::hardware::converter::{self as conv, Adc, Dac, Quantizer};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-/// The quantiser of `bits` bits: the given full scale, or `loading` (the optimal one
-/// for a Gaussian input by default) times the RMS value of one dimension of `x`.
-fn quantizer(
-    x: &[num_complex::Complex64],
-    bits: u32,
-    full_scale: Option<f64>,
-    loading: Option<f64>,
-) -> PyResult<Quantizer> {
-    match full_scale {
-        Some(a) => Quantizer::new(bits, a).py(),
-        None => {
-            let l = loading.unwrap_or_else(|| conv::optimal_loading(bits));
-            let rms = conv::rms_per_dimension(x);
-            if rms <= 0.0 {
-                return Err(PyValueError::new_err("the signal is zero: give the full scale"));
-            }
-            Quantizer::with_loading(bits, rms, l).py()
-        }
-    }
-}
-
 /// An analogue-to-digital converter on the in-phase and quadrature components: the
 /// front-end bandwidth (Gaussian, 3 dB at ``bandwidth_hz``), the sampling-clock jitter
 /// (first order), the noise of the effective number of bits, then a uniform mid-rise
@@ -72,7 +51,7 @@ fn adc<'py>(
     rng: Option<PyRefMut<'_, PyRng>>,
 ) -> PyResult<CArr<'py>> {
     let x = cvec(x)?;
-    let a = Adc { quantizer: quantizer(&x, bits, full_scale, loading)?, enob, jitter_s, bandwidth_hz };
+    let a = Adc { quantizer: Quantizer::for_signal(bits, full_scale, loading, &x).py()?, enob, jitter_s, bandwidth_hz };
     let random = enob.is_some() || jitter_s > 0.0;
     let y = match rng {
         Some(mut r) => {
@@ -120,7 +99,7 @@ fn dac<'py>(
     bandwidth_hz: Option<f64>,
 ) -> PyResult<CArr<'py>> {
     let x = cvec(x)?;
-    let d = Dac { quantizer: quantizer(&x, bits, full_scale, loading)?, hold, bandwidth_hz };
+    let d = Dac { quantizer: Quantizer::for_signal(bits, full_scale, loading, &x).py()?, hold, bandwidth_hz };
     Ok(carr(py, py.detach(|| d.convert(&x, fs)).py()?))
 }
 

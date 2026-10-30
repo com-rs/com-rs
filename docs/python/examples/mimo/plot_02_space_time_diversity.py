@@ -19,9 +19,9 @@ lines are the closed form of MRC with :math:`L` branches of mean SNR :math:`\\ga
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, MUTED, ber_rayleigh_mrc
 
 import comrs
+from comrs.plot import BACKGROUND, MUTED
 
 code = comrs.Ostbc.alamouti()
 points = np.arange(0.0, 31.0, 3.0)
@@ -65,7 +65,11 @@ eb = np.linspace(0, 30, 301)
 for (name, (nt, nr, branches, share)), marker in zip(
     configs.items(), ["o", "s", "D", "^"], strict=True
 ):
-    (line,) = ax.semilogy(eb, ber_rayleigh_mrc(share * 10 ** (eb / 10), branches), linewidth=1.4)
+    (line,) = ax.semilogy(
+        eb,
+        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(share * 10 ** (eb / 10)), branches),
+        linewidth=1.4,
+    )
     sim = np.array([simulate(nt, nr, e, seed=nt * 10 + nr) for e in points])
     keep = sim > 0
     ax.semilogy(

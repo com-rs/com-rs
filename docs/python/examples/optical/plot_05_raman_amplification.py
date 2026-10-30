@@ -34,9 +34,10 @@ profiles, the noise and the nonlinear interference against GNPy.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, COBALT, GREY, INK, RUST, SPECS
+from _gallery_utils import SPECS
 
 import comrs
+from comrs.plot import BACKGROUND, COBALT, GREY, INK, RUST
 
 # %%
 # The power of one channel along a span of 100 km, by direction of pumping.

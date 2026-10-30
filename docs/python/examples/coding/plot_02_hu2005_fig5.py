@@ -22,9 +22,9 @@ uncoded BPSK.
 
 import matplotlib.pyplot as plt
 import numpy as np
-from _gallery_utils import BACKGROUND, GREY
 
 import comrs
+from comrs.plot import BACKGROUND, GREY
 
 code = comrs.LdpcCode.peg(504, 252, var_degree=3, seed=1)
 code.set_decoder("sum_product", layered=False, max_iterations=100)
