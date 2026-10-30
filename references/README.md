@@ -181,6 +181,12 @@ One section per folder of `references/`, the papers sorted by year.
 | C. Jeon, R. Ghods, A. Maleki, C. Studer, "Optimal data detection in large MIMO," arXiv 1811.01917, 2018 | LAMA (`com_mimo::message_passing`): Table II (recovery thresholds and critical noise variances), the operating points of Sec. V, Fig. 6(a), checked by `validation/tests/message_passing.rs` | have | `mimo/2018_jeon_optimal-detection-large-mimo_arxiv.pdf` |
 | M. A. Albreem, M. Juntti, S. Shahabuddin, "Massive MIMO detection techniques: a survey," *IEEE Commun. Surveys Tuts.* 21(4), 2019 (DOI 10.1109/COMST.2019.2935810) | the massive-MIMO detectors: linear, AMP (`com_mimo::message_passing`), and the approximate matrix inversions (Neumann series, Gauss–Seidel, Jacobi, SOR, conjugate gradient) not yet implemented | needed (AMP, linear); next (approximate inversion) | `mimo/2019_albreem_massive-mimo-detection-survey_comst.pdf` |
 
+### Multiple access: NOMA, multi-user (`multiple-access/`)
+
+| Paper | Needed for | Status | File |
+|---|---|---|---|
+| Z. Ding, X. Lei, G. K. Karagiannidis, R. Schober, J. Yuan, V. K. Bhargava, "A survey on non-orthogonal multiple access for 5G networks: research challenges and future trends," *IEEE J. Sel. Areas Commun.* 35(10), 2017 (arXiv 1706.05347) | power-domain NOMA with superposition coding and successive interference cancellation, and its outage and sum-rate closed forms; not implemented | needed | `multiple-access/2017_ding_noma-5g-survey_jsac_arxiv.pdf` |
+
 ### Wireless channels: fading and multipath (`wireless-channels/`)
 
 | Paper | Needed for | Status | File |
