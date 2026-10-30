@@ -332,7 +332,11 @@ impl Constellation {
     }
 
     /// Average energy `Σ p_i |x_i|²` under the probabilities `px`.
+    ///
+    /// # Panics
+    /// If `px` does not hold one probability per point.
     pub fn energy_with(&self, px: &[f64]) -> f64 {
+        assert_eq!(px.len(), self.points.len(), "energy_with: one probability per point");
         self.points.iter().zip(px).map(|(p, w)| w * p.norm_sqr()).sum()
     }
 
@@ -444,6 +448,12 @@ pub fn qam_side(m: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "energy_with: one probability per point")]
+    fn energy_with_rejects_too_few_probabilities_instead_of_truncating() {
+        let _ = Constellation::qam(4).unwrap().energy_with(&[0.5, 0.5]);
+    }
 
     #[test]
     fn normalized_under_treats_unnormalised_priors_as_their_normalisation() {

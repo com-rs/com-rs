@@ -49,6 +49,9 @@ use com_math::linalg::{CMat, hermitian, identity, solve_hpd};
 /// $R(\Delta k) = \sum_{l} p_{l}\, e^{-j 2\pi \Delta k\, d_{l} / N}$, the delays in samples
 /// of the IFFT of size $N$: the correlations of the LMMSE estimator.
 ///
+/// # Panics
+/// If `delays` and `powers` have different lengths.
+///
 /// # Examples
 /// ```
 /// use com_dsp::estimation::frequency_correlation;
@@ -57,6 +60,7 @@ use com_math::linalg::{CMat, hermitian, identity, solve_hpd};
 /// assert!(r.norm() < 1e-15);
 /// ```
 pub fn frequency_correlation(delays: &[f64], powers: &[f64], delta: f64, n_fft: usize) -> C64 {
+    assert_eq!(delays.len(), powers.len(), "frequency_correlation: one power per delay");
     delays
         .iter()
         .zip(powers)
@@ -110,6 +114,12 @@ pub fn lmmse_mse(r_qp: &CMat, r_pp: &CMat, noise_to_pilot: f64, r_qq_diag: &[f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "frequency_correlation: one power per delay")]
+    fn frequency_correlation_rejects_a_power_per_delay_mismatch() {
+        let _ = frequency_correlation(&[0.0, 1.0], &[1.0], 1.0, 16);
+    }
     use com_core::rng::Rng;
     use ndarray::Array2;
 
