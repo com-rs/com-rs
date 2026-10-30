@@ -8,12 +8,17 @@
 //! 3. runs batches of `batch` trials in parallel, trial `t` drawing from
 //!    `stream(seed, name, condition index, t)`, merges their records in trial order,
 //!    and after every batch evaluates the stopping rule and calls
-//!    [`Callback::on_batch_end`];
+//!    [`Callback::on_batch_end`]; after the first batch it checks that the targets of
+//!    the rule are recorded ([`Stop::check_metrics`]), and the last batch ends at the
+//!    bound of the rule on the trials ([`Stop::trial_limit`]);
 //! 4. hands the [`ConditionResult`] to the callbacks and the loggers.
 //!
-//! The results are identical whatever the number of threads (see [`crate`]); the
-//! batch size only sets how often the rule is checked (a larger batch keeps every core
-//! busy, a smaller one stops closer to the target).
+//! The results are identical whatever the number of threads (see [`crate`]). The batch
+//! size only sets how often the rule is checked (a larger batch keeps every core busy, a
+//! smaller one stops closer to an error or precision target); a bound on the trials is
+//! met exactly, so that `max_trials(1000)` runs 1000 trials with batches of 32 as with
+//! batches of 1.
+//! Every condition runs at least one trial.
 //!
 //! # Examples
 //! ```
@@ -85,7 +90,8 @@ pub struct ConditionResult {
     pub trials: u64,
     /// Wall time of the condition, setup included (s).
     pub wall_s: f64,
-    /// The metrics merged over the trials.
+    /// The metrics merged over the trials, with the counts of the values dropped
+    /// ([`Record::dropped`]).
     pub record: Record,
 }
 
@@ -228,9 +234,11 @@ impl Runner {
     /// Run the scenario on every condition of the grid.
     ///
     /// # Errors
-    /// [`Error::Config`] for a stopping rule that can never stop; the first error of a
-    /// `setup` or of a trial, of the same kind, with the condition and the trial in the
-    /// message; the errors of the loggers.
+    /// [`Error::Config`] for a stopping rule that can never stop, or whose target is a
+    /// metric that the first batch of a condition does not record (or `min_errors` on a
+    /// mean, see [`Stop::check_metrics`]); the first error of a `setup` or of a trial, of
+    /// the same kind, with the condition and the trial in the message; the errors of the
+    /// loggers.
     pub fn run<S: Scenario>(mut self, scenario: &S, grid: &Grid) -> Result<Vec<ConditionResult>> {
         if !self.fast_dev_run && !self.stop.is_bounded() {
             return Err(Error::Config(format!(
@@ -320,8 +328,11 @@ impl Runner {
         let name = scenario.name().to_string();
         let mut record = Record::new();
         let mut trials = 0u64;
+        // the last batch ends at the bound on the trials (one batch, whole, for a dev run)
+        let limit = if self.fast_dev_run { None } else { self.stop.trial_limit() };
         let status = loop {
-            let range = trials..trials + self.batch;
+            let end = limit.map_or(trials + self.batch, |n| (trials + self.batch).min(n).max(trials + 1));
+            let range = trials..end;
             let seed = self.seed;
             let recs: Vec<Result<Record>> = pool.install(|| {
                 range
@@ -339,7 +350,10 @@ impl Runner {
             for r in recs {
                 record.merge(&r?);
             }
-            trials += self.batch;
+            if trials == 0 {
+                self.stop.check_metrics(&record).map_err(|e| e.context(format!("({})", cond.label())))?;
+            }
+            trials = end;
             let progress = Progress { condition: index, trials, record: &record, elapsed: t0.elapsed() };
             let mut stopped = false;
             for c in &mut self.callbacks {
@@ -361,7 +375,83 @@ impl Runner {
     }
 }
 
-/// Wall time as a [`Duration`] from seconds (helper of the callbacks).
+/// Wall time as a [`Duration`] from seconds (helper of the callbacks): zero for a
+/// negative or NaN value, [`Duration::MAX`] for one too large (`∞`).
 pub(crate) fn secs(s: f64) -> Duration {
-    Duration::from_secs_f64(s.max(0.0))
+    if s.is_nan() || s <= 0.0 { Duration::ZERO } else { Duration::try_from_secs_f64(s).unwrap_or(Duration::MAX) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scenario::from_fn;
+
+    fn coin() -> impl Scenario {
+        from_fn("coin", |_, rng, rec| {
+            rec.errors("heads", u64::from(rng.uniform() < 0.3), 1);
+            rec.value("u", rng.uniform());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn max_trials_is_met_exactly_whatever_the_batch_and_the_threads() {
+        let grid = Grid::new().axis("x", [1usize]);
+        let run = |batch: u64, threads: usize| {
+            Runner::new()
+                .seed(5)
+                .batch(batch)
+                .threads(threads)
+                .stop(Stop::max_trials(1000))
+                .run(&coin(), &grid)
+                .unwrap()
+        };
+        let reference = run(1000, 1);
+        for (batch, threads) in [(32, 1), (32, 4), (7, 3), (1, 2), (5000, 2)] {
+            let r = run(batch, threads);
+            assert_eq!(r[0].trials, 1000, "batch {batch}");
+            assert_eq!(r[0].record, reference[0].record, "batch {batch}, {threads} threads");
+        }
+        // an error target stops at the end of a batch, the cap exactly
+        let rule = Stop::min_errors("heads", 1_000_000).or(Stop::max_trials(70));
+        let r = Runner::new().batch(32).stop(rule).run(&coin(), &grid).unwrap();
+        assert_eq!(r[0].trials, 70);
+        // at least one trial
+        let r = Runner::new().batch(32).stop(Stop::max_trials(0)).run(&coin(), &grid).unwrap();
+        assert_eq!(r[0].trials, 1);
+    }
+
+    #[test]
+    fn a_stopping_target_that_is_not_recorded_is_an_error() {
+        let grid = Grid::new().axis("x", [1usize, 2]);
+        let rule = Stop::min_errors("ber", 100).or(Stop::max_trials(10_000));
+        let e = Runner::new().batch(4).stop(rule).run(&coin(), &grid).unwrap_err().to_string();
+        assert!(e.contains("`ber`") && e.contains("recorded: heads, u") && e.contains("x=1"), "{e}");
+        let rule = Stop::min_errors("u", 100).or(Stop::max_trials(10_000));
+        let e = Runner::new().batch(4).stop(rule).run(&coin(), &grid).unwrap_err().to_string();
+        assert!(e.contains("is a mean"), "{e}");
+        // a dev run (`comrs check`) checks it too
+        let rule = Stop::precision("evm", 0.1).or(Stop::max_trials(10));
+        assert!(Runner::new().fast_dev_run(true).stop(rule).run(&coin(), &grid).is_err());
+    }
+
+    #[test]
+    fn seconds_never_panic() {
+        assert_eq!(secs(f64::INFINITY), Duration::MAX);
+        assert_eq!(secs(f64::NAN), Duration::ZERO);
+        assert_eq!(secs(-1.0), Duration::ZERO);
+        assert_eq!(secs(1.5), Duration::from_millis(1500));
+    }
+
+    #[test]
+    fn the_dropped_values_reach_the_result() {
+        let s = from_fn("inf", |_, rng, rec| {
+            rec.value("snr_db", if rng.uniform() < 0.5 { f64::INFINITY } else { 10.0 });
+            Ok(())
+        });
+        let r = Runner::new().batch(8).stop(Stop::max_trials(64)).run(&s, &Grid::new()).unwrap();
+        let kept = r[0].metric("snr_db").unwrap().count();
+        assert!(kept > 0 && r[0].record.dropped("snr_db") > 0);
+        assert_eq!(kept + r[0].record.dropped("snr_db"), 64);
+    }
 }

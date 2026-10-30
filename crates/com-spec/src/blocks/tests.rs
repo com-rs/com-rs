@@ -203,6 +203,30 @@ fn accepted_values_and_bounds_are_checked() {
 }
 
 #[test]
+fn accepted_values_are_parsed_without_case_as_they_are_checked() {
+    let ctx = BuildContext::default();
+    // a typed value (serde, lowercase), a string matched by the block, a list of them
+    for b in [
+        json!({"type": "awgn", "snr_db": 3, "reference": "Unit"}),
+        json!({"type": "pulse_shape", "kind": "RRC", "sps": 2}),
+        json!({"type": "decimate", "method": "Max_Variance"}),
+        json!({"type": "matched_filter", "kind": "Rc"}),
+    ] {
+        assert!(build(&b, &ctx).is_ok(), "{b}: {:?}", build(&b, &ctx).err().map(|e| e.to_string()));
+    }
+    // the same value as written in the declaration gives the same block
+    let lower = run(
+        &[json!({"type": "source", "n_symbols": 64}), json!({"type": "awgn", "snr_db": 3, "reference": "unit"})],
+        1,
+    );
+    let upper = run(
+        &[json!({"type": "source", "n_symbols": 64}), json!({"type": "awgn", "snr_db": 3, "reference": "UNIT"})],
+        1,
+    );
+    assert_eq!(lower.samples, upper.samples);
+}
+
+#[test]
 fn the_documentation_shows_types_units_and_defaults() {
     let info = |n: &str| registry().into_iter().find(|b| b.name == n).unwrap();
     let awgn = info("awgn");

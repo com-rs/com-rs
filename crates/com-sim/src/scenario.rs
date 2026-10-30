@@ -18,6 +18,13 @@
 //! with a normal interval). The runner merges the records of all the trials of a
 //! condition.
 //!
+//! A value that cannot enter its metric is **dropped and counted**, never folded into
+//! the estimate: a non-finite value (the SNR of an error-free trial, `+∞` dB), or an
+//! addition to a metric of the other kind (`errors` on a mean, `value` on a rate).
+//! [`Record::dropped`] gives the count of a metric; the runner keeps the counts of the
+//! merged record and the JSON report lists them (`dropped`), so that a mean that
+//! leaves values out shows it.
+//!
 //! # Examples
 //! ```
 //! use com_sim::prelude::*;
@@ -60,6 +67,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Record {
     metrics: BTreeMap<String, Estimate>,
+    dropped: BTreeMap<String, u64>,
     trial: u64,
 }
 
@@ -81,43 +89,96 @@ impl Record {
     }
 
     /// Add `errors` errors among `total` events to the error rate `name`.
+    ///
+    /// If `name` is already a mean, the addition is dropped and counted
+    /// ([`Record::dropped`]).
     pub fn errors(&mut self, name: &str, errors: u64, total: u64) {
         let e = self.metrics.entry(name.to_string()).or_insert(Estimate::Rate(ErrorRate::default()));
         if let Estimate::Rate(r) = e {
             r.add(errors, total);
+        } else {
+            self.drop_values(name, 1);
         }
     }
 
-    /// Add a value to the mean `name` (non-finite values are ignored).
+    /// Add a value to the mean `name`.
+    ///
+    /// A non-finite value, or a value for a metric that is already an error rate, is
+    /// dropped and counted ([`Record::dropped`]).
     pub fn value(&mut self, name: &str, v: f64) {
         if !v.is_finite() {
+            self.drop_values(name, 1);
             return;
         }
         let e = self.metrics.entry(name.to_string()).or_insert(Estimate::Mean(Mean::default()));
         if let Estimate::Mean(m) = e {
             m.add(v);
+        } else {
+            self.drop_values(name, 1);
         }
     }
 
-    /// Add several values to the mean `name`.
+    /// Add several values to the mean `name` (see [`Record::value`]).
     pub fn values(&mut self, name: &str, vs: impl IntoIterator<Item = f64>) {
         for v in vs {
             self.value(name, v);
         }
     }
 
-    /// Merge another record (metrics of the same name and kind are combined).
+    /// Merge another record: metrics of the same name and kind are combined, the drop
+    /// counts are added. A metric of the other kind is dropped and counted: as many
+    /// values as it holds for a mean, one for a rate.
     pub fn merge(&mut self, o: &Record) {
         for (k, v) in &o.metrics {
             match self.metrics.get_mut(k) {
                 Some(e) => {
-                    e.merge(v);
+                    if !e.merge(v) {
+                        let n = match v {
+                            Estimate::Mean(m) => m.count().max(1),
+                            Estimate::Rate(_) => 1,
+                        };
+                        self.drop_values(k, n);
+                    }
                 }
                 None => {
                     self.metrics.insert(k.clone(), *v);
                 }
             }
         }
+        for (k, n) in &o.dropped {
+            self.drop_values(k, *n);
+        }
+    }
+
+    fn drop_values(&mut self, name: &str, n: u64) {
+        *self.dropped.entry(name.to_string()).or_insert(0) += n;
+    }
+
+    /// The number of values of `name` dropped: non-finite, or of the other kind of
+    /// metric (0 if none).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::scenario::Record;
+    /// let mut rec = Record::new();
+    /// rec.value("snr_db", 12.0);
+    /// rec.value("snr_db", f64::INFINITY);    // an error-free trial
+    /// rec.errors("snr_db", 1, 10);           // the wrong kind
+    /// assert_eq!(rec.get("snr_db").unwrap().count(), 1);
+    /// assert_eq!(rec.dropped("snr_db"), 2);
+    /// ```
+    pub fn dropped(&self, name: &str) -> u64 {
+        self.dropped.get(name).copied().unwrap_or(0)
+    }
+
+    /// The metrics with dropped values and their counts, sorted by name.
+    pub fn dropped_iter(&self) -> impl Iterator<Item = (&String, u64)> {
+        self.dropped.iter().map(|(k, n)| (k, *n))
+    }
+
+    /// Whether `name` was recorded, as an estimate or only as dropped values.
+    pub fn knows(&self, name: &str) -> bool {
+        self.metrics.contains_key(name) || self.dropped.contains_key(name)
     }
 
     /// The estimate of `name`.
@@ -187,5 +248,36 @@ where
 
     fn trial(&self, (): &(), condition: &Condition, rng: &mut Rng, record: &mut Record) -> Result<()> {
         (self.f)(condition, rng, record)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_finite_values_and_wrong_kinds_are_dropped_and_counted() {
+        let mut rec = Record::new();
+        rec.value("snr_db", 10.0);
+        rec.values("snr_db", [f64::INFINITY, f64::NAN, 12.0]);
+        rec.errors("snr_db", 3, 100);
+        rec.errors("ber", 1, 10);
+        rec.value("ber", 0.5);
+        rec.value("only_inf", f64::INFINITY);
+        assert_eq!(rec.get("snr_db").unwrap().count(), 2);
+        assert!((rec.get("snr_db").unwrap().value() - 11.0).abs() < 1e-12);
+        assert_eq!(rec.get("ber").unwrap().total(), 10);
+        assert_eq!((rec.dropped("snr_db"), rec.dropped("ber"), rec.dropped("only_inf")), (3, 1, 1));
+        assert!(rec.get("only_inf").is_none() && rec.knows("only_inf") && !rec.knows("evm"));
+        // merging adds the counts, and drops a metric of the other kind
+        let mut other = Record::new();
+        other.errors("snr_db", 0, 4);
+        other.values("ber", [0.1, 0.2]);
+        other.value("only_inf", f64::NEG_INFINITY);
+        rec.merge(&other);
+        assert_eq!((rec.dropped("snr_db"), rec.dropped("ber"), rec.dropped("only_inf")), (4, 3, 2));
+        assert_eq!(rec.dropped("evm"), 0);
+        let all: Vec<(&String, u64)> = rec.dropped_iter().collect();
+        assert_eq!(all.len(), 3);
     }
 }

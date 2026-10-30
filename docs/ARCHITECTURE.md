@@ -315,8 +315,9 @@ pub fn batch_rng(master_seed: u64, batch: u64) -> SimRng { /* … */ }
 ```
 
 The runner of `com-sim` gives trial `t` of condition `c` of the scenario `name` the
-stream `stream(seed, name, c, t)`, so results do not depend on the thread count or the
-batch size.
+stream `stream(seed, name, c, t)`, so results do not depend on the thread count, nor on
+the batch size when the stopping rule bounds the trials (the last batch ends at
+`max_trials`); an error or precision target is checked after every batch.
 
 ### Units
 
