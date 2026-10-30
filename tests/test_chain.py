@@ -338,9 +338,7 @@ def test_plots_draw_frames_and_results():
     fig = t.plot("constellation")
     assert len([a for a in fig.axes if a.get_visible()]) == 3
     res = awgn_link().run(grid={"snr_db": [4.0, 6.0, 8.0]}, metrics=["ser"], stop={"max_trials": 8})
-    ax = res.plot(
-        "snr_db", "ser", theory=lambda x: [comrs.theory_ser(4, v - 3.0103, "qam") for v in x]
-    )
+    ax = res.plot("snr_db", "ser", theory=lambda x: comrs.theory_ser(4, x - comrs.lin2db(2), "qam"))
     assert ax.get_yscale() == "log"
     with pytest.raises(ValueError, match="2 samples per symbol"):
         comrs.plot.eye(t["tx"])

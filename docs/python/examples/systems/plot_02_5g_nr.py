@@ -91,7 +91,7 @@ for fading, color, label in [
         for _ in range(trials):
             cid = int(rng.integers(1008, 1)[0])
             h = rng.complex_noise(1, 1.0)[0] if fading else np.exp(2j * np.pi * rng.uniform(1)[0])
-            y = h * comrs.nr_ssb_grid(cid).T.ravel() + rng.complex_noise(960, 10 ** (-snr / 10))
+            y = h * comrs.nr_ssb_grid(cid).T.ravel() + rng.complex_noise(960, comrs.db2lin(-snr))
             ok += comrs.nr_detect_cell_id(y.reshape(4, 240).T)[0] == cid
         p_ok.append(ok / trials)
     ax.plot(snrs, p_ok, "o-", color=color, label=label)
@@ -143,7 +143,7 @@ spec = np.fft.fftshift(
 ).mean(0)
 f = np.fft.fftshift(np.fft.fftfreq(n_fft, 1 / fs)) / 1e6
 fig, ax = plt.subplots(figsize=(6.4, 3.0))
-ax.plot(f, 10 * np.log10(spec / spec.max()), color=BLUE, linewidth=1)
+ax.plot(f, comrs.lin2db(spec / spec.max()), color=BLUE, linewidth=1)
 ax.set(xlabel="frequency (MHz)", ylabel="PSD (dB)", ylim=(-40, 3))
 ax.grid(alpha=0.3)
 fig.tight_layout()

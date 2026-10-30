@@ -84,8 +84,8 @@ for er_db in (15.0, 25.0, 35.0):
             for b in biases
         ]
     )
-    ax.plot(biases / VPI, 10 * np.log10(p), label=f"ER = {er_db:.0f} dB")
-    print(f"{er_db:20.1f}   {10 * np.log10(p.max() / p.min()):16.6f}")
+    ax.plot(biases / VPI, comrs.lin2db(p), label=f"ER = {er_db:.0f} dB")
+    print(f"{er_db:20.1f}   {comrs.lin2db(p.max() / p.min()):16.6f}")
 ax.set(
     xlabel=r"bias $V_b/V_\pi$",
     ylabel="output power (dB)",
@@ -171,12 +171,12 @@ swings = np.linspace(0.05, 1.0, 40)
 loss_theory, evm_theory, loss_sim, evm_sim = [], [], [], []
 for swing in swings:
     a = np.sin(np.pi * swing * levels / 2)
-    loss_theory.append(10 * np.log10(np.mean(a**2)))  # (1/2) * 2 E[sin²] per point
+    loss_theory.append(comrs.lin2db(np.mean(a**2)))  # (1/2) * 2 E[sin²] per point
     scaled = levels * np.sqrt(np.mean(a**2) / np.mean(levels**2))
     evm_theory.append(100 * np.sqrt(np.mean((a - scaled) ** 2) / np.mean(a**2)))
 for swing in swings[::4]:
     e = comrs.iqm(np.ones(s.size), swing * VPI * s, **ideal)
-    loss_sim.append(10 * np.log10(np.mean(np.abs(e) ** 2)))
+    loss_sim.append(comrs.lin2db(np.mean(np.abs(e) ** 2)))
     ref = s * np.sqrt(np.mean(np.abs(e) ** 2) / np.mean(np.abs(s) ** 2))
     evm_sim.append(100 * np.sqrt(np.mean(np.abs(e - ref) ** 2) / np.mean(np.abs(e) ** 2)))
 

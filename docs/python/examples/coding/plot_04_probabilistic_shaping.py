@@ -45,7 +45,7 @@ for s in snr:
     rates = [comrs.theory_gmi(64, s, "qam", px=mb(lam), points=20) for lam in lambdas]
     best.append((max(rates), lambdas[int(np.argmax(rates))]))
 fig, ax = plt.subplots()
-ax.plot(snr, np.log2(1 + 10 ** (snr / 10)), color=GREY, linewidth=1.4, label="AWGN capacity")
+ax.plot(snr, np.log2(1 + comrs.db2lin(snr)), color=GREY, linewidth=1.4, label="AWGN capacity")
 ax.plot(snr, [b[0] for b in best], color=COBALT, label="shaped 64-QAM, best λ")
 ax.plot(snr, uniform, color=RUST, label="uniform 64-QAM")
 # simulated links at the best λ of every SNR
@@ -55,7 +55,7 @@ link = comrs.Chain(
 )
 for s, (_, lam) in zip(snr[::2], best[::2], strict=True):
     r = link.run(grid={"snr": [s], "lam": [lam]}, metrics=["gmi"], stop={"max_trials": 8})
-    ax.plot(s, r[0]["metrics"]["gmi"]["value"], "o", color=COBALT, markeredgecolor=BACKGROUND)
+    ax.plot(s, r.series("snr", "gmi")[1], "o", color=COBALT, markeredgecolor=BACKGROUND)
 ax.set(xlabel="SNR (dB)", ylabel="GMI (bits per QAM symbol)", xlim=(0, 24), ylim=(0, 6.5),
        title="Bit-metric decoding of 64-QAM over AWGN")  # fmt: skip
 ax.legend(loc="upper left")
@@ -92,8 +92,8 @@ for (name, chain), marker in zip(links.items(), "osD", strict=True):
     x, y = res.series("snr", "bler", min_count=3)
     keep = y > 0
     ax.semilogy(x[keep], y[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
-ax.axvline(10 * np.log10(2**3 - 1), color=GREY, linestyle=":", linewidth=1.0)
-ax.text(10 * np.log10(7) + 0.05, 0.12, "capacity, 3 bits", rotation=90, fontsize=8, color=MUTED)
+ax.axvline(comrs.lin2db(2**3 - 1), color=GREY, linestyle=":", linewidth=1.0)
+ax.text(comrs.lin2db(7) + 0.05, 0.12, "capacity, 3 bits", rotation=90, fontsize=8, color=MUTED)
 ax.set(xlabel="SNR (dB)", ylabel="block error rate", ylim=(1e-3, 1),
        title="3 bits per QAM symbol over AWGN, codewords of 1536 bits")  # fmt: skip
 ax.legend(loc="upper right")

@@ -116,7 +116,7 @@ for pump, color, marker, label in [(0.0, GREY, "s", "EDFA only"),
     raman = {"pumps": [{"wavelength_nm": 1450, "power_mw": pump, "direction": "counter"}]}
     gn = [comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1, raman=raman)["snr_db"] for p in fine]
     ax.plot(fine, gn, color=color, label=f"{label}, GN model")
-    snr = [r["metrics"]["snr_db"]["value"] for r in res if r["condition"]["pump_mw"] == pump]
+    _, snr = res.series("power_dbm", "snr_db", pump_mw=pump)
     ax.plot(powers, snr, marker=marker, linestyle="none", color=color, markeredgecolor=BACKGROUND,
             label=f"{label}, Manakov")  # fmt: skip
 ax.set(xlabel="launch power per channel (dBm)", ylabel="SNR (dB)", ylim=(10, 30),

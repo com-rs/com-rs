@@ -1,6 +1,6 @@
 """
-CE-OFDM receivers, spectrum and bandwidth against five papers
-=============================================================
+CE-OFDM receivers, spectrum and bandwidth
+=========================================
 
 Four panels, each to open next to the figure of the paper it reproduces:
 
@@ -47,7 +47,7 @@ def ber(e, d):
 def link(ce, ebn0_db, blocks, seed):
     rng = comrs.Rng(seed)
     _, d = comrs.symbols(QPSK, ce.n_data * blocks, rng)
-    sigma2 = ce.noise_variance(ebn0_db + 10 * np.log10(2))
+    sigma2 = ce.noise_variance(ebn0_db + comrs.lin2db(2))
     s = ce.modulate(d)
     return d, s + rng.complex_noise(s.size, sigma2), sigma2
 
@@ -88,10 +88,10 @@ for j, (receiver, label) in enumerate(names.items()):
         sim.append(ber(ce.demodulate(r, receiver=receiver), d))
     (line,) = ax.semilogy(ebn0, np.maximum(sim, 1e-7), "o^s"[j], label=label)
     if receiver != "arctangent":
-        theory = ce.ber_receiver(4, fine + 10 * np.log10(2), receiver=receiver)
+        theory = ce.ber_receiver(4, fine + comrs.lin2db(2), receiver=receiver)
         ax.semilogy(fine, theory, color=line.get_color(), linewidth=1.2)
 ax.semilogy(
-    fine, ce.ber(4, fine + 10 * np.log10(2)), color=MUTED, linewidth=1.0, label="linear regime"
+    fine, ce.ber(4, fine + comrs.lin2db(2)), color=MUTED, linewidth=1.0, label="linear regime"
 )
 ax.set(
     ylim=(1e-5, 0.5),
@@ -133,8 +133,8 @@ _, d = comrs.symbols(QPSK, 63 * 1000, comrs.Rng(4))
 blocks = ce.modulate(d).reshape(-1, n)
 sim = (np.abs(np.fft.fft(blocks, axis=1)) ** 2).mean(axis=0) / n
 k = np.fft.fftshift(np.fft.fftfreq(n, 1 / n)) / 64
-ax.plot(k, 10 * np.log10(np.fft.fftshift(ce.psd())), color=MUTED, linewidth=1.4, label="theory")
-ax.plot(k, 10 * np.log10(np.fft.fftshift(sim)), "--", linewidth=1.0, label="simulation")
+ax.plot(k, comrs.lin2db(np.fft.fftshift(ce.psd())), color=MUTED, linewidth=1.4, label="theory")
+ax.plot(k, comrs.lin2db(np.fft.fftshift(sim)), "--", linewidth=1.0, label="simulation")
 ax.set(
     xlabel="$k/N$",
     ylabel="PSD (dB)",

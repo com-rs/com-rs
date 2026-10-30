@@ -22,7 +22,7 @@ from comrs.plot import BACKGROUND, GREY, ORANGE
 
 snr = np.arange(-5.0, 30.5, 1.0)
 fig, ax = plt.subplots()
-ax.plot(snr, np.log2(1 + 10 ** (snr / 10)), color=GREY, linewidth=1.4, label="Shannon capacity")
+ax.plot(snr, np.log2(1 + comrs.db2lin(snr)), color=GREY, linewidth=1.4, label="Shannon capacity")
 for m in [4, 16, 64]:
     mi = [comrs.theory_mi(m, s, "qam") for s in snr]
     gmi = [comrs.theory_gmi(m, s, "qam") for s in snr]
@@ -65,5 +65,5 @@ for m in [16, 64]:
         mid = (lo + hi) / 2
         lo, hi = (lo, mid) if comrs.theory_mi(m, mid, "qam") > target else (mid, hi)
     print(
-        f"{m}-QAM reaches {target} bits/symbol at {lo:.2f} dB (capacity: {10 * np.log10(2**target - 1):.2f} dB)"
+        f"{m}-QAM reaches {target} bits/symbol at {lo:.2f} dB (capacity: {comrs.lin2db(2**target - 1):.2f} dB)"
     )

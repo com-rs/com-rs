@@ -67,7 +67,7 @@ for (name, (nt, nr, branches, share)), marker in zip(
 ):
     (line,) = ax.semilogy(
         eb,
-        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(share * 10 ** (eb / 10)), branches),
+        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), branches),
         linewidth=1.4,
     )
     sim = np.array([simulate(nt, nr, e, seed=nt * 10 + nr) for e in points])

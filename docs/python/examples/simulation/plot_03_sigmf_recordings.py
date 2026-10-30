@@ -61,7 +61,7 @@ comrs.write_sigmf(
     annotations=[{"sample_start": 0, "sample_count": x.size, "label": "16-QAM", **edges}],
     global_meta={"core:description": "16-QAM at 270 kBd", "core:hw": "comrs simulation"},
 )
-print(open(base + ".sigmf-meta").read())
+print(open(base + ".sigmf-meta", encoding="utf-8").read())
 
 # %%
 # Reading it back
@@ -81,7 +81,7 @@ seg = y[: y.size // n * n].reshape(-1, n) * np.hanning(n)
 psd = np.fft.fftshift(np.mean(np.abs(np.fft.fft(seg, axis=1)) ** 2, axis=0))
 f = (fc + np.fft.fftshift(np.fft.fftfreq(n, 1 / fs))) / 1e6
 fig, ax = plt.subplots(figsize=(6.4, 3.2))
-ax.plot(f, 10 * np.log10(psd / psd.max()), color=BLUE, linewidth=1)
+ax.plot(f, comrs.lin2db(psd / psd.max()), color=BLUE, linewidth=1)
 ax.axvspan(
     ann["core:freq_lower_edge"] / 1e6,
     ann["core:freq_upper_edge"] / 1e6,

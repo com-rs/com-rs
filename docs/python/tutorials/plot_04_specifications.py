@@ -46,13 +46,13 @@ print(text)
 # the BER falls below :math:`10^{-6}`: those conditions are reported as skipped.
 folder = Path(tempfile.mkdtemp())
 path = folder / "qam_awgn.yaml"
-path.write_text(text)
+path.write_text(text, encoding="utf-8")
 results = comrs.Results(comrs.run_spec(path), spec)
 print({r["status"] for r in results}, len(results), "conditions")
 
 fig, ax = plt.subplots()
 results.plot("ebn0_db", "ber", by="m", ax=ax,
-             theory=lambda e, m: [comrs.theory_ber(m, v, "qam") for v in e])  # fmt: skip
+             theory=lambda e, m: comrs.theory_ber(m, e, "qam"))  # fmt: skip
 ax.set(xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", ylim=(1e-6, 0.5),
        title="Gray-mapped QAM over AWGN; dotted: closed form")  # fmt: skip
 fig.tight_layout()

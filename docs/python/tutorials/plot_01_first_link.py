@@ -91,7 +91,7 @@ print(r["condition"], r["trials"], "trials,", r["metrics"]["ber"])
 x, ber, lo, hi = results.series("ebn0_db", "ber", interval=True)
 fine = np.linspace(0, 14, 141)
 fig, ax = plt.subplots()
-ax.semilogy(fine, [comrs.theory_ber(16, e, "qam") for e in fine], color=MUTED, linewidth=1.4,
+ax.semilogy(fine, comrs.theory_ber(16, fine, "qam"), color=MUTED, linewidth=1.4,
             label="closed form")  # fmt: skip
 ax.semilogy(ebn0, ber_loop, "s", markeredgecolor=BACKGROUND, label="loop, 50 000 symbols")
 ax.errorbar(x, ber, yerr=[ber - lo, hi - ber], fmt="o", markeredgecolor=BACKGROUND, capsize=2,

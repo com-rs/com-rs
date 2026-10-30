@@ -44,13 +44,10 @@ callbacks:
 fig, ax = plt.subplots()
 eb = np.linspace(0, 20, 201)
 for m in [4, 16, 64]:
-    rows = [r for r in results if r["condition"]["m"] == m and r["status"] == "completed"]
-    x = np.array([r["condition"]["ebn0_db"] for r in rows])
-    ber = np.array([r["metrics"]["ber"]["value"] for r in rows])
-    lo = np.array([r["metrics"]["ber"]["lo"] for r in rows])
-    hi = np.array([r["metrics"]["ber"]["hi"] for r in rows])
+    # the conditions skipped below 1e-6 have no metric: series leaves them out
+    x, ber, lo, hi = results.series("ebn0_db", "ber", interval=True, m=m)
     keep = ber > 0
-    (line,) = ax.semilogy(eb, [comrs.theory_ber(m, e, "qam") for e in eb], linewidth=1.4)
+    (line,) = ax.semilogy(eb, comrs.theory_ber(m, eb, "qam"), linewidth=1.4)
     ax.errorbar(
         x[keep],
         ber[keep],

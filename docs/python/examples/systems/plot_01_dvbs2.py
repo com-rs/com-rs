@@ -48,7 +48,7 @@ families = [
 ]
 fig, ax = plt.subplots()
 esn0 = np.linspace(-4, 18, 200)
-ax.plot(esn0, np.log2(1 + 10 ** (esn0 / 10)), color=GREY, linewidth=1.2, label="AWGN capacity")
+ax.plot(esn0, np.log2(1 + comrs.db2lin(esn0)), color=GREY, linewidth=1.2, label="AWGN capacity")
 for name, rates, marker, color in families:
     pts = []
     for r in rates:

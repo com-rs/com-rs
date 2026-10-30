@@ -51,7 +51,7 @@ for m in ORDERS:
     ci = np.array([r.metrics["ber"].interval(0.95) for r in pts])
     (line,) = ax.semilogy(
         eb,
-        [comrs.theory_ber(m, e, "psk") for e in eb],
+        comrs.theory_ber(m, eb, "psk"),
         linewidth=1.4,
         linestyle="--" if m == 4 else "-",
     )

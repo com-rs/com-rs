@@ -56,7 +56,7 @@ for (name, (nt, nr, order, share, last)), marker in zip(
 ):
     (line,) = ax.semilogy(
         eb,
-        comrs.theory_ber_rayleigh_mrc(comrs.lin2db(share * 10 ** (eb / 10)), order),
+        comrs.theory_ber_rayleigh_mrc(eb + comrs.lin2db(share), order),
         linewidth=1.4,
     )
     res = system(nt, nr).run(
@@ -84,9 +84,9 @@ fig.tight_layout()
 # order two as well: the transmit diversity scheme obtains the diversity of MRRC
 # with half the power per antenna, which is the conclusion of the paper.
 for order in [2, 4]:
-    g = 10 ** (np.linspace(10, 30, 201) / 10)
-    ratio = comrs.theory_ber_rayleigh_mrc(comrs.lin2db(g), order) / comrs.theory_ber_rayleigh_mrc(
-        comrs.lin2db(g / 2), order
+    e = np.linspace(10, 30, 201)
+    ratio = comrs.theory_ber_rayleigh_mrc(e, order) / comrs.theory_ber_rayleigh_mrc(
+        e - comrs.lin2db(2), order
     )
     print(
         f"order {order}: the BER ratio of MRRC to the new scheme tends to {ratio[-1]:.3f} = 2^-{order}"

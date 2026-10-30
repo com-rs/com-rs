@@ -45,13 +45,20 @@ for i, eb_db in enumerate(points):
 
 # %%
 eb = np.linspace(0, 40, 401)
-g = 10 ** (eb / 10)
 fig, ax = plt.subplots()
-(l1,) = ax.semilogy(
-    eb, [comrs.qfunc(np.sqrt(2 * v)) for v in g], linewidth=1.4, label="AWGN, theory"
+(l1,) = ax.semilogy(eb, comrs.theory_ber(2, eb, "psk"), linewidth=1.4, label="AWGN, theory")
+# (1 - sqrt(g / (1 + g))) / 2, the maximal-ratio combining of one branch
+(l2,) = ax.semilogy(
+    eb, comrs.theory_ber_rayleigh_mrc(eb, 1), linewidth=1.4, label="Rayleigh, theory"
 )
-(l2,) = ax.semilogy(eb, 0.5 * (1 - np.sqrt(g / (1 + g))), linewidth=1.4, label="Rayleigh, theory")
-ax.semilogy(eb, 1 / (4 * g), color=GREY, linestyle=":", linewidth=1.2, label=r"$1/(4\bar\gamma)$")
+ax.semilogy(
+    eb,
+    1 / (4 * comrs.db2lin(eb)),
+    color=GREY,
+    linestyle=":",
+    linewidth=1.2,
+    label=r"$1/(4\bar\gamma)$",
+)
 keep = np.array(sim_awgn) > 0
 ax.plot(
     points[keep],
@@ -82,11 +89,11 @@ fig.tight_layout()
 # %%
 # At a BER of 1e-4, fading costs about 25 dB.
 for name, f in [
-    ("AWGN", lambda v: comrs.qfunc(np.sqrt(2 * v))),
-    ("Rayleigh", lambda v: 0.5 * (1 - np.sqrt(v / (1 + v)))),
+    ("AWGN", lambda e: comrs.theory_ber(2, e, "psk")),
+    ("Rayleigh", lambda e: comrs.theory_ber_rayleigh_mrc(e, 1)),
 ]:
     lo, hi = 0.0, 60.0
     for _ in range(60):
         mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if f(10 ** (mid / 10)) > 1e-4 else (lo, mid)
+        lo, hi = (mid, hi) if f(mid) > 1e-4 else (lo, mid)
     print(f"{name:>8}: {lo:.1f} dB at a BER of 1e-4")

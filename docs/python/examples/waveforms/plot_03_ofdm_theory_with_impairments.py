@@ -59,7 +59,7 @@ def simulate_16qam(ebn0_db, rho, n=150_000):
     idx = rng.integers(16, n)
     h = rng.complex_noise(n, 1.0)
     hh = rho * h + rng.complex_noise(n, 1.0 - rho**2)
-    n0 = 1 / (4 * 10 ** (ebn0_db / 10))
+    n0 = 1 / (4 * comrs.db2lin(ebn0_db))
     y = h * c16.points[idx] + rng.complex_noise(n, n0)
     dec = c16.demodulate(y / hh)
     return np.mean(dec != comrs.unpack_symbols(idx.astype(np.uint16), 4)[: 4 * n])
@@ -125,14 +125,14 @@ fig.tight_layout()
 # signal of their Fig. 5: 1536 subcarriers of 2048, oversampled four times, at 3 dB of
 # input back-off.
 
-gamma = 10 ** (3 / 10)
+gamma = comrs.db2lin(3)
 c = comrs.envelope_series(lambda r: np.minimum(r, np.sqrt(gamma)), 60)
 bins, occupied = 8192, 1536
 useful, dist = comrs.distortion_spectrum(c, occupied, bins)
 f = np.fft.fftshift(np.fft.fftfreq(bins, 1 / 4.0))
 fig, ax = plt.subplots(figsize=(6.4, 3.4))
-ax.plot(f, 10 * np.log10(np.fft.fftshift(useful + dist) + 1e-30), color=BLUE, label="output")
-ax.plot(f, 10 * np.log10(np.fft.fftshift(dist) + 1e-30), color=CRIMSON, label="distortion")
+ax.plot(f, comrs.lin2db(np.fft.fftshift(useful + dist) + 1e-30), color=BLUE, label="output")
+ax.plot(f, comrs.lin2db(np.fft.fftshift(dist) + 1e-30), color=CRIMSON, label="distortion")
 ax.set(
     xlabel="frequency (in units of the bandwidth of 2048 subcarriers)",
     ylabel="power per bin (dB)",
@@ -159,18 +159,18 @@ for ibo, color, pts in [
     (3.0, CRIMSON, [(8, 6e-3), (10, 1.2e-3), (12, 1.25e-4), (14, 1.1e-5), (16, 5e-7)]),
     (6.0, BLUE, [(8, 3.7e-3), (10, 3.7e-4), (12, 1.3e-5), (13, 1.3e-6)]),
 ]:
-    g = 10 ** (ibo / 10)
+    g = comrs.db2lin(ibo)
     a = np.sqrt(g)
     cc = comrs.envelope_series(lambda r, a=a: np.minimum(r, a), 60)
     u, d = comrs.distortion_spectrum(cc, occupied, bins)
     sdr = u[carriers] / d[carriers]
     ber = [
         np.mean(
-            comrs.theory_ber_dpsk(4, 10 * np.log10(1 / (1 / sdr + 1 / (2 * 10 ** (x / 10))) / 2))
+            comrs.theory_ber_dpsk(4, comrs.lin2db(1 / (1 / sdr + 1 / (2 * comrs.db2lin(x))) / 2))
         )
         for x in x_app
     ]
-    obo = 10 * np.log10(g / (1 - np.exp(-g)))
+    obo = comrs.lin2db(g / (1 - np.exp(-g)))
     ax.semilogy(x_app, ber, color=color, label=f"IBO {ibo:.0f} dB (OBO {obo:.2f} dB)")
     ax.semilogy(*zip(*pts, strict=True), "x", color=color, markersize=7)
 ax.semilogy(x_app, comrs.theory_ber_dpsk(4, x_app), "--", color=GREY_WARM, label="linear amplifier")

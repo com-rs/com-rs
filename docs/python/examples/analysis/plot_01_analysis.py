@@ -47,7 +47,7 @@ res = comrs.compare(
 )
 ax = res.plot("ebn0_db", "ber", by="variant", min_count=20)
 eb = np.linspace(8, 16, 81)
-ax.semilogy(eb, [comrs.theory_ber(16, e, "qam") for e in eb], color=GREY, label="AWGN")
+ax.semilogy(eb, comrs.theory_ber(16, eb, "qam"), color=GREY, label="AWGN")
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", title="16-QAM, phase noise 0.02 rad/symbol"
 )

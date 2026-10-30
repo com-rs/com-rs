@@ -42,10 +42,10 @@ equations they use. The table below gathers every comparison of this gallery.
        digital back-propagation with one step per span; the published points are
        drawn
      - :ref:`sphx_glr_auto_examples_optical_plot_03_hager2021_fig5.py`
-   * - J. G. Proakis, M. Salehi, *Digital Communications*, 5th ed., Sec. 3.3-2
+   * - J. G. Proakis, M. Salehi, *Digital Communications*, 5th ed., 2008, Sec. 3.3-2
      - MSK detected by maximum-likelihood sequence detection has the BER of BPSK
        once precoded; without precoding, that of differentially decoded BPSK
-     - :ref:`sphx_glr_auto_examples_waveforms_plot_04_proakis_msk.py`
+     - :ref:`sphx_glr_auto_examples_waveforms_plot_04_proakis2008_msk.py`
    * - J. Guerreiro et al., *IEEE Commun. Lett.* 20(11), 2016, Fig. 1 and eq. (8);
        M. J. López Morales et al., *Globecom Workshops* 2022, Fig. 3; A. U. Ahmed,
        J. R. Zeidler, *IEEE Trans. Signal Process.* 63(17), 2015, Fig. 6; R. A. Pacheco,

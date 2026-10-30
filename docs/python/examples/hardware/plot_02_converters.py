@@ -49,7 +49,7 @@ for bits in bits_range:
         y = comrs.adc(x, int(bits), full_scale=1.0)
         c = np.mean(y * np.exp(-2j * np.pi * f * n))
         noise += np.mean(np.abs(y - c * np.exp(2j * np.pi * f * n)) ** 2) / a**2
-    measured.append(10 * np.log10(8 / noise))
+    measured.append(comrs.lin2db(8 / noise))
 
 fig, ax = plt.subplots()
 ax.plot(bits_range, [comrs.theory_sqnr_sine_db(int(b)) for b in bits_range], color=GREY,
@@ -115,7 +115,7 @@ for jitter, marker in zip([25e-15, 100e-15, 400e-15], ["o", "s", "D"], strict=Tr
         tone = np.exp(2j * np.pi * cycles / n * np.arange(n))
         y = comrs.adc(tone, 14, fs=fs, full_scale=1.05, jitter_s=jitter, rng=rng)
         c = np.mean(y * np.conj(tone))
-        snr.append(10 * np.log10(abs(c) ** 2 / np.mean(np.abs(y - c * tone) ** 2)))
+        snr.append(comrs.lin2db(abs(c) ** 2 / np.mean(np.abs(y - c * tone) ** 2)))
     ax.semilogx(freqs, snr, marker, color=line.get_color(), markeredgecolor=BACKGROUND)
 ax.axhline(comrs.theory_sqnr_sine_db(14), color=GREY, linestyle=":", linewidth=1.2,
            label="14-bit quantisation")  # fmt: skip

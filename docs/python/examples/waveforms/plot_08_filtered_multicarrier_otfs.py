@@ -43,7 +43,7 @@ def symbols(n):
 
 def density_db(x):
     f, p = comrs.psd(x, 1.0, nfft=512)
-    return f * N, 10 * np.log10(p / p.max())
+    return f * N, comrs.lin2db(p / p.max())
 
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.4), width_ratios=[1.4, 1])

@@ -54,10 +54,9 @@ for i, eb in enumerate(points):
 # %%
 fig, ax = plt.subplots()
 eb = np.linspace(0, 25, 251)
-g = 10 ** (eb / 10)
 ax.semilogy(
     eb,
-    0.5 * (1 - np.sqrt(g / (1 + g))),
+    comrs.theory_ber_rayleigh_mrc(eb, 1),
     color=GREY,
     linewidth=1.2,
     linestyle=":",
