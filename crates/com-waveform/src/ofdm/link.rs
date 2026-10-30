@@ -4,13 +4,15 @@
 //! [`transmit`] maps the symbols of every transmit antenna (port) on resource grids of
 //! `n_symbols` OFDM symbols, the pilots dealt to the ports in turn
 //! ([`ResourceGrid::map_port`]), pads the last grid with random QPSK at the power of a
-//! layer, and modulates every grid. The samples have the power $K/(L N)$ ($K$ active
+//! layer, and modulates every grid ([`Ofdm::modulate`], then scaled). The samples have
+//! the power $K/(L N)$ ($K$ active
 //! subcarriers, IFFT of size $L N$): a resource element of unit energy spreads over
 //! $L N / K$ samples, so that the noise variance per sample is the noise variance per
 //! demodulated resource element.
 //!
 //! [`OfdmFrame`] keeps what the receiver needs: [`OfdmFrame::received_grid`]
-//! demodulates the grids of every receive antenna, [`OfdmFrame::estimate`] estimates the
+//! demodulates the grids of every receive antenna ([`Ofdm::demodulate`] of the samples of
+//! the grid, unscaled), [`OfdmFrame::estimate`] estimates the
 //! channel from the pilots of every port, and [`OfdmFrame::detect`] detects every data
 //! resource element with a [`Receiver`], spatial multiplexing or Alamouti's code over
 //! pairs of resource elements.
@@ -93,11 +95,11 @@ pub fn transmit(
     // the pilots of the grid are resource elements: a DFT spreading would mix them with
     // the data
     ensure(!ofdm.dft_spread, || "the OFDM link maps a resource grid: DFT spreading is not supported".into())?;
+    grid.check()?;
     let per_grid = grid.n_data();
     ensure(per_grid > 0, || "the grid has no data resource element".into())?;
     let n_grids = n_data.div_ceil(per_grid).max(1);
-    let (k, ln) = (ofdm.n_active, ofdm.fft_len());
-    let scale = (k as f64 / ln as f64).sqrt();
+    let scale = (ofdm.n_active as f64 / ofdm.fft_len() as f64).sqrt();
     // the padding of the last grid: random QPSK at the power of a layer
     let pad_amp = std::f64::consts::FRAC_1_SQRT_2 / (n_ports as f64).sqrt();
     let mut out = Vec::with_capacity(n_ports);
@@ -112,9 +114,7 @@ pub fn transmit(
         let mut time = Vec::with_capacity(n_grids * grid.n_symbols * ofdm.block_len());
         for chunk in data.chunks(per_grid) {
             let g = grid.map_port(chunk, port, n_ports)?;
-            for sym in g.chunks(k) {
-                time.extend(ofdm.with_prefix(&ofdm.to_time(sym)?)?.into_iter().map(|v| v * scale));
-            }
+            time.extend(ofdm.modulate(&g)?.into_iter().map(|v| v * scale));
         }
         out.push(time);
     }
@@ -123,14 +123,10 @@ pub fn transmit(
 }
 
 impl OfdmFrame {
-    /// The data resource elements of a grid, symbol after symbol (indices `l K + k`).
+    /// The data resource elements of a grid, symbol after symbol (indices `l K + k`,
+    /// [`ResourceGrid::data_indices`]).
     pub fn data_res(&self) -> Vec<usize> {
-        let (k, l_n) = (self.grid.n_subcarriers, self.grid.n_symbols);
-        (0..l_n)
-            .flat_map(|l| (0..k).map(move |kk| (kk, l)))
-            .filter(|&(kk, l)| !self.grid.is_pilot(kk, l))
-            .map(|(kk, l)| l * k + kk)
-            .collect()
+        self.grid.data_indices()
     }
 
     /// The sample at the middle of every OFDM symbol of grid `g` (after the prefix): the
@@ -150,22 +146,19 @@ impl OfdmFrame {
     /// # Errors
     /// [`com_core::Error::Shape`] if a stream is shorter than the frame.
     pub fn received_grid(&self, streams: &[Vec<C64>], g: usize) -> Result<Vec<Vec<C64>>> {
-        let (k, l_n) = (self.grid.n_subcarriers, self.grid.n_symbols);
-        let (bl, cp, ln) = (self.ofdm.block_len(), self.ofdm.oversampling * self.ofdm.n_cp, self.ofdm.fft_len());
-        let mut rx = Vec::with_capacity(streams.len());
-        for x in streams {
-            let mut grid = Vec::with_capacity(k * l_n);
-            for l in 0..l_n {
-                let start = (g * l_n + l) * bl + cp;
-                ensure_shape(start + ln <= x.len(), || {
-                    format!("the signal of {} samples is shorter than the OFDM frame ({} samples)", x.len(), start + ln)
+        let len = self.grid.n_symbols * self.ofdm.block_len();
+        let (start, end) = (g * len, (g + 1) * len);
+        streams
+            .iter()
+            .map(|x| {
+                ensure_shape(end <= x.len(), || {
+                    format!("the signal of {} samples is shorter than the OFDM frame ({end} samples)", x.len())
                 })?;
-                let block: Vec<C64> = x[start..start + ln].iter().map(|v| v / self.scale).collect();
-                grid.extend(self.ofdm.to_active(&block)?);
-            }
-            rx.push(grid);
-        }
-        Ok(rx)
+                // unscaled before the transform, the order of the operations of the receiver
+                let samples: Vec<C64> = x[start..end].iter().map(|v| v / self.scale).collect();
+                self.ofdm.demodulate(&samples)
+            })
+            .collect()
     }
 
     /// The channel of every resource element estimated from the pilots of every port,
@@ -227,5 +220,64 @@ impl OfdmFrame {
                 .map_err(|e| e.context("the data resource elements"))?;
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ofdm::grid::PilotPattern;
+
+    /// The link modulated every OFDM symbol and demodulated every block itself before it
+    /// called `Ofdm::modulate` and `Ofdm::demodulate`: the samples and the received grids
+    /// are bit-identical.
+    #[test]
+    fn the_link_on_the_modem_is_the_former_link() {
+        let ofdm = Ofdm { n_cp: 6, oversampling: 2, dc_null: true, ..Ofdm::new(32, 24).unwrap() };
+        let grid = ResourceGrid {
+            n_subcarriers: 24,
+            n_symbols: 5,
+            pattern: PilotPattern::Lattice { freq: 3, time: 2 },
+            seed: 4,
+        };
+        let mut rng = Rng::new(7);
+        let streams: Vec<Vec<C64>> = (0..2).map(|_| (0..250).map(|_| rng.complex_gaussian()).collect()).collect();
+        let (tx, frame) = transmit(&ofdm, &grid, streams.clone(), &mut Rng::new(1)).unwrap();
+        // the former transmitter, with the same padding draws
+        let mut pad_rng = Rng::new(1);
+        let (k, ln) = (ofdm.n_active, ofdm.fft_len());
+        let scale = (k as f64 / ln as f64).sqrt();
+        let amp = std::f64::consts::FRAC_1_SQRT_2 / 2f64.sqrt();
+        for (port, x) in streams.into_iter().enumerate() {
+            let mut data = x;
+            while data.len() < frame.n_grids * grid.n_data() {
+                data.push(C64::new(
+                    if pad_rng.bit() == 0 { amp } else { -amp },
+                    if pad_rng.bit() == 0 { amp } else { -amp },
+                ));
+            }
+            let mut old = Vec::new();
+            for chunk in data.chunks(grid.n_data()) {
+                for sym in grid.map_port(chunk, port, 2).unwrap().chunks(k) {
+                    old.extend(ofdm.with_prefix(&ofdm.to_time(sym).unwrap()).unwrap().into_iter().map(|v| v * scale));
+                }
+            }
+            assert_eq!(tx[port], old);
+        }
+        // the former receiver: the useful part of every block, unscaled, transformed
+        let (bl, cp) = (ofdm.block_len(), ofdm.oversampling * ofdm.n_cp);
+        for g in 0..frame.n_grids {
+            let rx = frame.received_grid(&tx, g).unwrap();
+            for (x, got) in tx.iter().zip(&rx) {
+                let mut old = Vec::new();
+                for l in 0..grid.n_symbols {
+                    let start = (g * grid.n_symbols + l) * bl + cp;
+                    let block: Vec<C64> = x[start..start + ln].iter().map(|v| v / frame.scale).collect();
+                    old.extend(ofdm.to_active(&block).unwrap());
+                }
+                assert_eq!(got, &old);
+            }
+        }
+        assert!(frame.received_grid(&[tx[0][..tx[0].len() - 1].to_vec()], frame.n_grids - 1).is_err());
     }
 }
