@@ -168,10 +168,7 @@ fn snr_crb_nmse(
     samples_per_symbol: usize,
     real: bool,
 ) -> PyResult<Py<PyAny>> {
-    if n_symbols == 0 || samples_per_symbol == 0 {
-        return Err(PyValueError::new_err("n_symbols and samples_per_symbol must be positive"));
-    }
-    map_real(snr_db, |s| Ok(blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real)))
+    map_real(snr_db, |s| blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real).py())
 }
 
 /// The symbol rate of a linearly modulated signal from the strongest line of the

@@ -656,7 +656,7 @@ pub fn ber_dpsk(m: usize, ebn0_db: f64) -> Result<f64> {
     let cdf = |psi: f64| {
         if psi < 0.0 { 0.5 * differential_phase_tail(-psi, gs) } else { 1.0 - 0.5 * differential_phase_tail(psi, gs) }
     };
-    let gray = crate::constellation::gray_code(bits);
+    let gray = crate::constellation::gray_code(bits)?;
     let mut errors = 0.0;
     for k in 1..m {
         let mut theta = 2.0 * pi * k as f64 / m as f64;

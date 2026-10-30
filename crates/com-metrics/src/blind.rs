@@ -370,20 +370,32 @@ pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
 /// ```
 /// use com_metrics::blind::snr_crb_nmse;
 /// // 64 symbols at 3 dB: the lowest point of the bound of Pauluzzi & Beaulieu, Fig. 9
-/// let crb = snr_crb_nmse(10f64.powf(0.3), 64, 1, false);
+/// let crb = snr_crb_nmse(10f64.powf(0.3), 64, 1, false)?;
 /// assert!((crb - 0.0313).abs() < 1e-4);
-/// assert_eq!(snr_crb_nmse(1.0, 64, 1, true), 2.0 * snr_crb_nmse(1.0, 64, 1, false));
+/// assert_eq!(snr_crb_nmse(1.0, 64, 1, true)?, 2.0 * snr_crb_nmse(1.0, 64, 1, false)?);
+/// # Ok::<(), com_core::Error>(())
 /// ```
-pub fn snr_crb_nmse(snr: f64, n_symbols: usize, samples_per_symbol: usize, real: bool) -> f64 {
+///
+/// # Errors
+/// [`com_core::Error::Config`] for no symbol or no sample per symbol.
+pub fn snr_crb_nmse(snr: f64, n_symbols: usize, samples_per_symbol: usize, real: bool) -> Result<f64> {
+    ensure(n_symbols > 0 && samples_per_symbol > 0, || {
+        format!("n_symbols and samples_per_symbol must be positive, got {n_symbols} and {samples_per_symbol}")
+    })?;
     let n = n_symbols as f64;
     let complex = 2.0 / (snr * n) + 1.0 / (samples_per_symbol as f64 * n);
-    if real { 2.0 * complex } else { complex }
+    Ok(if real { 2.0 * complex } else { complex })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn the_bound_needs_symbols_and_samples() {
+        assert!(snr_crb_nmse(1.0, 0, 1, false).is_err() && snr_crb_nmse(1.0, 10, 0, false).is_err());
+    }
 
     #[test]
     fn the_classifiers_are_read_by_name_and_call_their_function() {

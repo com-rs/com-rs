@@ -3,7 +3,7 @@
 //! fading, and the distortion of a nonlinear amplifier driven by an OFDM signal
 //! (Banelli & Cacopardi 2000).
 
-use crate::{FArr, cvec, farr, fvec, map_real};
+use crate::{FArr, IntoPy, cvec, farr, fvec, map_real};
 use comrs::dsp::nonlinear;
 use comrs::mapping::imperfect_csi as csi;
 use num_complex::Complex64 as C64;
@@ -129,10 +129,7 @@ fn distortion_spectrum<'py>(
     occupied: usize,
     bins: usize,
 ) -> PyResult<(FArr<'py>, FArr<'py>)> {
-    if occupied == 0 || occupied > bins {
-        return Err(PyValueError::new_err(format!("need 0 < occupied ≤ bins, got {occupied} and {bins}")));
-    }
-    let (u, d) = nonlinear::distortion_spectrum(&fvec(c)?, occupied, bins);
+    let (u, d) = nonlinear::distortion_spectrum(&fvec(c)?, occupied, bins).py()?;
     Ok((farr(py, u), farr(py, d)))
 }
 

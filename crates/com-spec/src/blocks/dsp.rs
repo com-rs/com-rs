@@ -116,7 +116,7 @@ block_params! {
 
 pub(super) fn pulse(kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> Result<Vec<f64>> {
     ensure(sps >= 1 && n_taps >= 1, || "sps and n_taps must be positive".into())?;
-    Ok(filter::pulse_shape(PulseShape::from_name(kind, rolloff)?, sps, n_taps))
+    filter::pulse_shape(PulseShape::from_name(kind, rolloff)?, sps, n_taps)
 }
 
 struct PulseShaping {

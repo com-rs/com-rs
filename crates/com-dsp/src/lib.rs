@@ -24,10 +24,11 @@
 //! use com_dsp::filter::{pulse_shape, fir_filter, PulseShape};
 //! use com_dsp::resample::upsample;
 //! use com_math::C64;
-//! let h = pulse_shape(PulseShape::Rrc { rolloff: 0.1 }, 4, 64);
+//! let h = pulse_shape(PulseShape::Rrc { rolloff: 0.1 }, 4, 64)?;
 //! assert!((h.iter().sum::<f64>() - 1.0).abs() < 1e-12);       // unit DC gain
 //! let x = upsample(&[C64::new(1.0, 0.0); 8], 4);
 //! assert_eq!(fir_filter(&h, &x).len(), x.len());
+//! # Ok::<(), com_core::Error>(())
 //! ```
 
 pub mod compensation;

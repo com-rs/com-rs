@@ -196,7 +196,7 @@ impl Dpsk {
     pub fn new(m: usize) -> Result<Dpsk> {
         check(&[], m)?;
         let bits = m.trailing_zeros() as usize;
-        let gray = gray_code(bits as u32);
+        let gray = gray_code(bits as u32)?;
         let mut index = vec![0; m];
         for (k, &label) in gray.iter().enumerate() {
             index[label] = k;

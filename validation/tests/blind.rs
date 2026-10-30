@@ -247,7 +247,7 @@ fn pauluzzi_beaulieu_2000_figs_9_10_m2m4_of_8psk() {
         let (bias, _) = stats(snr_db);
         assert!((bias - want).abs() < 0.02, "bias at {snr_db} dB: {bias} vs {want}");
     }
-    let crb = |snr_db: f64| snr_crb_nmse(db2lin(snr_db), n, 1, false);
+    let crb = |snr_db: f64| snr_crb_nmse(db2lin(snr_db), n, 1, false).unwrap();
     assert!((crb(3.0) - 0.032).abs() < 0.002 && (crb(30.0) - 0.0156).abs() < 5e-4);
     let ratio = at_30 / crb(30.0);
     assert!(ratio > 2.0 && ratio < 3.0, "M2M4 / CRB at 30 dB: {ratio}");

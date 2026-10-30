@@ -83,6 +83,7 @@
 //! 3. H. Ochiai and H. Imai, "Performance analysis of deliberately clipped OFDM signals,"
 //!    *IEEE Trans. Commun.* 50(1), 89–101, 2002.
 
+use com_core::{Result, ensure};
 use com_math::fft::{centred_bin, fft, ifft};
 use com_math::{C64, db2lin, erfc};
 use std::f64::consts::PI;
@@ -254,7 +255,11 @@ fn laguerre_projections(values: &[C64], n_terms: usize) -> Vec<C64> {
 /// of the distortion terms of `c` ([`output_series`]), for an input whose spectrum is flat
 /// on the `occupied` bins centred on bin 0 (an OFDM signal of `occupied` subcarriers,
 /// oversampled to `bins`): `(useful, distortion)`, each summing to its power.
-pub fn distortion_spectrum(c: &[f64], occupied: usize, bins: usize) -> (Vec<f64>, Vec<f64>) {
+///
+/// # Errors
+/// [`com_core::Error::Config`] unless `0 < occupied <= bins`.
+pub fn distortion_spectrum(c: &[f64], occupied: usize, bins: usize) -> Result<(Vec<f64>, Vec<f64>)> {
+    ensure(occupied > 0 && occupied <= bins, || format!("need 0 < occupied ≤ bins, got {occupied} and {bins}"))?;
     let mut p = vec![C64::new(0.0, 0.0); bins];
     for i in 0..occupied {
         p[centred_bin(i, occupied, bins)] = C64::new(1.0 / occupied as f64, 0.0);
@@ -269,7 +274,7 @@ pub fn distortion_spectrum(c: &[f64], occupied: usize, bins: usize) -> (Vec<f64>
             *d += cn * v.re.max(0.0);
         }
     }
-    (useful, dist)
+    Ok((useful, dist))
 }
 
 #[cfg(test)]
@@ -280,7 +285,8 @@ mod tests {
     fn the_linear_device_has_one_term() {
         let c = output_series(|r| C64::new(2.0 * r, 0.0), 6);
         assert!((c[0] - 4.0).abs() < 1e-9 && c[1..].iter().all(|v| v.abs() < 1e-9), "{c:?}");
-        let (u, d) = distortion_spectrum(&[1.0, 0.0], 8, 32);
+        let (u, d) = distortion_spectrum(&[1.0, 0.0], 8, 32).unwrap();
+        assert!(distortion_spectrum(&[1.0], 0, 32).is_err() && distortion_spectrum(&[1.0], 33, 32).is_err());
         assert!((u.iter().sum::<f64>() - 1.0).abs() < 1e-12 && d.iter().all(|v| v.abs() < 1e-15));
     }
 

@@ -123,7 +123,7 @@ mod tests {
         let s: Vec<C64> = (0..4000)
             .map(|_| C64::new(if r.bit() == 1 { 1.0 } else { -1.0 }, if r.bit() == 1 { 1.0 } else { -1.0 }))
             .collect();
-        let h = pulse_shape(PulseShape::Rrc { rolloff: 0.5 }, 2, 64);
+        let h = pulse_shape(PulseShape::Rrc { rolloff: 0.5 }, 2, 64).unwrap();
         let mut x = fir_filter(&h, &upsample(&s, 2));
         x = fir_filter(&h, &x);
         let x = delay_fft(&x, 0.4, 1.0); // 0.4 sample timing offset

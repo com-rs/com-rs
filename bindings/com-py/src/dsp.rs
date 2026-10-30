@@ -46,10 +46,7 @@ use pyo3::types::PyString;
 #[pyo3(signature = (kind, sps, *, n_taps = 1025, rolloff = 0.1))]
 fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> PyResult<FArr<'py>> {
     let shape = PulseShape::from_name(kind, rolloff).py()?;
-    if sps == 0 || n_taps == 0 {
-        return Err(PyValueError::new_err("sps and n_taps must be positive"));
-    }
-    Ok(farr(py, filter::pulse_shape(shape, sps, n_taps)))
+    Ok(farr(py, filter::pulse_shape(shape, sps, n_taps).py()?))
 }
 
 /// Root of the raised-cosine spectrum on the `n_symbols·sps` bins of a periodic block

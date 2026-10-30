@@ -301,17 +301,8 @@ impl PyConstellation {
 ///     [0, 1, 3, 2]
 #[pyfunction]
 fn gray_code(py: Python<'_>, n_bits: u32) -> PyResult<IArr<'_>> {
-    if n_bits > MAX_GRAY_BITS {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "n_bits must be at most {MAX_GRAY_BITS}, got {n_bits}"
-        )));
-    }
-    Ok(iarr(py, modulation::gray_code(n_bits)))
+    Ok(iarr(py, modulation::gray_code(n_bits).py()?))
 }
-
-/// The largest Gray code that `gray_code` builds (`2^n_bits` words are allocated: 40 bits
-/// would abort the process on the allocation).
-const MAX_GRAY_BITS: u32 = 24;
 
 /// Independent fair bits.
 ///

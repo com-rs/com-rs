@@ -98,7 +98,7 @@ impl Scenario for CoherentLink {
         Ok(Link {
             constellation: Constellation::qam(16)?.normalized(),
             // an odd length puts the taps on the sampling grid
-            rrc: filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.2 }, SPS, 1025),
+            rrc: filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.2 }, SPS, 1025)?,
             fiber: FiberParams::default(),
         })
     }

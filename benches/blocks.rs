@@ -25,7 +25,7 @@ fn mapping(c: &mut Criterion) {
 }
 
 fn dsp(c: &mut Criterion) {
-    let h = pulse_shape(PulseShape::Rrc { rolloff: 0.1 }, 4, 257);
+    let h = pulse_shape(PulseShape::Rrc { rolloff: 0.1 }, 4, 257).unwrap();
     let mut rng = Rng::new(2);
     let x = rng.complex_noise(1 << 16, 1.0);
     let mut g = c.benchmark_group("dsp");

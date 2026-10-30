@@ -29,7 +29,7 @@ fn main() -> Result<()> {
     let reference: Vec<usize> = (0..period).map(|_| rng.below(16)).collect();
     // 10 periods of the waveform, cut later into the capture window
     let idx: Vec<usize> = (0..10 * period).map(|k| reference[k % period]).collect();
-    let rrc = filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.2 }, sps_sim, 4097);
+    let rrc = filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.2 }, sps_sim, 4097)?;
     let mut x = signal::pnorm(&filter::fir_filter(&rrc, &resample::upsample(&c.symbols(&idx), sps_sim)));
     let fiber = FiberParams::default();
     let phi = comrs::hardware::oscillator::phase_noise(100e3, x.len(), 1.0 / fs_sim, &mut rng);

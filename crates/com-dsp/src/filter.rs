@@ -128,7 +128,14 @@ pub fn rc_taps(t: &[f64], alpha: f64, ts: f64) -> Vec<f64> {
 /// Taps of a pulse at `sps` samples per symbol, normalised to a unit sum.
 ///
 /// `n_taps` is the length of the raised-cosine pulses (ignored by `Rect` and `Nrz`).
-pub fn pulse_shape(shape: PulseShape, sps: usize, n_taps: usize) -> Vec<f64> {
+///
+/// # Errors
+/// [`Error::Config`] for `sps = 0`, or `n_taps = 0` for a raised-cosine pulse.
+pub fn pulse_shape(shape: PulseShape, sps: usize, n_taps: usize) -> Result<Vec<f64>> {
+    let raised_cosine = matches!(shape, PulseShape::Rc { .. } | PulseShape::Rrc { .. });
+    if sps == 0 || (raised_cosine && n_taps == 0) {
+        return Err(Error::Config(format!("sps and n_taps must be positive, got {sps} and {n_taps}")));
+    }
     let pulse: Vec<f64> = match shape {
         PulseShape::Rect => {
             let z = sps / 2;
@@ -156,7 +163,7 @@ pub fn pulse_shape(shape: PulseShape, sps: usize, n_taps: usize) -> Vec<f64> {
         PulseShape::Rrc { rolloff } => rrc_taps(&pulse_grid(sps, n_taps), rolloff, 1.0),
     };
     let s: f64 = pulse.iter().sum();
-    pulse.iter().map(|v| v / s).collect()
+    Ok(pulse.iter().map(|v| v / s).collect())
 }
 
 /// Root of the raised-cosine spectrum on the `n_sym·sps` bins of a periodic block.
@@ -336,6 +343,13 @@ pub fn moving_average(x: &[C64], n: usize) -> Vec<C64> {
 mod tests {
     use super::*;
     use crate::resample::*;
+
+    #[test]
+    fn a_pulse_needs_samples_and_taps() {
+        assert!(pulse_shape(PulseShape::Nrz, 0, 16).is_err());
+        assert!(pulse_shape(PulseShape::Rrc { rolloff: 0.2 }, 4, 0).is_err());
+        assert_eq!(pulse_shape(PulseShape::Rect, 2, 0).unwrap(), vec![0.0, 0.5, 0.5, 0.0]);
+    }
 
     #[test]
     fn the_low_pass_names_are_read_back() {

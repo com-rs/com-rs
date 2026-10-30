@@ -528,7 +528,7 @@ mod wdm_tests {
     #[test]
     fn the_demultiplexer_recovers_a_channel_of_the_multiplex() {
         // three channels of 1 mW; the centre one, demultiplexed, is its shaped symbols
-        let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 8, 1025);
+        let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 8, 1025).unwrap();
         let tx = WdmTransmitter {
             freqs: wdm_grid(3, 50e9),
             powers_w: vec![1e-3; 3],
