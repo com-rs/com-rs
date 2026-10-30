@@ -1,7 +1,7 @@
 //! Receiver DSP: shaping and matched filtering, resampling and decimation, clock recovery, adaptive equalisation, carrier recovery, frame synchronisation.
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params, part, per_pol};
+use super::{Block, Extension, Frame, NumberOrList, part, per_pol};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -22,101 +22,111 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 use std::f64::consts::{FRAC_PI_2, PI};
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             per_polarization "pulse_shape",
             "Upsample and filter with a transmit pulse, then normalise to unit power.",
             PulseSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(PulseShaping::new(&q)?)),
         ),
-        block_info!("normalize", "Scale the samples to a mean power.", Normalize, needs [Samples], gives []),
-        block_info!(
+        builtin!(
+            "normalize", "Scale the samples to a mean power.", Normalize, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             per_polarization "resample",
             "Band-limited resampling of the block (FFT) to a number of samples per symbol.",
             Resample,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(
+        builtin!(
             per_polarization "matched_filter",
             "Filter with a receive pulse at the current samples per symbol.",
             MatchedSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(MatchedFilter::new(q)?)),
         ),
-        block_info!(per_polarization "decimate", "Reduce the samples per symbol.", DecimateSpec, needs [Samples], gives []),
-        block_info!(per_polarization "gardner", "Gardner clock recovery at 2 samples per symbol.", Gardner, needs [Samples], gives []),
-        block_info!(
+        builtin!(
+            per_polarization "decimate", "Reduce the samples per symbol.", DecimateSpec, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(Decimate::new(&q))),
+        ),
+        builtin!(
+            per_polarization "gardner", "Gardner clock recovery at 2 samples per symbol.", Gardner, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             "adaptive_equalizer",
             "Adaptive FIR equaliser, output at 1 sample per symbol; the n × n butterfly over the polarisations or antennas.",
             EqualizerSpec,
             needs [Samples, Constellation],
             gives [],
+            |q, label, _| Ok(Box::new(Equalizer::new(&q, label)?)),
         ),
-        block_info!(
+        builtin!(
             per_polarization "foe",
             "Frequency-offset estimation by the M-th power and correction; records foe_hz.",
             FoeSpec,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Foe { p: q, label })),
         ),
-        block_info!(
+        builtin!(
             per_polarization "bps",
             "Blind phase search, unwrapped with a period of π/2, and correction.",
             Bps,
             needs [Samples, Constellation],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(per_polarization "viterbi", "Viterbi–Viterbi phase estimation and correction.", Viterbi, needs [Samples], gives []),
-        block_info!(per_polarization "ddpll", "Decision-directed phase-locked loop.", Ddpll, needs [Samples, Constellation], gives []),
-        block_info!(
+        builtin!(
+            per_polarization "viterbi", "Viterbi–Viterbi phase estimation and correction.", Viterbi, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
+            per_polarization "ddpll", "Decision-directed phase-locked loop.", Ddpll, needs [Samples, Constellation], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             "frame_sync",
             "Delay and rotation on known symbols, output aligned on the transmitted symbols; records delay and quality.",
             FrameSyncSpec,
             needs [Samples, Symbols],
             gives [],
+            |q, label, _| Ok(Box::new(FrameSync { p: q, label })),
         ),
     ]
 }
 
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "pulse_shape" => Box::new(PulseShaping::new(&PulseSpec::parse(k, p)?)?),
-            "normalize" => Box::new(Normalize::parse(k, p)?),
-            "resample" => Box::new(Resample::parse(k, p)?),
-            "matched_filter" => Box::new(MatchedFilter::new(MatchedSpec::parse(k, p)?)?),
-            "decimate" => Box::new(Decimate::new(&DecimateSpec::parse(k, p)?)),
-            "gardner" => Box::new(Gardner::parse(k, p)?),
-            "adaptive_equalizer" => Box::new(Equalizer::new(&EqualizerSpec::parse(k, p)?, label)?),
-            "foe" => Box::new(Foe { p: FoeSpec::parse(k, p)?, label }),
-            "bps" => Box::new(Bps::parse(k, p)?),
-            "viterbi" => Box::new(Viterbi::parse(k, p)?),
-            "ddpll" => Box::new(Ddpll::parse(k, p)?),
-            "frame_sync" => Box::new(FrameSync { p: FrameSyncSpec::parse(k, p)?, label }),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
-}
-
 block_params! {
-    struct PulseSpec {
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "transmit pulse";
-        sps: usize [2] >= 1, "samples per symbol";
+    /// A pulse: the parameters shared by `pulse_shape`, `matched_filter` and `wdm_tx`.
+    #[derive(Clone, Debug)]
+    pub(super) struct PulseSettings {
+        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "the pulse";
         rolloff: f64 [0.1] >= 0 <= 1, "roll-off of rc and rrc";
         n_taps: usize [1025] >= 1, "taps of rc and rrc (odd: on the sampling instants)";
     }
 }
 
-pub(super) fn pulse(kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> Result<Vec<f64>> {
-    ensure(sps >= 1 && n_taps >= 1, || "sps and n_taps must be positive".into())?;
-    Ok(filter::pulse_shape(PulseShape::from_name(kind, rolloff)?, sps, n_taps))
+impl PulseSettings {
+    /// The taps of the pulse at `sps` samples per symbol.
+    pub(super) fn taps(&self, sps: usize) -> Result<Vec<f64>> {
+        ensure(sps >= 1, || "sps must be positive".into())?;
+        Ok(filter::pulse_shape(PulseShape::from_name(&self.kind, self.rolloff)?, sps, self.n_taps))
+    }
+}
+
+block_params! {
+    struct PulseSpec {
+        pulse: PulseSettings [flatten], "the transmit pulse";
+        sps: usize [2] >= 1, "samples per symbol";
+    }
 }
 
 struct PulseShaping {
@@ -126,7 +136,7 @@ struct PulseShaping {
 
 impl PulseShaping {
     fn new(p: &PulseSpec) -> Result<PulseShaping> {
-        Ok(PulseShaping { taps: pulse(&p.kind, p.sps, p.n_taps, p.rolloff)?, sps: p.sps })
+        Ok(PulseShaping { taps: p.pulse.taps(p.sps)?, sps: p.sps })
     }
 }
 
@@ -147,44 +157,37 @@ block_params! {
 }
 
 impl Block for Normalize {
+    /// Every sample divided by the RMS value over all the streams (as
+    /// `com_dsp::signal::pnorm` for one stream), then multiplied by the amplitude of
+    /// the power.
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let a = self.power_dbm.map_or(1.0, |p| dbm2w(p).sqrt());
-        if s.antennas.is_empty() {
-            s.samples = signal::pnorm(&s.samples).into_iter().map(|v| v * a).collect();
-        } else {
-            let p = s.mean_power();
-            let g = if p > 0.0 { a / p.sqrt() } else { a };
-            s.streams_mut().flatten().for_each(|v| *v *= g);
-        }
+        let rms = s.mean_power().sqrt();
+        s.streams_mut().flatten().for_each(|v| *v = if rms == 0.0 { *v * a } else { *v / rms * a });
         Ok(())
     }
 }
 
 block_params! {
     struct MatchedSpec {
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "receive pulse";
-        rolloff: f64 [0.1] >= 0 <= 1, "roll-off";
-        n_taps: usize [1025] >= 1, "taps";
+        pulse: PulseSettings [flatten], "the receive pulse";
     }
 }
 
-struct MatchedFilter {
-    kind: String,
-    rolloff: f64,
-    n_taps: usize,
-}
+/// The matched filter: its taps at the samples per symbol of the signal.
+struct MatchedFilter(PulseSettings);
 
 impl MatchedFilter {
     fn new(p: MatchedSpec) -> Result<MatchedFilter> {
-        pulse(&p.kind, 2, p.n_taps, p.rolloff)?;
-        Ok(MatchedFilter { kind: p.kind, rolloff: p.rolloff, n_taps: p.n_taps })
+        p.pulse.taps(2)?;
+        Ok(MatchedFilter(p.pulse))
     }
 }
 
 impl Block for MatchedFilter {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let sps = s.int_sps("matched_filter")?;
-        let h = pulse(&self.kind, sps, self.n_taps, self.rolloff)?;
+        let h = self.0.taps(sps)?;
         s.samples = filter::fir_filter(&h, &s.samples);
         Ok(())
     }
@@ -266,14 +269,23 @@ impl Block for Gardner {
 
 block_params! {
     struct EqualizerSpec {
-        algorithm: Json ["cma"], "cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]";
+        algorithm: Schedule ["cma"], "cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]";
         n_taps: usize [15] >= 1, "taps";
-        mu: Json [1e-3] > 0,
+        mu: NumberOrList [1e-3] > 0,
             "step size, or one per stage of the schedule (the last one holds for the following stages)";
         passes: usize [1] >= 1, "passes over the block";
         kikuchi: Option<usize> [absent],
             "2 × 2: Kikuchi's initialisation against the singularity, output 0 alone during this number of symbols, then output 1 as its unitary complement; records correlation and singular";
     }
+}
+
+json_param! {
+    /// The algorithm of `adaptive_equalizer`: a name, or a schedule of stages.
+    Schedule,
+    serde_json::json!({"anyOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"type": "array", "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 0}], "minItems": 2, "maxItems": 2}}
+    ]})
 }
 
 struct Equalizer {
@@ -287,7 +299,7 @@ struct Equalizer {
 
 impl Equalizer {
     fn new(p: &EqualizerSpec, label: String) -> Result<Equalizer> {
-        let schedule = match &p.algorithm {
+        let schedule = match &p.algorithm.0 {
             Json::String(a) => vec![(a.parse()?, usize::MAX)],
             Json::Array(steps) => steps
                 .iter()
@@ -302,7 +314,7 @@ impl Equalizer {
             other => return Err(Error::Config(format!("algorithm must be a name or a schedule, got {other}"))),
         };
         let singularity = p.kikuchi.map_or(Singularity::None, Singularity::Kikuchi);
-        let mu: Vec<f64> = match &p.mu {
+        let mu: Vec<f64> = match &p.mu.0 {
             Json::Array(v) => v
                 .iter()
                 .map(|x| x.as_f64().ok_or_else(|| Error::Config("adaptive_equalizer: mu must be numbers".into())))
@@ -331,8 +343,12 @@ impl Block for Equalizer {
         let c = s.constellation("adaptive_equalizer")?.clone();
         // every polarisation (or antenna) is a mode of the butterfly
         let n = s.n_streams();
-        let reference: Vec<Vec<C64>> = (0..n).map(|i| part(&s.symbols, i, n)).collect();
         let needs_ref = self.schedule.iter().any(|(a, _)| *a == Algorithm::Nlms);
+        let reference: Vec<Vec<C64>> = if needs_ref {
+            (0..n).map(|i| part(&s.symbols, i, n, "symbols")).collect::<Result<_>>()?
+        } else {
+            Vec::new()
+        };
         let x: Vec<Vec<C64>> = s.streams().map(|v| signal::pnorm(v)).collect();
         let out = eq.run(&x, if needs_ref { Some(&reference) } else { None }, c.points())?;
         if let Some(rho) = out.output_correlation() {

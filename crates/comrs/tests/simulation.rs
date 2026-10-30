@@ -236,6 +236,7 @@ fn csv_and_json_loggers_write_every_condition() {
 fn grids_compose_axes_zips_fixed_values_and_explicit_lists() {
     let g = Grid::new()
         .zip(&["m", "kind"], vec![vec![4usize.into(), "qam".into()], vec![8usize.into(), "psk".into()]])
+        .unwrap()
         .axis("snr_db", [1.0, 2.0])
         .fixed("n", 10usize);
     let c = g.conditions();

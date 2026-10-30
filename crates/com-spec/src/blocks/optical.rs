@@ -68,8 +68,10 @@
 //!    systems," *J. Lightw. Technol.*, 30(24), 3857–3879, 2012 (the reference of the
 //!    WDM campaigns, see `com_channel::optical::gn`).
 
-use super::dsp::pulse;
-use super::{Block, BlockInfo, BuildContext, FIBER_DOC, Frame, Params};
+use super::dsp::PulseSettings;
+use super::fiber::AmplifierSettings;
+use super::fiber::fiber_json;
+use super::{Block, BuildContext, Extension, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList};
 use com_channel::optical::manakov::ManakovSsfm;
 use com_channel::optical::pmd::{Jones, PmdLink};
 use com_core::rng::Rng;
@@ -90,61 +92,50 @@ pub struct WdmFrame {
     pub cut: usize,
 }
 
-/// The documentation of the optical blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "wdm_tx",
             "WDM transmitter: the channel under test and independently modulated neighbours on the grid of OptiCommPy's simpleWDMTx.",
             WdmTxSpec,
             needs[Samples],
             gives[Wdm],
+            |q, _, _| Ok(Box::new(WdmTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "manakov",
             "Dual-polarisation nonlinear propagation over the link (Manakov equation, OptiCommPy's manakovSSF), EDFAs with ASE.",
             ManakovSpec,
             needs [Samples],
             gives [],
+            |q, label, ctx| Ok(Box::new(ManakovBlock::new(&q, ctx, label)?)),
         ),
-        block_info!(
+        builtin!(
             "pmd",
             "Random rotation of the polarisations and polarisation-mode dispersion of a dual-polarisation signal, a new realisation every trial.",
             PmdBlock,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Pmd { p: q, label })),
         ),
-        block_info!(
+        builtin!(
             "manakov_dbp",
             "Dual-polarisation digital back-propagation of the link (Manakov equation, coefficients negated).",
             DbpSpec,
             needs [Samples],
             gives [],
+            |q, _, ctx| Ok(Box::new(ManakovDbpBlock::new(&q, ctx)?)),
         ),
-        block_info!(
+        builtin!(
             "wdm_rx",
             "Bring the channel under test to baseband and keep its band (ideal low-pass by resampling).",
             WdmRx,
             needs [Samples, Wdm],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
     ]
-}
-
-/// Build an optical block, or `None` for another type.
-pub(super) fn build(kind: &str, label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let b: Result<Box<dyn Block>> = match kind {
-        "wdm_tx" => WdmTxSpec::parse(kind, p).and_then(|q| WdmTx::new(&q)).map(|b| Box::new(b) as Box<dyn Block>),
-        "manakov" => {
-            ManakovSpec::parse(kind, p).and_then(|q| ManakovBlock::new(&q, ctx, label)).map(|b| Box::new(b) as _)
-        }
-        "wdm_rx" => WdmRx::parse(kind, p).map(|b| Box::new(b) as _),
-        "pmd" => PmdBlock::parse(kind, p).map(|p| Box::new(Pmd { p, label }) as _),
-        "manakov_dbp" => DbpSpec::parse(kind, p).and_then(|q| ManakovDbpBlock::new(&q, ctx)).map(|b| Box::new(b) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------- wdm_tx
@@ -154,10 +145,8 @@ block_params! {
         n_channels: usize [5] >= 1, "channels N; the grid is (k - ⌊N/2⌋) Δf, shifted by Δf/2 when N is even";
         spacing_hz: f64 [50e9] "Hz" > 0, "grid spacing Δf";
         sps: usize [8] >= 1, "samples per symbol of the multiplex (the sampling rate must cover the band)";
-        power_dbm: Json [0.0] "dBm", "launch power per channel, both polarisations; a list gives one per channel";
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "pulse";
-        rolloff: f64 [0.1] >= 0 <= 1, "roll-off of the pulse";
-        n_taps: usize [1025] >= 1, "taps of the pulse";
+        power_dbm: NumberOrList [0.0] "dBm", "launch power per channel, both polarisations; a list gives one per channel";
+        pulse: PulseSettings [flatten], "the pulse of every channel";
         linewidth_hz: f64 [0.0] "Hz" >= 0, "linewidth of the transmit lasers";
         channel: Option<usize> [absent "centre"], "index of the channel under test (⌊N/2⌋ by default)";
         mzm_scale: Option<f64> [absent],
@@ -172,7 +161,7 @@ struct WdmTx {
 
 impl WdmTx {
     fn new(p: &WdmTxSpec) -> Result<WdmTx> {
-        let powers_dbm: Vec<f64> = match &p.power_dbm {
+        let powers_dbm: Vec<f64> = match &p.power_dbm.0 {
             Json::Array(v) => v
                 .iter()
                 .map(|x| x.as_f64().ok_or_else(|| Error::Config("wdm_tx: power_dbm must be numbers".into())))
@@ -190,7 +179,7 @@ impl WdmTx {
         let tx = WdmTransmitter {
             freqs: wdm_grid(p.n_channels, p.spacing_hz),
             powers_w: powers_dbm.into_iter().map(dbm2w).collect(),
-            taps: pulse(&p.kind, p.sps, p.n_taps, p.rolloff)?,
+            taps: p.pulse.taps(p.sps)?,
             sps: p.sps,
             linewidth_hz: p.linewidth_hz,
             mzm_scale: p.mzm_scale,
@@ -229,14 +218,12 @@ impl Block for WdmTx {
 
 block_params! {
     struct ManakovSpec {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         max_nl_phase: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
         tolerance: f64 [1e-5] > 0, "convergence tolerance of the iterations";
-        amplification: String ["edfa"] one_of ["edfa", "ideal", "none"],
-            "edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency";
-        noise: bool [true], "draw the ASE of the EDFAs and the spontaneous Raman noise";
+        amplifiers: AmplifierSettings [flatten], "the amplifiers after every span";
     }
 }
 
@@ -248,7 +235,7 @@ struct ManakovBlock {
 
 impl ManakovBlock {
     fn new(p: &ManakovSpec, ctx: &BuildContext, label: String) -> Result<ManakovBlock> {
-        let fiber = ctx.fiber(p.fiber.as_ref())?;
+        let fiber = ctx.fiber(fiber_json(p.fiber.as_ref()))?;
         let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase), StepRule::Fixed);
         Ok(ManakovBlock {
             link: ManakovSsfm {
@@ -256,10 +243,10 @@ impl ManakovBlock {
                 rule,
                 max_iterations: p.max_iterations,
                 tolerance: p.tolerance,
-                amplification: p.amplification.parse()?,
-                raman: ctx.raman(p.fiber.as_ref())?,
+                amplification: p.amplifiers.amplification()?,
+                raman: ctx.raman(fiber_json(p.fiber.as_ref()))?,
             },
-            noise: p.noise,
+            noise: p.amplifiers.noise(),
             label,
         })
     }
@@ -327,7 +314,7 @@ impl Block for Pmd {
 
 block_params! {
     struct DbpSpec {
-        fiber: Option<Json> [absent "spec fiber"], FIBER_DOC;
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         steps_per_span: usize [1] >= 1, "symmetric steps per span";
         nonlinear_scale: f64 [1.0], "ξ: multiplies the nonlinear phase (0: dispersion compensation only)";
         amplification: String ["edfa"] one_of ["edfa", "ideal", "none"], "the amplification of the forward link";
@@ -338,8 +325,10 @@ struct ManakovDbpBlock(com_dsp::compensation::dbp::Dbp);
 
 impl ManakovDbpBlock {
     fn new(p: &DbpSpec, ctx: &BuildContext) -> Result<ManakovDbpBlock> {
-        let link =
-            ManakovSsfm { amplification: p.amplification.parse()?, ..ManakovSsfm::new(ctx.fiber(p.fiber.as_ref())?) };
+        let link = ManakovSsfm {
+            amplification: p.amplification.parse()?,
+            ..ManakovSsfm::new(ctx.fiber(fiber_json(p.fiber.as_ref()))?)
+        };
         Ok(ManakovDbpBlock(link.dbp(p.steps_per_span, p.nonlinear_scale)))
     }
 }

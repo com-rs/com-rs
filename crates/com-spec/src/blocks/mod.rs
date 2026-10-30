@@ -55,7 +55,8 @@
 //! | [`systems`] | the DVB-S2 chain of `com-systems` (ADR 0010) |
 //! | [`analysis`] | probes, recordings of the samples (`dump`), the declared posterior of a receiver |
 //!
-//! Every module documents its blocks next to their code (`infos`); a test checks
+//! Every module declares its blocks next to their code (`blocks`: the documentation
+//! and the builder of every block, an [`Extension`] as the blocks of other crates); a test checks
 //! that the parameters a block accepts and those it documents are the same.
 
 use com_core::rng::Rng;
@@ -88,12 +89,15 @@ pub(crate) mod tests;
 
 pub use crate::params::parse;
 pub use context::BuildContext;
-use context::FIBER_DOC;
+pub(crate) use context::merge_fiber;
+use context::{FIBER_DOC, FiberSpec};
 pub use frame::{CaptureState, ChannelState, Coding, Frame, InFlight, Layout, ReceiverState};
 pub use optical::WdmFrame;
 use per_pol::{part, per_pol};
 pub use registry::{BlockInfo, Extension, build, check_link, json_schema, register, registry};
-pub use schema::{Fact, ParamDefault, ParamInfo, Params};
+pub(crate) use registry::{build_parts, with_registry};
+use schema::NumberOrList;
+pub use schema::{Fact, Mapping, NameOr, Named, ParamDefault, ParamInfo, Params};
 pub use wireless::{Csi, OfdmFrame};
 
 /// A block of a link.
@@ -116,21 +120,28 @@ pub trait Block: Send + Sync {
     }
 }
 
+block_params! {
+    /// A constellation given as a mapping.
+    pub struct ConstellationSpec {
+        kind: String ["qam"] one_of ["pam", "qam", "psk", "ook"], "the family";
+        m: usize [required] >= 1, "the order";
+    }
+}
+
+/// The value of a `constellation` parameter: a name or a [`ConstellationSpec`].
+pub type ConstellationParam = NameOr<ConstellationSpec>;
+
 /// Parse a constellation, normalised to unit energy: a name of
 /// [`Constellation::from_name`] (`16-QAM`, `qam16`, `QPSK`, `BPSK`, `8-PSK`, `4-PAM`,
-/// `OOK`) or a mapping `{kind, m}`.
+/// `OOK`) or a mapping `{kind, m}` ([`ConstellationSpec`]).
 ///
 /// # Errors
 /// [`Error::Config`] for an unknown family or a missing or invalid order.
 pub fn parse_constellation(v: &Json) -> Result<Constellation> {
     let c = match v {
-        Json::Object(o) => {
-            let kind: ConstellationKind = o.get("kind").and_then(Json::as_str).unwrap_or("qam").parse()?;
-            let m = o
-                .get("m")
-                .and_then(Json::as_u64)
-                .ok_or_else(|| Error::Config("constellation needs an order m".into()))?;
-            Constellation::new(kind, m as usize)?
+        Json::Object(_) => {
+            let q = ConstellationSpec::parse("constellation", v.clone())?;
+            Constellation::new(q.kind.parse::<ConstellationKind>()?, q.m)?
         }
         Json::String(s) => Constellation::from_name(s)?,
         other => return Err(Error::Config(format!("constellation must be a name or {{kind, m}}, got {other}"))),

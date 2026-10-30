@@ -45,8 +45,7 @@
 //!    Annex B.2 (EPA, EVA, ETU).
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
-use crate::params::parse;
+use super::{Block, Extension, Frame, NameOr, Named};
 use com_channel::cdl::{Array, Cdl, Profile as CdlProfile};
 use com_channel::fading::Mimo;
 use com_channel::multipath::{Profile, Taps, Tdl};
@@ -92,75 +91,66 @@ impl Csi {
 
 pub use com_waveform::ofdm::link::OfdmFrame;
 
-/// The documentation of the wireless blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "mimo_tx",
             "Spread the symbols over n_tx antennas: spatial multiplexing (power 1/n_tx per antenna) or Alamouti's code.",
             MimoTxSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(MimoTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "rayleigh",
             "Flat fading y = H x on every antenna; records the channel for a genie-aided receiver.",
             RayleighSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(Rayleigh { p: q })),
         ),
-        block_info!(
+        builtin!(
             "tdl",
             "Tapped-delay-line multipath fading with Clarke/Jakes Doppler; records the taps for a genie-aided receiver.",
             TdlSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(TdlBlock::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "cdl",
             "Clustered delay line of 3GPP TR 38.901 between uniform linear arrays (one tap per cluster, random ray phases and coupling); records the taps for a genie-aided receiver.",
             CdlSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(CdlBlock::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "ofdm_tx",
             "Map every antenna's symbols on resource grids with pilots and OFDM-modulate them (power K/(LN) per sample).",
             OfdmTxSpec,
             needs[Samples],
             gives[Ofdm],
+            |q, _, _| Ok(Box::new(OfdmTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "ofdm_rx",
             "Demodulate the OFDM grids, estimate the channel and detect every data resource element; output the symbols and their noise variances.",
             OfdmRxSpec,
             needs [Samples, Constellation, Ofdm],
             gives [Noise, Llr],
+            |q, _, _| Ok(Box::new(OfdmRx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "mimo_rx",
             "Detect a single-carrier link over flat fading with the known channel; output the symbols and their noise variances.",
             DetectorSpec,
             needs [Samples, Constellation, Csi],
             gives [Noise, Llr],
+            |q, _, _| Ok(Box::new(MimoRx(Detection::new(&q)?))),
         ),
     ]
-}
-
-/// Build a wireless block, or `None` for another type.
-pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let b: Result<Box<dyn Block>> = match kind {
-        "mimo_tx" => MimoTxSpec::parse(kind, p).and_then(|q| MimoTx::new(&q)).map(|b| Box::new(b) as Box<dyn Block>),
-        "rayleigh" => RayleighSpec::parse(kind, p).and_then(Rayleigh::new).map(|b| Box::new(b) as _),
-        "tdl" => TdlSpec::parse(kind, p).and_then(|q| TdlBlock::new(&q)).map(|b| Box::new(b) as _),
-        "cdl" => CdlSpec::parse(kind, p).and_then(|q| CdlBlock::new(&q)).map(|b| Box::new(b) as _),
-        "ofdm_tx" => OfdmTxSpec::parse(kind, p).and_then(|q| OfdmTx::new(&q)).map(|b| Box::new(b) as _),
-        "ofdm_rx" => OfdmRxSpec::parse(kind, p).and_then(|q| OfdmRx::new(&q)).map(|b| Box::new(b) as _),
-        "mimo_rx" => DetectorSpec::parse(kind, p).and_then(|q| Detection::new(&q)).map(|d| Box::new(MimoRx(d)) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------ mimo_tx
@@ -230,8 +220,8 @@ block_params! {
         n_rx: usize [1] >= 1, "receive antennas";
         coherence: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
         k_factor: f64 [0.0] >= 0, "Rician factor K (linear), 0 for Rayleigh fading";
-        rx_correlation: f64 [0.0], "exponential correlation ρ of the receive antennas, in (-1, 1)";
-        tx_correlation: f64 [0.0], "exponential correlation ρ of the transmit antennas, in (-1, 1)";
+        rx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the receive antennas";
+        tx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the transmit antennas";
     }
 }
 
@@ -239,35 +229,40 @@ struct Rayleigh {
     p: RayleighSpec,
 }
 
-impl Rayleigh {
-    fn new(p: RayleighSpec) -> Result<Rayleigh> {
-        ensure(p.rx_correlation.abs() < 1.0 && p.tx_correlation.abs() < 1.0, || {
-            "rayleigh: the correlations must be in (-1, 1)".into()
-        })?;
-        Ok(Rayleigh { p })
-    }
+/// A fading channel on every stream of the frame: the transmitted power, summed over
+/// the antennas, becomes the reference of the noise blocks, and `channel(x, fs, rng)`
+/// gives the received streams and the channel that a genie-aided receiver knows.
+fn fade(
+    s: &mut Frame,
+    rng: &mut Rng,
+    channel: impl FnOnce(&[Vec<C64>], f64, &mut Rng) -> Result<(Vec<Vec<C64>>, Csi)>,
+) -> Result<()> {
+    s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
+    let fs = s.fs();
+    let x = s.take_streams();
+    let (y, csi) = channel(&x, fs, rng)?;
+    s.set_streams(y);
+    s.channel.csi = Some(csi);
+    Ok(())
 }
 
 impl Block for Rayleigh {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        // the transmitted power, summed over the antennas: the reference of the noise
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, nr, n) = (x.len(), self.p.n_rx, x[0].len());
-        let correlation = if self.p.rx_correlation != 0.0 || self.p.tx_correlation != 0.0 {
-            Some(Kronecker::new(
-                exponential_correlation(nr, C64::new(self.p.rx_correlation, 0.0)),
-                exponential_correlation(nt, C64::new(self.p.tx_correlation, 0.0)),
-            )?)
-        } else {
-            None
-        };
-        let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
-        let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
-        let (y, hs) = model.apply(&x, rng)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Flat { h: hs, coherence: coh });
-        Ok(())
+        fade(s, rng, |x, _, rng| {
+            let (nt, nr, n) = (x.len(), self.p.n_rx, x[0].len());
+            let correlation = if self.p.rx_correlation != 0.0 || self.p.tx_correlation != 0.0 {
+                Some(Kronecker::new(
+                    exponential_correlation(nr, C64::new(self.p.rx_correlation, 0.0)),
+                    exponential_correlation(nt, C64::new(self.p.tx_correlation, 0.0)),
+                )?)
+            } else {
+                None
+            };
+            let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
+            let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
+            let (y, hs) = model.apply(x, rng)?;
+            Ok((y, Csi::Flat { h: hs, coherence: coh }))
+        })
     }
 }
 
@@ -275,18 +270,19 @@ impl Block for Rayleigh {
 
 block_params! {
     struct TdlSpec {
-        profile: Json ["EPA"],
+        profile: NameOr<ExponentialSpec> ["EPA"],
             "EPA, EVA, ETU (3GPP TS 36.101), pedestrian_a, pedestrian_b, vehicular_a, vehicular_b (ITU-R M.1225, Tables 4 and 5), or {rms_delay_s, resolution_s} (exponential)";
         doppler_hz: f64 [0.0] "Hz" >= 0, "maximum Doppler shift; 0 for a channel constant over the trial";
         n_rx: usize [1] >= 1, "receive antennas";
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExponentialSpec {
-    rms_delay_s: f64,
-    resolution_s: f64,
+block_params! {
+    /// The exponential power-delay profile of `tdl`.
+    struct ExponentialSpec {
+        rms_delay_s: f64 [required] "s" > 0, "RMS delay spread";
+        resolution_s: f64 [required] "s" > 0, "spacing of the taps";
+    }
 }
 
 struct TdlBlock {
@@ -297,15 +293,9 @@ struct TdlBlock {
 
 impl TdlBlock {
     fn new(p: &TdlSpec) -> Result<TdlBlock> {
-        let profile = match &p.profile {
-            Json::String(name) => name.parse()?,
-            other => {
-                let e: ExponentialSpec = parse("tdl profile", other.clone())?;
-                ensure(e.rms_delay_s > 0.0 && e.resolution_s > 0.0, || {
-                    "tdl: rms_delay_s and resolution_s must be positive".into()
-                })?;
-                Profile::Exponential { rms_delay_s: e.rms_delay_s, resolution_s: e.resolution_s }
-            }
+        let profile = match p.profile.get("tdl profile")? {
+            Named::Name(name) => name.parse()?,
+            Named::Params(e) => Profile::Exponential { rms_delay_s: e.rms_delay_s, resolution_s: e.resolution_s },
         };
         Ok(TdlBlock { taps: profile.taps(), doppler: p.doppler_hz, n_rx: p.n_rx })
     }
@@ -313,16 +303,11 @@ impl TdlBlock {
 
 impl Block for TdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        // the transmitted power, summed over the antennas: the reference of the noise
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, n) = (x.len(), x[0].len());
-        let tdl = Tdl::new(&self.taps, self.doppler, s.fs(), self.n_rx, nt)?;
-        let taps = tdl.draw(n, rng);
-        let y = taps.apply(&x)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Taps(taps));
-        Ok(())
+        fade(s, rng, |x, fs, rng| {
+            let tdl = Tdl::new(&self.taps, self.doppler, fs, self.n_rx, x.len())?;
+            let taps = tdl.draw(x[0].len(), rng);
+            Ok((taps.apply(x)?, Csi::Taps(taps)))
+        })
     }
 }
 
@@ -364,23 +349,14 @@ impl CdlBlock {
 
 impl Block for CdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        s.channel.faded_power = Some(s.mean_power() * s.n_streams() as f64);
-        let x = s.take_streams();
-        let (nt, n) = (x.len(), x[0].len());
-        let mut cdl = Cdl::new(
-            self.profile,
-            self.delay_spread,
-            s.fs(),
-            Array::linear(nt, self.spacing),
-            Array::linear(self.n_rx, self.spacing),
-        )?;
-        cdl.velocity = [0.0, self.velocity, 0.0];
-        cdl.carrier_frequency = self.carrier;
-        let taps = cdl.draw(n, rng)?;
-        let y = taps.apply(&x)?;
-        s.set_streams(y);
-        s.channel.csi = Some(Csi::Taps(taps));
-        Ok(())
+        fade(s, rng, |x, fs, rng| {
+            let tx = Array::linear(x.len(), self.spacing);
+            let mut cdl = Cdl::new(self.profile, self.delay_spread, fs, tx, Array::linear(self.n_rx, self.spacing))?;
+            cdl.velocity = [0.0, self.velocity, 0.0];
+            cdl.carrier_frequency = self.carrier;
+            let taps = cdl.draw(x[0].len(), rng)?;
+            Ok((taps.apply(x)?, Csi::Taps(taps)))
+        })
     }
 }
 
@@ -394,7 +370,7 @@ block_params! {
         oversampling: usize [1] >= 1, "oversampling L";
         dc_null: bool [false], "leave the DC subcarrier empty";
         n_symbols: usize [14] >= 1, "OFDM symbols per grid";
-        pilots: Json [serde_json::json!({"pattern": "lattice", "freq": 3, "time": 4})
+        pilots: NameOr<PilotSpec> [serde_json::json!({"pattern": "lattice", "freq": 3, "time": 4})
             => "{pattern: lattice, freq: 3, time: 4}"],
             "pattern block {period}, comb {spacing}, lattice {freq, time} or none; with several antennas the pilots of a symbol are dealt to the antennas in turn";
         subcarrier_spacing_hz: f64 [15e3] "Hz" > 0, "subcarrier spacing Δf";
@@ -402,37 +378,25 @@ block_params! {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PilotSpec {
-    pattern: String,
-    #[serde(default = "d_four")]
-    period: usize,
-    #[serde(default = "d_four")]
-    spacing: usize,
-    #[serde(default = "d_three")]
-    freq: usize,
-    #[serde(default = "d_four")]
-    time: usize,
-}
-
-fn d_four() -> usize {
-    4
-}
-fn d_three() -> usize {
-    3
-}
-
-fn pilot_pattern(v: &Json) -> Result<PilotPattern> {
-    if let Json::String(s) = v {
-        ensure(s == "none", || format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))?;
-        return Ok(PilotPattern::None);
+block_params! {
+    /// The pilots of `ofdm_tx`.
+    struct PilotSpec {
+        pattern: String [required] one_of ["block", "comb", "lattice", "none"], "the pattern";
+        period: usize [4] "OFDM symbols" >= 1, "pilot symbols every period symbols (block)";
+        spacing: usize [4] "subcarriers" >= 1, "pilot subcarriers every spacing subcarriers (comb)";
+        freq: usize [3] "subcarriers" >= 1, "spacing in frequency (lattice)";
+        time: usize [4] "OFDM symbols" >= 1, "spacing in time (lattice)";
     }
-    let p: PilotSpec = parse("ofdm_tx pilots", v.clone())?;
-    ensure(p.period >= 1 && p.spacing >= 1 && p.freq >= 1 && p.time >= 1, || {
-        "ofdm_tx: the pilot spacings must be at least 1".into()
-    })?;
-    PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+}
+
+fn pilot_pattern(v: &NameOr<PilotSpec>) -> Result<PilotPattern> {
+    match v.get("ofdm_tx pilots")? {
+        Named::Name(s) if s.eq_ignore_ascii_case("none") => Ok(PilotPattern::None),
+        Named::Name(s) => Err(Error::Config(format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))),
+        Named::Params(p) => {
+            PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+        }
+    }
 }
 
 struct OfdmTx {

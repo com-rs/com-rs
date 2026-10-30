@@ -47,7 +47,7 @@
 //!    Trans. Inf. Theory*, 44(3), 927–946, 1998.
 
 use super::schema::{ParamType, variants_schema};
-use super::{Block, BlockInfo, BuildContext, Coding, Frame, ParamInfo, Params, parse_constellation};
+use super::{Block, Coding, ConstellationParam, Extension, Frame, ParamInfo, Params, parse_constellation};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_fec::block::BlockCode;
@@ -65,78 +65,65 @@ use com_systems::pas::Pas;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-/// The documentation of the coding blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             start "pas_encode",
             "Probabilistic amplitude shaping: CCDM-shaped amplitudes, an LDPC code whose parity bits are the signs, square QAM (the first block of a link).",
             PasSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples, Payload],
+            |q, _, _| Ok(Box::new(PasEncode(PasLink::new(&q)?))),
         ),
-        block_info!(
+        builtin!(
             "pas_decode",
             "PAS receiver: bit LLRs with the amplitude priors, LDPC decoding, dematching (the parameters of pas_encode).",
             PasSpec,
             needs [Samples, Symbols, Noise],
             gives [Decoded],
+            |q, _, _| Ok(Box::new(PasDecode(PasLink::new(&q)?))),
         ),
-        block_info!(
+        builtin!(
             start "fec_encode",
             "Draw the information bits of the coded blocks and encode them (the first block of a coded link).",
             EncodeSpec,
             needs [],
             gives [Bits, Payload],
+            |q, _, _| Ok(Box::new(Encode(Coder::new(&q.code, q.blocks, q.interleaver)?))),
         ),
-        block_info!(
+        builtin!(
             "map",
             "Map the coded bits on a constellation (Gray labels, the last symbol padded with random bits).",
             MapSpec,
             needs [Bits],
             gives [Symbols, Constellation, Samples],
+            |q, _, _| Ok(Box::new(Map::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "demap",
             "Bit LLRs of the received symbols, with the noise variance of every symbol (from the receiver, or the noise block).",
             Demap,
             needs [Samples, Symbols, Constellation, Noise],
             gives [Llr],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(
+        builtin!(
             "fec_decode",
             "Deinterleave and decode the LLRs into the information bits.",
             DecodeSpec,
             needs[Llr],
             gives[Decoded],
+            |q, _, _| Ok(Box::new(Decode(Coder::new(&q.code, 1, q.interleaver)?))),
         ),
     ]
-}
-
-/// Build a coding block, or `None` for another type.
-pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let b: Result<Box<dyn Block>> = match kind {
-        "fec_encode" => {
-            EncodeSpec::parse(kind, p).and_then(|q| Coder::new(&q)).map(|c| Box::new(Encode(c)) as Box<dyn Block>)
-        }
-        "fec_decode" => DecodeSpec::parse(kind, p)
-            .and_then(|q| Coder::new(&EncodeSpec { code: q.code, blocks: 1, interleave: q.interleave, seed: q.seed }))
-            .map(|c| Box::new(Decode(c)) as _),
-        "map" => MapSpec::parse(kind, p).and_then(|q| Map::new(&q)).map(|b| Box::new(b) as _),
-        "pas_encode" => PasSpec::parse(kind, p).and_then(|q| PasLink::new(&q)).map(|b| Box::new(PasEncode(b)) as _),
-        "pas_decode" => PasSpec::parse(kind, p).and_then(|q| PasLink::new(&q)).map(|b| Box::new(PasDecode(b)) as _),
-        "demap" => Demap::parse(kind, p).map(|b| Box::new(b) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------- codes
 
 block_params! {
     struct ConvSpec {
-        k: usize [required] "bits", "information bits per codeword";
+        k: usize [required] "bits" >= 1, "information bits per codeword";
         hard: bool [false], "hard-decision Viterbi decoding";
         puncture: Option<String> [absent "unpunctured"],
             "puncturing pattern of com_fec::puncture::Puncturer::from_name (ieee80211_2_3, dvbs_3_4…)";
@@ -145,7 +132,7 @@ block_params! {
 
 block_params! {
     struct RsSpec {
-        m: u32 [required] "bits", "bits per symbol: the field GF(2^m), 2 to 16";
+        m: u32 [required] "bits" >= 2 <= 16, "bits per symbol: the field GF(2^m)";
         t: usize [required] "symbols", "symbol errors corrected";
         n: Option<usize> [absent "2^m - 1"] "symbols", "length of the shortened code";
         first_root: usize [1], "first root b of the generator α^b, …";
@@ -155,7 +142,7 @@ block_params! {
 
 block_params! {
     struct TurboSpec {
-        k: usize [required] "bits", "information bits: an interleaver length of LTE";
+        k: usize [required] "bits" >= 8, "information bits: an interleaver length of LTE";
         iterations: usize [8], "decoding iterations";
         max_log: bool [false], "max-log-MAP instead of log-MAP";
     }
@@ -177,11 +164,35 @@ block_params! {
     }
 }
 
+/// The regular LDPC code of length `n` with `k` information bits and variable-node
+/// degree `var_degree` built by progressive edge growth from `seed`, built once:
+/// `fec_encode` and `fec_decode` (and `pas_encode` and `pas_decode`) build the same
+/// code from one mapping, and the construction is deterministic.
+fn peg(n: usize, k: usize, var_degree: usize, seed: u64) -> Result<LdpcCode> {
+    /// The codes built, by `(n, k, var_degree, seed)`, the last ones kept.
+    type Built = Vec<((usize, usize, usize, u64), LdpcCode)>;
+    static BUILT: std::sync::Mutex<Built> = std::sync::Mutex::new(Vec::new());
+    const KEPT: usize = 8;
+    let key = (n, k, var_degree, seed);
+    let found = BUILT.lock().ok().and_then(|b| b.iter().find(|(k, _)| *k == key).map(|(_, c)| c.clone()));
+    if let Some(c) = found {
+        return Ok(c);
+    }
+    let c = LdpcCode::peg(n, k, var_degree, seed)?;
+    if let Ok(mut b) = BUILT.lock() {
+        if b.len() == KEPT {
+            b.remove(0);
+        }
+        b.push((key, c.clone()));
+    }
+    Ok(c)
+}
+
 impl LdpcSettings {
     /// The regular LDPC code of length `n` with `k` information bits built by
     /// progressive edge growth, with these decoder settings.
     fn code(&self, n: usize, k: usize) -> Result<LdpcCode> {
-        let mut c = LdpcCode::peg(n, k, self.var_degree, self.seed)?;
+        let mut c = peg(n, k, self.var_degree, self.seed)?;
         c.rule = CheckRule::from_name(&self.rule, self.alpha)?;
         c.layered = self.layered;
         c.max_iterations = self.iterations;
@@ -245,15 +256,16 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
         Json::Object(o) => o.clone(),
         other => return Err(Error::Config(format!("a code is a mapping with a type, got {other}"))),
     };
-    let Some(Json::String(kind)) = p.remove("type") else {
-        return Err(Error::Config(format!("a code needs a type among {:?}", CODES.map(|(k, _)| k))));
+    let names = CODES.map(|(k, _)| k);
+    let Some(Json::String(given)) = p.remove("type") else {
+        return Err(Error::Config(format!("a code needs a type among {names:?}")));
     };
+    let kind = super::schema::choice(&names, &given).ok_or_else(|| crate::unknown("code type", &given, &names))?;
     let what = format!("{kind} code");
     let p = Json::Object(p);
-    Ok(match kind.as_str() {
+    Ok(match kind {
         "conv" => {
             let ConvSpec { k, hard, puncture } = ConvSpec::parse(&what, p)?;
-            ensure(k >= 1, || "conv: k must be positive".into())?;
             let code = ConvolutionalCode { hard_decision: hard, ..ConvolutionalCode::k7(k) };
             match puncture {
                 None => Box::new(code),
@@ -264,14 +276,12 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
         }
         "rs" => {
             let RsSpec { m, t, n, first_root, root_step } = RsSpec::parse(&what, p)?;
-            ensure((2..=16).contains(&m), || format!("rs: m must be 2 to 16, got {m}"))?;
             let n = n.unwrap_or((1usize << m) - 1);
             let poly = com_math::gf2m::primitive_polynomial(m).unwrap_or(0);
             Box::new(ReedSolomon::with_field(m, poly, first_root, root_step, t, n)?)
         }
         "turbo" => {
             let TurboSpec { k, iterations, max_log } = TurboSpec::parse(&what, p)?;
-            ensure(k >= 8, || "turbo: k must be at least 8".into())?;
             Box::new(TurboCode { iterations, exact: !max_log, ..TurboCode::lte(k)? })
         }
         "ldpc" => {
@@ -286,29 +296,32 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
             }
             Box::new(c.with_list(list))
         }
-        other => {
-            return Err(Error::Config(format!(
-                "unknown code type {other:?}: the codes are {:?}",
-                CODES.map(|(k, _)| k)
-            )));
-        }
+        _ => unreachable!("a name of CODES"),
     })
+}
+
+block_params! {
+    /// The bit interleaver of a coded link: the parameters shared by `fec_encode` and
+    /// `fec_decode`, which must give the same.
+    #[derive(Clone, Copy)]
+    struct InterleaverSettings {
+        interleave: bool [false], "random bit interleaver over the coded bits of the trial (BICM), the same in fec_encode and fec_decode";
+        seed: u64 [0], "seed of the interleaver";
+    }
 }
 
 block_params! {
     struct EncodeSpec {
         code: Code [required], "the code: {type: conv|rs|turbo|ldpc|polar, …} and its parameters";
         blocks: usize [1] >= 1, "codewords per trial";
-        interleave: bool [false], "random bit interleaver over the coded bits of the trial (BICM)";
-        seed: u64 [0], "seed of the interleaver";
+        interleaver: InterleaverSettings [flatten], "the bit interleaver";
     }
 }
 
 block_params! {
     struct DecodeSpec {
         code: Code [required], "the code of fec_encode, with the decoder settings";
-        interleave: bool [false], "as fec_encode";
-        seed: u64 [0], "as fec_encode";
+        interleaver: InterleaverSettings [flatten], "the bit interleaver of fec_encode";
     }
 }
 
@@ -316,17 +329,16 @@ block_params! {
 struct Coder {
     code: Box<dyn BlockCode + Send + Sync>,
     blocks: usize,
-    interleave: bool,
-    seed: u64,
+    interleaver: InterleaverSettings,
 }
 
 impl Coder {
-    fn new(p: &EncodeSpec) -> Result<Coder> {
-        Ok(Coder { code: build_code(&p.code.0)?, blocks: p.blocks, interleave: p.interleave, seed: p.seed })
+    fn new(code: &Code, blocks: usize, interleaver: InterleaverSettings) -> Result<Coder> {
+        Ok(Coder { code: build_code(&code.0)?, blocks, interleaver })
     }
 
     fn interleaver(&self, len: usize) -> Option<Interleaver> {
-        self.interleave.then(|| Interleaver::random(len, self.seed))
+        self.interleaver.interleave.then(|| Interleaver::random(len, self.interleaver.seed))
     }
 }
 
@@ -375,7 +387,7 @@ impl Block for Decode {
 
 block_params! {
     struct MapSpec {
-        constellation: Json ["QPSK"], "the constellation, as for source";
+        constellation: ConstellationParam ["QPSK"], "the constellation, as for source";
         symbol_rate: f64 [1.0] "Bd" > 0, "symbol rate";
     }
 }
@@ -387,7 +399,7 @@ struct Map {
 
 impl Map {
     fn new(p: &MapSpec) -> Result<Map> {
-        Ok(Map { c: parse_constellation(&p.constellation)?, symbol_rate: p.symbol_rate })
+        Ok(Map { c: parse_constellation(p.constellation.json())?, symbol_rate: p.symbol_rate })
     }
 }
 
@@ -437,7 +449,7 @@ impl Block for Demap {
 
 block_params! {
     struct PasSpec {
-        constellation: Json ["64-QAM"], "a square QAM: 2^m-PAM per dimension";
+        constellation: ConstellationParam ["64-QAM"], "a square QAM: 2^m-PAM per dimension";
         mb_lambda: f64 [1.0] >= 0,
             "Maxwell-Boltzmann amplitudes p(a) ∝ exp(-λ x²) on the unit-energy uniform QAM (0: uniform)";
         n: usize [1536] "bits", "length of the LDPC codeword, a multiple of 2m";
@@ -462,7 +474,7 @@ struct PasLink {
 
 impl PasLink {
     fn new(p: &PasSpec) -> Result<PasLink> {
-        let c = parse_constellation(&p.constellation)?;
+        let c = parse_constellation(p.constellation.json())?;
         let bits = c.bits_per_symbol();
         let side = 1usize << (bits / 2);
         ensure(bits % 2 == 0 && bits >= 4 && side * side == c.order(), || {
@@ -637,6 +649,10 @@ mod tests {
         }
         let e = build_code(&json!({"type": "bch"})).err().unwrap().to_string();
         assert!(e.contains("unknown code type") && e.contains("polar"), "{e}");
+        // the type is read without case, the bounds are declared
+        assert!(build_code(&json!({"type": "LDPC", "n": 128, "k": 64})).is_ok());
+        let e = build_code(&json!({"type": "rs", "m": 20, "t": 2})).err().unwrap().to_string();
+        assert!(e.contains("m must be >= 2 and <= 16"), "{e}");
         let e = build_code(&json!({"type": "ldpc", "n": 128, "k": 64, "rule": "bp"})).err().unwrap().to_string();
         assert!(e.contains("rule must be one of"), "{e}");
     }

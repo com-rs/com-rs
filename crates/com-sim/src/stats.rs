@@ -1,16 +1,20 @@
 //! Running statistics with confidence intervals.
 //!
 //! - [`ErrorRate`] counts errors among trials of a Bernoulli event (bit, symbol or block
-//!   errors). Its estimate is `p̂ = k/n` and its interval the **Wilson score interval**
-//!   at confidence `1 - α`,
+//!   errors). Its estimate is $\hat{p} = k/n$ and its interval the **Wilson score
+//!   interval** at confidence $1 - \alpha$,
 //!
-//!   `(p̂ + z²/2n ± z √(p̂(1-p̂)/n + z²/4n²)) / (1 + z²/n)`, `z = Φ⁻¹(1 - α/2)`,
+//!   $$
+//!   \frac{\hat{p} + \frac{z^{2}}{2n} \pm z \sqrt{\frac{\hat{p}(1 - \hat{p})}{n} + \frac{z^{2}}{4n^{2}}}}{1 + \frac{z^{2}}{n}},
+//!   \qquad z = \Phi^{-1}(1 - \alpha/2),
+//!   $$
 //!
-//!   which, unlike the normal approximation, stays inside `[0, 1]` and is informative
-//!   with few or no errors (with `k = 0` its upper end is about `z²/n`).
+//!   which, unlike the normal approximation, stays inside $[0, 1]$ and is informative
+//!   with few or no errors (with $k = 0$ its upper end is about $z^{2}/n$).
 //! - [`Mean`] accumulates real values with Welford's algorithm (numerically stable
 //!   running mean and variance) and merges two accumulators exactly (Chan, Golub and
-//!   LeVeque); its interval is the normal interval of the mean, `x̄ ± z s/√n`.
+//!   LeVeque); its interval is the normal interval of the mean,
+//!   $\bar{x} \pm z s/\sqrt{n}$.
 //! - [`Estimate`] is either of the two, with the same interface.
 //!
 //! # Examples
@@ -32,8 +36,10 @@
 
 use com_math::qfuncinv;
 
-/// `z = Φ⁻¹(1 - α/2) = Q⁻¹(α/2)` of a two-sided confidence level `1 - α` (e.g. 1.96
-/// for 0.95).
+/// The quantile $z = \Phi^{-1}(1 - \alpha/2) = Q^{-1}(\alpha/2)$ of a two-sided
+/// confidence level $1 - \alpha$ (1.96 for 0.95); the level is clamped to $[0, 1)$ (the
+/// runner refuses a level outside $(0, 1)$, see
+/// [`check_confidence`](crate::stopping::check_confidence)).
 pub fn z_score(confidence: f64) -> f64 {
     qfuncinv((1.0 - confidence.clamp(0.0, 1.0 - 1e-16)) / 2.0)
 }
@@ -41,9 +47,9 @@ pub fn z_score(confidence: f64) -> f64 {
 /// Errors among trials of a Bernoulli event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ErrorRate {
-    /// Number of errors `k`.
+    /// Number of errors $k$.
     pub errors: u64,
-    /// Number of trials `n`.
+    /// Number of trials $n$.
     pub total: u64,
 }
 
@@ -59,7 +65,7 @@ impl ErrorRate {
         self.add(o.errors, o.total);
     }
 
-    /// `k / n` (`NaN` without trials).
+    /// $k/n$ (`NaN` without trials).
     pub fn rate(&self) -> f64 {
         if self.total == 0 { f64::NAN } else { self.errors as f64 / self.total as f64 }
     }
@@ -135,12 +141,12 @@ impl Mean {
         self.variance().sqrt()
     }
 
-    /// Standard error of the mean `s/√n`.
+    /// Standard error of the mean $s/\sqrt{n}$.
     pub fn sem(&self) -> f64 {
         self.std() / (self.n as f64).sqrt()
     }
 
-    /// Normal confidence interval of the mean, `mean ± z s/√n` (unbounded with fewer
+    /// Normal confidence interval of the mean, $\bar{x} \pm z s/\sqrt{n}$ (unbounded with fewer
     /// than two values, so that a precision rule never stops on a single value).
     pub fn interval(&self, confidence: f64) -> (f64, f64) {
         if self.n < 2 {

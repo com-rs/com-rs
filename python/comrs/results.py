@@ -170,29 +170,27 @@ class Results(list[dict[str, Any]]):
             raise KeyError(f"no {what} {unknown}: the results have {names}")
 
     def rows(self) -> list[dict[str, Any]]:
-        """One flat row per condition.
+        """One flat row per condition, with the columns of the CSV report.
 
         Returns:
-            list[dict]: the variables, ``status``, ``trials``, ``wall_s``, and for every
-            metric ``m``: ``m``, ``m_lo``, ``m_hi``, ``m_count``.
+            list[dict]: ``index``, the variables, ``status``, ``trials``, ``wall_s``, and
+            for every metric ``m``: ``m``, ``m_lo``, ``m_hi``, ``m_count``, ``m_total``
+            (the names of ``ConditionResult.row``).
         """
+        from comrs._comrs import _metric_columns
+
         out = []
         for r in self:
             row = {
+                "index": r.get("index"),
                 **r["condition"],
                 "status": r.get("status"),
                 "trials": r.get("trials"),
                 "wall_s": r.get("wall_s"),
             }
             for k, m in sorted(r["metrics"].items()):
-                row.update(
-                    {
-                        k: m["value"],
-                        f"{k}_lo": m["lo"],
-                        f"{k}_hi": m["hi"],
-                        f"{k}_count": m.get("count"),
-                    }
-                )
+                values = (m["value"], m["lo"], m["hi"], m.get("count"), m.get("total"))
+                row.update(zip(_metric_columns(k), values, strict=True))
             out.append(row)
         return out
 

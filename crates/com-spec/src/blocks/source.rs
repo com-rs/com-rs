@@ -1,6 +1,6 @@
 //! Sources: simulated symbols (`source`) and measured recordings (`capture`, `reference_sync`).
 
-use super::{Block, BlockInfo, BuildContext, CaptureState, Frame, Layout, Params, parse_constellation};
+use super::{Block, BuildContext, CaptureState, ConstellationParam, Extension, Frame, Layout, parse_constellation};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -13,52 +13,41 @@ use com_mapping::source as sources;
 use com_math::C64;
 use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             start "source",
             "Draw the bits and symbols of a block (Gray labels of OptiCommPy).",
             SourceSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples],
+            |q, _, _| Ok(Box::new(Source::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             start "capture",
             "A measured recording as the source: one segment per trial, the reference sequence not yet aligned.",
             CaptureSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples, Capture],
+            |q, _, ctx| Ok(Box::new(Capture::new(&q, ctx)?)),
         ),
-        block_info!(
+        builtin!(
             "reference_sync",
             "Align the periodic reference of a capture on the received symbols (circular correlation); records offset and quality.",
             ReferenceSyncSpec,
             needs [Samples, Constellation, Capture],
             gives [Bits, Symbols],
+            |q, label, _| Ok(Box::new(ReferenceSync { p: q, label })),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "source" => Box::new(Source::new(&SourceSpec::parse(k, p)?)?),
-            "capture" => Box::new(Capture::new(&CaptureSpec::parse(k, p)?, ctx)?),
-            "reference_sync" => Box::new(ReferenceSync { p: ReferenceSyncSpec::parse(k, p)?, label }),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 // ------------------------------------------------------------------- transmitter
 
 block_params! {
     struct SourceSpec {
-        constellation: Json ["16-QAM"],
+        constellation: ConstellationParam ["16-QAM"],
             "`16-QAM`, `QPSK`, `8-PSK`, `4-PAM`, `OOK`, {kind, m}, or `gaussian` (circular Gaussian symbols, no decisions); unit energy";
         n_symbols: usize [4096] >= 1, "symbols per trial";
         symbol_rate: f64 [1.0] "Bd" > 0, "symbol rate; 1 keeps a normalised time axis";
@@ -77,7 +66,7 @@ struct Source {
 
 impl Source {
     fn new(p: &SourceSpec) -> Result<Source> {
-        let c = match &p.constellation {
+        let c = match p.constellation.json() {
             Json::String(s) if s.eq_ignore_ascii_case("gaussian") => None,
             other => Some(parse_constellation(other)?),
         };
@@ -131,12 +120,18 @@ block_params! {
         fs: Option<f64> [absent "from file"] "Hz" > 0,
             "sampling rate; required when the file does not record it";
         symbol_rate: f64 [required] "Bd" > 0, "symbol rate";
-        constellation: Json ["16-QAM"], "the transmitted constellation";
+        constellation: ConstellationParam ["16-QAM"], "the transmitted constellation";
         reference: String [required],
             "one period of the transmitted symbols (.npy complex) or indices (.npy or text integers)";
         segment: Option<usize> [absent "whole file"], "samples per trial";
-        offset: Json ["random"], "first sample of a segment: random (drawn per trial) or an integer";
+        offset: Offset ["random"], "first sample of a segment: random (drawn per trial) or an integer";
     }
+}
+
+json_param! {
+    /// The first sample of a segment of `capture`: `random` or an integer.
+    Offset,
+    serde_json::json!({"anyOf": [{"type": "string", "enum": ["random"]}, {"type": "integer", "minimum": 0}]})
 }
 
 struct Capture {
@@ -181,17 +176,18 @@ fn read_reference(path: &std::path::Path, c: &Constellation) -> Result<Vec<usize
 impl Capture {
     fn new(p: &CaptureSpec, ctx: &BuildContext) -> Result<Capture> {
         let dt = p.datatype.as_deref().map(crate::io::Datatype::parse).transpose()?;
-        let (samples, fs_file) = crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
+        let crate::io::Samples { samples, sample_rate: fs_file } =
+            crate::io::read_samples(ctx.path(&p.file), dt, p.channel)?;
         let fs =
             p.fs.or(fs_file)
                 .ok_or_else(|| Error::Config(format!("capture {}: the file has no sampling rate, give fs", p.file)))?;
         ensure(p.symbol_rate > 0.0 && fs >= p.symbol_rate, || "capture: need fs ≥ symbol_rate > 0".into())?;
-        let c = parse_constellation(&p.constellation)?;
+        let c = parse_constellation(p.constellation.json())?;
         let reference = read_reference(&ctx.path(&p.reference), &c)?;
         ensure(!reference.is_empty(), || "capture: the reference is empty".into())?;
         let segment = p.segment.unwrap_or(samples.len()).min(samples.len());
         ensure(segment > 0, || format!("capture {}: no samples", p.file))?;
-        let offset = match &p.offset {
+        let offset = match &p.offset.0 {
             Json::String(s) if s == "random" => None,
             Json::Number(n) => {
                 let o =

@@ -125,6 +125,12 @@ pub use params::{substitute, variable};
 pub use run::{ProfileRow, RunOptions, profile, profile_of, run};
 pub use spec::{Format, Spec};
 
+/// The error of a name that is not among the known ones (a block, a code, a metric): one
+/// wording for every list of names.
+pub(crate) fn unknown(what: &str, name: &str, known: &[&str]) -> com_core::Error {
+    com_core::Error::Config(format!("unknown {what} {name:?}: one of {}", known.join(", ")))
+}
+
 /// The paths the exported macros expand to, so that a crate that uses them needs no
 /// dependency of its own on `com-core` or `serde_json`.
 #[doc(hidden)]

@@ -42,7 +42,7 @@
 //! ```
 
 use crate::callbacks::{Action, Callback};
-use crate::grid::{Condition, Grid};
+use crate::grid::{Condition, Grid, Value};
 use crate::loggers::Logger;
 use crate::scenario::{Record, Scenario};
 use crate::stats::Estimate;
@@ -100,6 +100,49 @@ impl ConditionResult {
     pub fn metric(&self, name: &str) -> Option<&Estimate> {
         self.record.get(name)
     }
+
+    /// The result as one flat row of named values: `index`, the entries of the
+    /// condition, `status`, `trials`, `wall_s`, then the columns of every metric
+    /// ([`metric_columns`]) with its interval at `confidence`, in the order of the
+    /// names: the columns of the CSV report ([`CsvLogger`](crate::loggers::CsvLogger))
+    /// and the rows of the Python results.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::prelude::*;
+    /// use com_sim::scenario::from_fn;
+    /// let s = from_fn("coin", |_, rng, rec| { rec.errors("p", rng.bit() as u64, 1); Ok(()) });
+    /// let r = Runner::new().stop(Stop::max_trials(8)).run(&s, &Grid::new().axis("n", [1usize])).unwrap();
+    /// let names: Vec<String> = r[0].row(0.95).into_iter().map(|(k, _)| k).collect();
+    /// assert_eq!(names, ["index", "n", "status", "trials", "wall_s", "p", "p_lo", "p_hi", "p_count", "p_total"]);
+    /// ```
+    pub fn row(&self, confidence: f64) -> Vec<(String, Value)> {
+        let count = |n: u64| Value::I64(i64::try_from(n).unwrap_or(i64::MAX));
+        let mut row = vec![("index".to_string(), count(self.index as u64))];
+        row.extend(self.condition.entries().iter().cloned());
+        row.push(("status".into(), Value::Str(self.status.as_str().into())));
+        row.push(("trials".into(), count(self.trials)));
+        row.push(("wall_s".into(), Value::F64(self.wall_s)));
+        for (k, e) in self.record.iter() {
+            let (lo, hi) = e.interval(confidence);
+            let values = [Value::F64(e.value()), Value::F64(lo), Value::F64(hi), count(e.count()), count(e.total())];
+            row.extend(metric_columns(k).into_iter().zip(values));
+        }
+        row
+    }
+}
+
+/// The names of the columns of the metric `name` in a flat row
+/// ([`ConditionResult::row`]): `name`, `name_lo` and `name_hi` (the estimate and its
+/// confidence interval), `name_count` and `name_total` (the errors and the events of a
+/// rate, the number of values of a mean twice).
+///
+/// # Examples
+/// ```
+/// assert_eq!(com_sim::runner::metric_columns("ber"), ["ber", "ber_lo", "ber_hi", "ber_count", "ber_total"]);
+/// ```
+pub fn metric_columns(name: &str) -> [String; 5] {
+    ["", "_lo", "_hi", "_count", "_total"].map(|suffix| format!("{name}{suffix}"))
 }
 
 /// What the callbacks and loggers know about the run.
@@ -207,7 +250,8 @@ impl Runner {
         self
     }
 
-    /// Confidence level of the intervals reported by the loggers (default 0.95).
+    /// Confidence level of the intervals reported by the loggers (default 0.95), in
+    /// $(0, 1)$ ([`Runner::run`] refuses another value).
     pub fn confidence(mut self, c: f64) -> Runner {
         self.confidence = c;
         self
@@ -231,15 +275,41 @@ impl Runner {
         self
     }
 
+    /// What the callbacks and the loggers know about a run of this runner on the
+    /// scenario `scenario` over `n_conditions` conditions, started now (all the cores
+    /// counted for `threads: 0`): the header of every report, that of a run, of a search
+    /// and of a verification.
+    pub fn run_info(&self, scenario: &str, n_conditions: usize) -> RunInfo {
+        RunInfo {
+            scenario: scenario.to_string(),
+            seed: self.seed,
+            batch: self.batch,
+            threads: if self.threads == 0 { rayon::current_num_threads() } else { self.threads },
+            stop: if self.fast_dev_run { "fast_dev_run".into() } else { self.stop.to_string() },
+            confidence: self.confidence,
+            n_conditions,
+            started_unix_s: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+            version: crate::VERSION.into(),
+            commit: crate::COMMIT.into(),
+            config: self.config.clone(),
+        }
+    }
+
     /// Run the scenario on every condition of the grid.
     ///
     /// # Errors
-    /// [`Error::Config`] for a stopping rule that can never stop, or whose target is a
+    /// [`Error::Config`] for a grid that gives a key twice ([`Grid::check`]); for a
+    /// confidence level outside $(0, 1)$ (of the runner or of a precision target, see
+    /// [`check_confidence`](crate::stopping::check_confidence));
+    /// for a stopping rule that can never stop, or whose target is a
     /// metric that the first batch of a condition does not record (or `min_errors` on a
     /// mean, see [`Stop::check_metrics`]); the first error of a `setup` or of a trial, of
     /// the same kind, with the condition and the trial in the message; the errors of the
     /// loggers.
     pub fn run<S: Scenario>(mut self, scenario: &S, grid: &Grid) -> Result<Vec<ConditionResult>> {
+        crate::stopping::check_confidence(self.confidence, "the runner")?;
+        self.stop.check_confidences()?;
+        grid.check()?;
         if !self.fast_dev_run && !self.stop.is_bounded() {
             return Err(Error::Config(format!(
                 "the stopping rule `{}` can run forever: add Stop::max_trials or Stop::max_time with `or`",
@@ -251,19 +321,7 @@ impl Runner {
             .build()
             .map_err(|e| Error::Config(format!("thread pool: {e}")))?;
         let conditions = grid.conditions();
-        let info = RunInfo {
-            scenario: scenario.name().to_string(),
-            seed: self.seed,
-            batch: self.batch,
-            threads: pool.current_num_threads(),
-            stop: if self.fast_dev_run { "fast_dev_run".into() } else { self.stop.to_string() },
-            confidence: self.confidence,
-            n_conditions: conditions.len(),
-            started_unix_s: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
-            version: crate::VERSION.into(),
-            commit: crate::COMMIT.into(),
-            config: self.config.clone(),
-        };
+        let info = RunInfo { threads: pool.current_num_threads(), ..self.run_info(scenario.name(), conditions.len()) };
         for c in &mut self.callbacks {
             c.on_run_start(&info);
         }
@@ -357,7 +415,7 @@ impl Runner {
             let progress = Progress { condition: index, trials, record: &record, elapsed: t0.elapsed() };
             let mut stopped = false;
             for c in &mut self.callbacks {
-                if c.on_batch_end(&progress) == Action::Skip {
+                if matches!(c.on_batch_end(&progress), Action::StopCondition | Action::Skip) {
                     stopped = true;
                 }
             }
@@ -433,6 +491,32 @@ mod tests {
         // a dev run (`comrs check`) checks it too
         let rule = Stop::precision("evm", 0.1).or(Stop::max_trials(10));
         assert!(Runner::new().fast_dev_run(true).stop(rule).run(&coin(), &grid).is_err());
+    }
+
+    #[test]
+    fn a_confidence_outside_zero_one_is_an_error() {
+        let grid = Grid::new();
+        for c in [95.0, 0.0, 1.0, f64::NAN] {
+            let e = Runner::new().confidence(c).stop(Stop::max_trials(1)).run(&coin(), &grid).unwrap_err();
+            assert!(e.to_string().contains("between 0 and 1"), "{c}: {e}");
+        }
+        let rule = Stop::precision_at("u", 0.1, 95.0).or(Stop::max_trials(4));
+        assert!(Runner::new().stop(rule).run(&coin(), &grid).is_err());
+        let rule = Stop::precision_at("u", 1e-9, 0.5).or(Stop::max_trials(4));
+        assert_eq!(Runner::new().batch(2).stop(rule).run(&coin(), &grid).unwrap()[0].trials, 4);
+    }
+
+    #[test]
+    fn a_callback_stops_a_condition_after_a_batch() {
+        struct Once;
+        impl Callback for Once {
+            fn on_batch_end(&mut self, _: &Progress<'_>) -> Action {
+                Action::StopCondition
+            }
+        }
+        let r = Runner::new().batch(8).stop(Stop::max_trials(100)).callback(Once).run(&coin(), &Grid::new()).unwrap();
+        assert_eq!((r[0].status.clone(), r[0].trials), (Status::Stopped, 8));
+        assert_eq!(Stop::max_trials(5).and(Stop::min_trials(2)).to_string(), "(max_trials(5) and min_trials(2))");
     }
 
     #[test]

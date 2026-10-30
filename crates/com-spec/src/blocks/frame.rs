@@ -90,7 +90,7 @@ impl ChannelState {
 pub struct ReceiverState {
     /// The noise variance the receiver believes in, on the scale of the unit-energy
     /// constellation: with the samples, the receiver's posterior
-    /// `q(x|z) ∝ e^{-|z - x|²/σ̂²}` (declared by `noise_estimate`, or by a learned
+    /// $q(x \mid z) \propto e^{-\lvert z - x \rvert^{2} / \hat{\sigma}^{2}}$ (declared by `noise_estimate`, or by a learned
     /// receiver).
     pub sigma2: Option<f64>,
     /// Noise variance of every received symbol after equalisation or detection (empty:
@@ -251,10 +251,10 @@ impl Frame {
         self.channel.faded_power.unwrap_or_else(|| self.mean_power())
     }
 
-    /// Mean power of the samples over every antenna.
+    /// Mean power of the samples over every antenna: their energy
+    /// ([`com_math::energy`]) over their number.
     pub fn mean_power(&self) -> f64 {
-        let (e, n) =
-            self.streams().fold((0.0, 0usize), |(e, n), x| (e + x.iter().map(C64::norm_sqr).sum::<f64>(), n + x.len()));
+        let (e, n) = self.streams().fold((0.0, 0usize), |(e, n), x| (e + com_math::energy(x), n + x.len()));
         if n == 0 { 0.0 } else { e / n as f64 }
     }
 

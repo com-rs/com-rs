@@ -1,7 +1,7 @@
 //! Channels and impairments of one or several streams: noise, phase noise, frequency offset, linear channels, IQ imbalance, converters.
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
+use super::{Block, Extension, Frame};
 use com_channel::awgn::{ebn0_noise_variance, snr_noise_variance};
 use com_core::Error;
 use com_core::Result;
@@ -17,63 +17,62 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 use std::f64::consts::PI;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "awgn",
             "Add white Gaussian noise for an SNR in a bandwidth.",
             AwgnSpec,
             needs[Samples],
             gives[Noise],
+            |q, _, _| Ok(Box::new(Awgn::new(&q))),
         ),
-        block_info!(
+        builtin!(
             "awgn_ebn0",
             "Add white Gaussian noise for an E_b/N_0 (matched-filter definition).",
             AwgnEbn0,
             needs [Samples, Constellation],
             gives [Noise],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!("phase_noise", "Wiener phase noise.", PhaseNoiseSpec, needs [Samples], gives []),
-        block_info!("cfo", "Carrier frequency offset.", CfoSpec, needs [Samples], gives []),
-        block_info!(per_polarization "fir", "Linear channel with complex taps.", FirSpec, needs [Samples], gives []),
-        block_info!(per_polarization "rx_iq", "Receiver IQ imbalance [Re y; Im y] = T [Re x; Im x].", RxIq, needs [Samples], gives []),
-        block_info!(per_polarization "tx_iq", "Transmitter IQ imbalance y = x + β x*.", TxIq, needs [Samples], gives []),
-        block_info!(
+        builtin!(
+            "phase_noise", "Wiener phase noise.", PhaseNoiseSpec, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(PhaseNoise::new(&q)?)),
+        ),
+        builtin!(
+            "cfo", "Carrier frequency offset.", CfoSpec, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(Cfo::new(&q)?)),
+        ),
+        builtin!(
+            per_polarization "fir", "Linear channel with complex taps.", FirSpec, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(Fir::new(&q)?)),
+        ),
+        builtin!(
+            per_polarization "rx_iq", "Receiver IQ imbalance [Re y; Im y] = T [Re x; Im x].", RxIq, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
+            per_polarization "tx_iq", "Transmitter IQ imbalance y = x + β x*.", TxIq, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             per_polarization "adc",
             "Analogue-to-digital converter: front-end bandwidth, clock jitter, ENOB noise and uniform quantisation with clipping.",
             AdcSpec,
             needs[Samples],
             gives[],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(
+        builtin!(
             per_polarization "dac",
             "Digital-to-analogue converter: uniform quantisation with clipping and output bandwidth.",
             DacSpec,
             needs[Samples],
             gives[],
+            |q, _, _| Ok(Box::new(q)),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "awgn" => Box::new(Awgn::new(&AwgnSpec::parse(k, p)?)),
-            "awgn_ebn0" => Box::new(AwgnEbn0::parse(k, p)?),
-            "phase_noise" => Box::new(PhaseNoise::new(&PhaseNoiseSpec::parse(k, p)?)?),
-            "cfo" => Box::new(Cfo::new(&CfoSpec::parse(k, p)?)?),
-            "fir" => Box::new(Fir::new(&FirSpec::parse(k, p)?)?),
-            "rx_iq" => Box::new(RxIq::parse(k, p)?),
-            "tx_iq" => Box::new(TxIq::parse(k, p)?),
-            "adc" => Box::new(AdcSpec::parse(k, p)?),
-            "dac" => Box::new(DacSpec::parse(k, p)?),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 // ----------------------------------------------------------------------- channels
@@ -230,7 +229,7 @@ impl Block for Cfo {
 
 block_params! {
     struct FirSpec {
-        h: Vec<Json> [required], "taps, [[re, im], …] or real numbers";
+        h: Vec<ComplexNumber> [required], "taps, [[re, im], …] or real numbers";
         alignment: Alignment ["causal"] one_of ["causal", "centred", "centered"],
             "causal: y[n] = Σ h[k] x[n-k], the delay of the taps kept; centred: the taps centred on the samples (OptiCommPy firFilter)";
     }
@@ -253,6 +252,12 @@ impl ParamType for Alignment {
     }
 }
 
+json_param! {
+    /// A complex number: `[re, im]` or a real number.
+    ComplexNumber,
+    serde_json::json!({"anyOf": [{"type": "number"}, {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}]})
+}
+
 struct Fir {
     h: Vec<C64>,
     causal: bool,
@@ -273,7 +278,7 @@ pub(crate) fn complex(v: &Json) -> Result<C64> {
 impl Fir {
     fn new(p: &FirSpec) -> Result<Fir> {
         ensure(!p.h.is_empty(), || "fir: h needs at least one tap".into())?;
-        let h = p.h.iter().map(complex).collect::<Result<Vec<_>>>()?;
+        let h = p.h.iter().map(|v| complex(&v.0)).collect::<Result<Vec<_>>>()?;
         Ok(Fir { h, causal: p.alignment == Alignment::Causal })
     }
 }

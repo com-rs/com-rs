@@ -1,62 +1,51 @@
 //! Measurements in the middle of a link: probes, recordings of the signal (`dump`) and
 //! the declared posterior of a classic receiver.
 
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
+use super::{Block, BuildContext, Extension, Frame};
 use crate::io::Datatype;
+use crate::metrics::{Metric, Metrics, MetricsWindow};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
 use com_core::rng::Rng;
-use serde_json::Value as Json;
 use std::path::PathBuf;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "probe",
             "Measure metrics at this point of the link; reported as <label>.<metric> (label: probe by default).",
             ProbeSpec,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Probe::new(q, label)?)),
         ),
-        block_info!(
+        builtin!(
             "dump",
             "Save the samples at this point of the link for the first trials (by index) of every condition, as SigMF recordings <dir>/<campaign>/<condition>/<label>_<trial>.sigmf-meta and -data (one per stream, suffixed _s<stream> after the first).",
             DumpSpec,
             needs [Samples],
             gives [],
+            |q, label, ctx| Ok(Box::new(Dump::new(&q, label, ctx)?)),
         ),
-        block_info!(
+        builtin!(
             "noise_estimate",
             "Declare the receiver's posterior: the noise variance of the aligned samples; records sigma2.",
             NoiseEstimateSpec,
             needs [Samples, Symbols, Constellation],
             gives [Noise],
+            |q, label, _| Ok(Box::new(NoiseEstimate::new(&q, label)?)),
         ),
-        block_info!(
+        builtin!(
             "classify",
             "Blind modulation classification at one sample per symbol, by fourth-order cumulants or by likelihood; records class (the index of the decided candidate), correct (1 if it is the transmitted alphabet) and snr_m2m4_db (M2M4 for the decided alphabet).",
             ClassifySpec,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Classify::new(&q, label)?)),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "probe" => Box::new(Probe::new(&ProbeSpec::parse(k, p)?, label)?),
-            "dump" => Box::new(Dump::new(&DumpSpec::parse(k, p)?, label, ctx)?),
-            "noise_estimate" => Box::new(NoiseEstimate::new(&NoiseEstimateSpec::parse(k, p)?, label)?),
-            "classify" => Box::new(Classify::new(&ClassifySpec::parse(k, p)?, label)?),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 // ------------------------------------------------------------------------- probes
@@ -65,9 +54,7 @@ block_params! {
     struct ProbeSpec {
         metrics: Vec<String> [["snr_db"] => "[snr_db]"],
             "the metrics of the specifications (on symbols aligned at 1 sample per symbol), and power_dbm and papr_db anywhere";
-        skip_start: usize [0] "symbols", "left out at the start, as the metrics";
-        skip_end: usize [0] "symbols", "left out at the end";
-        scale: String ["power"] one_of ["power", "ls", "none"], "scaling before the decisions, as the metrics";
+        window: MetricsWindow [flatten], "the window and the scaling, as for the metrics of the specification";
     }
 }
 
@@ -77,22 +64,21 @@ const SIGNAL_METRICS: [&str; 2] = ["power_dbm", "papr_db"];
 /// Metrics measured in the middle of a link (`probe`).
 struct Probe {
     label: String,
-    signal: Vec<String>,
-    symbols: Option<crate::metrics::Metrics>,
+    signal: Vec<&'static str>,
+    symbols: Option<Metrics>,
 }
 
 impl Probe {
-    fn new(p: &ProbeSpec, label: String) -> Result<Probe> {
-        let (signal, symbols): (Vec<String>, Vec<String>) =
-            p.metrics.iter().cloned().partition(|m| SIGNAL_METRICS.contains(&m.as_str()));
-        let symbols = if symbols.is_empty() {
-            None
-        } else {
-            let spec = serde_json::json!({
-                "report": symbols, "skip_start": p.skip_start, "skip_end": p.skip_end, "scale": p.scale
-            });
-            Some(crate::metrics::Metrics::from_json(&spec).map_err(|e| e.context("probe"))?)
-        };
+    fn new(p: ProbeSpec, label: String) -> Result<Probe> {
+        let mut signal = Vec::new();
+        let mut symbols = Vec::new();
+        for m in &p.metrics {
+            match SIGNAL_METRICS.iter().find(|s| s.eq_ignore_ascii_case(m)) {
+                Some(s) => signal.push(*s),
+                None => symbols.push(m.parse::<Metric>().map_err(|e| e.context("probe"))?),
+            }
+        }
+        let symbols = (!symbols.is_empty()).then(|| Metrics::with_window(symbols, p.window));
         Ok(Probe { label, signal, symbols })
     }
 }
@@ -100,7 +86,7 @@ impl Probe {
 impl Block for Probe {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let mut rec = com_sim::scenario::Record::new();
-        for m in &self.signal {
+        for &m in &self.signal {
             if m == "power_dbm" {
                 rec.value(m, com_math::w2dbm(s.mean_power()));
             } else {

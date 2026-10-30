@@ -508,3 +508,41 @@ fn fibre_parameters_merge_the_specification_and_the_block() {
     assert_eq!((f.n_spans, f.span_km, f.d_ps_nm_km), (10, 50.0, 17.0));
     assert!(ctx.fiber(Some(&json!({"spans": 3}))).is_err());
 }
+
+#[test]
+fn the_keys_of_the_nested_mappings_are_documented_and_checked() {
+    let ctx = BuildContext::default();
+    let info = |name: &str| registry().into_iter().find(|b| b.name == name).unwrap();
+    // the fibre of the optical blocks, its Raman pumps, the pilots, the exponential profile
+    let manakov = info("manakov");
+    let fiber = manakov.params.iter().find(|p| p.name == "fiber").unwrap();
+    let keys: Vec<&str> = fiber.fields.iter().map(|p| p.name).collect();
+    assert_eq!(keys, ["alpha_db_km", "d_ps_nm_km", "gamma_w_km", "span_km", "n_spans", "fc_hz", "nf_db", "raman"]);
+    let text = manakov.describe();
+    assert!(text.contains("d_ps_nm_km") && text.contains("raman"), "{text}");
+    let schema = fiber.json_schema();
+    assert_eq!(schema["anyOf"][0]["properties"]["span_km"]["anyOf"][0]["default"], json!(80.0));
+    assert_eq!(schema["anyOf"][0]["additionalProperties"], json!(false));
+    let raman = fiber.fields.iter().find(|p| p.name == "raman").unwrap();
+    let pumps = raman.fields.iter().find(|p| p.name == "pumps").unwrap();
+    assert!(pumps.fields.iter().any(|p| p.name == "wavelength_nm"));
+    let pilots = info("ofdm_tx").params.into_iter().find(|p| p.name == "pilots").unwrap();
+    assert!(pilots.fields.iter().any(|p| p.name == "pattern" && p.choices.contains(&"comb")));
+    let tdl = info("tdl").params.into_iter().find(|p| p.name == "profile").unwrap();
+    assert_eq!(tdl.fields.iter().map(|p| p.name).collect::<Vec<_>>(), ["rms_delay_s", "resolution_s"]);
+    // an unknown key is refused, the accepted values are read without case
+    let e = build(&json!({"type": "ssfm", "fiber": {"span": 80}}), &ctx).err().unwrap().to_string();
+    assert!(e.contains("unknown field `span`") && e.contains("span_km"), "{e}");
+    let pump = json!({"raman": {"pumps": [{"wavelength_nm": 1450, "power_mw": 100, "direction": "Counter"}]}});
+    assert!(build(&json!({"type": "manakov", "fiber": pump}), &ctx).is_ok());
+    let pump = json!({"raman": {"pumps": [{"wavelength_nm": 1450, "power_mw": 100, "side": "co"}]}});
+    assert!(build(&json!({"type": "manakov", "fiber": pump}), &ctx).is_err());
+    for pilots in [json!("NONE"), json!({"pattern": "Comb", "spacing": 2})] {
+        let b = json!({"type": "ofdm_tx", "n_fft": 64, "n_subcarriers": 48, "pilots": pilots});
+        assert!(build(&b, &ctx).is_ok(), "{pilots}");
+    }
+    let e = build(&json!({"type": "tdl", "profile": {"rms_delay_s": 0.0, "resolution_s": 1e-7}}), &ctx);
+    assert!(e.err().unwrap().to_string().contains("rms_delay_s must be > 0"));
+    let e = build(&json!({"type": "source", "constellation": {"kind": "qam", "m": 16, "gray": true}}), &ctx);
+    assert!(e.err().unwrap().to_string().contains("unknown field `gray`"));
+}

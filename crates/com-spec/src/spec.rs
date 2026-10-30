@@ -2,8 +2,9 @@
 
 use crate::{params, search, verify};
 use com_core::{Error, Result};
+use com_sim::callbacks::SkipAfter;
 use com_sim::grid::{Condition, Grid, Value};
-use com_sim::stopping::Stop;
+use com_sim::stopping::{Stop, check_confidence};
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
 use std::collections::BTreeMap;
@@ -23,7 +24,8 @@ pub struct Spec {
     pub batch: u64,
     /// Worker threads (0: all cores).
     pub threads: usize,
-    /// Confidence level of the reported intervals.
+    /// Confidence level of the reported intervals and of the precision targets of the
+    /// stopping rule, in $(0, 1)$.
     pub confidence: f64,
     /// The conditions.
     pub grid: Grid,
@@ -37,8 +39,8 @@ pub struct Spec {
     pub stop: Stop,
     /// Print one line per condition.
     pub progress: bool,
-    /// Skip the rest of a sweep below an error floor.
-    pub skip_below: Option<(String, f64, String)>,
+    /// Skip the rest of a sweep below an error floor (`callbacks: {skip_below: …}`).
+    pub skip_below: Option<SkipAfter>,
     /// Time every block of every trial (see [`Link::trial`](crate::Link::trial)).
     pub profile: bool,
     /// CSV output.
@@ -47,7 +49,8 @@ pub struct Spec {
     pub json: Option<PathBuf>,
     /// Directory of the specification file (relative paths of the blocks).
     pub base_dir: Option<PathBuf>,
-    /// The expected results (see [`verify`]).
+    /// The expected results (see [`verify`]), the fibre of their `gn_snr_db` theories
+    /// merged over the `fiber` of the specification.
     pub expect: Vec<Json>,
     /// The search of an operating point (see [`search`]), instead of the sweep.
     pub search: Option<search::SearchSpec>,
@@ -113,14 +116,15 @@ struct StopSpec {
 }
 
 impl StopSpec {
-    fn rule(&self) -> Result<Stop> {
+    /// The rule, its precision targets at the confidence level of the specification.
+    fn rule(&self, confidence: f64) -> Result<Stop> {
         for (m, r) in &self.precision {
             if !(r.is_finite() && *r > 0.0) {
                 return Err(Error::Config(format!("stop: precision of {m:?} must be a positive number, got {r}")));
             }
         }
         let mut targets: Vec<Stop> = self.min_errors.iter().map(|(m, k)| Stop::min_errors(m, *k)).collect();
-        targets.extend(self.precision.iter().map(|(m, r)| Stop::precision(m, *r)));
+        targets.extend(self.precision.iter().map(|(m, r)| Stop::precision_at(m, *r, confidence)));
         let mut caps: Vec<Stop> = Vec::new();
         if let Some(n) = self.max_trials {
             caps.push(Stop::max_trials(n));
@@ -185,8 +189,11 @@ impl Format {
     /// Read a document in this format as JSON (the specifications, and the validation
     /// cards of `com-validation`).
     ///
+    /// A key repeated in a mapping is an error (the readers of YAML and JSON would keep
+    /// the last value without a word; TOML refuses it itself).
+    ///
     /// # Errors
-    /// [`Error::Config`] for a syntax error.
+    /// [`Error::Config`] for a syntax error or a repeated key.
     ///
     /// # Examples
     /// ```
@@ -196,10 +203,90 @@ impl Format {
     /// ```
     pub fn read(self, text: &str) -> Result<Json> {
         match self {
-            Format::Yaml => serde_norway::from_str(text).map_err(|e| Error::Config(format!("YAML: {e}"))),
-            Format::Json => serde_json::from_str(text).map_err(|e| Error::Config(format!("JSON: {e}"))),
+            Format::Yaml => {
+                serde_norway::from_str::<Unique>(text).map(|u| u.0).map_err(|e| Error::Config(format!("YAML: {e}")))
+            }
+            Format::Json => {
+                serde_json::from_str::<Unique>(text).map(|u| u.0).map_err(|e| Error::Config(format!("JSON: {e}")))
+            }
             Format::Toml => toml::from_str(text).map_err(|e| Error::Config(format!("TOML: {e}"))),
         }
+    }
+}
+
+/// A JSON tree read from a document, refusing a key repeated in a mapping.
+struct Unique(Json);
+
+impl<'de> Deserialize<'de> for Unique {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Unique, D::Error> {
+        d.deserialize_any(UniqueVisitor).map(Unique)
+    }
+}
+
+/// The visitor of [`Unique`]: the values of `serde_json::Value`, the mappings checked.
+struct UniqueVisitor;
+
+impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
+    type Value = Json;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, v: bool) -> std::result::Result<Json, E> {
+        Ok(Json::Bool(v))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    /// A non-finite number becomes `null`, as in `serde_json::Value`.
+    fn visit_f64<E>(self, v: f64) -> std::result::Result<Json, E> {
+        Ok(Json::from(v))
+    }
+
+    fn visit_str<E>(self, v: &str) -> std::result::Result<Json, E> {
+        Ok(Json::String(v.to_string()))
+    }
+
+    fn visit_string<E>(self, v: String) -> std::result::Result<Json, E> {
+        Ok(Json::String(v))
+    }
+
+    fn visit_unit<E>(self) -> std::result::Result<Json, E> {
+        Ok(Json::Null)
+    }
+
+    fn visit_none<E>(self) -> std::result::Result<Json, E> {
+        Ok(Json::Null)
+    }
+
+    fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> std::result::Result<Json, D::Error> {
+        Unique::deserialize(d).map(|u| u.0)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<Json, A::Error> {
+        let mut out = Vec::new();
+        while let Some(Unique(v)) = seq.next_element()? {
+            out.push(v);
+        }
+        Ok(Json::Array(out))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> std::result::Result<Json, A::Error> {
+        let mut out = Map::new();
+        while let Some(k) = map.next_key::<String>()? {
+            let Unique(v) = map.next_value()?;
+            if out.insert(k.clone(), v).is_some() {
+                return Err(serde::de::Error::custom(format!("the key {k:?} is given twice in a mapping")));
+            }
+        }
+        Ok(Json::Object(out))
     }
 }
 
@@ -243,7 +330,8 @@ impl Spec {
     /// Parse a specification from a JSON tree.
     ///
     /// # Errors
-    /// [`Error::Config`] for a missing or unknown key, an invalid grid or rule.
+    /// [`Error::Config`] for a missing or unknown key, an invalid grid (a key given by
+    /// a case and by an axis, see [`Grid::check`]) or rule.
     pub fn from_json(v: Json) -> Result<Spec> {
         let source = v.clone();
         // a non-finite number of YAML or TOML (`.inf`, `nan`) becomes a JSON null, which
@@ -253,6 +341,7 @@ impl Spec {
             return Err(Error::Config(format!("stop: {k} must be a finite number, got null or a non-finite value")));
         }
         let raw: RawSpec = serde_json::from_value(v).map_err(|e| Error::Config(format!("specification: {e}")))?;
+        check_confidence(raw.confidence, "confidence")?;
         let mut grid = if raw.cases.is_empty() {
             Grid::new()
         } else {
@@ -269,10 +358,13 @@ impl Spec {
         for (k, v) in &raw.grid {
             grid = grid.axis(k, grid_axis(k, v)?);
         }
+        grid.check()?;
         if raw.link.is_empty() {
             return Err(Error::Config("the link has no block".into()));
         }
-        for e in &raw.expect {
+        let expect =
+            raw.expect.into_iter().map(|e| verify::resolve_fiber(e, raw.fiber.as_ref())).collect::<Result<Vec<_>>>()?;
+        for e in &expect {
             verify::Expectation::from_json(e)?;
         }
         Ok(Spec {
@@ -287,14 +379,14 @@ impl Spec {
             fiber: raw.fiber,
             link: raw.link,
             metrics: raw.metrics,
-            stop: raw.stop.rule()?,
+            stop: raw.stop.rule(raw.confidence)?,
             progress: raw.callbacks.progress,
-            skip_below: raw.callbacks.skip_below.map(|s| (s.metric, s.threshold, s.along)),
+            skip_below: raw.callbacks.skip_below.map(|s| SkipAfter::below(&s.metric, s.threshold, &s.along)),
             profile: raw.profile,
             csv: raw.output.csv,
             json: raw.output.json,
             base_dir: None,
-            expect: raw.expect,
+            expect,
             search: raw.search.as_ref().map(search::SearchSpec::from_json).transpose()?,
         })
     }
@@ -353,12 +445,12 @@ mod tests {
     #[test]
     fn stopping_rules() {
         let s = |y: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nstop: {y}")).unwrap().stop.to_string();
-        assert_eq!(s("{}"), "trials ≥ 100");
-        assert_eq!(s("{max_trials: 5}"), "trials ≥ 5");
-        assert_eq!(s("{min_errors: {ber: 10}, max_trials: 5}"), "(errors(ber) ≥ 10 or trials ≥ 5)");
+        assert_eq!(s("{}"), "max_trials(100)");
+        assert_eq!(s("{max_trials: 5}"), "max_trials(5)");
+        assert_eq!(s("{min_errors: {ber: 10}, max_trials: 5}"), "(errors(ber) ≥ 10 or max_trials(5))");
         assert_eq!(
             s("{min_errors: {ber: 10}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5}"),
-            "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and trials ≥ 2) or trials ≥ 5)"
+            "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and min_trials(2)) or max_trials(5))"
         );
     }
 
@@ -378,6 +470,28 @@ mod tests {
     }
 
     #[test]
+    fn the_confidence_is_a_probability_and_reaches_the_precision_targets() {
+        let s = |c: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nconfidence: {c}"));
+        for bad in ["95", "1", "0", "-0.5", "1.5"] {
+            let e = s(bad).unwrap_err().to_string();
+            assert!(e.contains("confidence") && e.contains("between 0 and 1"), "{bad}: {e}");
+        }
+        let spec = Spec::from_yaml(
+            "name: t\nlink: [source]\nconfidence: 0.99\nstop: {precision: {snr_db: 0.1}, max_trials: 5}",
+        )
+        .unwrap();
+        assert_eq!(spec.stop.to_string(), "(precision(snr_db) ≤ 0.1 at 0.99 or max_trials(5))");
+        // the runner refuses it too, whoever builds it
+        let spec = Spec::from_yaml("name: t\nlink: [source]\nstop: {max_trials: 2}").unwrap();
+        let e = spec
+            .bare_runner(&crate::RunOptions::default())
+            .confidence(95.0)
+            .run(&crate::SpecScenario::new(&spec), &spec.grid)
+            .unwrap_err();
+        assert!(e.to_string().contains("between 0 and 1"), "{e}");
+    }
+
+    #[test]
     fn grids_from_lists_ranges_and_cases() {
         let spec = Spec::from_yaml(
             "name: g\nlink: [source]\ncases: [{m: 4}, {m: 16}]\ngrid:\n  snr_db: {from: 0, to: 4, step: 2}\n  rate: {linspace: [1.0, 2.0, 3]}\n  kind: qam\n",
@@ -389,6 +503,21 @@ mod tests {
         assert_eq!(c[17].label(), "m=16, snr_db=4, rate=2, kind=qam");
         assert!(matches!(c[1].get("rate"), Some(Value::F64(_))));
         assert!(matches!(c[3].get("snr_db"), Some(Value::I64(2))));
+    }
+
+    #[test]
+    fn a_key_given_twice_is_an_error() {
+        let e = Spec::from_yaml("name: g\nlink: [source]\ncases: [{m: 4}, {m: 16}]\ngrid: {m: [64]}").unwrap_err();
+        assert!(e.to_string().contains("\"m\" twice"), "{e}");
+        // a key repeated in a mapping of the document, of the grid or of a block
+        for text in
+            ["name: g\nlink: [source]\ngrid: {m: [4], m: [16]}", "name: g\nlink: [{type: awgn, snr_db: 3, snr_db: 5}]"]
+        {
+            let e = Spec::from_yaml(text).unwrap_err().to_string();
+            assert!(e.contains("\"m\" is given twice") || e.contains("\"snr_db\" is given twice"), "{e}");
+        }
+        let e = Spec::parse(r#"{"name": "g", "grid": {"m": [4], "m": [16]}, "link": ["source"]}"#, Format::Json);
+        assert!(e.unwrap_err().to_string().contains("given twice"));
     }
 
     #[test]

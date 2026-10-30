@@ -37,7 +37,7 @@
 //! assert!(!rule.is_met(&p));            // enough errors but fewer than 10 trials
 //! let p = Progress { trials: 12, ..p };
 //! assert!(rule.is_met(&p));
-//! assert_eq!(rule.to_string(), "((errors(ber) ≥ 100 or trials ≥ 1000) and trials ≥ 10)");
+//! assert_eq!(rule.to_string(), "((errors(ber) ≥ 100 or max_trials(1000)) and min_trials(10))");
 //! ```
 
 use crate::scenario::Record;
@@ -62,9 +62,10 @@ pub struct Progress<'a> {
 /// A stopping rule.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stop {
-    /// At least this many trials.
+    /// At most this many trials: met once they have run (a cap, printed `max_trials(n)`).
     MaxTrials(u64),
-    /// Never before this many trials (use with [`Stop::and`]).
+    /// Never before this many trials (use with [`Stop::and`]; met once they have run,
+    /// as [`Stop::MaxTrials`], but printed `min_trials(n)`).
     MinTrials(u64),
     /// At least `errors` errors of the error rate `metric` (never met by a mean).
     MinErrors {
@@ -108,7 +109,19 @@ impl Stop {
 
     /// Stop when the 95 % interval of `metric` is within `±relative` of its value.
     pub fn precision(metric: &str, relative: f64) -> Stop {
-        Stop::Precision { metric: metric.to_string(), relative, confidence: 0.95 }
+        Stop::precision_at(metric, relative, 0.95)
+    }
+
+    /// Stop when the interval of level `confidence` of `metric` is within `±relative` of
+    /// its value (the runner refuses a level outside $(0, 1)$, see [`check_confidence`]).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::stopping::Stop;
+    /// assert_eq!(Stop::precision_at("snr_db", 0.01, 0.99).to_string(), "precision(snr_db) ≤ 0.01 at 0.99");
+    /// ```
+    pub fn precision_at(metric: &str, relative: f64, confidence: f64) -> Stop {
+        Stop::Precision { metric: metric.to_string(), relative, confidence }
     }
 
     /// Stop after `d` of wall time on the condition.
@@ -184,6 +197,19 @@ impl Stop {
         }
     }
 
+    /// Check the confidence levels of the precision targets of the rule
+    /// ([`check_confidence`]).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a level outside $(0, 1)$.
+    pub fn check_confidences(&self) -> Result<()> {
+        match self {
+            Stop::Precision { confidence, .. } => check_confidence(*confidence, &format!("the stopping rule `{self}`")),
+            Stop::Any(v) | Stop::All(v) => v.iter().try_for_each(Stop::check_confidences),
+            Stop::MaxTrials(_) | Stop::MinTrials(_) | Stop::MinErrors { .. } | Stop::MaxTime(_) => Ok(()),
+        }
+    }
+
     /// Check that every target of the rule can be met by the metrics of `record` (the
     /// record of a first batch of trials).
     ///
@@ -224,10 +250,32 @@ impl Stop {
     }
 }
 
+/// Check a confidence level: a probability strictly between 0 and 1 (`0.95`, not `95`),
+/// `what` naming where it was given.
+///
+/// # Errors
+/// [`Error::Config`] for a level outside $(0, 1)$ or not a number.
+///
+/// # Examples
+/// ```
+/// use com_sim::stopping::check_confidence;
+/// assert!(check_confidence(0.95, "confidence").is_ok());
+/// let e = check_confidence(95.0, "confidence").unwrap_err().to_string();
+/// assert!(e.contains("between 0 and 1"), "{e}");
+/// ```
+pub fn check_confidence(c: f64, what: &str) -> Result<()> {
+    if c > 0.0 && c < 1.0 {
+        Ok(())
+    } else {
+        Err(Error::Config(format!("{what}: the confidence level must be between 0 and 1 (0.95 for 95 %), got {c}")))
+    }
+}
+
 impl fmt::Display for Stop {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stop::MaxTrials(n) | Stop::MinTrials(n) => write!(f, "trials ≥ {n}"),
+            Stop::MaxTrials(n) => write!(f, "max_trials({n})"),
+            Stop::MinTrials(n) => write!(f, "min_trials({n})"),
             Stop::MinErrors { metric, errors } => write!(f, "errors({metric}) ≥ {errors}"),
             Stop::Precision { metric, relative, confidence } => {
                 write!(f, "precision({metric}) ≤ {relative} at {confidence}")

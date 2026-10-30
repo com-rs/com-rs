@@ -4,14 +4,15 @@
 //! the [`RunReport`] at the end of the run.
 //!
 //! - [`CsvLogger`] writes one row per condition **as it completes** (and flushes), so
-//!   that a long campaign leaves usable partial results. Columns: `index`, the keys of
-//!   the condition, `status`, `trials`, `wall_s`, then for every metric `<m>`,
-//!   `<m>_lo`, `<m>_hi` (the confidence interval) and `<m>_count`, `<m>_total` (errors and
-//!   trials of a rate, or the number of values of a mean). The columns are those of the
-//!   first condition that ran.
+//!   that a long campaign leaves usable partial results. The columns are those of
+//!   [`ConditionResult::row`]: `index`, the keys of the condition, `status`, `trials`,
+//!   `wall_s`, then for every metric `<m>`, `<m>_lo`, `<m>_hi` (the confidence
+//!   interval) and `<m>_count`, `<m>_total` (errors and trials of a rate, or the number
+//!   of values of a mean); those of the first condition that ran.
 //! - [`JsonLogger`] writes the full report at the end of the run: the run information
-//!   (scenario, seed, batch, threads, stopping rule, confidence, library version and
-//!   commit, configuration, start time, wall time) and every condition with its metrics
+//!   ([`run_header`]: scenario, seed, batch, threads, stopping rule, confidence, library
+//!   version and commit, configuration, start time), the wall time, and every condition
+//!   with its metrics
 //!   and, under `dropped`, the number of values each metric dropped (non-finite or of
 //!   the other kind, see [`Record::dropped`](crate::scenario::Record::dropped); an
 //!   empty mapping when none was).
@@ -95,16 +96,20 @@ pub fn create_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// One CSV row per condition, written as the conditions complete.
+/// One CSV row per condition ([`ConditionResult::row`]), written as the conditions
+/// complete.
 ///
 /// The header is written with the first condition that ran trials (skipped conditions
-/// before it are held back and written right after the header).
+/// before it are held back and written right after the header). The values of the
+/// condition are written as they are, the wall time to the microsecond, the estimates
+/// and their intervals in scientific notation (empty when not finite), the counts as
+/// integers.
 pub struct CsvLogger {
     path: PathBuf,
     out: Option<BufWriter<File>>,
     header: bool,
     keys: Vec<String>,
-    metrics: Vec<String>,
+    columns: Vec<String>,
     pending: Vec<(ConditionResult, f64)>,
 }
 
@@ -117,22 +122,15 @@ impl CsvLogger {
             out: None,
             header: false,
             keys: Vec::new(),
-            metrics: Vec::new(),
+            columns: Vec::new(),
             pending: Vec::new(),
         }
     }
 
-    fn write_header(&mut self, r: &ConditionResult) -> Result<()> {
+    fn write_header(&mut self, r: &ConditionResult, confidence: f64) -> Result<()> {
         self.keys = r.condition.keys().map(str::to_string).collect();
-        self.metrics = r.record.iter().map(|(k, _)| k.clone()).collect();
-        let mut header = vec!["index".to_string()];
-        header.extend(self.keys.iter().map(|k| csv_field(k)));
-        header.extend(["status", "trials", "wall_s"].map(String::from));
-        for m in &self.metrics {
-            for suffix in ["", "_lo", "_hi", "_count", "_total"] {
-                header.push(csv_field(&format!("{m}{suffix}")));
-            }
-        }
+        self.columns = r.row(confidence).into_iter().map(|(k, _)| k).collect();
+        let header: Vec<String> = self.columns.iter().map(|k| csv_field(k)).collect();
         if let Some(out) = self.out.as_mut() {
             writeln!(out, "{}", header.join(","))?;
         }
@@ -140,28 +138,38 @@ impl CsvLogger {
         Ok(())
     }
 
+    /// A cell of the row: a value of the condition or of the head as it is, the wall
+    /// time to the microsecond, an estimate or a bound in scientific notation.
+    fn cell(column: &str, v: &Value, metric: bool) -> String {
+        match v {
+            Value::F64(x) if !metric && column == "wall_s" => format!("{x:.6}"),
+            Value::F64(x) if metric && x.is_finite() => format!("{x:e}"),
+            Value::F64(_) if metric => String::new(),
+            other => csv_field(&other.to_string()),
+        }
+    }
+
     fn write_row(&mut self, r: &ConditionResult, confidence: f64) -> Result<()> {
-        let mut row = vec![r.index.to_string()];
-        for k in &self.keys {
-            row.push(r.condition.get(k).map(|v| csv_field(&v.to_string())).unwrap_or_default());
-        }
-        row.extend([r.status.as_str().to_string(), r.trials.to_string(), format!("{:.6}", r.wall_s)]);
-        for m in &self.metrics {
-            match r.metric(m) {
-                Some(e) => {
-                    let (lo, hi) = e.interval(confidence);
-                    row.extend(
-                        [e.value(), lo, hi].iter().map(
-                            |v| {
-                                if v.is_finite() { format!("{v:e}") } else { String::new() }
-                            },
-                        ),
-                    );
-                    row.extend([e.count().to_string(), e.total().to_string()]);
-                }
-                None => row.extend(std::iter::repeat_n(String::new(), 5)),
-            }
-        }
+        let cells = r.row(confidence);
+        // the head of the row (index, condition, status, trials, wall_s) by position, the
+        // condition by its keys and the metrics by their names (a metric may have the
+        // name of a variable: snr_db)
+        let (head, metrics) = cells.split_at(4 + r.condition.entries().len());
+        let (columns_head, columns_metrics) = self.columns.split_at(4 + self.keys.len());
+        let condition = &head[1..head.len() - 3];
+        let mut row = vec![Self::cell("index", &head[0].1, false)];
+        row.extend(
+            self.keys.iter().map(|k| {
+                condition.iter().find(|(c, _)| c == k).map(|(_, v)| Self::cell(k, v, false)).unwrap_or_default()
+            }),
+        );
+        row.extend(head[head.len() - 3..].iter().map(|(k, v)| Self::cell(k, v, false)));
+        debug_assert_eq!(row.len(), columns_head.len());
+        row.extend(
+            columns_metrics
+                .iter()
+                .map(|c| metrics.iter().find(|(k, _)| k == c).map(|(_, v)| Self::cell(c, v, true)).unwrap_or_default()),
+        );
         if let Some(out) = self.out.as_mut() {
             writeln!(out, "{}", row.join(","))?;
             out.flush()?;
@@ -185,7 +193,7 @@ impl Logger for CsvLogger {
                 self.pending.push((r.clone(), confidence));
                 return Ok(());
             }
-            self.write_header(r)?;
+            self.write_header(r, confidence)?;
             for (p, c) in std::mem::take(&mut self.pending) {
                 self.write_row(&p, c)?;
             }
@@ -195,8 +203,8 @@ impl Logger for CsvLogger {
 
     fn finish(&mut self, _: &RunReport) -> Result<()> {
         if !self.header {
-            if let Some((first, _)) = self.pending.first().cloned() {
-                self.write_header(&first)?;
+            if let Some((first, c)) = self.pending.first().cloned() {
+                self.write_header(&first, c)?;
             }
             for (p, c) in std::mem::take(&mut self.pending) {
                 self.write_row(&p, c)?;
@@ -221,7 +229,15 @@ impl JsonLogger {
     }
 }
 
-fn value_json(v: &Value) -> String {
+/// A value of a condition as JSON (a number, a string or a boolean).
+///
+/// # Examples
+/// ```
+/// use com_sim::grid::Value;
+/// assert_eq!(com_sim::loggers::value_json(&Value::Str("qam".into())), "\"qam\"");
+/// assert_eq!(com_sim::loggers::value_json(&Value::F64(f64::NAN)), "null");
+/// ```
+pub fn value_json(v: &Value) -> String {
     match v {
         Value::F64(x) => json::number(*x),
         Value::I64(x) => x.to_string(),
@@ -246,6 +262,35 @@ fn estimate_json(e: &Estimate, confidence: f64) -> String {
         }
     }
     json::object(&f)
+}
+
+/// The fields of the run information that head every JSON report (of a run, of a search
+/// and of a verification), encoded: `scenario`, `seed`, `batch`, `threads`, `stop`,
+/// `confidence`, `version`, `commit`, `config` (the configuration as a JSON document,
+/// `null` if unknown) and `started_unix_s`.
+pub fn run_header(i: &RunInfo) -> Vec<(&'static str, String)> {
+    vec![
+        ("scenario", json::string(&i.scenario)),
+        ("seed", i.seed.to_string()),
+        ("batch", i.batch.to_string()),
+        ("threads", i.threads.to_string()),
+        ("stop", json::string(&i.stop)),
+        ("confidence", json::number(i.confidence)),
+        ("version", json::string(&i.version)),
+        ("commit", json::string(&i.commit)),
+        ("config", i.config.clone().unwrap_or_else(|| "null".into())),
+        ("started_unix_s", i.started_unix_s.to_string()),
+    ]
+}
+
+/// Write a JSON document to `path`, its parent directories created.
+///
+/// # Errors
+/// [`com_core::Error::Io`] if the file cannot be written.
+pub fn write_json(path: &Path, doc: &str) -> Result<()> {
+    create_parent_dir(path)?;
+    std::fs::write(path, format!("{doc}\n"))?;
+    Ok(())
 }
 
 impl Logger for JsonLogger {
@@ -276,27 +321,10 @@ impl Logger for JsonLogger {
                 ])
             })
             .collect();
-        let doc = json::object(&[
-            ("scenario", json::string(&i.scenario)),
-            ("seed", i.seed.to_string()),
-            ("batch", i.batch.to_string()),
-            ("threads", i.threads.to_string()),
-            ("stop", json::string(&i.stop)),
-            ("confidence", json::number(i.confidence)),
-            ("version", json::string(&i.version)),
-            ("commit", json::string(&i.commit)),
-            ("config", i.config.clone().unwrap_or_else(|| "null".into())),
-            ("started_unix_s", i.started_unix_s.to_string()),
-            ("wall_s", json::number(rep.wall_s)),
-            ("conditions", json::array(&conditions)),
-        ]);
-        if let Some(dir) = self.path.parent() {
-            if !dir.as_os_str().is_empty() {
-                std::fs::create_dir_all(dir)?;
-            }
-        }
-        std::fs::write(&self.path, doc + "\n")?;
-        Ok(())
+        let mut fields = run_header(i);
+        fields.push(("wall_s", json::number(rep.wall_s)));
+        fields.push(("conditions", json::array(&conditions)));
+        write_json(&self.path, &json::object(&fields))
     }
 }
 

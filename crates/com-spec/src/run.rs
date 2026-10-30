@@ -2,7 +2,7 @@
 
 use crate::{Spec, SpecScenario};
 use com_core::Result;
-use com_sim::callbacks::{ProgressBar, SkipAfter};
+use com_sim::callbacks::ProgressBar;
 use com_sim::loggers::{CsvLogger, JsonLogger};
 use com_sim::runner::{ConditionResult, Runner};
 use std::path::PathBuf;
@@ -26,33 +26,66 @@ pub struct RunOptions {
     pub json: Option<PathBuf>,
 }
 
-/// Run a specification.
+impl Spec {
+    /// The runner of the specification without its callbacks and loggers: its seed,
+    /// batch, threads, stopping rule, confidence and source (the configuration of the
+    /// JSON report), the options overriding the batch and the threads, and
+    /// `fast_dev_run` (what [`search`](crate::search::search) evaluates every point with).
+    pub(crate) fn bare_runner(&self, opts: &RunOptions) -> Runner {
+        Runner::new()
+            .seed(self.seed)
+            .batch(opts.batch.unwrap_or(self.batch))
+            .threads(opts.threads.unwrap_or(self.threads))
+            .stop(self.stop.clone())
+            .confidence(self.confidence)
+            .config(self.source.to_string())
+            .fast_dev_run(opts.fast_dev_run)
+    }
+
+    /// The runner of the specification: its seed, batch, threads, stopping rule,
+    /// confidence and source, its callbacks (the progress lines, `skip_below`) and its
+    /// loggers (the CSV and JSON reports), each overridden by `opts` when it gives one.
+    /// [`run`] runs it on the scenario of the specification; a front end that runs the
+    /// trials otherwise (the Python chains with Python blocks) runs it on its own
+    /// scenario.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_spec::{RunOptions, Spec, SpecScenario};
+    /// let spec = Spec::from_yaml("name: t\nthreads: 2\nlink: [source]\nstop: {max_trials: 3}")?;
+    /// let opts = RunOptions { threads: Some(1), ..RunOptions::default() };
+    /// let r = spec.runner(&opts).run(&SpecScenario::new(&spec), &spec.grid)?;
+    /// assert_eq!(r[0].trials, 3);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn runner(&self, opts: &RunOptions) -> Runner {
+        let mut r = self.bare_runner(opts);
+        if opts.progress.unwrap_or(self.progress) {
+            let mut bar = ProgressBar::default();
+            bar.confidence = self.confidence;
+            r = r.callback(bar);
+        }
+        if let Some(skip) = &self.skip_below {
+            r = r.callback(skip.clone());
+        }
+        if let Some(p) = opts.csv.as_ref().or(self.csv.as_ref()) {
+            r = r.logger(CsvLogger::new(p));
+        }
+        if let Some(p) = opts.json.as_ref().or(self.json.as_ref()) {
+            r = r.logger(JsonLogger::new(p));
+        }
+        r
+    }
+}
+
+/// Run a specification: its runner ([`Spec::runner`]) on its scenario
+/// ([`SpecScenario`]).
 ///
 /// # Errors
 /// The errors of the blocks, of the stopping rule (an unbounded rule) and of the
 /// loggers.
 pub fn run(spec: &Spec, opts: &RunOptions) -> Result<Vec<ConditionResult>> {
-    let mut r = Runner::new()
-        .seed(spec.seed)
-        .batch(opts.batch.unwrap_or(spec.batch))
-        .threads(opts.threads.unwrap_or(spec.threads))
-        .stop(spec.stop.clone())
-        .confidence(spec.confidence)
-        .config(spec.source.to_string())
-        .fast_dev_run(opts.fast_dev_run);
-    if opts.progress.unwrap_or(spec.progress) {
-        r = r.callback(ProgressBar::default());
-    }
-    if let Some((m, t, a)) = &spec.skip_below {
-        r = r.callback(SkipAfter::below(m, *t, a));
-    }
-    if let Some(p) = opts.csv.as_ref().or(spec.csv.as_ref()) {
-        r = r.logger(CsvLogger::new(p));
-    }
-    if let Some(p) = opts.json.as_ref().or(spec.json.as_ref()) {
-        r = r.logger(JsonLogger::new(p));
-    }
-    r.run(&SpecScenario::new(spec).profile(opts.profile.unwrap_or(spec.profile)), &spec.grid)
+    spec.runner(opts).run(&SpecScenario::new(spec).profile(opts.profile.unwrap_or(spec.profile)), &spec.grid)
 }
 
 /// One block of a [`profile`]: its mean time per trial and its share of the link.
@@ -73,7 +106,7 @@ pub struct ProfileRow {
 pub fn profile(results: &[ConditionResult], labels: &[String]) -> Vec<ProfileRow> {
     let mean = |name: &str| {
         let v: Vec<f64> =
-            results.iter().filter_map(|r| r.record.iter().find(|(k, _)| *k == name).map(|(_, e)| e.value())).collect();
+            results.iter().filter_map(|r| r.record.get(name).map(com_sim::stats::Estimate::value)).collect();
         (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64)
     };
     let Some(total) = mean("link.time_ms") else { return Vec::new() };
@@ -88,13 +121,16 @@ pub fn profile(results: &[ConditionResult], labels: &[String]) -> Vec<ProfileRow
     rows
 }
 
-/// The profile of a specification's results: the labels come from its first condition.
+/// The profile of a specification's results: the labels of its blocks come from its
+/// first condition ([`link_labels`](crate::link_labels), without building the link).
 ///
 /// # Errors
-/// The errors of building the link.
+/// [`com_core::Error::Config`] for a variable that the condition does not define or a
+/// block that is neither a name nor a mapping with a type.
 pub fn profile_of(spec: &Spec, results: &[ConditionResult]) -> Result<Vec<ProfileRow>> {
     let Some(cond) = spec.conditions().into_iter().next() else { return Ok(Vec::new()) };
-    Ok(profile(results, &spec.link_for(&cond)?.labels))
+    let link = spec.link.iter().map(|b| crate::substitute(b, &cond)).collect::<Result<Vec<_>>>()?;
+    Ok(profile(results, &crate::link_labels(&link)?))
 }
 
 #[cfg(test)]

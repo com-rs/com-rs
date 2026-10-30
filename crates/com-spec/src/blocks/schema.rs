@@ -27,8 +27,14 @@
 //! A default is `required`, `absent` (an `Option` left to `None`, with the text that says
 //! what the block then does) or a JSON value, read as the value of a specification
 //! would be (`VALUE => "TEXT"` shows it as `TEXT`). Accepted values (`one_of`) are
-//! compared without case; bounds (`>`, `>=`, `<=`) apply to a number and to every number
-//! of a list.
+//! compared without case; bounds (`>`, `>=`, `<=`, `<`) apply to a number and to every
+//! number of a list.
+//!
+//! A parameter whose value is a mapping of parameters of its own (the fibre of the
+//! optical blocks, the pilots of `ofdm_tx`) is declared with `block_params!` too, and
+//! typed [`Mapping`] (or [`NameOr`], a name or such a mapping): its keys reach the
+//! documentation, the JSON Schema and the Python classes, and are checked as those of
+//! a block when the block parses it.
 //!
 //! # Ports
 //!
@@ -45,6 +51,7 @@ use super::Frame;
 use com_core::{Error, Result};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as Json, json};
+use std::borrow::Borrow;
 use std::fmt::Write;
 
 /// What the [`Frame`] of a trial holds at some point of a link.
@@ -160,6 +167,8 @@ pub struct ParamInfo {
     pub ge: Option<f64>,
     /// Inclusive upper bound of a number.
     pub le: Option<f64>,
+    /// Exclusive upper bound of a number.
+    pub lt: Option<f64>,
     /// Meaning.
     pub doc: &'static str,
     /// The JSON Schema of the type of the value (`{"type": "number"}`…).
@@ -167,31 +176,23 @@ pub struct ParamInfo {
     /// The mappings the value may be, by their `type`, each with its parameters (the
     /// codes of `fec_encode`, see [`ParamType::variants`]); empty for any other value.
     pub variants: Vec<(&'static str, Vec<ParamInfo>)>,
+    /// The keys of a value that is a mapping of parameters ([`Mapping`], [`NameOr`],
+    /// see [`ParamType::fields`]); empty for any other value.
+    pub fields: Vec<ParamInfo>,
 }
 
 impl ParamInfo {
-    /// A parameter documented by text only (its type is not declared).
-    pub fn text(name: &'static str, default: &'static str, doc: &'static str) -> ParamInfo {
-        let default = match default {
-            "required" => ParamDefault::Required,
-            other => ParamDefault::Absent(other),
-        };
-        ParamInfo {
-            name,
-            default,
-            unit: "",
-            choices: &[],
-            gt: None,
-            ge: None,
-            le: None,
-            doc,
-            schema: json!({}),
-            variants: Vec::new(),
-        }
+    /// The bounds of a number, `> 0`, `<= 1`…
+    fn bounds(&self) -> Vec<String> {
+        [(">", self.gt), (">=", self.ge), ("<=", self.le), ("<", self.lt)]
+            .iter()
+            .filter_map(|(op, b)| b.map(|b| format!("{op} {b}")))
+            .collect()
     }
 
     /// The parameter as one line of text (name, default, meaning, unit, accepted values,
-    /// bounds), then one line per parameter of every variant of its value, indented.
+    /// bounds), then one line per key of its mapping and per parameter of every variant
+    /// of its value, indented.
     pub fn describe(&self, indent: usize) -> String {
         let mut doc = self.doc.to_string();
         if !self.unit.is_empty() {
@@ -200,15 +201,15 @@ impl ParamInfo {
         if !self.choices.is_empty() {
             let _ = write!(doc, " ({})", self.choices.join(", "));
         }
-        let bounds: Vec<String> = [(">", self.gt), ("≥", self.ge), ("≤", self.le)]
-            .iter()
-            .filter_map(|(op, b)| b.map(|b| format!("{op} {b}")))
-            .collect();
+        let bounds = self.bounds();
         if !bounds.is_empty() {
             let _ = write!(doc, " ({})", bounds.join(", "));
         }
         let pad = " ".repeat(indent);
         let mut s = format!("{pad}{:<20} {:<14} {doc}\n", self.name, self.default_text());
+        for p in &self.fields {
+            s.push_str(&p.describe(indent + 4));
+        }
         for (kind, params) in &self.variants {
             let _ = writeln!(s, "{pad}  {{type: {kind}}}");
             for p in params {
@@ -261,6 +262,9 @@ impl ParamInfo {
         if let Some(b) = self.le {
             s.insert("maximum".into(), bound(b));
         }
+        if let Some(b) = self.lt {
+            s.insert("exclusiveMaximum".into(), bound(b));
+        }
         match &self.default {
             ParamDefault::Value(v, _) => {
                 s.insert("default".into(), v.clone());
@@ -311,23 +315,15 @@ impl ParamInfo {
             _ => Vec::new(),
         };
         for x in numbers {
-            let fails =
-                self.gt.is_some_and(|b| x <= b) || self.ge.is_some_and(|b| x < b) || self.le.is_some_and(|b| x > b);
+            let fails = self.gt.is_some_and(|b| x <= b)
+                || self.ge.is_some_and(|b| x < b)
+                || self.le.is_some_and(|b| x > b)
+                || self.lt.is_some_and(|b| x >= b);
             if fails {
-                let mut range = Vec::new();
-                if let Some(b) = self.gt {
-                    range.push(format!("> {b}"));
-                }
-                if let Some(b) = self.ge {
-                    range.push(format!(">= {b}"));
-                }
-                if let Some(b) = self.le {
-                    range.push(format!("<= {b}"));
-                }
                 return Err(Error::Config(format!(
                     "block {kind:?}: {} must be {}, got {x}",
                     self.name,
-                    range.join(" and ")
+                    self.bounds().join(" and ")
                 )));
             }
         }
@@ -357,6 +353,35 @@ pub trait ParamType {
     fn variants() -> Vec<(&'static str, Vec<ParamInfo>)> {
         Vec::new()
     }
+    /// The keys of a value of the type that is a mapping of parameters
+    /// ([`ParamInfo::fields`]): none by default.
+    fn fields() -> Vec<ParamInfo> {
+        Vec::new()
+    }
+}
+
+/// The JSON Schema of a mapping of parameters: its `properties` (the schema of every
+/// parameter), the `required` ones, no other key; `fixed` adds properties first (the
+/// `type` of a block or of a variant) and makes them required.
+pub fn object_schema(params: &[ParamInfo], fixed: &[(&str, Json)]) -> Map<String, Json> {
+    let mut props = Map::new();
+    let mut required: Vec<Json> = Vec::new();
+    for (k, v) in fixed {
+        props.insert((*k).into(), v.clone());
+        required.push(json!(k));
+    }
+    for p in params {
+        props.insert(p.name.into(), p.json_schema());
+        if matches!(p.default, ParamDefault::Required) {
+            required.push(json!(p.name));
+        }
+    }
+    let mut s = Map::new();
+    s.insert("type".into(), json!("object"));
+    s.insert("properties".into(), Json::Object(props));
+    s.insert("required".into(), Json::Array(required));
+    s.insert("additionalProperties".into(), json!(false));
+    s
 }
 
 /// The JSON Schema of a mapping with a `type` among `variants`, each with its parameters
@@ -366,19 +391,99 @@ pub fn variants_schema(variants: &[(&'static str, Vec<ParamInfo>)]) -> Json {
     let one_of: Vec<Json> = variants
         .iter()
         .map(|(kind, params)| {
-            let mut props = Map::new();
-            props.insert("type".into(), json!({"const": kind}));
-            let mut required = vec![json!("type")];
-            for p in params {
-                props.insert(p.name.into(), p.json_schema());
-                if matches!(p.default, ParamDefault::Required) {
-                    required.push(json!(p.name));
-                }
-            }
-            json!({"type": "object", "title": kind, "properties": props, "required": required, "additionalProperties": false})
+            let mut s = object_schema(params, &[("type", json!({"const": kind}))]);
+            s.insert("title".into(), json!(kind));
+            Json::Object(s)
         })
         .collect();
     json!({"type": "object", "oneOf": one_of})
+}
+
+/// The value of a parameter that is a mapping of the parameters `T` (declared with
+/// [`block_params!`](crate::block_params)), kept as given until the block parses it
+/// ([`Mapping::parse`]; the fibre blocks merge it over the fibre of the specification
+/// first): its keys are documented with those of the block.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Mapping<T> {
+    /// The mapping as given.
+    pub value: Json,
+    _params: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<'de, T> serde::Deserialize<'de> for Mapping<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        Ok(Mapping { value: Json::deserialize(d)?, _params: std::marker::PhantomData })
+    }
+}
+
+impl<T: Params> Mapping<T> {
+    /// Read the parameters of the mapping (`kind` names it in the errors).
+    ///
+    /// # Errors
+    /// As [`Params::parse`].
+    pub fn parse(&self, kind: &str) -> Result<T> {
+        T::parse(kind, self.value.clone())
+    }
+}
+
+impl<T: Params> ParamType for Mapping<T> {
+    fn schema() -> Json {
+        Json::Object(object_schema(&T::params(), &[]))
+    }
+
+    fn fields() -> Vec<ParamInfo> {
+        T::params()
+    }
+}
+
+/// The value of a parameter that is a name or a mapping of the parameters `T` (a
+/// constellation `16-QAM` or `{kind: qam, m: 16}`, the pilots `none` or `{pattern: comb,
+/// …}`), kept as given until the block reads it ([`NameOr::get`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NameOr<T>(pub Mapping<T>);
+
+/// What a [`NameOr`] is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Named<'a, T> {
+    /// A name.
+    Name(&'a str),
+    /// A mapping, its parameters read.
+    Params(T),
+}
+
+impl<'de, T> serde::Deserialize<'de> for NameOr<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        Mapping::deserialize(d).map(NameOr)
+    }
+}
+
+impl<T: Params> NameOr<T> {
+    /// The name, or the parameters of the mapping (`kind` names it in the errors).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a value that is neither a string nor a valid mapping.
+    pub fn get(&self, kind: &str) -> Result<Named<'_, T>> {
+        match &self.0.value {
+            Json::String(s) => Ok(Named::Name(s)),
+            Json::Object(_) => self.0.parse(kind).map(Named::Params),
+            other => Err(Error::Config(format!("{kind}: a name or a mapping, got {other}"))),
+        }
+    }
+
+    /// The value as given.
+    pub fn json(&self) -> &Json {
+        &self.0.value
+    }
+}
+
+impl<T: Params> ParamType for NameOr<T> {
+    fn schema() -> Json {
+        json!({"anyOf": [{"type": "string"}, Mapping::<T>::schema()]})
+    }
+
+    fn fields() -> Vec<ParamInfo> {
+        T::params()
+    }
 }
 
 impl ParamType for f64 {
@@ -427,6 +532,14 @@ impl<T: ParamType> ParamType for Option<T> {
     fn schema() -> Json {
         T::schema()
     }
+
+    fn variants() -> Vec<(&'static str, Vec<ParamInfo>)> {
+        T::variants()
+    }
+
+    fn fields() -> Vec<ParamInfo> {
+        T::fields()
+    }
 }
 
 impl<T: ParamType, const N: usize> ParamType for [T; N] {
@@ -439,6 +552,33 @@ impl<T: ParamType> ParamType for Vec<T> {
     fn schema() -> Json {
         json!({"type": "array", "items": T::schema()})
     }
+
+    fn fields() -> Vec<ParamInfo> {
+        T::fields()
+    }
+}
+
+/// A parameter whose value has several JSON shapes (a name or a schedule, a number or a
+/// list), kept as given, with its JSON Schema: `json_param! { /// DOC NAME, SCHEMA }`.
+macro_rules! json_param {
+    ($(#[$m:meta])* $name:ident, $schema:expr $(,)?) => {
+        $(#[$m])*
+        #[derive(Clone, Debug, serde::Deserialize)]
+        #[serde(transparent)]
+        pub(crate) struct $name(pub(crate) serde_json::Value);
+
+        impl $crate::blocks::schema::ParamType for $name {
+            fn schema() -> serde_json::Value {
+                $schema
+            }
+        }
+    };
+}
+
+json_param! {
+    /// A number, or a list of numbers (one per stage, per channel…).
+    NumberOrList,
+    json!({"anyOf": [{"type": "number"}, {"type": "array", "items": {"type": "number"}}]})
 }
 
 /// The parameters of a block, declared with `block_params!`.
@@ -520,7 +660,7 @@ pub fn shown(tokens: &str) -> String {
 /// ```text
 /// block_params! {
 ///     [pub] struct NAME {
-///         FIELD: TYPE [DEFAULT] ["UNIT"] [one_of [VALUE, …] | one_of (CONST)] [> B] [>= B] [<= B], "MEANING";
+///         FIELD: TYPE [DEFAULT] ["UNIT"] [one_of [VALUE, …] | one_of (CONST)] [> B] [>= B] [<= B] [< B], "MEANING";
 ///         FIELD: GROUP [flatten], "MEANING";
 ///         …
 ///     }
@@ -579,7 +719,7 @@ macro_rules! block_params {
     };
     (
         @info $v:ident, $field:ident, $ty:ty, [$($def:tt)+], [$($unit:literal)?], [$($choices:tt)?],
-        [$($gt:literal)?], [$($ge:literal)?], [$($le:literal)?], $doc:expr
+        [$($gt:literal)?], [$($ge:literal)?], [$($le:literal)?], [$($lt:literal)?], $doc:expr
     ) => {
         $v.push($crate::blocks::schema::ParamInfo {
             name: stringify!($field),
@@ -589,9 +729,11 @@ macro_rules! block_params {
             gt: $crate::block_params!(@bound $($gt)?),
             ge: $crate::block_params!(@bound $($ge)?),
             le: $crate::block_params!(@bound $($le)?),
+            lt: $crate::block_params!(@bound $($lt)?),
             doc: $doc,
             schema: <$ty as $crate::blocks::schema::ParamType>::schema(),
             variants: <$ty as $crate::blocks::schema::ParamType>::variants(),
+            fields: <$ty as $crate::blocks::schema::ParamType>::fields(),
         });
     };
     (@take $kind:ident, $m:ident, $params:ident, $field:ident, $ty:ty, [flatten]) => {
@@ -611,6 +753,7 @@ macro_rules! block_params {
                 $(> $gt:literal)?
                 $(>= $ge:literal)?
                 $(<= $le:literal)?
+                $(< $lt:literal)?
                 , $doc:expr ;
             )*
         }
@@ -627,7 +770,7 @@ macro_rules! block_params {
                 $(
                     $crate::block_params!(
                         @info v, $field, $ty, [$($def)+], [$($unit)?], [$($choices)?],
-                        [$($gt)?], [$($ge)?], [$($le)?], $doc
+                        [$($gt)?], [$($ge)?], [$($le)?], [$($lt)?], $doc
                     );
                 )*
                 v
@@ -653,7 +796,8 @@ macro_rules! block_params {
 /// # Errors
 /// [`Error::Config`] naming the first block that misses a fact, and the blocks that give
 /// it.
-pub fn check_link(kinds: &[&str], registry: &[super::BlockInfo]) -> Result<()> {
+pub fn check_link<B: Borrow<super::BlockInfo>>(kinds: &[&str], registry: &[B]) -> Result<()> {
+    let registry: Vec<&super::BlockInfo> = registry.iter().map(Borrow::borrow).collect();
     let mut have: Vec<Fact> = Vec::new();
     for (i, k) in kinds.iter().enumerate() {
         let Some(b) = registry.iter().find(|b| b.name == *k) else { continue };
@@ -673,31 +817,21 @@ pub fn check_link(kinds: &[&str], registry: &[super::BlockInfo]) -> Result<()> {
 /// The JSON Schema of a block of a link: one alternative per block of the registry (a
 /// mapping with its `type`, an optional `label` and its parameters, or its name alone
 /// when it needs no parameter).
-pub fn json_schema(registry: &[super::BlockInfo]) -> Json {
+pub fn json_schema<B: Borrow<super::BlockInfo>>(registry: &[B]) -> Json {
     let mut alternatives = Vec::new();
-    for b in registry {
-        let mut props = Map::new();
-        props.insert("type".into(), json!({"const": b.name}));
-        props.insert("label".into(), json!({"type": "string", "description": "prefix of the recorded values"}));
-        let mut required = vec![json!("type")];
-        for p in &b.params {
-            props.insert(p.name.into(), p.json_schema());
-            if matches!(p.default, ParamDefault::Required) {
-                required.push(json!(p.name));
-            }
+    for b in registry.iter().map(Borrow::borrow) {
+        let mut s = object_schema(&b.params, &[("type", json!({"const": b.name}))]);
+        if let Some(Json::Object(props)) = s.get_mut("properties") {
+            props.insert("label".into(), json!({"type": "string", "description": "prefix of the recorded values"}));
         }
-        alternatives.push(json!({
-            "type": "object",
-            "title": b.name,
-            "description": b.summary,
-            "properties": props,
-            "required": required,
-            "additionalProperties": false,
-            "x-needs": b.needs.iter().map(|f| f.name()).collect::<Vec<_>>(),
-            "x-gives": b.gives.iter().map(|f| f.name()).collect::<Vec<_>>(),
-            "x-starts": b.starts,
-        }));
-        if required.len() == 1 {
+        let only_type = s.get("required").and_then(Json::as_array).is_some_and(|r| r.len() == 1);
+        s.insert("title".into(), json!(b.name));
+        s.insert("description".into(), json!(b.summary));
+        s.insert("x-needs".into(), json!(b.needs.iter().map(|f| f.name()).collect::<Vec<_>>()));
+        s.insert("x-gives".into(), json!(b.gives.iter().map(|f| f.name()).collect::<Vec<_>>()));
+        s.insert("x-starts".into(), json!(b.starts));
+        alternatives.push(Json::Object(s));
+        if only_type {
             alternatives.push(json!({"const": b.name, "description": b.summary}));
         }
     }

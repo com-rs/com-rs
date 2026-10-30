@@ -128,6 +128,17 @@ def _class_name(kind: str) -> str:
     return "".join(p.capitalize() for p in kind.split("_"))
 
 
+def _keys(schema: dict) -> list[str]:
+    """The keys of a parameter that is a mapping of parameters (its ``properties``)."""
+    if "properties" in schema:
+        return list(schema["properties"])
+    # a name or a mapping; the codes (oneOf, by their type) are documented apart
+    for alt in schema.get("anyOf", []):
+        if keys := _keys(alt):
+            return keys
+    return []
+
+
 def _param_doc(name: str, info: dict) -> list[str]:
     """The Args line of a parameter (Google style)."""
     doc = info["doc"]
@@ -135,6 +146,8 @@ def _param_doc(name: str, info: dict) -> list[str]:
         doc += f" [{info['unit']}]"
     if info.get("choices"):
         doc += f"; one of {', '.join(info['choices'])}"
+    if keys := _keys(info.get("type", {})):
+        doc += f"; keys {', '.join(keys)}"
     doc += "; required" if info.get("required") else f"; default {info['default']}"
     return [f"        {name} ({_py_type(info.get('type', {}))}): {doc}"]
 
@@ -191,7 +204,11 @@ def generate() -> str:
     parts.append("_init = _native_init\n")
     parts.append(f"__all__ = {sorted(names)!r}\n")
     parts.append("_check_registry(globals())\n")
-    return ruff_format("\n".join(parts), OUT, "gen_blocks.py")
+    text = "\n".join(parts)
+    if ": Any" not in text.split("from comrs.block import", 1)[1]:
+        # every parameter has a declared type
+        text = text.replace("from typing import Any\n\n", "", 1)
+    return ruff_format(text, OUT, "gen_blocks.py")
 
 
 def main() -> int:

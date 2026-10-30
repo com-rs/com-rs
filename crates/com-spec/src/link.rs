@@ -27,19 +27,21 @@ impl Spec {
         let mut kinds = Vec::with_capacity(self.link.len());
         let mut labels = Vec::with_capacity(self.link.len());
         for (i, b) in self.link.iter().enumerate() {
-            let v = params::substitute(b, cond)?;
-            let (kind, label, _) = params::split_block(&v)?;
-            let block = blocks::build(&v, &ctx).map_err(|e| e.context(format!("link block {}", i + 1)))?;
+            let (kind, label, p) = params::split_block(&params::substitute(b, cond)?)?;
+            labels.push(label.clone().unwrap_or_else(|| kind.clone()));
+            let block = blocks::build_parts(kind.clone(), label, p, &ctx)
+                .map_err(|e| e.context(format!("link block {}", i + 1)))?;
             blocks.push(block);
-            labels.push(label.unwrap_or_else(|| kind.clone()));
             kinds.push(kind);
         }
         let labels = number_labels(&labels);
-        let registry = blocks::registry();
-        if !registry.iter().any(|b| b.starts && b.name == kinds[0]) {
+        blocks::with_registry(|registry| {
+            if registry.iter().any(|b| b.starts && b.name == kinds[0]) {
+                return Ok(());
+            }
             let starts: Vec<&str> = registry.iter().filter(|b| b.starts).map(|b| b.name).collect();
-            return Err(Error::Config(format!("the first block of the link must be one of {starts:?}")));
-        }
+            Err(Error::Config(format!("the first block of the link must be one of {starts:?}")))
+        })?;
         blocks::check_link(&kinds.iter().map(String::as_str).collect::<Vec<_>>())?;
         for i in 0..blocks.len() {
             if blocks[i].needs_training() {

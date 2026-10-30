@@ -24,44 +24,31 @@
 //!
 //! 1. ETSI EN 302 307-1 V1.4.1, *DVB-S2*, 2014 (see `com_systems::dvbs2`).
 
-use super::{Block, BlockInfo, BuildContext, Coding, Frame, Params};
+use super::{Block, Coding, Extension, Frame};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_systems::dvbs2::{Dvbs2, FrameSize, Modcod, bbframe, bbframe_data, decode_plheader};
-use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             start "dvbs2_tx",
             "DVB-S2 transmitter: BBFRAME, BCH and LDPC, bit interleaving, mapping, PL framing.",
             Dvbs2Spec,
             needs [],
             gives [Samples, Payload],
+            |q, _, _| Ok(Box::new(Dvbs2Tx(Dvbs2Link::new(&q)?))),
         ),
-        block_info!(
+        builtin!(
             "dvbs2_rx",
             "DVB-S2 receiver of frame-aligned PLFRAMEs: descrambling, demapping, decoding.",
             Dvbs2Spec,
             needs [Samples, Noise],
             gives [Decoded],
+            |q, label, _| Ok(Box::new(Dvbs2Rx { link: Dvbs2Link::new(&q)?, label })),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(kind: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let label = label.to_string();
-    let tx = match kind {
-        "dvbs2_tx" => true,
-        "dvbs2_rx" => false,
-        _ => return None,
-    };
-    Some(Dvbs2Spec::parse(kind, p.clone()).and_then(|q| {
-        let link = Dvbs2Link::new(&q)?;
-        Ok(if tx { Box::new(Dvbs2Tx(link)) as Box<dyn Block> } else { Box::new(Dvbs2Rx { link, label }) })
-    }))
 }
 
 block_params! {

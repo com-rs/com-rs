@@ -133,14 +133,15 @@ def test_python_stop_rule():
     assert res[0]["trials"] == 10  # the limit, whatever the batch
 
 
-def test_threads_are_not_ignored_on_the_one_thread_path():
-    # a Stop object or a Python block runs on one thread: asking for more is an error
-    with pytest.raises(ValueError, match="one thread"):
-        qpsk_chain().run(grid={"ebn0_db": [4.0]}, stop=comrs.sim.Stop.max_trials(4), threads=0)
+def test_threads_are_honoured_on_the_python_path():
+    # a Stop object or a Python block runs on the threads asked for, with the same records
+    stop = comrs.sim.Stop.max_trials(4)
+    one = qpsk_chain().run(grid={"ebn0_db": [4.0]}, stop=stop, seed=3, threads=1)
+    two = qpsk_chain().run(grid={"ebn0_db": [4.0]}, stop=stop, seed=3, threads=2)
+    assert one[0]["trials"] == two[0]["trials"] == 4
+    assert one[0]["metrics"] == two[0]["metrics"]
     python = qpsk_chain().insert_after("channel", att=Attenuator(1.0))
-    with pytest.raises(ValueError, match="Python blocks"):
-        python.run(grid={"ebn0_db": [4.0]}, stop={"max_trials": 4}, threads=4)
-    assert python.run(grid={"ebn0_db": [4.0]}, stop={"max_trials": 4}, threads=1)[0]["trials"] == 4
+    assert python.run(grid={"ebn0_db": [4.0]}, stop={"max_trials": 4}, threads=2)[0]["trials"] == 4
 
 
 def test_python_blocks_take_the_directory_of_the_specification(tmp_path):

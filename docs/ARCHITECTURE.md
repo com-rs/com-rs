@@ -139,7 +139,7 @@ contain" column is as binding as the first one.
 | `com-hardware` | 2 | Transmitter and receiver non-idealities, electrical and optical: amplifiers, oscillators, IQ imbalance, converters, lasers, modulators, photodiodes | Propagation effects | 0, 1 |
 | `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, metrics of spectra (ACLR), blind estimates (cumulants, modulation classification, the SNR), the frequency stability of oscillators (Allan variances) | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
 | `com-sim` | 3 | Monte Carlo engine, grids, stopping rules, callbacks, loggers, statistics | Physical-layer algorithms | 0 (`rayon`) |
-| `com-spec` | 4 | Specifications, their blocks and registry, verification, operating-point search, recordings I/O, the `comrs` command (ADR 0004) | Algorithms of the blocks (they live in layers 0–2) | 0–3, `com-systems` (ADR 0010); `serde`, `serde_yaml`, `toml` |
+| `com-spec` | 4 | Specifications, their blocks and registry, verification, operating-point search, recordings I/O, the `comrs` command (ADR 0004) | Algorithms of the blocks (they live in layers 0–2) | 0–3, `com-systems` (ADR 0010); `serde`, `serde_json`, `serde_norway` (YAML), `toml` |
 | `com-systems` | 4 | Chains of standards and assemblies of several layer-2 crates: `dvbs2` (with its FEC), `pas` | New algorithms (they belong in layers 1–2) | 0–2 |
 | `comrs` | 4 | The facade: re-exports, prelude, features `optical` and `spec` | Any code of its own | all |
 

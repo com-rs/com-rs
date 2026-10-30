@@ -1,7 +1,8 @@
 //! The Monte Carlo runner of Python: Python trials on the Rust runner.
 //!
 //! [`PyScenario`] implements [`Scenario`] by calling the Python trial (and setup) under
-//! the GIL; the runner runs it with one thread (Python blocks are not thread-safe), so
+//! the GIL; the runner runs it with one thread (Python blocks are not thread-safe; a
+//! chain runs on more when its caller or its specification asks for them), so
 //! that `comrs.sim.run` and the Python path of `Chain.run` share the Rust runner, its
 //! statistics, its stopping rules (parsed by Rust from the `stop` mapping of a
 //! specification), its statuses, its condition labels and its CSV and JSON loggers.
@@ -13,15 +14,15 @@ use crate::rng::PyRng;
 use crate::spec::{condition_dict, result_with};
 use crate::{IntoPy, json};
 use comrs::core::rng::Rng;
-use comrs::sim::callbacks::{ProgressBar, SkipAfter};
+use comrs::sim::callbacks::ProgressBar;
 use comrs::sim::grid::{Condition, Grid, Value};
 use comrs::sim::loggers::{CsvLogger, JsonLogger};
 use comrs::sim::runner::{ConditionResult, Runner};
 use comrs::sim::scenario::{Record, Scenario};
 use comrs::sim::stats::{ErrorRate, Estimate, Mean};
 use comrs::sim::stopping::Stop;
-use comrs::spec::Spec;
 use comrs::spec::metrics::Metrics;
+use comrs::spec::{RunOptions, Spec};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -70,7 +71,7 @@ pub(crate) fn condition_of(d: &Bound<'_, PyAny>) -> PyResult<Condition> {
 /// Examples:
 ///     >>> from comrs.sim import Stop
 ///     >>> Stop.min_errors("ber", 100) | Stop.max_trials(1000)
-///     (errors(ber) ≥ 100 or trials ≥ 1000)
+///     (errors(ber) ≥ 100 or max_trials(1000))
 ///     >>> Stop.from_spec({"min_errors": {"ber": 100}, "max_trials": 1000}).bounded
 ///     True
 #[pyclass(name = "Stop", module = "comrs.sim", frozen)]
@@ -165,7 +166,7 @@ impl PyStop {
     /// Examples:
     ///     >>> from comrs.sim import Stop
     ///     >>> Stop.from_spec({"min_trials": 50})
-    ///     trials ≥ 50
+    ///     max_trials(50)
     #[staticmethod]
     fn from_spec(py: Python<'_>, stop: &Bound<'_, PyAny>) -> PyResult<Self> {
         let v = serde_json::json!({ "name": "stop", "link": ["source"], "stop": json(py, stop)? });
@@ -566,34 +567,30 @@ impl PyConditionResult {
         metrics_dict(py, &self.inner.record)
     }
 
-    /// A flat row, as the CSV logger writes it.
+    /// A flat row, as the CSV logger writes it (``com_sim::runner::ConditionResult::row``).
     ///
     /// Args:
     ///     confidence (float): the level of the intervals.
     ///
     /// Returns:
-    ///     dict: ``index``, the condition, ``status``, ``trials``, ``wall_s``, and for
-    ///     every metric ``m``: ``m``, ``m_lo``, ``m_hi``, ``m_count``, ``m_total``.
+    ///     dict: ``index``, the condition (its values as given), ``status``,
+    ///     ``trials``, ``wall_s``, and for every metric ``m``: ``m``, ``m_lo``,
+    ///     ``m_hi``, ``m_count``, ``m_total``.
     #[pyo3(signature = (confidence = 0.95))]
     fn row<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
-        d.set_item("index", self.inner.index)?;
-        let cond = self.condition.bind(py);
-        if let Ok(c) = cond.cast::<PyDict>() {
+        let row = self.inner.row(confidence);
+        // the index, the values of the condition as given (in place of their labels),
+        // then the rest of the row (a metric named like a variable replaces it)
+        let n_condition = self.inner.condition.entries().len();
+        d.set_item(&row[0].0, crate::spec::value(py, &row[0].1)?)?;
+        if let Ok(c) = self.condition.bind(py).cast::<PyDict>() {
             for (k, v) in c.iter() {
                 d.set_item(k, v)?;
             }
         }
-        d.set_item("status", self.inner.status.as_str())?;
-        d.set_item("trials", self.inner.trials)?;
-        d.set_item("wall_s", self.inner.wall_s)?;
-        for (k, e) in self.inner.record.iter() {
-            let (lo, hi) = e.interval(confidence);
-            d.set_item(k, e.value())?;
-            d.set_item(format!("{k}_lo"), lo)?;
-            d.set_item(format!("{k}_hi"), hi)?;
-            d.set_item(format!("{k}_count"), e.count())?;
-            d.set_item(format!("{k}_total"), e.total())?;
+        for (k, v) in &row[1 + n_condition..] {
+            d.set_item(k, crate::spec::value(py, v)?)?;
         }
         Ok(d)
     }
@@ -733,11 +730,10 @@ impl Scenario for PyScenario {
     }
 }
 
-/// Run a Python scenario on the Rust runner, with one thread and the GIL released
-/// between the trials; a Python exception is raised again with a note naming where it
-/// happened.
+/// Run a Python scenario on the Rust runner, with the GIL released between the trials;
+/// a Python exception is raised again with a note naming where it happened.
 fn run_scenario(py: Python<'_>, scenario: &PyScenario, grid: &Grid, runner: Runner) -> PyResult<Vec<ConditionResult>> {
-    let out = py.detach(|| runner.threads(1).run(scenario, grid));
+    let out = py.detach(|| runner.run(scenario, grid));
     match out {
         Ok(r) => Ok(r),
         Err(e) => {
@@ -799,9 +795,11 @@ fn sim_run(
         conds.push((condition_of(d.as_any())?, d.into_any().unbind()));
     }
     let grid = Grid::from_conditions(conds.iter().map(|(c, _)| c.clone()).collect());
+    // Python trials are not thread-safe: one thread
     let mut runner = Runner::new()
         .seed(seed)
         .batch(batch)
+        .threads(1)
         .stop(stop.map_or(Stop::max_trials(100), |s| s.inner.clone()))
         .confidence(confidence);
     if progress {
@@ -831,27 +829,51 @@ fn sim_run(
         .collect())
 }
 
-/// Run a chain with Python blocks on the Rust runner: the settings of the specification
-/// `spec` (its seed, batch, stopping rule, confidence, callbacks and outputs; its link is
-/// ignored; `stop` replaces its rule), the blocks of a condition from
-/// `setup(condition)`, a callable `apply(frame, rng)`.
+/// Run a chain with Python blocks on the Rust runner: the runner of the specification
+/// `spec` (``com_spec::Spec::runner``: its seed, batch, stopping rule, confidence,
+/// callbacks and outputs, overridden by the arguments given; its link is ignored), the
+/// blocks of a condition from `setup(condition)`, a callable `apply(frame, rng)`.
+///
+/// Python blocks are not thread-safe: the chain runs on one thread unless `threads`, or
+/// the ``threads`` of the specification, asks for more (the results do not depend on
+/// it when the blocks draw from the generator they are given only).
 ///
 /// Args:
 ///     spec (dict): the settings of the campaign.
 ///     setup (callable): ``setup(condition) -> apply``.
-///     progress (bool): progress lines on the standard error.
+///     progress (bool): progress lines on the standard error (or those of the
+///         specification).
 ///     stop (Stop | None): a rule instead of the one of the specification.
+///     threads (int | None): worker threads (0: all cores).
+///     batch (int | None): trials between two checks of the stopping rule.
+///     fast_dev_run (bool): one batch per condition, the stopping rule ignored.
+///     csv_path (str | os.PathLike | None): the CSV report, instead of the one of the
+///         specification.
+///     json_path (str | os.PathLike | None): the JSON report, instead of the one of the
+///         specification.
 ///
 /// Returns:
 ///     list[dict]: one dict per condition, as :func:`comrs.run_spec`.
+///
+/// Raises:
+///     ValueError: for an invalid specification or stopping rule.
 #[pyfunction]
-#[pyo3(name = "_run_chain", signature = (spec, setup, *, progress = false, stop = None))]
+#[pyo3(
+    name = "_run_chain",
+    signature = (spec, setup, *, progress = false, stop = None, threads = None, batch = None, fast_dev_run = false, csv_path = None, json_path = None)
+)]
+#[allow(clippy::too_many_arguments, reason = "the options of a run, keyword-only in Python")]
 fn run_chain<'py>(
     py: Python<'py>,
     spec: &Bound<'py, PyAny>,
     setup: Py<PyAny>,
     progress: bool,
     stop: Option<PyRef<'py, PyStop>>,
+    threads: Option<usize>,
+    batch: Option<u64>,
+    fast_dev_run: bool,
+    csv_path: Option<PathBuf>,
+    json_path: Option<PathBuf>,
 ) -> PyResult<Bound<'py, PyList>> {
     let mut v = json(py, spec)?;
     if let Some(o) = v.as_object_mut() {
@@ -864,23 +886,19 @@ fn run_chain<'py>(
         .into_iter()
         .map(|c| Ok((c.clone(), condition_dict(py, &c)?.into_any().unbind())))
         .collect::<PyResult<Vec<_>>>()?;
-    let mut runner = Runner::new()
-        .seed(spec.seed)
-        .batch(spec.batch)
-        .stop(stop.map_or_else(|| spec.stop.clone(), |s| s.inner.clone()))
-        .confidence(spec.confidence)
-        .config(spec.source.to_string());
-    if progress || spec.progress {
-        runner = runner.callback(ProgressBar::default());
-    }
-    if let Some((m, t, a)) = &spec.skip_below {
-        runner = runner.callback(SkipAfter::below(m, *t, a));
-    }
-    if let Some(p) = &spec.csv {
-        runner = runner.logger(CsvLogger::new(p));
-    }
-    if let Some(p) = &spec.json {
-        runner = runner.logger(JsonLogger::new(p));
+    let threads = threads.or_else(|| spec.source.get("threads").map(|_| spec.threads)).or(Some(1));
+    let opts = RunOptions {
+        threads,
+        batch,
+        fast_dev_run,
+        progress: progress.then_some(true),
+        profile: None,
+        csv: csv_path,
+        json: json_path,
+    };
+    let mut runner = spec.runner(&opts);
+    if let Some(s) = stop {
+        runner = runner.stop(s.inner.clone());
     }
     let confidence = spec.confidence;
     let scenario = PyScenario {
@@ -897,6 +915,20 @@ fn run_chain<'py>(
         .map(|r| result_with(py, r, scenario.conditions[r.index].1.bind(py).clone(), confidence))
         .collect::<PyResult<Vec<_>>>()?;
     PyList::new(py, items)
+}
+
+/// The names of the columns of a metric in a flat row (``ConditionResult.row``, the CSV
+/// report and :meth:`comrs.Results.rows`).
+///
+/// Args:
+///     name (str): the metric.
+///
+/// Returns:
+///     list[str]: ``name``, ``name_lo``, ``name_hi``, ``name_count``, ``name_total``.
+#[pyfunction]
+#[pyo3(name = "_metric_columns")]
+fn metric_columns(name: &str) -> Vec<String> {
+    comrs::sim::runner::metric_columns(name).to_vec()
 }
 
 /// The two-sided normal quantile of a confidence level (1.96 for 0.95).
@@ -924,5 +956,6 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sim_run, m)?)?;
     m.add_function(wrap_pyfunction!(run_chain, m)?)?;
     m.add_function(wrap_pyfunction!(z_score, m)?)?;
+    m.add_function(wrap_pyfunction!(metric_columns, m)?)?;
     Ok(())
 }

@@ -36,7 +36,8 @@
 //!   `ebn0_for_ser`, `snr_for_ber`, `snr_for_ser` (with `kind`, `m`, `target`; see
 //!   `com_mapping::theory::ebn0_for_ber`), and
 //!   `gn_snr_db`, the SNR of the centre channel of a WDM link by the GN model (with
-//!   `fiber`, `n_channels`, `spacing_hz`, `symbol_rate`, `rolloff`, `power_dbm` and
+//!   `fiber`, merged over the `fiber` of the specification as for the fibre blocks,
+//!   `n_channels`, `spacing_hz`, `symbol_rate`, `rolloff`, `power_dbm` and
 //!   `coherent`, see `com_channel::optical::gn`; a `raman` mapping in `fiber` gives the
 //!   GN model with the Raman power profiles; `format`, a constellation with
 //!   `mb_lambda` for shaped symbols, gives the EGN model), and `ber_rayleigh`, the BER of BPSK
@@ -50,11 +51,14 @@
 //! variable (`metric: ebn0_db` for a search along `ebn0_db`) and are checked against its
 //! value and confidence interval ([`Expectation::check_search`]).
 //!
-//! An expectation passes when the measured value `v` satisfies
-//! `|v - e| ≤ atol + rtol |e|`, or, with `factor: f`, when `e/f ≤ v ≤ f e` (error rates
-//! over several decades), or, with `interval: c`, when `e` lies in the confidence
-//! interval of level `c` of the estimate; at least one of `atol`, `rtol`, `factor` and
-//! `interval` is required. `min_count` skips the conditions whose estimate counts fewer errors (or
+//! Every `function` takes its own parameters, and an unknown one is an error (`branches`
+//! on `ber`, say); `kind` is read without case.
+//!
+//! An expectation passes when the measured value $v$ satisfies
+//! $|v - e| \le a + r |e|$ (`atol: a`, `rtol: r`), or, with `factor: f`, when
+//! $e/f \le v \le f e$ (error rates over several decades), or, with `interval: c`, when
+//! $e$ lies in the confidence interval of level $c$ of the estimate; at least one of
+//! `atol`, `rtol`, `factor` and `interval` is required. `min_count` skips the conditions whose estimate counts fewer errors (or
 //! values), and `measured_range: [lo, hi]` those whose measured value is outside the range
 //! (the domain of validity of an approximation, or the values precise enough).
 //!
@@ -62,22 +66,28 @@
 //! matches no condition (a misspelt variable or value), a curve outside the grid, or
 //! conditions all skipped by `min_count` or `measured_range` verify nothing, and the
 //! message names the expectation and the step that left no condition.
+//!
+//! [`report`] is the verification report that `comrs verify` writes to
+//! `DIR/<name>.verify.json` and that the Python `verify_spec` returns: the header of
+//! the reports of the runs (the seed, the confidence, the version and commit of the
+//! library, the specification) and every check.
+
+mod theory;
 
 use crate::params::{parse, substitute};
-use com_channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
+use crate::{RunOptions, Spec};
 use com_core::{Error, Result, ensure};
-use com_mapping::constellation::ConstellationKind;
-use com_mapping::theory;
-use com_math::{db2lin, lin2db};
-use com_metrics as metrics;
 use com_sim::grid::{Condition, Value};
+use com_sim::json;
+use com_sim::loggers::{run_header, write_json};
 use com_sim::runner::ConditionResult;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
+use theory::Theory;
 
-/// The acceptance rule of a measured value `v` against an expected value `e`:
-/// `|v - e| ≤ atol + rtol |e|` (with `atol` or `rtol`), or `e/f ≤ v ≤ f e` (with
-/// `factor: f`, for error rates over several decades); either rule suffices.
+/// The acceptance rule of a measured value $v$ against an expected value $e$:
+/// $|v - e| \le a + r |e|$ (with `atol` $a$ or `rtol` $r$), or $e/f \le v \le f e$ (with
+/// `factor` $f$, for error rates over several decades); either rule suffices.
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Tolerance {
@@ -169,89 +179,23 @@ struct CurveSpec {
     y: Vec<Option<f64>>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TheorySpec {
-    function: String,
-    #[serde(default = "d_qam")]
-    kind: String,
-    #[serde(default = "d_m")]
-    m: usize,
-    #[serde(default)]
-    ebn0_db: Option<f64>,
-    #[serde(default)]
-    snr_db: Option<f64>,
-    #[serde(default = "d_points")]
-    points: usize,
-    #[serde(default)]
-    target: Option<f64>,
-    #[serde(default)]
-    fiber: Option<Json>,
-    #[serde(default)]
-    n_channels: Option<usize>,
-    #[serde(default)]
-    spacing_hz: Option<f64>,
-    #[serde(default)]
-    symbol_rate: Option<f64>,
-    #[serde(default)]
-    rolloff: f64,
-    #[serde(default)]
-    power_dbm: Option<f64>,
-    #[serde(default = "d_true")]
-    coherent: bool,
-    #[serde(default = "d_one")]
-    branches: usize,
-    #[serde(default)]
-    mb_lambda: Option<f64>,
-    #[serde(default)]
-    offset_db: f64,
-    #[serde(default)]
-    format: Option<Json>,
-    #[serde(default)]
-    modulation: Option<String>,
-    #[serde(default)]
-    rate: Option<String>,
-}
-
-fn d_one() -> usize {
-    1
-}
-
-fn d_qam() -> String {
-    "qam".into()
-}
-fn d_m() -> usize {
-    4
-}
-fn d_true() -> bool {
-    true
-}
-
-/// The SNR (dB) of the centre channel of a WDM link by the GN model.
-fn gn_snr_db(t: &TheorySpec, name: &str) -> Result<f64> {
-    let need = |what: &str| Error::Config(format!("expectation {name:?}: gn_snr_db needs {what}"));
-    let ctx = crate::blocks::BuildContext::default();
-    let fiber = ctx.fiber(t.fiber.as_ref())?;
-    let n = t.n_channels.ok_or_else(|| need("n_channels"))?;
-    let freqs = com_dsp::signal::wdm_grid(n, t.spacing_hz.ok_or_else(|| need("spacing_hz"))?);
-    let rs = t.symbol_rate.ok_or_else(|| need("symbol_rate"))?;
-    let p = com_math::dbm2w(t.power_dbm.ok_or_else(|| need("power_dbm"))?);
-    let egn = match &t.format {
-        None => None,
-        Some(Json::String(s)) if s.eq_ignore_ascii_case("gaussian") => Some(FormatMoments::GAUSSIAN),
-        Some(v) => {
-            // the priors of the source with mb_lambda: on the unit-energy constellation
-            let c = crate::blocks::parse_constellation(v)?.normalized();
-            let px = t.mb_lambda.map(|l| com_mapping::source::maxwell_boltzmann(&c, l));
-            Some(FormatMoments::of(c.points(), px.as_deref())?)
+impl CurveSpec {
+    /// The curve at `x`, interpolated linearly; `None` outside the curve or next to a
+    /// missing point.
+    fn at(&self, x: f64) -> Option<f64> {
+        let n = self.x.len();
+        if x < self.x[0] - 1e-12 || x > self.x[n - 1] + 1e-12 {
+            return None;
         }
-    };
-    let model = GnModel { coherent: t.coherent, raman: ctx.raman(t.fiber.as_ref())?, egn, ..GnModel::new(fiber) };
-    let snr = model.snr(&WdmSpectrum::uniform(freqs, p, rs, t.rolloff), n / 2)?;
-    Ok(lin2db(snr))
-}
-fn d_points() -> usize {
-    40
+        let i = self.x.iter().position(|&xi| xi >= x - 1e-12).unwrap_or(n - 1);
+        if (self.x[i] - x).abs() <= 1e-12 {
+            return self.y[i];
+        }
+        match (self.y[i - 1], self.y[i]) {
+            (Some(a), Some(b)) => Some(a + (b - a) * (x - self.x[i - 1]) / (self.x[i] - self.x[i - 1])),
+            _ => None,
+        }
+    }
 }
 
 /// An expectation of a specification, validated.
@@ -274,9 +218,20 @@ pub struct Check {
     /// Expected value.
     pub expected: f64,
     /// Measured value and its interval at the confidence of the specification.
-    pub measured: (f64, f64, f64),
+    pub measured: Interval,
     /// Whether the check passed.
     pub passed: bool,
+}
+
+/// A measured value and its confidence interval.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Interval {
+    /// The estimate.
+    pub value: f64,
+    /// Lower bound of its confidence interval.
+    pub lo: f64,
+    /// Upper bound of its confidence interval.
+    pub hi: f64,
 }
 
 impl Expectation {
@@ -327,74 +282,10 @@ impl Expectation {
             return Ok(Some(v));
         }
         if let Some(c) = &s.curve {
-            let x = cond.f64(&c.along)?;
-            let n = c.x.len();
-            if x < c.x[0] - 1e-12 || x > c.x[n - 1] + 1e-12 {
-                return Ok(None);
-            }
-            let i = c.x.iter().position(|&xi| xi >= x - 1e-12).unwrap_or(n - 1);
-            if (c.x[i] - x).abs() <= 1e-12 {
-                return Ok(c.y[i]);
-            }
-            return Ok(match (c.y[i - 1], c.y[i]) {
-                (Some(a), Some(b)) => Some(a + (b - a) * (x - c.x[i - 1]) / (c.x[i] - c.x[i - 1])),
-                _ => None,
-            });
+            return Ok(c.at(cond.f64(&c.along)?));
         }
-        let t: TheorySpec = parse("expect theory", substitute(s.theory.as_ref().unwrap_or(&Json::Null), cond)?)?;
-        let kind: ConstellationKind = t.kind.parse()?;
-        let bits = (t.m as f64).log2();
-        let ebn0 = |t: &TheorySpec| -> Result<f64> {
-            t.ebn0_db
-                .or(t.snr_db.map(|s| s - lin2db(bits)))
-                .ok_or_else(|| Error::Config(format!("expectation {:?}: the theory needs ebn0_db or snr_db", s.name)))
-        };
-        let snr = |t: &TheorySpec| -> Result<f64> {
-            t.snr_db
-                .or(t.ebn0_db.map(|e| e + lin2db(bits)))
-                .ok_or_else(|| Error::Config(format!("expectation {:?}: the theory needs snr_db or ebn0_db", s.name)))
-        };
-        let target =
-            || t.target.ok_or_else(|| Error::Config(format!("expectation {:?}: the theory needs a target", s.name)));
-        Ok(Some(match t.function.as_str() {
-            "ebn0_for_ber" => theory::ebn0_for_ber(kind, t.m, target()?)?,
-            "ebn0_for_ser" => theory::ebn0_for_ser(kind, t.m, target()?)?,
-            "snr_for_ber" => theory::ebn0_for_ber(kind, t.m, target()?)? + lin2db(bits),
-            "snr_for_ser" => theory::ebn0_for_ser(kind, t.m, target()?)? + lin2db(bits),
-            "ber" => metrics::theory_ber(kind, t.m, ebn0(&t)?)?,
-            "ser" => metrics::theory_ser(kind, t.m, ebn0(&t)?)?,
-            "mi" | "gmi" => {
-                // Maxwell-Boltzmann priors on the unit-energy uniform constellation, as the
-                // source with mb_lambda
-                let px = match t.mb_lambda {
-                    Some(l) => Some(com_mapping::source::maxwell_boltzmann(
-                        &com_mapping::constellation::Constellation::new(kind, t.m)?.normalized(),
-                        l,
-                    )),
-                    None => None,
-                };
-                let f = if t.function == "mi" { metrics::theory_mi } else { metrics::theory_gmi };
-                f(kind, t.m, snr(&t)?, px.as_deref(), t.points)?
-            }
-            "gn_snr_db" => gn_snr_db(&t, &s.name)?,
-            "dvbs2_esn0_db" => {
-                let need = |w: &str| Error::Config(format!("expectation {:?}: dvbs2_esn0_db needs {w}", s.name));
-                let m = t.modulation.as_deref().ok_or_else(|| need("modulation"))?;
-                let r = t.rate.as_deref().ok_or_else(|| need("rate"))?;
-                com_systems::dvbs2::Modcod::from_name(m, r)?.threshold_db() + t.offset_db
-            }
-            "ber_rayleigh" => {
-                ensure(t.m <= 4 && (t.kind == "qam" || t.kind == "psk"), || {
-                    format!("expectation {:?}: ber_rayleigh is for BPSK and QPSK", s.name)
-                })?;
-                theory::ber_rayleigh_mrc(db2lin(ebn0(&t)? + t.offset_db), t.branches)?
-            }
-            other => {
-                return Err(Error::Config(format!(
-                    "unknown theory {other:?} (ber, ser, mi, gmi, ebn0_for_ber, ebn0_for_ser, snr_for_ber, snr_for_ser, gn_snr_db, ber_rayleigh, dvbs2_esn0_db)"
-                )));
-            }
-        }))
+        let t: Theory = parse("expect theory", substitute(s.theory.as_ref().unwrap_or(&Json::Null), cond)?)?;
+        t.value(&s.name).map(Some)
     }
 
     /// The name of the expectation in a message: its name, or its metric.
@@ -469,7 +360,7 @@ impl Expectation {
                 condition: r.condition.label(),
                 metric: s.metric.clone(),
                 expected: e,
-                measured: (v, lo, hi),
+                measured: Interval { value: v, lo, hi },
                 passed: s.tolerance().accepts(v, e) || by_interval,
             });
         }
@@ -514,7 +405,7 @@ impl Expectation {
                 condition: r.condition.label(),
                 metric: s.metric.clone(),
                 expected: e,
-                measured: (r.value, r.lo, r.hi),
+                measured: Interval { value: r.value, lo: r.lo, hi: r.hi },
                 passed: s.tolerance().accepts(r.value, e) || by_interval,
             });
         }
@@ -558,6 +449,30 @@ pub fn verify(expect: &[Json], results: &[ConditionResult], confidence: f64) -> 
     Ok(out)
 }
 
+/// An expectation with the fibre of its specification: the `fiber` of a `gn_snr_db`
+/// theory merged over `fiber` (the `fiber` of the specification), as the fibre blocks
+/// merge theirs ([`BuildContext::fiber`](crate::blocks::BuildContext::fiber));
+/// [`Spec::from_json`] resolves its expectations so.
+///
+/// # Errors
+/// [`Error::Config`] for a `fiber` that is not a mapping.
+pub(crate) fn resolve_fiber(mut e: Json, fiber: Option<&Json>) -> Result<Json> {
+    let Some(fiber) = fiber.filter(|f| !f.is_null()) else { return Ok(e) };
+    let Some(t) = e.get_mut("theory").and_then(Json::as_object_mut) else { return Ok(e) };
+    if t.get("function").and_then(Json::as_str) != Some("gn_snr_db") {
+        return Ok(e);
+    }
+    let own = t.remove("fiber");
+    if own.as_ref().is_some_and(|f| !(f.is_object() || f.is_null())) {
+        // a variable of the grid: substituted later, not merged
+        t.insert("fiber".into(), own.unwrap_or(Json::Null));
+        return Ok(e);
+    }
+    let merged = crate::blocks::merge_fiber(Some(fiber), own.as_ref())?;
+    t.insert("fiber".into(), Json::Object(merged));
+    Ok(e)
+}
+
 /// What [`verify_spec`] ran: the conditions of the grid, or the search.
 #[derive(Clone, Debug)]
 pub enum Verified {
@@ -584,6 +499,44 @@ pub fn verify_spec(spec: &crate::Spec, opts: &crate::RunOptions) -> Result<(Veri
         let checks = verify(&spec.expect, &results, spec.confidence)?;
         (Verified::Run(results), checks)
     })
+}
+
+/// The verification report of a specification: the header of the reports of its runs
+/// ([`com_sim::loggers::run_header`]: the name, the seed, the batch, the threads, the
+/// stopping rule and the confidence of `spec` with the options `opts`, the version and
+/// commit of the library, the specification), `passed` (every check passed) and
+/// `checks` (one object per check: `name`, `source`, `condition`, `metric`,
+/// `expected`, `value`, `lo`, `hi`, `passed`), as JSON text.
+pub fn report(spec: &Spec, opts: &RunOptions, checks: &[Check]) -> String {
+    let items: Vec<String> = checks
+        .iter()
+        .map(|c| {
+            json::object(&[
+                ("name", json::string(&c.name)),
+                ("source", json::string(&c.source)),
+                ("condition", json::string(&c.condition)),
+                ("metric", json::string(&c.metric)),
+                ("expected", json::number(c.expected)),
+                ("value", json::number(c.measured.value)),
+                ("lo", json::number(c.measured.lo)),
+                ("hi", json::number(c.measured.hi)),
+                ("passed", c.passed.to_string()),
+            ])
+        })
+        .collect();
+    let mut fields = run_header(&spec.bare_runner(opts).run_info(&spec.name, spec.grid.len()));
+    fields.push(("passed", checks.iter().all(|c| c.passed).to_string()));
+    fields.push(("checks", json::array(&items)));
+    json::object(&fields)
+}
+
+/// Write the verification report of a specification ([`report`]) to `path`, its
+/// parent directories created.
+///
+/// # Errors
+/// [`Error::Io`] if the file cannot be written.
+pub fn write_report(path: &std::path::Path, spec: &Spec, opts: &RunOptions, checks: &[Check]) -> Result<()> {
+    write_json(path, &report(spec, opts, checks))
 }
 
 #[cfg(test)]
@@ -669,5 +622,46 @@ mod tests {
         let r = vec![result(Condition::new().with("x", 1.0), 1, 10)];
         let e = verify(&[json!({"metric": "evm", "value": 1.0, "atol": 1})], &r, 0.95).unwrap_err();
         assert!(e.to_string().contains("evm"));
+    }
+
+    #[test]
+    fn every_theory_takes_its_own_parameters() {
+        let r = vec![result(Condition::new().with("ebn0_db", 6.0), 2388, 1_000_000)];
+        let check = |theory: Json| {
+            verify(&[json!({"metric": "ber", "theory": theory, "rtol": 0.05})], &r, 0.95).map(|c| c[0].passed)
+        };
+        assert!(check(json!({"function": "ber", "kind": "QAM", "m": 4, "ebn0_db": "$ebn0_db"})).unwrap());
+        // a parameter of another function, an unknown function, the kind without case
+        let e = check(json!({"function": "ber", "m": 4, "ebn0_db": 6, "branches": 2})).unwrap_err().to_string();
+        assert!(e.contains("unknown field `branches`"), "{e}");
+        let e = check(json!({"function": "bler", "m": 4})).unwrap_err().to_string();
+        assert!(e.contains("unknown variant `bler`") && e.contains("gn_snr_db"), "{e}");
+        let rayleigh =
+            |kind: &str| check(json!({"function": "ber_rayleigh", "kind": kind, "ebn0_db": 6, "branches": 1}));
+        assert_eq!(rayleigh("QAM").unwrap(), rayleigh("qam").unwrap());
+        assert!(rayleigh("pam").is_err());
+    }
+
+    #[test]
+    fn the_gn_theory_sees_the_fibre_of_the_specification() {
+        // the same link, its fibre given once by the specification, once by the theory
+        let theory = |fiber: &str| {
+            format!(
+                "{{metric: snr_db, theory: {{function: gn_snr_db, {fiber}n_channels: 3, spacing_hz: 50e9, \
+                 symbol_rate: 32e9, rolloff: 0.1, power_dbm: 0}}, atol: 0.1}}"
+            )
+        };
+        let spec = |top: &str, fiber: &str| {
+            Spec::from_yaml(&format!("name: g\n{top}link: [source]\nexpect: [{}]", theory(fiber))).unwrap()
+        };
+        let expected =
+            |s: &Spec| Expectation::from_json(&s.expect[0]).unwrap().expected(&Condition::new()).unwrap().unwrap();
+        let by_spec = expected(&spec("fiber: {n_spans: 10, span_km: 100}\n", ""));
+        let by_theory = expected(&spec("", "fiber: {n_spans: 10, span_km: 100}, "));
+        let merged = expected(&spec("fiber: {n_spans: 10}\n", "fiber: {span_km: 100}, "));
+        let default = expected(&spec("", ""));
+        assert_eq!(by_spec, by_theory);
+        assert_eq!(merged, by_theory);
+        assert!((default - by_theory).abs() > 1.0, "{default} {by_theory}");
     }
 }
