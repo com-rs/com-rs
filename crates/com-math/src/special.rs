@@ -2,12 +2,12 @@
 //! Fresnel integrals, Bessel functions, the gamma function and the regularized
 //! incomplete gamma function, the exponential integral (all re-exported at the root).
 //!
-//! The power series share one summation ([`series`]: the terms until the last falls
-//! below [`SERIES_TOLERANCE`] of the sum), the continued fractions one modified Lentz
-//! iteration ([`lentz`]: the partial denominators floored at [`LENTZ_TINY`], until a
-//! factor is within [`LENTZ_TOLERANCE`] of 1), and the periodic integrands one midpoint
-//! rule ([`midpoint_mean`]); the order of the operations of each function is the one it
-//! had before they were shared (the same results, bit for bit).
+//! The power series share one private summation (the terms until the last falls below
+//! $10^{-17}$ of the sum), the continued fractions one modified Lentz iteration (the
+//! partial denominators floored at $10^{-300}$, until a factor is within $10^{-16}$ of
+//! 1), and the periodic integrands one midpoint rule; the order of the operations of
+//! each function is the one it had before they were shared (the same results, bit for
+//! bit).
 //!
 //! # References
 //!
