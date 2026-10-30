@@ -251,7 +251,7 @@ fn gn_snr_db(t: &TheorySpec, name: &str) -> Result<f64> {
     Ok(lin2db(snr))
 }
 fn d_points() -> usize {
-    40
+    com_mapping::theory::DEFAULT_QUADRATURE_POINTS
 }
 
 /// An expectation of a specification, validated.

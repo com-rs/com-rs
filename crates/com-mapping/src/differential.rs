@@ -64,6 +64,31 @@ use com_core::{Error, Result, ensure};
 use com_math::{C64, cis};
 use std::f64::consts::TAU;
 
+/// The detection of a differential PSK signal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Detection {
+    /// Noncoherent: the phase difference of consecutive samples ([`detect`]).
+    Noncoherent,
+    /// Coherent detection, then differential decoding ([`detect_coherent`]).
+    Coherent,
+}
+
+impl std::str::FromStr for Detection {
+    type Err = Error;
+
+    /// `noncoherent` or `coherent` (case-insensitive).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<Detection> {
+        match s.to_ascii_lowercase().as_str() {
+            "noncoherent" => Ok(Detection::Noncoherent),
+            "coherent" => Ok(Detection::Coherent),
+            _ => Err(Error::Config(format!("detection must be noncoherent or coherent, got {s:?}"))),
+        }
+    }
+}
+
 /// Check the order and the indices of a differential code.
 fn check(indices: &[usize], m: usize) -> Result<()> {
     ensure(m >= 2 && m.is_power_of_two(), || format!("the order must be a power of two ≥ 2, got {m}"))?;
@@ -242,6 +267,13 @@ impl Dpsk {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn the_detections_are_read_by_name() {
+        assert_eq!("NonCoherent".parse::<Detection>().unwrap(), Detection::Noncoherent);
+        assert_eq!("coherent".parse::<Detection>().unwrap(), Detection::Coherent);
+        assert!("differential".parse::<Detection>().is_err());
+    }
 
     #[test]
     fn round_trips_and_errors() {

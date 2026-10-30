@@ -255,6 +255,11 @@ pub(crate) fn over_fading(f: impl Fn(f64) -> Result<f64>, snr_db: f64, fading: F
     Ok(com_math::try_simpson(at, lo, hi, n)? + tail)
 }
 
+/// The Gauss–Hermite nodes per dimension of the information rates when the caller does
+/// not choose ([`constellation_mi`], [`constellation_gmi`], the BICM cutoff rate): the
+/// default of the `theory` checks of the specifications and of the Python closed forms.
+pub const DEFAULT_QUADRATURE_POINTS: usize = 40;
+
 /// The mutual information (bits/symbol) of the constellation `c` with the probabilities
 /// `px` (uniform if `None`) over the channel `fading`: [`mi`] of any constellation,
 /// averaged over the fading. With uniform inputs it is the capacity of coded modulation
@@ -680,6 +685,34 @@ pub fn ber_dbpsk_coherent(ebn0_db: f64) -> f64 {
     2.0 * p * (1.0 - p)
 }
 
+/// Bit error rate of $M$-DPSK over AWGN with the detection `detection`: [`ber_dpsk`]
+/// for the noncoherent detection, [`ber_dbpsk_coherent`] for the coherent detection with
+/// differential decoding (defined for $M = 2$).
+///
+/// # Errors
+/// [`Error::Config`] for an order that is not a power of two ≥ 2, or the coherent
+/// detection with $M \ne 2$.
+///
+/// # Examples
+/// ```
+/// use com_mapping::differential::Detection;
+/// use com_mapping::theory::{ber_dbpsk_coherent, ber_differential, ber_dpsk};
+/// assert_eq!(ber_differential(4, 8.0, Detection::Noncoherent)?, ber_dpsk(4, 8.0)?);
+/// assert_eq!(ber_differential(2, 6.0, Detection::Coherent)?, ber_dbpsk_coherent(6.0));
+/// assert!(ber_differential(4, 6.0, Detection::Coherent).is_err());
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn ber_differential(m: usize, ebn0_db: f64, detection: crate::differential::Detection) -> Result<f64> {
+    use crate::differential::Detection;
+    match detection {
+        Detection::Noncoherent => ber_dpsk(m, ebn0_db),
+        Detection::Coherent if m == 2 => Ok(ber_dbpsk_coherent(ebn0_db)),
+        Detection::Coherent => Err(Error::Config(format!(
+            "coherent detection with differential decoding is defined for m = 2, got m = {m}"
+        ))),
+    }
+}
+
 /// Symbol error rate of $M$ orthogonal signals of equal energy detected noncoherently
 /// over AWGN (noncoherent M-FSK, chirp spread spectrum), as a function of $E_{s}/N_{0}$
 /// (dB): the magnitude of the matched filter of the sent signal is Rice of location
@@ -722,6 +755,15 @@ pub fn ser_orthogonal_noncoherent(m: usize, esn0_db: f64) -> Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_quadrature_has_converged() {
+        let c = Constellation::qam(16).unwrap();
+        for fading in [Fading::Awgn, Fading::Rayleigh] {
+            let at = |n| constellation_mi(&c, 10.0, None, fading, n).unwrap();
+            assert!((at(DEFAULT_QUADRATURE_POINTS) - at(80)).abs() < 1e-6, "{fading:?}");
+        }
+    }
 
     #[test]
     fn bpsk_theory_is_q_of_sqrt_2ebn0() {
