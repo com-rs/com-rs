@@ -3,7 +3,9 @@
 //! Codes take information bits and return coded bits; decoders take log-likelihood
 //! ratios (positive for a 0, the convention of the whole library) and return the
 //! decided information bits. Every code implements [`block::BlockCode`] and the verb
-//! traits [`Encode`](com_core::traits::Encode) and [`Decode`](com_core::traits::Decode).
+//! traits [`Encode`](com_core::traits::Encode) and [`Decode`](com_core::traits::Decode);
+//! the LDPC, convolutional, turbo and NR LDPC codes (punctured or not) also give the a
+//! posteriori LLRs of their information bits ([`block::SoftDecode`]).
 //!
 //! | Module | Content |
 //! |---|---|

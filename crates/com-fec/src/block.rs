@@ -4,7 +4,9 @@
 //! (positive for a 0, the convention of `com_core::signal`) back to $k$ bits. Its
 //! provided methods encode and decode streams of whole blocks, and every code of the
 //! crate implements the verb traits [`Encode`](com_core::traits::Encode) and
-//! [`Decode`](com_core::traits::Decode) on the multi-stream containers.
+//! [`Decode`](com_core::traits::Decode) on the multi-stream containers. A code whose
+//! decoder gives the a posteriori LLRs of its information bits also implements
+//! [`SoftDecode`].
 
 use com_core::{Error, Result};
 
