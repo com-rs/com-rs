@@ -19,7 +19,7 @@
 //!   for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 use comrs::channel::awgn::add_noise;
-use comrs::channel::multipath::{Profile, Taps, Tdl, max_doppler_hz};
+use comrs::channel::multipath::{Profile, Taps, Tdl, TdlParams, max_doppler_hz};
 use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
@@ -62,7 +62,13 @@ fn through(taps: &Taps, start: usize, g: &[C64], q_start: usize, q: &[C64]) -> C
 /// exact diagonal of Q^H H G (Nissel & Rupp, eq. (8)), on the middle symbols.
 fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
     let c = Constellation::qam(64).unwrap().normalized();
-    let tdl = Tdl::new(&Profile::VehicularA.taps(), doppler(kmh), FS, 1, 1).unwrap();
+    let tdl = Tdl::new(TdlParams {
+        taps: Profile::VehicularA.taps(),
+        doppler_hz: doppler(kmh),
+        sample_rate: FS,
+        ..TdlParams::default()
+    })
+    .unwrap();
     let mut rng = Rng::new(seed);
     let (mut errors, mut total) = (0usize, 0usize);
     let n_cp = if scheme == Scheme::CpOfdm { 14 } else { 0 };

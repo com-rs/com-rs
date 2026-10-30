@@ -24,8 +24,8 @@
 //! checked by `crates/com-waveform/src/ofdm/correction.rs::literature`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 use com_validation::sweep_crossing;
-use comrs::channel::multipath::Tdl;
 use comrs::channel::multipath::max_doppler_hz;
+use comrs::channel::multipath::{Tdl, TdlParams};
 use comrs::mapping::theory::ber_rayleigh_mrc;
 use comrs::math::bisect;
 use comrs::math::fft::{fft, ifft};
@@ -61,7 +61,8 @@ struct Link {
 /// BER of `link` at the SIR `sir_db`, over `blocks` blocks drawn from `seed`.
 fn ber(link: Link, sir_db: f64, blocks: usize, seed: u64) -> f64 {
     let Link { n, fd, corr, rho } = link;
-    let tdl = Tdl::new(&[(0.0, 0.0)], fd, FS, 1, 1).unwrap();
+    let tdl = Tdl::new(TdlParams { taps: vec![(0.0, 0.0)], doppler_hz: fd, sample_rate: FS, ..TdlParams::default() })
+        .unwrap();
     let mut rng = Rng::new(seed);
     let g = comrs::math::db2lin(-sir_db);
     let s = 1.0 / 2f64.sqrt();
@@ -188,7 +189,8 @@ fn cimini_1985_fig_6_gain_limit() {
 #[ignore = "statistical validation: run with --ignored"]
 fn cimini_1985_eq_23_and_fig_7_delay_spread() {
     let delta = 50e-6;
-    let two_ray = Tdl::new(&[(0.0, 0.0), (delta, 0.0)], 0.0, 1e6, 1, 1).unwrap();
+    let two_ray =
+        Tdl::new(TdlParams { taps: vec![(0.0, 0.0), (delta, 0.0)], sample_rate: 1e6, ..TdlParams::default() }).unwrap();
     let rho_at = |f: f64| two_ray.frequency_correlation(1, (1e6 / f).round() as usize);
     for f in [500.0, 1000.0, 2000.0] {
         let s = std::f64::consts::TAU * f;

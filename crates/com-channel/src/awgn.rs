@@ -25,8 +25,8 @@
 //!
 //! 1. J. G. Proakis and M. Salehi, *Digital Communications*, 5th ed., McGraw-Hill, 2008.
 
-use com_core::{ensure, ensure_shape};
 use com_core::prelude::*;
+use com_core::{ensure, ensure_shape};
 use com_math::{db2lin, power};
 
 /// Additive white Gaussian noise channel.

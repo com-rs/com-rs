@@ -330,14 +330,15 @@ fn sin_sin(a: f64, b: f64, v: f64, rho: f64) -> f64 {
 }
 
 /// The SNR (linear) of every data subcarrier $k = 1 \dots K$ at `E_s/N_0` (dB) per data
-/// symbol, with the noise and the distortion of the receiver (see the module): flat,
+/// symbol, with the noise and the distortion of the receiver of `ce` (see the module): flat,
 /// [`snr`], for the arctangent receiver above its threshold; Bussgang's analysis under
 /// the Gaussian model for the linear receivers of Ahmed and Zeidler (2015), whose
 /// distortion falls mostly on the middle of the band.
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for invalid parameters.
-pub fn subcarrier_snr(ce: &CeOfdm, receiver: Receiver, esn0_db: f64) -> Result<Vec<f64>> {
+pub fn subcarrier_snr(ce: &CeOfdm, esn0_db: f64) -> Result<Vec<f64>> {
+    let receiver = ce.receiver;
     let flat = snr(ce, esn0_db)?;
     let (k, n) = (ce.n_subcarriers, ce.n_fft());
     let v = (TAU * ce.h).powi(2);
@@ -366,14 +367,14 @@ pub fn subcarrier_snr(ce: &CeOfdm, receiver: Receiver, esn0_db: f64) -> Result<V
     Ok((1..=k).map(|i| n as f64 * v * alpha * alpha / (2.0 * k as f64 * se[i])).collect())
 }
 
-/// The SER of a constellation of `m` points of `kind` with the receiver, averaged over
+/// The SER of a constellation of `m` points of `kind` with the receiver of `ce`, averaged over
 /// the subcarriers of [`subcarrier_snr`], the distortion taken as Gaussian; for the
 /// arctangent receiver, [`ser`].
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ser`].
-pub fn ser_receiver(ce: &CeOfdm, receiver: Receiver, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
-    let snrs = subcarrier_snr(ce, receiver, esn0_db)?;
+pub fn ser_receiver(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
+    let snrs = subcarrier_snr(ce, esn0_db)?;
     let mut total = 0.0;
     for &s in &snrs {
         total += com_mapping::theory::ser(kind, m, ebn0_db(s, m))?;
@@ -381,14 +382,14 @@ pub fn ser_receiver(ce: &CeOfdm, receiver: Receiver, kind: ConstellationKind, m:
     Ok(total / snrs.len() as f64)
 }
 
-/// The BER of a Gray-mapped constellation of `m` points of `kind` with the receiver,
+/// The BER of a Gray-mapped constellation of `m` points of `kind` with the receiver of `ce`,
 /// averaged over the subcarriers of [`subcarrier_snr`], the distortion taken as
 /// Gaussian; for the arctangent receiver, [`ber`].
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ber`].
-pub fn ber_receiver(ce: &CeOfdm, receiver: Receiver, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
-    let snrs = subcarrier_snr(ce, receiver, esn0_db)?;
+pub fn ber_receiver(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
+    let snrs = subcarrier_snr(ce, esn0_db)?;
     let mut total = 0.0;
     for &s in &snrs {
         total += ber_at(s, m, kind)?;

@@ -52,7 +52,8 @@ fn envelope(sp: &[(f64, f64)], d: f64) -> f64 {
 fn vakilian_2013_fig_3b() {
     let mut rng = Rng::new(2013);
     let mut card = Card::load("vakilian2013_fig3b").unwrap();
-    let ufmc = Ufmc::new(N, 1, Q, 16, 120.0).unwrap();
+    let ufmc = Ufmc { n_fft: N, n_subbands: 1, subband_size: Q, filter_len: 16, sidelobe_db: 120.0, ..Ufmc::default() };
+    ufmc.check().unwrap();
     let ofdm = Ofdm { oversampling: 1, n_cp: 0, ..Ofdm::new(N, Q).unwrap() };
     let u = spectrum(|d| ufmc.modulate(d).unwrap(), &mut rng);
     let o = spectrum(|d| ofdm.modulate(d).unwrap(), &mut rng);

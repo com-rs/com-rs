@@ -196,24 +196,54 @@ impl FrequencyInterpolation {
 /// # Errors
 /// [`Error::Shape`] if `rx` is not a whole grid, [`Error::Config`] without pilots.
 pub fn estimate(grid: &ResourceGrid, rx: &[C64], noise_var: f64, method: &FrequencyInterpolation) -> Result<Vec<C64>> {
-    estimate_port(grid, rx, noise_var, method, 0, 1)
+    estimate_port(grid, rx, &PortEstimation { method: method.clone(), noise_var, ..PortEstimation::default() })
 }
 
-/// [`estimate`] for the channel of port `port` out of `n_ports`, from its pilots
+/// The settings of [`estimate_port`]: the interpolation, the noise variance per RE (used
+/// by LMMSE) and the transmit port among the ports of the grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PortEstimation {
+    /// The interpolation in frequency.
+    pub method: FrequencyInterpolation,
+    /// The noise variance per RE.
+    pub noise_var: f64,
+    /// The transmit port whose channel is estimated.
+    pub port: usize,
+    /// The ports of the grid ([`ResourceGrid::port_pilots`]).
+    pub n_ports: usize,
+}
+
+impl Default for PortEstimation {
+    /// Linear interpolation, no noise, the one port of a grid.
+    fn default() -> PortEstimation {
+        PortEstimation { method: FrequencyInterpolation::Linear, noise_var: 0.0, port: 0, n_ports: 1 }
+    }
+}
+
+impl PortEstimation {
+    /// Check the settings.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a noise variance that is negative or not finite, or a port
+    /// outside the ports of the grid.
+    pub fn check(&self) -> Result<()> {
+        let (v, p, n) = (self.noise_var, self.port, self.n_ports);
+        ensure(v >= 0.0 && v.is_finite(), || format!("the noise variance must be finite and non-negative, got {v}"))?;
+        ensure(p < n, || format!("no port {p} out of {n}"))
+    }
+}
+
+/// [`estimate`] for the channel of the port of `settings`, from its pilots
 /// ([`ResourceGrid::port_pilots`]): with one receive antenna's grid `rx`, the channel
 /// between that antenna and the transmit port.
 ///
 /// # Errors
-/// As [`estimate`]; the errors of [`ResourceGrid::check`]; [`Error::Config`] if a pilot
-/// symbol has no pilot of the port.
-pub fn estimate_port(
-    grid: &ResourceGrid,
-    rx: &[C64],
-    noise_var: f64,
-    method: &FrequencyInterpolation,
-    port: usize,
-    n_ports: usize,
-) -> Result<Vec<C64>> {
+/// As [`estimate`]; the errors of [`PortEstimation::check`] and of
+/// [`ResourceGrid::check`]; [`Error::Config`] if a pilot symbol has no pilot of the port.
+pub fn estimate_port(grid: &ResourceGrid, rx: &[C64], settings: &PortEstimation) -> Result<Vec<C64>> {
+    settings.check()?;
+    let PortEstimation { method, noise_var, port, n_ports } = settings;
+    let (noise_var, port, n_ports) = (*noise_var, *port, *n_ports);
     grid.check()?;
     let (k_n, l_n) = (grid.n_subcarriers, grid.n_symbols);
     ensure_shape(rx.len() == k_n * l_n, || format!("{} REs for a grid of {k_n} × {l_n}", rx.len()))?;

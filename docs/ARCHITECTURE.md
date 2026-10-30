@@ -314,7 +314,9 @@ enum.
 - At most three positional arguments.
 - Beyond that, a parameter struct with public fields, a `Default` and a
   `check -> Result`; building is `new(params) -> Result`, or struct update followed by
-  `check` for a block whose fields are its parameters (`Rapp`, `Saleh`, `Mzm`).
+  `check` for a block whose fields are its parameters (`Rapp`, `Saleh`, `Mzm`, `Ufmc`):
+  `TdlParams`, `CdlParams` (with `ClusterTable` for `Cdl::custom`), `PortEstimation`,
+  `FrameDetection`, `message_passing::MessagePassing`.
 - A boolean argument becomes an enum or a field.
 
 ### Container accessors

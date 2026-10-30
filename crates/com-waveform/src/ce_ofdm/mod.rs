@@ -520,7 +520,8 @@ mod tests {
                 let bits: usize =
                     c.decide(&e).iter().zip(c.decide(&d)).map(|(a, b)| (a ^ b).count_ones() as usize).sum();
                 let ber = bits as f64 / (2.0 * d.len() as f64);
-                let want = theory::ber_receiver(&ce, receiver, ConstellationKind::Qam, 4, esn0_db).unwrap();
+                let want = theory::ber_receiver(&CeOfdm { receiver, ..ce.clone() }, ConstellationKind::Qam, 4, esn0_db)
+                    .unwrap();
                 // BER about 1e-2, 2000 errors: a 10 % band for the sampling error and the
                 // Gaussian model of the distortion (simulation and theory agree to 4 %)
                 assert!((ber / want - 1.0).abs() < 0.1, "2πh = {two_pi_h}, {receiver:?}: {ber:e} vs {want:e}");
@@ -528,7 +529,7 @@ mod tests {
         }
         // at a small index the linear receiver is the arctangent one (eq. (20) of the paper)
         let ce = CeOfdm::new(32, 2, 0.01 / TAU).unwrap();
-        let lin = theory::subcarrier_snr(&ce, Receiver::Linear, 30.0).unwrap();
+        let lin = theory::subcarrier_snr(&CeOfdm { receiver: Receiver::Linear, ..ce.clone() }, 30.0).unwrap();
         let flat = theory::snr(&ce, 30.0).unwrap();
         assert!(lin.iter().all(|s| (s / flat - 1.0).abs() < 1e-3), "{lin:?} vs {flat}");
     }

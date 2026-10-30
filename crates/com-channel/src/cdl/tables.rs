@@ -52,6 +52,26 @@ pub struct Spreads {
     pub xpr_db: f64,
 }
 
+/// The clusters of a channel, its specular component and the spreads of its rays: a
+/// profile as data ([`Profile`] gives those of the tables), for [`super::Cdl::custom`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClusterTable {
+    /// The clusters (in the units of the tables, powers in dB of any normalisation).
+    pub clusters: Vec<Cluster>,
+    /// The specular component added to the first cluster, if any.
+    pub los: Option<Cluster>,
+    /// The per-cluster spreads.
+    pub spreads: Spreads,
+}
+
+impl From<Profile> for ClusterTable {
+    /// The table of a profile: [`Profile::table`], [`Profile::los`] and
+    /// [`Profile::spreads`].
+    fn from(p: Profile) -> ClusterTable {
+        ClusterTable { clusters: p.table().to_vec(), los: p.los(), spreads: p.spreads() }
+    }
+}
+
 /// The CDL profiles of TR 38.901 Section 7.7.1.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

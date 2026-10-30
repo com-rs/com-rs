@@ -131,35 +131,42 @@ impl PilotTable {
 }
 
 impl PilotPattern {
-    /// The pattern of a name, `block`, `comb`, `lattice` or `none` (case-insensitive),
-    /// with the spacings it uses: `period` for `block`, `spacing` for `comb`, `freq` and
-    /// `time` for `lattice`. The arguments a pattern does not use are ignored, and not
-    /// checked (the parsers of the specifications and of the bindings give them all).
+    /// [`PilotPattern::Block`]: every subcarrier of one symbol in `period`.
     ///
     /// # Errors
-    /// [`Error::Config`] for another name or a spacing of zero.
+    /// [`Error::Config`] for a period of zero.
     ///
     /// # Examples
     /// ```
     /// use com_waveform::ofdm::grid::PilotPattern;
-    /// assert_eq!(PilotPattern::from_name("comb", 4, 6, 3, 4)?, PilotPattern::Comb { spacing: 6 });
-    /// assert!(PilotPattern::from_name("diamond", 4, 4, 3, 4).is_err());
+    /// assert_eq!(PilotPattern::block(4)?, PilotPattern::Block { period: 4 });
+    /// assert!(PilotPattern::block(0).is_err());
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub fn from_name(name: &str, period: usize, spacing: usize, freq: usize, time: usize) -> Result<PilotPattern> {
-        let positive = |v: usize, what: &str| {
-            if v >= 1 { Ok(v) } else { Err(Error::Config(format!("the pilot {what} must be at least 1, got {v}"))) }
-        };
-        Ok(match name.to_ascii_lowercase().as_str() {
-            "block" => PilotPattern::Block { period: positive(period, "period")? },
-            "comb" => PilotPattern::Comb { spacing: positive(spacing, "spacing")? },
-            "lattice" => PilotPattern::Lattice { freq: positive(freq, "freq")?, time: positive(time, "time")? },
-            "none" => PilotPattern::None,
-            _ => {
-                return Err(Error::Config(format!("unknown pilot pattern {name:?}: block, comb, lattice or none")));
-            }
-        })
+    pub fn block(period: usize) -> Result<PilotPattern> {
+        Ok(PilotPattern::Block { period: positive(period, "period")? })
     }
+
+    /// [`PilotPattern::Comb`]: one subcarrier in `spacing` of every symbol.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a spacing of zero.
+    pub fn comb(spacing: usize) -> Result<PilotPattern> {
+        Ok(PilotPattern::Comb { spacing: positive(spacing, "spacing")? })
+    }
+
+    /// [`PilotPattern::Lattice`]: one subcarrier in `freq` of one symbol in `time`.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a spacing of zero.
+    pub fn lattice(freq: usize, time: usize) -> Result<PilotPattern> {
+        Ok(PilotPattern::Lattice { freq: positive(freq, "freq")?, time: positive(time, "time")? })
+    }
+}
+
+/// `v` if it is at least 1, else [`Error::Config`] naming the spacing `what`.
+fn positive(v: usize, what: &str) -> Result<usize> {
+    if v >= 1 { Ok(v) } else { Err(Error::Config(format!("the pilot {what} must be at least 1, got {v}"))) }
 }
 
 /// A grid of `n_subcarriers` × `n_symbols` resource elements with pilots.
@@ -191,12 +198,12 @@ impl ResourceGrid {
     pub fn check(&self) -> Result<()> {
         let (k, l) = (self.n_subcarriers, self.n_symbols);
         ensure(k >= 1 && l >= 1, || format!("a resource grid needs at least one RE, got {k} × {l}"))?;
-        let positive =
-            |v: usize, what: &str| ensure(v >= 1, || format!("the pilot {what} must be at least 1, got {v}"));
         match &self.pattern {
-            PilotPattern::Block { period } => positive(*period, "period"),
-            PilotPattern::Comb { spacing } => positive(*spacing, "spacing"),
-            PilotPattern::Lattice { freq, time } => positive(*freq, "freq").and_then(|()| positive(*time, "time")),
+            PilotPattern::Block { period } => positive(*period, "period").map(drop),
+            PilotPattern::Comb { spacing } => positive(*spacing, "spacing").map(drop),
+            PilotPattern::Lattice { freq, time } => {
+                positive(*freq, "freq").and_then(|_| positive(*time, "time")).map(drop)
+            }
             PilotPattern::Explicit(t) => ensure(t.n_subcarriers == k && t.n_symbols == l, || {
                 format!("a pilot table of {} × {} for a grid of {k} × {l}", t.n_subcarriers, t.n_symbols)
             }),

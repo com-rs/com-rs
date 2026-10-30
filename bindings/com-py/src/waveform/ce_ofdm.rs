@@ -322,7 +322,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (esn0_db, receiver="arctangent"))]
     fn subcarrier_snr<'py>(&self, py: Python<'py>, esn0_db: f64, receiver: &str) -> PyResult<FArr<'py>> {
         let r = self::receiver(receiver, "none")?;
-        Ok(farr(py, theory::subcarrier_snr(&self.inner, r, esn0_db).py()?))
+        Ok(farr(py, theory::subcarrier_snr(&CeOfdm { receiver: r, ..self.inner.clone() }, esn0_db).py()?))
     }
 
     /// The BER of a Gray-mapped constellation with the receiver, averaged over the
@@ -342,7 +342,8 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
     fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
         let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
-        map_real(esn0_db, |e| theory::ber_receiver(&self.inner, r, k, m, e).py())
+        let ce = CeOfdm { receiver: r, ..self.inner.clone() };
+        map_real(esn0_db, |e| theory::ber_receiver(&ce, k, m, e).py())
     }
 
     /// The change of the estimates of the arctangent receiver caused by a cycle slip of

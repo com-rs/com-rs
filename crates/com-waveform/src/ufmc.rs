@@ -29,7 +29,9 @@
 //! ```
 //! use com_waveform::ufmc::Ufmc;
 //! use com_math::C64;
-//! let u = Ufmc::new(64, 4, 12, 16, 40.0)?; // 48 subcarriers, L = 16
+//! // 4 sub-bands of 12 subcarriers on a grid of 64, L = 16
+//! let u = Ufmc { n_fft: 64, n_subbands: 4, subband_size: 12, filter_len: 16, ..Ufmc::default() };
+//! u.check()?;
 //! let d: Vec<C64> = (0..96).map(|i| C64::new(if i % 3 == 0 { 1.0 } else { -1.0 }, 1.0)).collect();
 //! let x = u.modulate(&d)?;
 //! assert_eq!(x.len(), 2 * (64 + 15));
@@ -55,7 +57,9 @@ use com_dsp::filter::{convolve_full, normalize_energy, response_at};
 use com_dsp::window::chebyshev;
 use com_math::{C64, cis, fft};
 
-/// A UFMC modem (see the module).
+/// A UFMC modem (see the module): its fields are its parameters, set by struct update
+/// from [`Ufmc::default`] and checked by [`Ufmc::check`] (and by the modulator and the
+/// demodulator).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ufmc {
     /// Size of the grid and of the IDFT, $N$.
@@ -73,25 +77,16 @@ pub struct Ufmc {
     pub sample_rate: Hertz,
 }
 
-impl Ufmc {
-    /// `n_subbands` sub-bands of `subband_size` subcarriers on a grid of `n_fft`,
-    /// filtered by Dolph–Chebyshev filters of `filter_len` taps whose sidelobes are
-    /// `sidelobe_db` below their main lobe, at the sample rate 1 Hz.
-    ///
-    /// # Errors
-    /// As [`Ufmc::check`].
-    pub fn new(
-        n_fft: usize,
-        n_subbands: usize,
-        subband_size: usize,
-        filter_len: usize,
-        sidelobe_db: f64,
-    ) -> Result<Ufmc> {
-        let u = Ufmc { n_fft, n_subbands, subband_size, filter_len, sidelobe_db, sample_rate: Hertz(1.0) };
-        u.check()?;
-        Ok(u)
+impl Default for Ufmc {
+    /// 4 sub-bands of 12 subcarriers on a grid of 64, filtered by Dolph–Chebyshev filters
+    /// of 16 taps whose sidelobes are 40 dB below their main lobe, at the sample rate
+    /// 1 Hz (the example of the module).
+    fn default() -> Ufmc {
+        Ufmc { n_fft: 64, n_subbands: 4, subband_size: 12, filter_len: 16, sidelobe_db: 40.0, sample_rate: Hertz(1.0) }
     }
+}
 
+impl Ufmc {
     /// Check the configuration.
     ///
     /// # Errors
@@ -250,7 +245,7 @@ mod tests {
     /// symbols to the last bit.
     #[test]
     fn the_shared_filter_helpers_are_the_former_code() {
-        let u = Ufmc::new(64, 4, 12, 16, 40.0).unwrap();
+        let u = Ufmc::default();
         let w = chebyshev(16, 40.0);
         let norm = w.iter().map(|v| v * v).sum::<f64>().sqrt();
         let old: Vec<f64> = w.into_iter().map(|v| v / norm).collect();
@@ -266,7 +261,7 @@ mod tests {
 
     #[test]
     fn the_sub_bands_are_orthogonal_and_the_filters_unit_energy() {
-        let u = Ufmc::new(128, 6, 12, 32, 50.0).unwrap();
+        let u = Ufmc { n_fft: 128, n_subbands: 6, filter_len: 32, sidelobe_db: 50.0, ..Ufmc::default() };
         let e: f64 = u.subband_taps(0).iter().map(C64::norm_sqr).sum();
         assert!((e - 1.0).abs() < 1e-12);
         // one sub-band alone leaves nothing on the others
@@ -303,16 +298,16 @@ mod tests {
             let first = u.subcarrier(0);
             com_math::lin2db(at(first - 8) / at(first + 6))
         };
-        let ufmc = level(&Ufmc::new(128, 4, 12, 33, 60.0).unwrap());
-        let ofdm = level(&Ufmc::new(128, 4, 12, 1, 60.0).unwrap());
+        let ufmc = level(&Ufmc { n_fft: 128, filter_len: 33, sidelobe_db: 60.0, ..Ufmc::default() });
+        let ofdm = level(&Ufmc { n_fft: 128, filter_len: 1, sidelobe_db: 60.0, ..Ufmc::default() });
         assert!(ufmc < ofdm - 20.0, "UFMC {ufmc} dB, OFDM {ofdm} dB");
     }
 
     #[test]
     fn filters_longer_than_the_receiver_dft_are_rejected() {
-        assert!(Ufmc::new(64, 4, 12, 65, 40.0).is_ok());
-        assert!(Ufmc::new(64, 4, 12, 66, 40.0).is_err());
-        assert!(Ufmc::new(64, 4, 12, 0, 40.0).is_err());
-        assert!(Ufmc::new(64, 6, 12, 16, 40.0).is_err());
+        assert!(Ufmc { filter_len: 65, ..Ufmc::default() }.check().is_ok());
+        assert!(Ufmc { filter_len: 66, ..Ufmc::default() }.check().is_err());
+        assert!(Ufmc { filter_len: 0, ..Ufmc::default() }.check().is_err());
+        assert!(Ufmc { n_subbands: 6, ..Ufmc::default() }.check().is_err());
     }
 }

@@ -76,7 +76,7 @@ use ndarray::Array2;
 /// ```
 /// use com_core::prelude::*;
 /// use com_channel::fading::{Fading, Mimo};
-/// use com_channel::multipath::{Profile, Tdl};
+/// use com_channel::multipath::{Profile, Tdl, TdlParams};
 /// /// The received power of one realisation, whatever the channel.
 /// fn received_power(ch: &impl Fading, rng: &mut Rng) -> com_core::Result<f64> {
 ///     let fs = Hertz(ch.sample_rate().unwrap_or(1.0));
@@ -85,7 +85,7 @@ use ndarray::Array2;
 ///     Ok(y.as_array().iter().map(C64::norm_sqr).sum::<f64>() / 64.0)
 /// }
 /// let mut rng = batch_rng(1, 0);
-/// assert!(received_power(&Tdl::new(&Profile::Eva.taps(), 10.0, 15.36e6, 2, 1)?, &mut rng)? > 0.0);
+/// assert!(received_power(&Tdl::new(TdlParams { taps: Profile::Eva.taps(), doppler_hz: 10.0, sample_rate: 15.36e6, n_rx: 2, ..TdlParams::default() })?, &mut rng)? > 0.0);
 /// assert!(received_power(&Mimo::rayleigh(2, 2), &mut rng)? > 0.0);
 /// # Ok::<(), com_core::Error>(())
 /// ```

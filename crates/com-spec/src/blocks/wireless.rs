@@ -46,9 +46,9 @@
 
 use super::schema::ParamType;
 use super::{Block, Extension, Frame, NameOr, Named};
-use com_channel::cdl::{Array, Cdl, Profile as CdlProfile};
+use com_channel::cdl::{Array, Cdl, CdlParams, Profile as CdlProfile};
 use com_channel::fading::Mimo;
-use com_channel::multipath::{Profile, Taps, Tdl};
+use com_channel::multipath::{Profile, Taps, Tdl, TdlParams};
 use com_channel::spatial::{Kronecker, exponential_correlation};
 use com_core::rng::Rng;
 use com_core::units::Hertz;
@@ -61,7 +61,7 @@ use com_mimo::stbc::Ostbc;
 use com_waveform::ofdm::Ofdm;
 use com_waveform::ofdm::estimation::{FrequencyInterpolation, PowerDelayProfile};
 use com_waveform::ofdm::grid::{PilotPattern, ResourceGrid};
-use com_waveform::ofdm::link::transmit;
+use com_waveform::ofdm::link::{FrameDetection, transmit};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -304,7 +304,13 @@ impl TdlBlock {
 impl Block for TdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         fade(s, rng, |x, fs, rng| {
-            let tdl = Tdl::new(&self.taps, self.doppler, fs, self.n_rx, x.len())?;
+            let tdl = Tdl::new(TdlParams {
+                taps: self.taps.clone(),
+                doppler_hz: self.doppler,
+                sample_rate: fs,
+                n_rx: self.n_rx,
+                n_tx: x.len(),
+            })?;
             let taps = tdl.draw(x[0].len(), rng);
             Ok((taps.apply(x)?, Csi::Taps(taps)))
         })
@@ -351,9 +357,15 @@ impl Block for CdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         fade(s, rng, |x, fs, rng| {
             let tx = Array::linear(x.len(), self.spacing);
-            let mut cdl = Cdl::new(self.profile, self.delay_spread, fs, tx, Array::linear(self.n_rx, self.spacing))?;
-            cdl.velocity_mps = [0.0, self.velocity, 0.0];
-            cdl.fc_hz = self.carrier;
+            let params = CdlParams {
+                delay_spread_s: self.delay_spread,
+                sample_rate: fs,
+                tx,
+                rx: Array::linear(self.n_rx, self.spacing),
+                velocity_mps: [0.0, self.velocity, 0.0],
+                fc_hz: self.carrier,
+            };
+            let cdl = Cdl::new(self.profile, params)?;
             let taps = cdl.draw(x[0].len(), rng)?;
             Ok((taps.apply(x)?, Csi::Taps(taps)))
         })
@@ -393,9 +405,14 @@ fn pilot_pattern(v: &NameOr<PilotSpec>) -> Result<PilotPattern> {
     match v.get("ofdm_tx pilots")? {
         Named::Name(s) if s.eq_ignore_ascii_case("none") => Ok(PilotPattern::None),
         Named::Name(s) => Err(Error::Config(format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))),
-        Named::Params(p) => {
-            PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+        Named::Params(p) => match p.pattern.to_ascii_lowercase().as_str() {
+            "block" => PilotPattern::block(p.period),
+            "comb" => PilotPattern::comb(p.spacing),
+            "lattice" => PilotPattern::lattice(p.freq, p.time),
+            // `one_of` leaves only `none`
+            _ => Ok(PilotPattern::None),
         }
+        .map_err(|e| e.context("ofdm_tx")),
     }
 }
 
@@ -598,9 +615,7 @@ impl Block for OfdmRx {
                 None => perfect_channel(state, &f, nr, g),
             },
             &receiver,
-            gain,
-            state.layout.alamouti,
-            noise_var,
+            &FrameDetection { gain, alamouti: state.layout.alamouti, noise_var },
         )?;
         s.symbol_rate *= nt as f64;
         finish(s, out)
