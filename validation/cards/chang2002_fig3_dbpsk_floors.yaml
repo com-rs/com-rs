@@ -19,3 +19,6 @@ cases:
     note: "the curve labelled 0.05 on the figure"
   - inputs: {m: 2, ebn0_db: 50.0, fd_ts: 0.001}
     expected: 1.3e-5
+  - inputs: {m: 2, ebn0_db: 50.0, fd_ts: 0.05}
+    expected: {min: 1.0e-2}
+    note: "eq. 40 at the label of the figure: a floor of 1.2e-2, far above the curve so labelled"

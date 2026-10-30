@@ -112,8 +112,7 @@ fn first_order_variance(n_spans: usize, w: usize, trials: usize, qpsk: bool, rng
                 })
                 .collect();
             // the spectral lines in increasing frequency
-            let x = fft::fft(&s);
-            (0..w).map(|j| x[(j + w - w / 2) % w] / norm).collect()
+            fft::fftshift(&fft::fft(&s)).iter().map(|v| v / norm).collect()
         };
         let (x, y) = (pol(rng), pol(rng));
         for k in &kernels {

@@ -206,6 +206,9 @@ The following cases are settled. Treat them as precedent.
 | Gamma variates | `com_core::rng::Rng::gamma` | Random variates are drawn by the generator every block takes |
 | Modified Bessel function $K_{\nu}$ | `com_math::{bessel_k, ln_bessel_k}` | A special function without communication meaning |
 | BPSK-over-AWGN LLRs of the code tests | `com_validation::bpsk_awgn_llr` | A test link, not a channel model of the library |
+| Maximum Doppler shift of a speed | `com_channel::multipath::max_doppler_hz` | A property of the medium, used by the CDL channel and the tests |
+| Spherical angles to a direction | `com_math::geometry::from_spherical` | No communication meaning; shared by the CDL arrays and the indoor optical channel |
+| The loop over the spans of an optical link (amplifiers, Raman) | `com_channel::optical::fiber::amplified_spans` (crate-private) | One loop for `Ssfm`, `ManakovSsfm` and `pmd::Manakov` |
 
 ## Naming conventions
 
@@ -320,7 +323,10 @@ Implementations: every `BlockCode` of `com-fec` (`Encode`, `Decode`, by the macr
 `Mimo` (`fading`), `Tdl`, `DelayDopplerModel` (`multipath`), `Cdl`, `Fso`
 (`owc::atmospheric`), `Ssfm` (`optical::fiber`) (`Propagate`); `Rapp`, `Saleh`,
 `MemoryPolynomial`, `PhaseNoise`, `Cfo`, `TxIq`, `RxIq`, `Adc`, `Dac` (`Impair`). The
-other blocks expose slice-based functions and methods.
+random linear channels of `com-channel` also share `fading::Fading` (`Mimo`, `Tdl`,
+`DelayDopplerModel`, `Cdl`): a realisation drawn as `multipath::Taps` for a number of
+samples, applied with the checks of streams and sample rate; their `Propagate` is its
+`fade_into`. The other blocks expose slice-based functions and methods.
 
 ### Randomness
 
@@ -761,28 +767,41 @@ are within the burst-aware bound of the test. The quick configurations run with
 ### Statistical validation
 
 `validation/tests/` holds the Monte Carlo checks, one file per reference document
-(`raviteja2019.rs`, `tal2015.rs`, `loyka2001.rs`, … named after its first author and
+(`raviteja2019.rs`, `tal2015.rs`, `caire1998.rs`, … named after its first author and
 year, listed with what they reproduce in `validation/literature.yaml` and
-[`LITERATURE.md`](LITERATURE.md)) and the files below. The helpers they share live in
-`validation/src/lib.rs`: the acceptance rule (`within_three_sigma`), the BPSK link of
-the code tests (`bpsk_awgn_llr`), the crossing of an error rate by log-linear
-interpolation (`crossing`, `log_interp`) and the Doppler shift of a speed
-(`max_doppler_hz`). A comparison written as data is a validation card of
+[`LITERATURE.md`](LITERATURE.md)) and the files below, which compare with several
+documents or with closed forms. The helpers they share live in `validation/src/`: the
+acceptance rule (`within_three_sigma`), the loops until a number of errors
+(`until_errors` on `com_sim::Runner`, the only place a validation test runs in
+parallel, and `until_errors_with`, sequential), the BPSK link of the code tests
+(`bpsk_awgn_llr`, `coded_frame`, `fer`), the crossing of an error rate by log-linear
+interpolation (`crossing`, `sweep_crossing`, `log_interp`) and the information rates of
+shaped ASK (`com_validation::shaping`); the tests call the library for the rest (bit
+errors, sources, noise, spectra). A comparison written as data is a validation card of
 `validation/cards/` (`validation/cards/README.md`), checked by `tools/cards.py` and
 rerun by `just card <id>`.
+
+A test that reproduces values read on a published figure or table holds them in a
+card: the test only measures (`Card::check`), the expected values, their tolerances and
+the reasons live in the YAML. A test may stay card-less, with its tolerance in the
+assertion and the reason beside it, when it checks a closed form (a simulated error
+rate within three standard errors of its formula), an invariant or a self-consistency
+(a round trip, a symmetry, the agreement of two computations of one quantity), a
+recorded reference implementation (`aff3ct.rs`), a claim with no value to read (an
+ordering, a diversity order, a slope), or a table reproduced exactly (`assert_eq!`).
 
 - `closed_forms.rs`: BPSK over AWGN and flat Rayleigh fading; each point runs until
   100 errors and passes within three standard errors of the closed form
   (`com_validation::within_three_sigma`);
 - `mimo.rs`: zero forcing and Alamouti against maximal-ratio combining, and the
   diversity orders of the detectors against Table X of Yang & Hanzo (2015);
-- `shaping.rs`: the CCDM, the information rates of shaped ASK and QAM, and PAS on the
-  DVB-S2 codes, against Schulte & Böcherer (2016), Böcherer, Steiner & Schulte (2015)
-  and Liang & Kahn (2025);
-- `egn.rs`: the EGN model against Fig. 1(a) of Carena et al. (2014) and the
-  first-order perturbation;
+- `converters.rs`, `blind.rs`, `css.rs`, `ce_ofdm.rs`, `message_passing.rs`,
+  `nr_codes.rs`: the converters, blind estimation, chirp spread spectrum,
+  constant-envelope OFDM, LAMA and OAMP, the 5G NR codes, each against several papers
+  or closed forms;
 - `aff3ct.rs`: the channel codes against AFF3CT;
-- `specs.rs`: the quick specifications of `specs/validation/`.
+- `specs.rs`: the quick specifications of `specs/validation/` that CI does not verify,
+  and the check that the two CI lists (`ci_specs`, `VALIDATION_SPECS`) agree.
 
 ## Versioning and workflow
 

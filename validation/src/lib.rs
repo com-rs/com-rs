@@ -29,6 +29,7 @@
 
 #[cfg(feature = "spec")]
 pub mod card;
+pub mod shaping;
 
 use comrs::core::rng::Rng;
 use comrs::core::{Error, Result};

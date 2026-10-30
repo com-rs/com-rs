@@ -3,8 +3,9 @@
 //! digital filters for compensation of chromatic dispersion in digital coherent optical
 //! receivers," *J. Lightw. Technol.* 32(8), 1449–1456, 2014:
 //!
-//! - Table I: the dispersion factors $K$ and the lengths $N$ of Savory's filter
-//!   (S. J. Savory, *Opt. Express* 16(2), 2008) of its two examples;
+//! - Table I: the lengths $N$ of Savory's filter (S. J. Savory, *Opt. Express* 16(2),
+//!   2008) of its two examples (their dispersion factors $K$ are the card
+//!   `validation/cards/eghbali2014_table1.yaml`);
 //! - eq. 19: over the whole band the least-squares filter is $D(n)$, checked against the
 //!   integral of eq. 12 by quadrature;
 //! - Sec. III-A2: the error energy $E$ of the least-squares filter falls with its length
@@ -46,11 +47,11 @@ fn db(e: f64) -> f64 {
     comrs::math::lin2db(e)
 }
 
+/// Table I: the lengths $N$ of Savory's filter, exactly (the factors $K$ of the table are
+/// the card `validation/cards/eghbali2014_table1.yaml`).
 #[test]
-fn eghbali2014_table1() {
-    for ((z, fs), (k, n)) in EXAMPLES.iter().zip([(19.9227, 251), (69.605, 875)]) {
-        let kk = cd_dispersion_factor(beta2(), *z, *fs);
-        assert!((kk / k - 1.0).abs() < 5e-5, "K = {kk}, Table I {k}");
+fn eghbali2014_table1_lengths() {
+    for ((z, fs), n) in EXAMPLES.iter().zip([251, 875]) {
         assert_eq!(cd_savory_length(beta2(), *z, *fs), n);
     }
 }

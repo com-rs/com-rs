@@ -128,7 +128,7 @@ fig.tight_layout()
 # :math:`E_b/N_0 = 10` to 15 dB. The least-squares filter of 251 taps nearly reaches the
 # back-to-back curve, Savory's filter of the same length loses about 0.9 dB at
 # :math:`10^{-5}`, and the band-limited filter matches the 251 taps of Savory with 119
-# (Figs. 5 and 9 of the paper; ``validation/tests/cd_filters.rs`` checks these points).
+# (Figs. 5 and 9 of the paper; ``validation/tests/eghbali2014.rs`` checks these points).
 
 NSYM = 1 << 19
 g = comrs.rrc_spectrum(NSYM, 2, 0.25) * np.sqrt(2)

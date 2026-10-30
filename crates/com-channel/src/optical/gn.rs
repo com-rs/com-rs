@@ -78,7 +78,7 @@
 //!   curve within 0.2 dB and the EGN curve within 0.25 dB at 1, 10, 20 and 50 spans;
 //!   between 2 and 5 spans the published EGN curve is up to 0.9 dB below its own
 //!   formulas, which a Monte Carlo evaluation of the first-order perturbation reproduces
-//!   within 0.1 dB (`validation/tests/egn.rs`);
+//!   within 0.1 dB (`validation/tests/carena2014.rs`);
 //! - Manakov simulations of 16-QAM over five channels and five spans
 //!   (`specs/wdm_gn.yaml`): within 0.3 dB from the ASE-limited regime to 4 dB above the
 //!   optimum, where the GN model is 1.7 dB off.
