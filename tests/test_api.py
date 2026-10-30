@@ -345,6 +345,8 @@ def test_invalid_parameters_raise_value_errors():
         comrs.Manakov(comrs.FiberParams(), pmd_ps_sqrt_km=0.1)
     with pytest.raises(ValueError, match="non-negative"):
         comrs.bits(-1, comrs.Rng(0))
+    with pytest.raises(ValueError, match="at most 24"):
+        comrs.gray_code(40)  # aborted the process on the allocation of 2^40 words
 
 
 def test_tuning_parameters_are_keyword_only():

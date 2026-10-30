@@ -57,7 +57,9 @@ CASES = [
 ]
 
 
-NUMBER_AS_STRING = re.compile(r"^[+-]?(\\d+\\.?\\d*|\\.\\d+)[eE][+-]?\\d+$")
+# a number in exponent notation, which YAML 1.1 (PyYAML) reads as a string unless it has
+# a dot and a signed exponent (21.4e9, 1e+10 and 1e-3 are strings; 2.14e+10 is a float)
+NUMBER_AS_STRING = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)[eE][+-]?\d+$")
 
 
 def strings(value: Any) -> list[str]:
@@ -70,12 +72,20 @@ def strings(value: Any) -> list[str]:
     return []
 
 
+def test_the_regex_of_numbers_read_as_strings_matches_them():
+    as_read = yaml.safe_load("[21.4e9, 1e+10, 1e-3, -.5E7, 2.14e+10, 1.0e-3, 1e3x, e5, x1e5]")
+    assert [bool(NUMBER_AS_STRING.match(str(v))) for v in as_read] == [
+        True, True, True, True, False, False, False, False, False
+    ]  # fmt: skip
+    assert [isinstance(v, str) for v in as_read[:4]] == [True] * 4
+
+
 def test_no_number_is_read_as_a_string():
     # YAML 1.1 (PyYAML) reads 21.4e9 as a string: write 2.14e+10
     for card in cards():
         for case in card["cases"]:
             bad = [s for s in strings(case) if NUMBER_AS_STRING.match(s)]
-            assert not bad, f"{card['id']}: {bad} read as strings; write the exponent with its sign"
+            assert not bad, f"{card['id']}: {bad} read as strings; write 2.14e+10 (a dot, a sign)"
 
 
 def test_every_card_follows_the_schema():

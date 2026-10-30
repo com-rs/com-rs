@@ -34,6 +34,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -58,6 +59,10 @@ class Chain(Block):
         settings (dict): the campaign settings of the specification the chain comes
             from (``name``, ``seed``, ``grid``, ``metrics``, ``stop``, ``fiber``…),
             the defaults of :meth:`to_spec` and :meth:`run`.
+        base_dir (pathlib.Path | None): the directory of the specification file the
+            chain comes from, against which the relative paths of its blocks (the
+            ``file`` of a ``capture``) are resolved, as the ``comrs`` command does;
+            None: the working directory.
 
     Example:
         >>> import comrs
@@ -69,6 +74,7 @@ class Chain(Block):
 
     def __init__(self, *blocks: Any, **named: Any) -> None:
         self.settings: dict[str, Any] = {}
+        self.base_dir: Path | None = None
         self._blocks: dict[str, Block] = {}
         for i, b in enumerate(blocks):
             self._blocks[f"block{i}"] = _as_block(b)
@@ -94,6 +100,7 @@ class Chain(Block):
     def _copy(self) -> Chain:
         out = Chain()
         out.settings = dict(self.settings)
+        out.base_dir = self.base_dir
         return out
 
     def replace(self, **blocks: Any) -> Chain:
@@ -210,6 +217,7 @@ class Chain(Block):
         name: str | None = None,
         label: str | None = None,
         profile: bool = False,
+        base_dir: str | os.PathLike[str] | None = None,
     ) -> Callable[[Frame, Rng], None]:
         """The blocks of a condition as one callable (see :meth:`Block.bind`).
 
@@ -222,6 +230,8 @@ class Chain(Block):
             label (str | None): unused (the blocks are named by the chain).
             profile (bool): record the time of every block as ``<name>.time_ms`` and of
                 the link as ``link.time_ms``.
+            base_dir (str | os.PathLike | None): the directory the relative paths of
+                the native blocks are resolved against (:attr:`base_dir` by default).
 
         Returns:
             Callable[[Frame, Rng], None]: ``apply(frame, rng)``.
@@ -237,8 +247,12 @@ class Chain(Block):
             8
         """
         fiber = fiber if fiber is not None else self.settings.get("fiber")
+        base_dir = base_dir if base_dir is not None else self.base_dir
         names = [n for n, _ in self.flatten()]
-        steps = [b.bind(condition, fiber=fiber, name=name, label=n) for n, b in self.flatten()]
+        steps = [
+            b.bind(condition, fiber=fiber, name=name, label=n, **_paths(b, base_dir))
+            for n, b in self.flatten()
+        ]
 
         def apply(frame: Frame, rng: Rng) -> None:
             if not profile:
@@ -287,7 +301,7 @@ class Chain(Block):
         out = Trace()
         fiber = self.settings.get("fiber")
         for name, b in self.flatten():
-            b.bind(condition, fiber=fiber, label=name)(frame, rng)
+            b.bind(condition, fiber=fiber, label=name, **_paths(b, self.base_dir))(frame, rng)
             out[name] = frame.copy()
         return out
 
@@ -337,16 +351,26 @@ class Chain(Block):
         (or types; a repeated name takes the position of its block, as the Rust runner
         numbers them), and its other fields as :attr:`settings`.
 
+        The specification is read by the Rust parser (:func:`comrs.spec.load`); the
+        directory of a file is kept as :attr:`base_dir`, so that the relative paths of
+        the blocks are those of the ``comrs`` command.
+
         Args:
             spec (str | os.PathLike | dict): a mapping, a YAML or JSON text, or a file.
 
         Returns:
             Chain: the chain.
+
+        Raises:
+            FileNotFoundError: for a string that is neither a file nor a specification.
+            ValueError: for an invalid specification.
         """
-        blocks, settings = _spec.chain_blocks(_spec.load(spec))
+        d, base_dir = _spec._load(spec)
+        blocks, settings = _spec.chain_blocks(d)
         chain = cls()
         chain._blocks = dict(blocks)
         chain.settings = settings
+        chain.base_dir = base_dir
         return chain
 
     # --- campaigns ----------------------------------------------------------------
@@ -402,7 +426,7 @@ class Chain(Block):
         spec.setdefault("metrics", {"report": ["ber"]})
         if self.is_native and rule is None:
             spec["link"] = self.to_spec()["link"]
-            res = run_spec(spec, threads=threads, progress=progress)
+            res = run_spec(spec, threads=threads, progress=progress, base_dir=self.base_dir)
             return Results(res, spec)
         results = self._run_python(spec, rule, progress)
         return Results(results, {**spec, "block_order": [n for n, _ in self.flatten()]})
@@ -444,3 +468,11 @@ class Chain(Block):
     def __repr__(self) -> str:
         inner = ",\n".join(f"    {k}={v!r}" for k, v in self._blocks.items())
         return f"Chain(\n{inner}\n)"
+
+
+def _paths(block: Block, base_dir: str | os.PathLike[str] | None) -> dict[str, Any]:
+    """The ``base_dir`` argument of :meth:`Block.bind` for the blocks that read files
+    (native blocks and chains; a Python block keeps its signature)."""
+    return (
+        {"base_dir": base_dir} if base_dir is not None and isinstance(block, Native | Chain) else {}
+    )

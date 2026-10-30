@@ -46,6 +46,23 @@ fn lookup<'a>(cond: &'a Condition, name: &str) -> Result<&'a Value> {
     })
 }
 
+/// The variable that a string of a specification is exactly, `name` for `$name` or
+/// `${name}` (letters, digits, `_` and `.`, not starting with a digit), `None` for any
+/// other string.
+///
+/// # Examples
+/// ```
+/// use com_spec::variable;
+/// assert_eq!(variable("$ebn0_db"), Some("ebn0_db"));
+/// assert_eq!(variable("${fiber.span_km}"), Some("fiber.span_km"));
+/// assert_eq!(variable("${a}_${b}"), None);
+/// ```
+pub fn variable(s: &str) -> Option<&str> {
+    let name = s.strip_prefix('$')?;
+    let name = name.strip_prefix('{').and_then(|n| n.strip_suffix('}')).unwrap_or(name);
+    is_name(name).then_some(name)
+}
+
 /// Replace the variables of the condition in a JSON tree.
 ///
 /// - a string that is exactly `$name` or `${name}` becomes the value of `name`, with its
@@ -55,7 +72,19 @@ fn lookup<'a>(cond: &'a Condition, name: &str) -> Result<&'a Value> {
 ///
 /// # Errors
 /// [`Error::Config`] for a variable that the condition does not define.
-pub(crate) fn substitute(tree: &Json, cond: &Condition) -> Result<Json> {
+///
+/// # Examples
+/// ```
+/// use com_sim::grid::{Condition, Value};
+/// use serde_json::json;
+/// let mut cond = Condition::new();
+/// cond.set("a", Value::I64(4));
+/// cond.set("b", Value::Str("QAM".into()));
+/// let v = com_spec::substitute(&json!({"m": "$a", "name": "${a}_${b}", "cost": "$$5"}), &cond)?;
+/// assert_eq!(v, json!({"m": 4, "name": "4_QAM", "cost": "$5"}));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn substitute(tree: &Json, cond: &Condition) -> Result<Json> {
     Ok(match tree {
         Json::String(s) => substitute_str(s, cond)?,
         Json::Array(a) => Json::Array(a.iter().map(|v| substitute(v, cond)).collect::<Result<_>>()?),
@@ -71,11 +100,8 @@ pub(crate) fn substitute(tree: &Json, cond: &Condition) -> Result<Json> {
 }
 
 fn substitute_str(s: &str, cond: &Condition) -> Result<Json> {
-    if let Some(name) = s.strip_prefix('$') {
-        let name = name.strip_prefix('{').and_then(|n| n.strip_suffix('}')).unwrap_or(name);
-        if is_name(name) {
-            return to_json(lookup(cond, name)?);
-        }
+    if let Some(name) = variable(s) {
+        return to_json(lookup(cond, name)?);
     }
     if !s.contains('$') {
         return Ok(Json::String(s.to_string()));

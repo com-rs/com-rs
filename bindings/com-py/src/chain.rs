@@ -194,6 +194,8 @@ impl PyFrame {
 ///     name (str, optional): the name of the campaign, for the blocks that write files.
 ///     condition (dict, optional): the condition, labelled as the Rust runner labels it
 ///         (``k=v, k=v``), for the blocks that write files.
+///     base_dir (str | os.PathLike, optional): the directory the relative paths of the
+///         block are resolved against (the directory of its specification file).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -209,20 +211,21 @@ pub struct PyLinkBlock {
 #[pymethods]
 impl PyLinkBlock {
     #[new]
-    #[pyo3(signature = (spec, *, fiber=None, name=None, condition=None))]
+    #[pyo3(signature = (spec, *, fiber=None, name=None, condition=None, base_dir=None))]
     fn new(
         py: Python<'_>,
         spec: &Bound<'_, PyAny>,
         fiber: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
         condition: Option<&Bound<'_, PyDict>>,
+        base_dir: Option<std::path::PathBuf>,
     ) -> PyResult<Self> {
         let v = json(py, spec)?;
         let condition = match condition {
             Some(c) if !c.is_empty() => Some(crate::sim::condition_of(c)?.label()),
             _ => None,
         };
-        let ctx = BuildContext { fiber: fiber.map(|f| json(py, f)).transpose()?, base_dir: None, name, condition };
+        let ctx = BuildContext { fiber: fiber.map(|f| json(py, f)).transpose()?, base_dir, name, condition };
         Ok(PyLinkBlock { inner: blocks::build(&v, &ctx).py()? })
     }
 
@@ -309,6 +312,44 @@ fn link_labels(py: Python<'_>, link: &Bound<'_, PyAny>) -> PyResult<Vec<String>>
     comrs::spec::link_labels(items).py()
 }
 
+/// Substitute the variables of a condition in a value of a specification, as the Rust
+/// runner does: a string that is exactly ``$name`` or ``${name}`` takes the value of the
+/// variable, ``${name}`` inside a longer string its text, and ``$$`` is a dollar sign.
+///
+/// Args:
+///     value (Any): a value of a specification (a string, a list, a dict, a scalar).
+///     condition (dict): the values of the grid variables.
+///
+/// Returns:
+///     Any: the value with the variables substituted.
+///
+/// Raises:
+///     ValueError: for a variable that the condition does not define.
+#[pyfunction]
+#[pyo3(name = "_substitute")]
+fn substitute<'py>(
+    py: Python<'py>,
+    value: &Bound<'py, PyAny>,
+    condition: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let cond = crate::sim::condition_of(condition)?;
+    crate::from_json(py, &comrs::spec::substitute(&json(py, value)?, &cond).py()?)
+}
+
+/// The variable that a string of a specification is exactly (``name`` for ``$name`` or
+/// ``${name}``), None for any other string.
+///
+/// Args:
+///     text (str): the string.
+///
+/// Returns:
+///     str | None: the name of the variable.
+#[pyfunction]
+#[pyo3(name = "_spec_variable")]
+fn spec_variable(text: &str) -> Option<&str> {
+    comrs::spec::variable(text)
+}
+
 /// Register the chain bindings.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFrame>()?;
@@ -316,5 +357,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(frame_metrics, m)?)?;
     m.add_function(wrap_pyfunction!(yaml_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(link_labels, m)?)?;
+    m.add_function(wrap_pyfunction!(substitute, m)?)?;
+    m.add_function(wrap_pyfunction!(spec_variable, m)?)?;
     Ok(())
 }

@@ -292,14 +292,26 @@ impl PyConstellation {
 /// Returns:
 ///     numpy.ndarray: the `2^n_bits` code words (int64).
 ///
+/// Raises:
+///     ValueError: for more than 24 bits (more than 16 777 216 code words).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.gray_code(2).tolist()
 ///     [0, 1, 3, 2]
 #[pyfunction]
-fn gray_code(py: Python<'_>, n_bits: u32) -> IArr<'_> {
-    iarr(py, modulation::gray_code(n_bits))
+fn gray_code(py: Python<'_>, n_bits: u32) -> PyResult<IArr<'_>> {
+    if n_bits > MAX_GRAY_BITS {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "n_bits must be at most {MAX_GRAY_BITS}, got {n_bits}"
+        )));
+    }
+    Ok(iarr(py, modulation::gray_code(n_bits)))
 }
+
+/// The largest Gray code that `gray_code` builds (`2^n_bits` words are allocated: 40 bits
+/// would abort the process on the allocation).
+const MAX_GRAY_BITS: u32 = 24;
 
 /// Independent fair bits.
 ///

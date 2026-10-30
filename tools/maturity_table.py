@@ -8,8 +8,8 @@ regimes not covered yet. The three pages group the modules by the themes of the
 documentation, in the order of a link (as the API reference, the gallery and
 `docs/LITERATURE.md`). `just maturity` regenerates them; `--check` (run by
 `just check` and CI) fails if one of them is out of date or if a test cited in the
-evidence does not exist (`path` must exist, `path::name` must contain the last part of
-`name`).
+evidence does not exist (`path` must exist, `path::name` must define the last part of
+`name`, a test or a module: `fn name(`, `mod name` in Rust, `def name(` in Python).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 import yaml
+from cited_tests import defines
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "validation" / "maturity.yaml"
@@ -100,11 +101,7 @@ def check_tests(entries: list[dict]) -> list[str]:
                 continue
             if not file.exists():
                 missing.append(f"{e['name']}: no file {path}")
-            elif (
-                name
-                and file.is_file()
-                and name.split("::")[-1] not in file.read_text(encoding="utf-8")
-            ):
+            elif name and file.is_file() and not defines(file, name.split("::")[-1]):
                 missing.append(f"{e['name']}: no {name} in {path}")
     return missing
 
