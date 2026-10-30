@@ -216,7 +216,7 @@ impl Ufmc {
 impl Modulate for Ufmc {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("UFMC modulates one stream, not {}", x.n_streams()))?;
-        *out = Signal::from_stream(Ufmc::modulate(self, x.stream_slice(0))?, Hertz(1.0))?;
+        out.set_stream(&Ufmc::modulate(self, x.stream_slice(0))?, Hertz(1.0));
         Ok(())
     }
 }
@@ -224,7 +224,7 @@ impl Modulate for Ufmc {
 impl Demodulate for Ufmc {
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         ensure(y.n_streams() == 1, || format!("UFMC demodulates one stream, not {}", y.n_streams()))?;
-        *out = Symbols::from_stream(Ufmc::demodulate(self, y.stream(0))?)?;
+        out.set_stream(&Ufmc::demodulate(self, y.stream(0))?);
         Ok(())
     }
 }

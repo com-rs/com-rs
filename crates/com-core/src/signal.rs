@@ -121,6 +121,31 @@ macro_rules! container {
                 self.0.as_slice().unwrap_or(&[])
             }
 
+            /// Make `self` the single stream `x`, reusing its storage when the length is
+            /// unchanged (ADR 0011).
+            pub fn set_stream(&mut self, x: &[$elem]) {
+                self.resize(1, x.len());
+                self.as_slice_mut().copy_from_slice(x);
+            }
+
+            /// Make `self` a copy of `a`, reusing its storage when the shape is
+            /// unchanged (ADR 0011).
+            pub fn assign(&mut self, a: &Array2<$elem>) {
+                self.resize(a.nrows(), a.ncols());
+                self.0.assign(a);
+            }
+
+            /// Stream `i` as a mutable slice.
+            pub fn stream_slice_mut(&mut self, i: usize) -> &mut [$elem] {
+                let n = self.len();
+                &mut self.as_slice_mut()[i * n..(i + 1) * n]
+            }
+
+            /// All the elements, stream after stream, mutable.
+            pub fn as_slice_mut(&mut self) -> &mut [$elem] {
+                self.0.as_slice_mut().unwrap_or(&mut [])
+            }
+
             /// The underlying `[n_streams, n]` array.
             pub fn as_array(&self) -> &Array2<$elem> {
                 &self.0
@@ -243,6 +268,38 @@ impl Signal {
         self.sample_rate = sample_rate;
     }
 
+    /// Make `self` the single stream `x` at `sample_rate`, reusing its storage when the
+    /// length is unchanged (ADR 0011).
+    pub fn set_stream(&mut self, x: &[C64], sample_rate: Hertz) {
+        self.reshape(1, x.len(), sample_rate);
+        self.data.as_slice_mut().copy_from_slice(x);
+    }
+
+    /// Make `self` a copy of `other`, reusing its storage when the shape is unchanged
+    /// (ADR 0011).
+    pub fn assign(&mut self, other: &Signal) {
+        self.data.assign(other.data.as_array());
+        self.sample_rate = other.sample_rate;
+    }
+
+    /// Make `self` the streams `streams` at `sample_rate`, reusing its storage when the
+    /// shape is unchanged (ADR 0011).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if the streams have different lengths (`self` is then left
+    /// unchanged).
+    pub fn set_streams(&mut self, streams: &[Vec<C64>], sample_rate: Hertz) -> Result<()> {
+        let n = streams.first().map_or(0, Vec::len);
+        for s in streams {
+            same_len(s.len(), n, "streams")?;
+        }
+        self.reshape(streams.len(), n, sample_rate);
+        for (i, x) in streams.iter().enumerate() {
+            self.data.stream_slice_mut(i).copy_from_slice(x);
+        }
+        Ok(())
+    }
+
     /// Fill `out` with `f(stream index, stream)` for every stream of `self`, at the
     /// same shape and sampling rate: the body of the `_into` methods of the blocks that
     /// process the streams independently.
@@ -348,6 +405,22 @@ impl DualPol {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_setters_reuse_the_storage_of_an_unchanged_shape() {
+        let mut out = Signal::zeros(1, 4, Hertz(1.0));
+        let p = out.as_array().as_ptr();
+        out.set_stream(&[C64::new(1.0, 0.0); 4], Hertz(2.0));
+        assert_eq!((out.as_array().as_ptr(), out.sample_rate()), (p, Hertz(2.0)));
+        out.set_streams(&[vec![C64::new(0.0, 1.0); 2], vec![C64::new(0.0, 2.0); 2]], Hertz(2.0)).unwrap();
+        assert_eq!(out.stream(1), &[C64::new(0.0, 2.0); 2]);
+        assert!(out.set_streams(&[vec![C64::new(0.0, 1.0); 2], vec![]], Hertz(2.0)).is_err());
+        let mut b = Bits::zeros(2, 3);
+        let p = b.as_slice().as_ptr();
+        b.assign(&Array2::from_elem((2, 3), 1));
+        b.stream_slice_mut(1)[0] = 0;
+        assert_eq!((b.as_slice().as_ptr(), b.as_slice()), (p, &[1, 1, 1, 0, 1, 1][..]));
+    }
 
     #[test]
     fn streams_and_reshape() {

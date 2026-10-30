@@ -294,7 +294,7 @@ impl Impair for Adc {
     fn impair_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         let fs = x.sample_rate().0;
         let streams = (0..x.n_streams()).map(|s| self.convert(x.stream(s), fs, rng)).collect::<Result<Vec<_>>>()?;
-        *out = Signal::from_streams(&streams, x.sample_rate())?;
+        out.set_streams(&streams, x.sample_rate())?;
         Ok(())
     }
 }
@@ -335,7 +335,7 @@ impl Impair for Dac {
     fn impair_into(&mut self, x: &Signal, _rng: &mut SimRng, out: &mut Signal) -> Result<()> {
         let fs = x.sample_rate().0;
         let streams = (0..x.n_streams()).map(|s| self.convert(x.stream(s), fs)).collect::<Result<Vec<_>>>()?;
-        *out = Signal::from_streams(&streams, Hertz(fs * self.hold as f64))?;
+        out.set_streams(&streams, Hertz(fs * self.hold as f64))?;
         Ok(())
     }
 }

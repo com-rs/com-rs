@@ -39,7 +39,6 @@ use com_core::signal::{Bits, Llr, Symbols};
 use com_core::traits::{Demap, Map};
 use com_core::{Result, ensure, same_len};
 use com_math::C64;
-use ndarray::Array2;
 
 impl Constellation {
     /// Log-likelihood ratios of the bits, `b` per symbol (see the module documentation).
@@ -163,17 +162,13 @@ impl Map for Constellation {
 
 impl Demap for Constellation {
     fn demap_into(&self, y: &Symbols, noise_var: f64, out: &mut Llr) -> Result<()> {
-        let b = self.bits_per_symbol();
-        let rows: Vec<Vec<f64>> =
-            (0..y.n_streams()).map(|s| self.llr(y.stream_slice(s), noise_var, None, false)).collect::<Result<_>>()?;
-        let n = y.len() * b;
-        for r in &rows {
+        let n = y.len() * self.bits_per_symbol();
+        out.resize(y.n_streams(), n);
+        for s in 0..y.n_streams() {
+            let r = self.llr(y.stream_slice(s), noise_var, None, false)?;
             same_len(r.len(), n, "LLRs")?;
+            out.stream_slice_mut(s).copy_from_slice(&r);
         }
-        let flat: Vec<f64> = rows.into_iter().flatten().collect();
-        *out = Llr::new(
-            Array2::from_shape_vec((y.n_streams(), n), flat).map_err(|e| com_core::Error::Shape(e.to_string()))?,
-        );
         Ok(())
     }
 }

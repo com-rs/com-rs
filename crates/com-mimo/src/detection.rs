@@ -723,7 +723,7 @@ impl<D: MimoDetector> Detect for Coherent<D> {
     fn detect_into(&mut self, y: &Symbols, noise_var: f64, out: &mut Symbols) -> Result<()> {
         let labels = self.detector.detect_block(&self.h.view(), &y.as_array().view(), noise_var)?;
         let pts = self.constellation.points();
-        *out = Symbols::new(labels.mapv(|i| pts[i]));
+        out.assign(&labels.mapv(|i| pts[i]));
         Ok(())
     }
 }

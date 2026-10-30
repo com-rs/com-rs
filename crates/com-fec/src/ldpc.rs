@@ -764,6 +764,26 @@ container_traits!(LdpcCode);
 mod tests {
     use super::*;
     use crate::block::testing::awgn_llr;
+
+    #[test]
+    fn the_container_traits_fill_the_output_in_place() {
+        use com_core::signal::{Bits, Llr};
+        use com_core::traits::{Decode, Encode};
+        let mut code = LdpcCode::peg(96, 48, 3, 1).unwrap();
+        let rows: Vec<Vec<u8>> = (0..2).map(|s| (0..96).map(|i| u8::from((s + i) % 3 == 0)).collect()).collect();
+        let info = Bits::from_streams(&rows).unwrap();
+        let mut coded = Bits::zeros(2, 192);
+        let p = coded.as_slice().as_ptr();
+        code.encode_into(&info, &mut coded).unwrap();
+        assert_eq!(coded.as_slice().as_ptr(), p);
+        assert_eq!(coded.stream_slice(1), code.encode_stream(info.stream_slice(1)).unwrap());
+        let llr = Llr::new(coded.as_array().mapv(|b| 4.0 * (1.0 - 2.0 * f64::from(b))));
+        let mut decoded = Bits::zeros(2, 96);
+        let p = decoded.as_slice().as_ptr();
+        code.decode_into(&llr, &mut decoded).unwrap();
+        assert_eq!((decoded.as_slice().as_ptr(), decoded.as_slice()), (p, info.as_slice()));
+        assert!(code.encode_into(&Bits::zeros(1, 95), &mut coded).is_err());
+    }
     use com_core::rng::Rng;
     use com_core::signal::hard_decisions;
 

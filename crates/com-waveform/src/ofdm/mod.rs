@@ -315,7 +315,7 @@ impl PaprReduction for NoReduction {
 impl Modulate for Ofdm {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OFDM modulates one stream, not {}", x.n_streams()))?;
-        *out = Signal::from_stream(Ofdm::modulate(self, x.stream_slice(0))?, Hertz(self.oversampling as f64))?;
+        out.set_stream(&Ofdm::modulate(self, x.stream_slice(0))?, Hertz(self.oversampling as f64));
         Ok(())
     }
 }
@@ -323,7 +323,7 @@ impl Modulate for Ofdm {
 impl Demodulate for Ofdm {
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         ensure(y.n_streams() == 1, || format!("OFDM demodulates one stream, not {}", y.n_streams()))?;
-        *out = Symbols::from_stream(Ofdm::demodulate(self, y.stream(0))?)?;
+        out.set_stream(&Ofdm::demodulate(self, y.stream(0))?);
         Ok(())
     }
 }

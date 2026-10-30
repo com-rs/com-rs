@@ -90,7 +90,7 @@ impl Rayleigh {
 
 impl Propagate for Rayleigh {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        *out = self.fade(x, rng)?.0;
+        out.assign(&self.fade(x, rng)?.0);
         Ok(())
     }
 }
@@ -198,7 +198,7 @@ impl Mimo {
 
 impl Propagate for Mimo {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        *out = self.fade(x, rng)?.0;
+        out.assign(&self.fade(x, rng)?.0);
         Ok(())
     }
 }

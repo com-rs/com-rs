@@ -366,7 +366,7 @@ impl Cdl {
 
 impl Propagate for Cdl {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        *out = self.fade(x, rng)?.0;
+        out.assign(&self.fade(x, rng)?.0);
         Ok(())
     }
 }

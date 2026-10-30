@@ -259,7 +259,9 @@ L(b) = \ln \frac{P(b = 0 \mid y)}{P(b = 1 \mid y)}
 One verb trait per role: `Encode`, `Decode`, `Map`, `Demap`, `Modulate`, `Demodulate`,
 `Precode`, `Detect`, `Propagate`, `Impair`. Methods taking `&self` are pure; `&mut self`
 signals internal state (memory, adaptation). Every trait has an `_into` method writing
-into a caller-owned buffer, so hot loops allocate nothing; all but `Precode` and
+into a caller-owned buffer, which it resizes and fills in place (never replaces), so a
+loop that passes the same buffer allocates no output once its shape is stable; scratch
+buffers may allocate unless a profile shows them (ADR 0011). All but `Precode` and
 `Detect` also have an allocating method that calls it.
 
 ```rust
@@ -531,7 +533,8 @@ allow_attributes_without_reason = "warn"
 ### Performance
 
 - No allocation inside the Monte Carlo loop where it matters: the verb traits have
-  `_into` methods and callers reuse buffers.
+  `_into` methods that reuse their output, callers reuse buffers, and blocks whose
+  scratch shows in a profile keep a workspace (ADR 0011).
 - Parallelism lives in `com-sim` only (rayon over the trials of a batch). Blocks are
   single-threaded, which avoids nested parallelism.
 - FFT plans and code matrices are built once at construction and cached in the block.

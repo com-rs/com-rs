@@ -238,7 +238,7 @@ impl Otfs {
 impl Modulate for Otfs {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OTFS modulates one stream, not {}", x.n_streams()))?;
-        *out = Signal::from_stream(Otfs::modulate(self, x.stream_slice(0))?, Hertz(1.0))?;
+        out.set_stream(&Otfs::modulate(self, x.stream_slice(0))?, Hertz(1.0));
         Ok(())
     }
 }
@@ -246,7 +246,7 @@ impl Modulate for Otfs {
 impl Demodulate for Otfs {
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         ensure(y.n_streams() == 1, || format!("OTFS demodulates one stream, not {}", y.n_streams()))?;
-        *out = Symbols::from_stream(Otfs::demodulate(self, y.stream(0))?)?;
+        out.set_stream(&Otfs::demodulate(self, y.stream(0))?);
         Ok(())
     }
 }

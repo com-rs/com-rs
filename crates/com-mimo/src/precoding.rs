@@ -168,7 +168,7 @@ impl Precode for LinearPrecoder {
         if x.n_streams() != self.w.ncols() {
             return Err(Error::Shape(format!("{} streams for a precoder of {}", x.n_streams(), self.w.ncols())));
         }
-        *out = Symbols::new(self.w.dot(x.as_array()));
+        out.assign(&self.w.dot(x.as_array()));
         Ok(())
     }
 }

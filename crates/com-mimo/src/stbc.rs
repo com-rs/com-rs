@@ -293,7 +293,7 @@ impl Ostbc {
 impl Precode for Ostbc {
     fn precode_into(&self, x: &Symbols, out: &mut Symbols) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("a space-time code encodes one stream, not {}", x.n_streams()))?;
-        *out = Symbols::new(self.encode(x.stream_slice(0))?);
+        out.assign(&self.encode(x.stream_slice(0))?);
         Ok(())
     }
 }

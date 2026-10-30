@@ -28,6 +28,31 @@ pub trait BlockCode {
     /// [`Error::Shape`] if `llr` does not have $n$ values.
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>>;
 
+    /// Encode one block of $k$ bits into the $n$ values of `out` (ADR 0011: the default
+    /// copies [`BlockCode::encode_block`]; a code overrides it when a profile shows the
+    /// copy).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `info` does not have $k$ bits or `out` $n$ values.
+    fn encode_block_into(&self, info: &[u8], out: &mut [u8]) -> Result<()> {
+        let c = self.encode_block(info)?;
+        com_core::same_len(out.len(), c.len(), "coded bits")?;
+        out.copy_from_slice(&c);
+        Ok(())
+    }
+
+    /// Decode one block of $n$ LLRs into the $k$ values of `out` (as
+    /// [`BlockCode::encode_block_into`]).
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if `llr` does not have $n$ values or `out` $k$ values.
+    fn decode_block_into(&self, llr: &[f64], out: &mut [u8]) -> Result<()> {
+        let d = self.decode_block(llr)?;
+        com_core::same_len(out.len(), d.len(), "decoded bits")?;
+        out.copy_from_slice(&d);
+        Ok(())
+    }
+
     /// Code rate $k/n$.
     fn code_rate(&self) -> f64 {
         self.k() as f64 / self.n() as f64
@@ -39,9 +64,7 @@ pub trait BlockCode {
     /// [`Error::Shape`] if the number of bits is not a multiple of $k$.
     fn encode_stream(&self, info: &[u8]) -> Result<Vec<u8>> {
         let k = self.k();
-        if k == 0 || info.len() % k != 0 {
-            return Err(Error::Shape(format!("{} bits is not a multiple of k = {k}", info.len())));
-        }
+        whole_blocks(info.len(), k, "bits")?;
         let mut out = Vec::with_capacity(info.len() / k * self.n());
         for b in info.chunks(k) {
             out.extend(self.encode_block(b)?);
@@ -55,9 +78,7 @@ pub trait BlockCode {
     /// [`Error::Shape`] if the number of LLRs is not a multiple of $n$.
     fn decode_stream(&self, llr: &[f64]) -> Result<Vec<u8>> {
         let n = self.n();
-        if n == 0 || llr.len() % n != 0 {
-            return Err(Error::Shape(format!("{} LLRs is not a multiple of n = {n}", llr.len())));
-        }
+        whole_blocks(llr.len(), n, "LLRs")?;
         let mut out = Vec::with_capacity(llr.len() / n * self.k());
         for b in llr.chunks(n) {
             out.extend(self.decode_block(b)?);
@@ -86,10 +107,15 @@ macro_rules! container_traits {
                 info: &com_core::signal::Bits,
                 out: &mut com_core::signal::Bits,
             ) -> com_core::Result<()> {
-                let rows = (0..info.n_streams())
-                    .map(|s| $crate::block::BlockCode::encode_stream(self, info.stream_slice(s)))
-                    .collect::<com_core::Result<Vec<_>>>()?;
-                *out = com_core::signal::Bits::from_streams(&rows)?;
+                let (k, n) = ($crate::block::BlockCode::k(self), $crate::block::BlockCode::n(self));
+                $crate::block::whole_blocks(info.len(), k, "bits")?;
+                out.resize(info.n_streams(), info.len() / k * n);
+                for s in 0..info.n_streams() {
+                    let o = out.stream_slice_mut(s);
+                    for (b, c) in info.stream_slice(s).chunks(k).zip(o.chunks_mut(n)) {
+                        $crate::block::BlockCode::encode_block_into(self, b, c)?;
+                    }
+                }
                 Ok(())
             }
         }
@@ -100,16 +126,30 @@ macro_rules! container_traits {
                 llr: &com_core::signal::Llr,
                 out: &mut com_core::signal::Bits,
             ) -> com_core::Result<()> {
-                let rows = (0..llr.n_streams())
-                    .map(|s| $crate::block::BlockCode::decode_stream(self, llr.stream_slice(s)))
-                    .collect::<com_core::Result<Vec<_>>>()?;
-                *out = com_core::signal::Bits::from_streams(&rows)?;
+                let (k, n) = ($crate::block::BlockCode::k(self), $crate::block::BlockCode::n(self));
+                $crate::block::whole_blocks(llr.len(), n, "LLRs")?;
+                out.resize(llr.n_streams(), llr.len() / n * k);
+                for s in 0..llr.n_streams() {
+                    let o = out.stream_slice_mut(s);
+                    for (l, d) in llr.stream_slice(s).chunks(n).zip(o.chunks_mut(k)) {
+                        $crate::block::BlockCode::decode_block_into(self, l, d)?;
+                    }
+                }
                 Ok(())
             }
         }
     };
 }
 pub(crate) use container_traits;
+
+/// [`Error::Shape`] unless `len` values make whole blocks of `block` (for the container
+/// traits and the streams).
+pub(crate) fn whole_blocks(len: usize, block: usize, what: &str) -> Result<()> {
+    if block == 0 || len % block != 0 {
+        return Err(Error::Shape(format!("{len} {what} is not a multiple of the block length {block}")));
+    }
+    Ok(())
+}
 
 /// The LLRs of BPSK ($0 \mapsto +1$, $1 \mapsto -1$) received in real Gaussian noise of
 /// variance `noise_var` per dimension, $2 y / \sigma^{2}$.

@@ -170,4 +170,25 @@ Python bindings do not expose the drop counts of `Record` yet. Choices made on t
 - `spec.load` and `$var` substitution of Python call the Rust loader; `gray_code`
   refuses more than 24 bits; `Stop.max_time` refuses an infinite or negative time.
 
-Sections 3 to 6 are not started.
+Section 3 is fixed (30 October 2026), every change measured and checked against the
+former computation (bit-identical, or within a stated tolerance):
+
+| Item | Before | After |
+|---|---|---|
+| Polar SC, n = 2048 / SCL L = 32 (Tal & Vardy, Sec. IV, lazy copy) | 7.66 / 222 ms per frame | 0.08 / 2.4 ms |
+| `validation/tests/tal2015.rs` | 1072 s | 10 s (130 s with the L = 32 points restored) |
+| μ-law companding (64-point Gauss–Legendre once per block; the former Simpson rule was off by up to 2.6·10⁻⁴) | 4.15 s | 4–5 ms |
+| OTFS `transform_channel`, M = N = 32 | 561 ms | 15–18 ms |
+| CSS `occupied_bandwidth`, SF 12 | 46.4 s | 0.12 s |
+| OFDM LMMSE estimate (factored once per pilot set) | 110 ms | 8.8 ms |
+| MIMO: ML with LLRs / K-best with LLRs / SIC blocks | 70 / 654 / 13.9 ms | 15 / 85 / 0.6 ms |
+| Static `Taps`, EVA 4×4 over 10⁶ samples | 2.3 GB | 2.3 kB |
+| ADC MSE at 24 bits (closed-form granular sum) | 140 ms | 0.4 µs |
+| EGN, 50 spans (half grid by symmetry) | 742 ms | 265 ms |
+| LDPC / Viterbi / BCJR / turbo (no allocation per iteration or step) | | ×1.2 to ×2 |
+| FFT scratch kept with the plans | | 2–6 % |
+
+The `_into` contract is decided by ADR 0011: the output is resized and filled in place,
+scratch may allocate unless a profile shows it; `BlockCode` has slice methods
+(`encode_block_into`, `decode_block_into`) and every `_into` method of the workspace now
+reuses its output. Sections 4 to 6 are not started.

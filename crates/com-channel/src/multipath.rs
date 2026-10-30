@@ -722,14 +722,14 @@ impl Propagate for DelayDopplerModel {
         same_len(x.n_streams(), 1, "streams of a single-antenna channel")?;
         same_rate(x.sample_rate(), self.sample_rate, "the delay-Doppler channel")?;
         let taps = self.draw(rng).taps(x.n_samples());
-        *out = Signal::from_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
+        out.set_streams(&taps.apply(&x.to_streams())?, x.sample_rate())?;
         Ok(())
     }
 }
 
 impl Propagate for Tdl {
     fn propagate_into(&mut self, x: &Signal, rng: &mut SimRng, out: &mut Signal) -> Result<()> {
-        *out = self.fade(x, rng)?.0;
+        out.assign(&self.fade(x, rng)?.0);
         Ok(())
     }
 }
