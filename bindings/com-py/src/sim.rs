@@ -567,34 +567,26 @@ impl PyConditionResult {
         metrics_dict(py, &self.inner.record)
     }
 
-    /// A flat row, as the CSV logger writes it.
+    /// A flat row, as the CSV logger writes it (``com_sim::runner::ConditionResult::row``).
     ///
     /// Args:
     ///     confidence (float): the level of the intervals.
     ///
     /// Returns:
-    ///     dict: ``index``, the condition, ``status``, ``trials``, ``wall_s``, and for
-    ///     every metric ``m``: ``m``, ``m_lo``, ``m_hi``, ``m_count``, ``m_total``.
+    ///     dict: ``index``, the condition (its values as given), ``status``,
+    ///     ``trials``, ``wall_s``, and for every metric ``m``: ``m``, ``m_lo``,
+    ///     ``m_hi``, ``m_count``, ``m_total``.
     #[pyo3(signature = (confidence = 0.95))]
     fn row<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
-        d.set_item("index", self.inner.index)?;
-        let cond = self.condition.bind(py);
-        if let Ok(c) = cond.cast::<PyDict>() {
+        for (k, v) in self.inner.row(confidence) {
+            d.set_item(k, crate::spec::value(py, &v)?)?;
+        }
+        // the values of the condition as given, in place of their labels
+        if let Ok(c) = self.condition.bind(py).cast::<PyDict>() {
             for (k, v) in c.iter() {
                 d.set_item(k, v)?;
             }
-        }
-        d.set_item("status", self.inner.status.as_str())?;
-        d.set_item("trials", self.inner.trials)?;
-        d.set_item("wall_s", self.inner.wall_s)?;
-        for (k, e) in self.inner.record.iter() {
-            let (lo, hi) = e.interval(confidence);
-            d.set_item(k, e.value())?;
-            d.set_item(format!("{k}_lo"), lo)?;
-            d.set_item(format!("{k}_hi"), hi)?;
-            d.set_item(format!("{k}_count"), e.count())?;
-            d.set_item(format!("{k}_total"), e.total())?;
         }
         Ok(d)
     }
@@ -921,6 +913,20 @@ fn run_chain<'py>(
     PyList::new(py, items)
 }
 
+/// The names of the columns of a metric in a flat row (``ConditionResult.row``, the CSV
+/// report and :meth:`comrs.Results.rows`).
+///
+/// Args:
+///     name (str): the metric.
+///
+/// Returns:
+///     list[str]: ``name``, ``name_lo``, ``name_hi``, ``name_count``, ``name_total``.
+#[pyfunction]
+#[pyo3(name = "_metric_columns")]
+fn metric_columns(name: &str) -> Vec<String> {
+    comrs::sim::runner::metric_columns(name).to_vec()
+}
+
 /// The two-sided normal quantile of a confidence level (1.96 for 0.95).
 ///
 /// Args:
@@ -946,5 +952,6 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sim_run, m)?)?;
     m.add_function(wrap_pyfunction!(run_chain, m)?)?;
     m.add_function(wrap_pyfunction!(z_score, m)?)?;
+    m.add_function(wrap_pyfunction!(metric_columns, m)?)?;
     Ok(())
 }
