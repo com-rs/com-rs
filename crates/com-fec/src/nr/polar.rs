@@ -230,9 +230,7 @@ impl NrPolar {
         let k = a + crc.width() as usize;
         ensure(e >= 1, || "E must be positive".to_string())?;
         let n = mother_length(k, e, d.n_max);
-        ensure(k + d.n_pc <= e && k + d.n_pc <= n, || {
-            format!("K + n_PC = {} exceeds E = {e} or N = {n}", k + d.n_pc)
-        })?;
+        ensure(k + d.n_pc <= e && k + d.n_pc <= n, || format!("K + n_PC = {} exceeds E = {e} or N = {n}", k + d.n_pc))?;
         // the sub-block interleaver J(n)
         let b = n / 32;
         let j: Vec<usize> = (0..n).map(|m| SUBBLOCK_PATTERN[32 * m / n] as usize * b + m % b).collect();

@@ -643,7 +643,8 @@ mod tests {
         let turbo = PuncturedTurbo::new(TurboCode::lte(40).unwrap(), Puncturer::turbo_1_2()).unwrap();
         let llr: Vec<f64> = (0..turbo.n()).map(|_| rng.gaussian()).collect();
         let body = former_depuncture(&Puncturer::turbo_1_2(), &llr[..80], 120);
-        let mut former: Vec<f64> = (0..3).flat_map(|s| (0..40).map(move |i| (s, i))).map(|(s, i)| body[3 * i + s]).collect();
+        let mut former: Vec<f64> =
+            (0..3).flat_map(|s| (0..40).map(move |i| (s, i))).map(|(s, i)| body[3 * i + s]).collect();
         former.extend_from_slice(&llr[80..]);
         let new = turbo.selection().accumulate(&llr).unwrap();
         assert!(new.iter().zip(&former).all(|(a, b)| a.to_bits() == b.to_bits()));
@@ -662,7 +663,10 @@ mod tests {
         turbo.decoder_mut().iterations = 3;
         let llr: Vec<f64> = (0..turbo.n()).map(|_| rng.gaussian()).collect();
         assert_eq!(turbo.code().decoder.iterations, 3);
-        assert_eq!(com_core::signal::hard_decisions(&turbo.app(&llr, None).unwrap()), turbo.decode_block(&llr).unwrap());
+        assert_eq!(
+            com_core::signal::hard_decisions(&turbo.app(&llr, None).unwrap()),
+            turbo.decode_block(&llr).unwrap()
+        );
     }
 
     #[test]
