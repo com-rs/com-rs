@@ -32,7 +32,6 @@ draw
 encode
 energy
 estimate
-fade
 field
 filter
 frequency_correlation
@@ -72,6 +71,7 @@ number
 occupied_bandwidth
 order
 period
+phase
 phase_response
 points
 power
