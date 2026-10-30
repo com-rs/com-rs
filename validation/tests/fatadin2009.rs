@@ -108,7 +108,7 @@ fn link_ber(alg: Option<Algorithm>, cd_ps_nm: f64, osnr_db: f64, n_sym: usize, r
 fn decision_directed_loop(x: &[C64], mu: f64) -> Vec<f64> {
     let ts = 1.0 / SYMBOL_RATE;
     let tau1 = 1e9 * ts;
-    ddpll(x, ts, 1.0, tau1, mu * tau1, qam16().points(), None)
+    ddpll(x, ts, 1.0, tau1, mu * tau1, qam16().points(), None).unwrap()
 }
 
 /// The OSNR (dB) at a BER of 10⁻³ of `alg` after `cd_ps_nm`, from a sweep by steps of

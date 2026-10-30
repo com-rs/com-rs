@@ -28,7 +28,7 @@
 
 use crate::preprocess;
 use com_core::{Result, ensure, same_len};
-use com_mapping::constellation::{Constellation, ConstellationKind};
+use com_mapping::constellation::Constellation;
 use com_math::{C64, energy, power};
 
 /// Number of positions where two bit sequences of equal length differ (the least
@@ -172,10 +172,7 @@ pub fn evm_data_aided(rx: &[C64], tx: &[C64]) -> Result<f64> {
 /// ```
 pub fn effective_snr_db(z: &[C64], x: &[C64]) -> Result<f64> {
     same_len(z.len(), x.len(), "effective_snr_db")?;
-    let c: C64 = z.iter().zip(x).map(|(a, b)| a * b.conj()).sum();
-    let ez: f64 = z.iter().map(C64::norm_sqr).sum();
-    let ex: f64 = x.iter().map(C64::norm_sqr).sum();
-    let rho2 = if ez > 0.0 && ex > 0.0 { c.norm_sqr() / (ez * ex) } else { 0.0 };
+    let rho2 = com_math::stats::Correlation::between(z, x).rho_squared();
     Ok(com_math::lin2db(rho2 / (1.0 - rho2).max(f64::MIN_POSITIVE)))
 }
 
@@ -258,9 +255,9 @@ pub fn evm(symbols: &[C64], c: &Constellation, tx: Option<&[C64]>) -> Result<f64
         Some(t) => {
             same_len(symbols.len(), t.len(), "received and transmitted symbols")?;
             let d = com_dsp::signal::pnorm(t);
-            if matches!(c.kind(), ConstellationKind::Qam | ConstellationKind::Psk) {
-                let rot = d.iter().zip(&y).map(|(a, b)| a / b).sum::<C64>() / y.len() as f64;
-                ensure(rot.is_finite(), || "phase ambiguity: a received symbol is zero".into())?;
+            if crate::rotated(c.kind()) {
+                let rot = crate::qam_psk_rotation(&d, &y)
+                    .ok_or_else(|| com_core::Error::Config("phase ambiguity: a received symbol is zero".into()))?;
                 for v in &mut y {
                     *v *= rot;
                 }

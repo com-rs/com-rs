@@ -100,8 +100,13 @@ impl Rng {
     }
 
     /// Uniform integer in `0..n` (`n ≥ 1`).
+    ///
+    /// # Panics
+    /// In debug builds, for `n = 0` (an empty range has no element: release builds
+    /// return 0 rather than check it in the inner loops).
     #[inline]
     pub fn below(&mut self, n: usize) -> usize {
+        debug_assert!(n >= 1, "Rng::below(0): the range 0..0 is empty");
         ((self.uniform() * n as f64) as usize).min(n.saturating_sub(1))
     }
 
@@ -164,13 +169,6 @@ impl Rng {
                 return d * v;
             }
         }
-    }
-
-    /// A unit-energy QPSK point $e^{j\pi(2i + 1)/4}$, $i$ uniform in `0..4` (pilots and
-    /// preambles drawn from a seed).
-    #[inline]
-    pub fn qpsk(&mut self) -> C64 {
-        C64::from_polar(1.0, std::f64::consts::FRAC_PI_4 * (2 * self.below(4) + 1) as f64)
     }
 
     /// A uniform random permutation of `v` in place (Fisher–Yates, Durstenfeld's
@@ -251,6 +249,13 @@ pub fn stream(base_seed: u64, experiment: &str, condition: u64, trial: u64) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "is empty")]
+    fn below_zero_is_a_broken_invariant_in_debug_builds() {
+        let _ = Rng::new(1).below(0);
+    }
 
     #[test]
     fn reference_values() {

@@ -35,7 +35,9 @@ revisit the principles before bending the structure.
    with any channel.
 5. **Physics is explicit.** A quantity carries its unit in its type or in its name.
    The unit newtypes of `com-core` (`Db`, `EbN0`, `EsN0`, `Hertz`, `Seconds`) are used
-   by the verb-trait blocks; the functions and configuration fields of the numerical
+   by the verb-trait blocks, and the decibel conversions of plain numbers (`db2lin`,
+   `lin2db`, …) are defined once next to them (`com_core::units`, re-exported by
+   `com_math`); the functions and configuration fields of the numerical
    kernels take `f64` named with their unit (`ebn0_db`, `alpha_db_km`, `fs`,
    `linewidth_hz`, `beta2_s2_km`).
 6. **Every result is reproducible.** Randomness is seeded and derived from the trial,
@@ -54,8 +56,9 @@ com-rs/
 ├── crates/
 │   │  ── Layer 0: foundation ──────────────────────────────────────────────
 │   ├── com-core/              # signal, traits, units, rng, error
-│   ├── com-math/              # special functions, quadrature (lib), fft, linalg, nearest,
-│   │                          # geometry, nlse, gf2, gf2m, bigint, bits, search, sequences
+│   ├── com-math/              # special, quadrature, log_domain, stats, fft, linalg,
+│   │                          # nearest, geometry, nlse, gf2, gf2m, bigint, bits, search,
+│   │                          # sequences
 │   │  ── Layer 1: generic signal processing ───────────────────────────────
 │   ├── com-dsp/
 │   │   ├── filter  resample  signal  window  interpolation
@@ -125,7 +128,7 @@ contain" column is as binding as the first one.
 
 | Crate | Layer | Owns | Must not contain | Depends on |
 | --- | --- | --- | --- | --- |
-| `com-core` | 0 | Signal containers, verb traits, unit newtypes, the generator and its streams, the error type | Any algorithm; any heavy dependency | `num-complex`, `ndarray`, `thiserror` |
+| `com-core` | 0 | Signal containers, verb traits, unit newtypes and the decibel conversions, the generator and its streams, the error type | Any algorithm; any heavy dependency | `num-complex`, `ndarray`, `thiserror` |
 | `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`, `qfuncinv`, `diric`), Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans and their unitary and centred forms, complex linear algebra (tridiagonal systems included), vectors of 3-D space, nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, LFSR sequences, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
 | `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, cyclic prefixes and frequency shifts, synchronisation, equalisation, estimation, interpolation, spectral estimation, cyclostationary analysis, memoryless nonlinearities driven by Gaussian signals (Bussgang), compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
 | `com-fec` | 2 | Channel codes (the 5G NR LDPC and polar codes included), CRC, scrambling, interleaving, puncturing, distribution matching, finite-length bounds | Modulation or channel knowledge beyond LLR input | 0 |
@@ -204,6 +207,10 @@ The following cases are settled. Treat them as precedent.
 | Indoor optical channel (room, reflections, illuminance) and free-space optics (turbulence, pointing errors, fog) | `com_channel::owc` | Media: the waveforms and receivers take a realisation (an impulse response, a gain) |
 | PIN-FET receiver noise (shot, thermal) | `com_hardware::optical::PinFetReceiver` | A component of the receiver, next to the photodiodes |
 | Gamma variates | `com_core::rng::Rng::gamma` | Random variates are drawn by the generator every block takes |
+| A random QPSK point (pilots, preambles) | `com_mapping::source::qpsk` | A constellation point is a source of symbols, not a variate of the generator |
+| Decibel conversions (`db2lin`, `lin2db`, `dbm2w`, …) | `com_core::units`, re-exported by `com_math` | One definition for the newtypes (`Db::to_linear`) and the plain numbers; `com-core` cannot depend on `com-math` |
+| Moments and normalised correlation of complex sequences | `com_math::stats::{Moments, Correlation}` | Shared by the cumulants and M2M4 (`com_metrics::blind`), the CMA radius (`com_dsp::equalizer`), the frame synchronisation and the effective SNR |
+| The raised-cosine spectrum | `com_dsp::filter::raised_cosine_spectrum` | Shared by `rrc_spectrum` and the WDM spectra of the GN model (`com_channel::optical::gn`) |
 | Modified Bessel function $K_{\nu}$ | `com_math::{bessel_k, ln_bessel_k}` | A special function without communication meaning |
 | BPSK-over-AWGN LLRs of the code tests | `com_validation::bpsk_awgn_llr` | A test link, not a channel model of the library |
 
@@ -356,10 +363,17 @@ pub struct Db(pub f64);
 pub struct EbN0(pub Db);
 
 impl EbN0 {
-    /// Converts to Es/N0 for `bits_per_symbol` coded bits at code rate `rate`.
-    pub fn to_es_n0(self, bits_per_symbol: u32, rate: f64) -> EsN0 { /* … */ }
+    /// Converts to Es/N0 for `bits_per_symbol` coded bits at code rate `rate` (an `f64`:
+    /// the entropy of a shaped constellation is not an integer).
+    pub fn to_es_n0(self, bits_per_symbol: f64, rate: f64) -> EsN0 { /* … */ }
 }
 ```
+
+The decibel conversions of plain numbers (`db2lin`, `lin2db`, `db2amp`, `amp2db`,
+`dbm2w`, `w2dbm`, `db2np`, `np2db`) are defined in `com_core::units` and re-exported by
+`com_math` (`com_math::db2lin` is that function); the methods of the newtypes call
+them, so that a value in dB converts to the same bits whichever way it is written.
+The kernels keep taking `f64` named with their unit; the newtypes are for the blocks.
 
 The conversion it implements, with k bits per symbol and code rate R:
 

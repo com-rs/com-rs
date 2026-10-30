@@ -79,7 +79,8 @@ pub fn resample_fft(x: &[C64], n_out: usize) -> Vec<C64> {
             *v = xs[k.rem_euclid(n_in as i64) as usize] * scale;
         }
     }
-    fft::ifft(&ys)
+    fft::plan(n_out).inverse(&mut ys);
+    ys
 }
 
 /// Delay a periodic block by `delay` seconds at the sampling rate `fs` (fractional

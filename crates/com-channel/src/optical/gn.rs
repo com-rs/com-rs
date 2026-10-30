@@ -128,19 +128,9 @@ impl WdmSpectrum {
     }
 
     /// The raised-cosine power shape of a channel at the offset `x` from its centre
-    /// (1 in the flat band).
+    /// (1 in the flat band, `com_dsp::filter::raised_cosine_spectrum`).
     fn shape(&self, x: f64) -> f64 {
-        let (rs, b) = (self.symbol_rate, self.rolloff);
-        let x = x.abs();
-        let lo = (1.0 - b) * rs / 2.0;
-        let hi = (1.0 + b) * rs / 2.0;
-        if x <= lo {
-            1.0
-        } else if x >= hi {
-            0.0
-        } else {
-            0.5 * (1.0 + (PI / (b * rs) * (x - lo)).cos())
-        }
+        com_dsp::filter::raised_cosine_spectrum(x, self.symbol_rate, self.rolloff)
     }
 
     /// Check the spectrum before an integration on its band: at least one channel, one

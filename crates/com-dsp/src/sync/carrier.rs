@@ -6,12 +6,19 @@
 //! the signal to the power `M` (4 for QAM), takes the frequency of the largest bin of
 //! its spectrum and divides it by `M` (OptiCommPy `fourthPowerFOE`); the estimate is
 //! limited to the bin spacing `f_s/(M N)`. [`fourth_power_foe_refined`] refines it by a
-//! golden-section search of the same periodogram between the neighbouring bins.
+//! golden-section search of the same periodogram between the neighbouring bins. Both
+//! only estimate: the caller removes the offset with [`crate::signal::freq_shift`]
+//! (`freq_shift(x, -fo, fs)`).
 //!
 //! # Phase
 //!
-//! - [`viterbi_viterbi`]: `θ̂[n] = -unwrap(arg(Σ_window y^M)/M, 2π/M) - π/4`
-//!   (OptiCommPy `viterbi`, a centred moving average of `N` samples);
+//! - [`viterbi_viterbi`]: `θ̂[n] = -unwrap(arg(Σ_window y^M)/M, 2π/M) - π/M`
+//!   (OptiCommPy `viterbi`, a centred moving average of `N` samples, written there for
+//!   QPSK and square QAM with `π/4`): the reference is a constellation whose `M`-th
+//!   power is negative, $s^{M} < 0$ (QPSK and square QAM, $M = 4$; the $M$-PSK
+//!   $e^{j\pi(2i+1)/M}$; BPSK $\pm j$ with $M = 2$), so that the estimate removes the
+//!   rotation up to a multiple of `2π/M`; for a constellation whose `M`-th power is
+//!   positive (BPSK $\pm 1$, the $M$-PSK $e^{j 2\pi i/M}$) add `π/M`;
 //! - [`bps`]: blind phase search (Pfau, Hoffmann and Noé, JLT 27(8), 2009): every test
 //!   phase `φ_b = b (π/2)/B`, `b = 0..B-1`, rotates the samples, the squared distances
 //!   to the nearest constellation points are summed over a window of `2N + 1` samples,
@@ -40,8 +47,9 @@
 //! let y: Vec<C64> = s.iter().enumerate()
 //!     .map(|(n, v)| v * com_math::cis(2.0 * std::f64::consts::PI * 150e6 * n as f64 / fs + 0.3))
 //!     .collect();
-//! let (z, fo) = fourth_power_foe_refined(&y, fs, 4)?;
+//! let fo = fourth_power_foe_refined(&y, fs, 4)?;
 //! assert!((fo - 150e6).abs() < 1e6);
+//! let z = com_dsp::signal::freq_shift(&y, -fo, fs);
 //! let theta = unwrap(&bps(&z, 20, &c, 32)?, std::f64::consts::FRAC_PI_2);
 //! let out = derotate(&z, &theta, 1.0)?;
 //! // what is left is a multiple of π/2, resolved by pilots in a real receiver
@@ -51,8 +59,7 @@
 //! ```
 
 use crate::filter::moving_average;
-use crate::signal::freq_shift;
-use com_core::{Result, ensure, same_len};
+use com_core::{Result, ensure, ensure_shape, same_len};
 use com_math::fft;
 use com_math::{C64, cis, golden_max};
 use std::f64::consts::PI;
@@ -84,12 +91,13 @@ pub fn unwrap(phi: &[f64], period: f64) -> Vec<f64> {
     out
 }
 
-/// Frequency offset by the `M`-th power spectrum (largest bin), and the corrected signal.
+/// The frequency offset (Hz) by the `M`-th power spectrum (its largest bin); remove it
+/// with `freq_shift(x, -fo, fs)` ([`crate::signal::freq_shift`]).
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for an empty signal, $M = 0$ or a sampling rate that is
 /// not positive and finite.
-pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>, f64)> {
+pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<f64> {
     ensure(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
     ensure(m >= 1, || "fourth_power_foe: the symmetry M must be at least 1".into())?;
     ensure(fs > 0.0 && fs.is_finite(), || format!("fourth_power_foe: the sampling rate must be positive, got {fs}"))?;
@@ -97,17 +105,17 @@ pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>, f64)> {
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let spec = fft::fft(&xm);
     let k = spec.iter().enumerate().max_by(|a, b| a.1.norm().total_cmp(&b.1.norm())).map_or(0, |(k, _)| k);
-    let fo = fft::fftfreq(n, 1.0 / fs)[k] / m as f64;
-    Ok((freq_shift(x, -fo, fs), fo))
+    Ok(fft::fftfreq(n, 1.0 / fs)[k] / m as f64)
 }
 
 /// [`fourth_power_foe`] refined by a golden-section search of the periodogram of `x^M`
-/// between the neighbouring bins (accuracy far below the bin spacing).
+/// between the neighbouring bins (accuracy far below the bin spacing): the frequency
+/// offset (Hz).
 ///
 /// # Errors
 /// As [`fourth_power_foe`].
-pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>, f64)> {
-    let (_, coarse) = fourth_power_foe(x, fs, m)?;
+pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<f64> {
+    let coarse = fourth_power_foe(x, fs, m)?;
     let n = x.len();
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let periodogram = |f: f64| -> f64 {
@@ -121,8 +129,7 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<(Vec<C64>,
         acc.norm_sqr()
     };
     let df = fs / (n as f64 * m as f64);
-    let fo = golden_max(periodogram, coarse - df, coarse + df, 60);
-    Ok((freq_shift(x, -fo, fs), fo))
+    Ok(golden_max(periodogram, coarse - df, coarse + df, 60))
 }
 
 /// The Cramér–Rao bound of the variance of an unbiased estimate of the frequency of a
@@ -181,12 +188,20 @@ pub fn tone_frequency_rms(n: usize, snr: f64, fs: f64) -> f64 {
     (fs * fs * (q / 12.0 + (1.0 - q) * tone_frequency_crb(n, snr))).sqrt()
 }
 
-/// Viterbi–Viterbi phase estimates (radians, to be applied with `derotate(…, +1)`).
-pub fn viterbi_viterbi(x: &[C64], n: usize, m: u32) -> Vec<f64> {
+/// Viterbi–Viterbi phase estimates (radians, to be applied with `derotate(…, +1)`) over
+/// a centred window of `n` samples, for a constellation of symmetry `m` whose `m`-th
+/// power is negative (see the module: `-π/M` is the reference phase; OptiCommPy's `π/4`
+/// for $M = 4$).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for $M = 0$.
+pub fn viterbi_viterbi(x: &[C64], n: usize, m: u32) -> Result<Vec<f64>> {
+    ensure(m >= 1, || "viterbi_viterbi: the symmetry M must be at least 1".into())?;
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let avg = moving_average(&xm, n);
-    let ang: Vec<f64> = avg.iter().map(|v| v.arg() / m as f64).collect();
-    unwrap(&ang, 2.0 * PI / m as f64).into_iter().map(|p| -p - PI / 4.0).collect()
+    let mf = m as f64;
+    let ang: Vec<f64> = avg.iter().map(|v| v.arg() / mf).collect();
+    Ok(unwrap(&ang, 2.0 * PI / mf).into_iter().map(|p| -p - PI / mf).collect())
 }
 
 /// Blind phase search with `b` test phases in `[0, π/2)` and a window of `2n + 1`
@@ -230,6 +245,10 @@ pub fn bps(x: &[C64], n: usize, points: &[C64], b: usize) -> Result<Vec<f64>> {
 /// `ts` is the symbol period, `kv` the VCO gain, `tau1`, `tau2` the time constants of
 /// the loop filter; `pilots` gives the indices and the known symbols used instead of the
 /// decisions.
+///
+/// # Errors
+/// [`com_core::Error::Shape`] for pilots with another number of indices than of
+/// symbols, or an index beyond the signal (they were dropped silently before).
 pub fn ddpll(
     x: &[C64],
     ts: f64,
@@ -238,16 +257,16 @@ pub fn ddpll(
     tau2: f64,
     points: &[C64],
     pilots: Option<(&[usize], &[C64])>,
-) -> Vec<f64> {
+) -> Result<Vec<f64>> {
     let n = x.len();
     let b1 = ts / (2.0 * tau1) * (1.0 - 1.0 / (ts / (2.0 * tau2)).tan());
     let b2 = ts / (2.0 * tau1) * (1.0 + 1.0 / (ts / (2.0 * tau2)).tan());
     let mut known: Vec<Option<C64>> = vec![None; n];
     if let Some((idx, sym)) = pilots {
+        same_len(idx.len(), sym.len(), "ddpll: pilot indices and symbols")?;
         for (&i, &s) in idx.iter().zip(sym) {
-            if i < n {
-                known[i] = Some(s);
-            }
+            ensure_shape(i < n, || format!("ddpll: the pilot index {i} is beyond the {n} samples"))?;
+            known[i] = Some(s);
         }
     }
     let slicer = com_math::nearest::Slicer::new(points);
@@ -267,7 +286,7 @@ pub fn ddpll(
             phase[k + 1] = phase[k] - kv * uf;
         }
     }
-    phase
+    Ok(phase)
 }
 
 #[cfg(test)]
@@ -303,10 +322,10 @@ mod tests {
         let s: Vec<C64> = (0..2000).map(|_| qpsk[r.below(4)]).collect();
         let y: Vec<C64> = s.iter().map(|v| v * cis(0.2)).collect();
         // y⁴ = -e^{j0.8}: arg/4 = (0.8 - π)/4, so θ = -(0.8 - π)/4 - π/4 = -0.2
-        let th = viterbi_viterbi(&y, 31, 4);
+        let th = viterbi_viterbi(&y, 31, 4).unwrap();
         assert!((th[1000] + 0.2).abs() < 1e-9, "{}", th[1000]);
         assert!((derotate(&y, &th, 1.0).unwrap()[1000] - s[1000]).norm() < 1e-9);
-        let ph = ddpll(&y, 1.0, 0.3, 1.0 / 0.1, 1.0 / 0.05, &qpsk, None);
+        let ph = ddpll(&y, 1.0, 0.3, 1.0 / 0.1, 1.0 / 0.05, &qpsk, None).unwrap();
         let z = derotate(&y, &ph, 1.0).unwrap();
         assert!((z[1500] / s[1500]).arg().abs() < 1e-3);
     }
@@ -327,7 +346,29 @@ mod tests {
             assert!(foe(&[C64::new(1.0, 0.0); 8], 0.0, 4).is_err());
             assert!(foe(&[C64::new(1.0, 0.0); 8], f64::NAN, 4).is_err());
             // a single sample is a valid, if uninformative, block
-            assert!(foe(&[C64::new(1.0, 0.0)], 1.0, 4).unwrap().1.is_finite());
+            assert!(foe(&[C64::new(1.0, 0.0)], 1.0, 4).unwrap().is_finite());
         }
+    }
+
+    #[test]
+    fn viterbi_viterbi_takes_the_reference_phase_pi_over_m() {
+        // BPSK on ±j (its square is -1) rotated by 0.2: M = 2 removes the rotation
+        let mut r = com_core::rng::Rng::new(3);
+        let y: Vec<C64> = (0..500).map(|_| C64::new(0.0, if r.bit() == 1 { 1.0 } else { -1.0 }) * cis(0.2)).collect();
+        let th = viterbi_viterbi(&y, 21, 2).unwrap();
+        // the residual phase is a multiple of π
+        let res = (th[250] + 0.2).rem_euclid(PI);
+        assert!(res < 1e-9 || PI - res < 1e-9, "{}", th[250]);
+        assert!(matches!(viterbi_viterbi(&y, 21, 0), Err(com_core::Error::Config(_))));
+    }
+
+    #[test]
+    fn ddpll_rejects_pilots_it_would_have_dropped() {
+        let qpsk: Vec<C64> = (0..4).map(|k| cis(PI / 4.0 + k as f64 * PI / 2.0)).collect();
+        let x = vec![qpsk[0]; 8];
+        let run = |idx: &[usize], sym: &[C64]| ddpll(&x, 1.0, 0.3, 10.0, 20.0, &qpsk, Some((idx, sym)));
+        assert!(matches!(run(&[0, 2], &qpsk[..1]), Err(com_core::Error::Shape(_))));
+        assert!(matches!(run(&[0, 8], &qpsk[..2]), Err(com_core::Error::Shape(_))));
+        assert!(run(&[0, 7], &qpsk[..2]).is_ok());
     }
 }

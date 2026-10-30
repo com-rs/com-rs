@@ -65,7 +65,7 @@ use com_core::ensure;
 use com_core::prelude::*;
 use com_dsp::compensation::dbp::Dbp;
 use com_math::fft;
-use com_math::nlse::{Medium, SplitStep, SplitStepF32};
+use com_math::nlse::{Medium, SplitStep, SplitStepF32, Steps};
 use com_math::{SPEED_OF_LIGHT, db2lin, db2np, effective_length};
 use num_complex::Complex32 as C32;
 
@@ -297,9 +297,8 @@ impl Ssfm {
 
     /// The steps of a span: their number $n = \lceil L / h \rceil$ and their length
     /// $L / n$, which add up to the span $L$. The length is `h` itself when $n h = L$
-    /// (within $10^{-9}$), $L / n$ otherwise, in both cases lowered by the units in the
-    /// last place needed for $\lfloor L / h \rfloor = n$, the test by which the
-    /// back-propagation recognises the forward step ([`Ssfm::dbp`]).
+    /// (within $10^{-9}$), $L / n$ otherwise; the back-propagation recognises these steps
+    /// by their number ([`Ssfm::dbp`]).
     ///
     /// # Errors
     /// [`Error::Config`] for a non-positive or non-finite step, or a step longer than
@@ -313,11 +312,7 @@ impl Ssfm {
         let divides = (whole - ratio).abs() <= 1e-9 * ratio;
         let n = if divides { whole as usize } else { ratio.ceil() as usize };
         // n h = L within rounding: the step as given
-        let mut step = if divides && (span / h).floor() as usize == n { h } else { span / n as f64 };
-        while ((span / step).floor() as usize) < n {
-            // one unit in the last place below: the steps fall short of L by 1e-16 relative
-            step = f64::from_bits(step.to_bits() - 1);
-        }
+        let step = if divides && (span / h).floor() as usize == n { h } else { span / n as f64 };
         Ok((n, step))
     }
 
@@ -332,7 +327,7 @@ impl Ssfm {
         }
         let (n_steps, h) = self.steps()?;
         let f = &self.fiber;
-        let steps = SplitStep::new(&f.medium(), h, h, n_steps, x.len(), fs);
+        let steps = SplitStep::new(&f.medium(), Steps::new(n_steps, h), x.len(), fs);
         let mut e = x.to_vec();
         for _ in 0..f.n_spans {
             steps.run(&mut e);
@@ -358,7 +353,7 @@ impl Ssfm {
         let (n_steps, h) = self.steps()?;
         let fiber = FiberParams { span_km: n_steps as f64 * h, ..self.fiber.clone() };
         let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
-        let steps = SplitStep::new(&medium, h, h, n_steps, x.len(), fs);
+        let steps = SplitStep::new(&medium, Steps::new(n_steps, h), x.len(), fs);
         let mut e = x.to_vec();
         for _ in 0..fiber.n_spans {
             let span = raman.field_span(&fiber, &[&e], fs)?;
@@ -376,13 +371,8 @@ impl Ssfm {
     /// of the lumped amplifiers: [`Ssfm::raman`] is ignored.
     pub fn dbp(&self, steps_per_span: usize, xi: f64) -> Dbp {
         let f = &self.fiber;
-        let forward = self.steps().map_or(self.step_km, |(_, h)| h);
-        let mut dbp = Dbp {
-            steps_per_span,
-            xi,
-            forward_step_km: Some(forward),
-            ..Dbp::new(f.medium(), f.span_km, f.n_spans, 1.0)
-        };
+        let forward = self.steps().ok().map(|(n, h)| Steps::new(n, h));
+        let mut dbp = Dbp { steps_per_span, xi, forward, ..Dbp::new(f.medium(), f.span_km, f.n_spans, 1.0) };
         dbp.span_gain = self.amplification.field_gain(f, steps_per_span as f64 * dbp.step_km());
         dbp
     }
@@ -423,7 +413,7 @@ impl Ssfm {
             return Ok(Vec::new());
         }
         let f = &self.fiber;
-        let steps = SplitStepF32::new(&f.medium(), h, n_steps, n, fs);
+        let steps = SplitStepF32::new(&f.medium(), Steps::new(n_steps, h), n, fs);
         let simulated_km = n_steps as f64 * h;
         let ideal_gain = self.amplification.field_gain(f, simulated_km) as f32;
         let mut e: Vec<C32> = x.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();

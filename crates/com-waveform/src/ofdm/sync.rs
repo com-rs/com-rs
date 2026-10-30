@@ -103,6 +103,7 @@ use super::Ofdm;
 use com_core::rng::Rng;
 use com_core::{Result, ensure, ensure_shape};
 use com_dsp::sync::frame::{delayed_correlation, windowed_energy};
+use com_mapping::source::qpsk;
 use com_math::{C64, cis, diric, sinc};
 use std::f64::consts::TAU;
 
@@ -115,7 +116,7 @@ pub fn preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
     let mut r = Rng::new(seed);
     let active: Vec<C64> = (0..ofdm.n_active)
         .map(|i| {
-            let s = r.qpsk() * std::f64::consts::SQRT_2;
+            let s = qpsk(&mut r) * std::f64::consts::SQRT_2;
             if ofdm.subcarrier(i).rem_euclid(2) == 0 { s } else { C64::new(0.0, 0.0) }
         })
         .collect();
@@ -187,7 +188,7 @@ pub const MOOSE_ICI_BOUND: f64 = 0.5947;
 /// [`com_core::Error::Config`] if the prefix is longer than the block.
 pub fn repeated_preamble(ofdm: &Ofdm, seed: u64) -> Result<Vec<C64>> {
     let mut r = Rng::new(seed);
-    let active: Vec<C64> = (0..ofdm.n_active).map(|_| r.qpsk()).collect();
+    let active: Vec<C64> = (0..ofdm.n_active).map(|_| qpsk(&mut r)).collect();
     let block = ofdm.to_time(&active)?;
     let mut out = ofdm.with_prefix(&block)?;
     out.extend_from_slice(&block);
@@ -291,6 +292,9 @@ mod tests {
         r.iter().enumerate().map(|(k, v)| v * cis(TAU * eps * k as f64 / n as f64)).collect()
     }
 
+    /// The direct sums of the former metric: the windowed sums of the shared kernel are
+    /// computed in O(n) by block prefix and suffix sums (`com_dsp::sync::frame`), the same
+    /// values to the rounding of the sums (bit for bit where a window starts a block).
     #[test]
     fn schmidl_cox_on_the_shared_kernel_is_the_former_metric() {
         let mut rng = Rng::new(9);
@@ -302,7 +306,14 @@ mod tests {
                 if e > 0.0 { p.norm_sqr() / (e * e) } else { 0.0 }
             })
             .collect();
-        assert_eq!(schmidl_cox(&r, 64), former);
+        let m = schmidl_cox(&r, 64);
+        assert_eq!(m.len(), former.len());
+        for (d, (a, b)) in m.iter().zip(&former).enumerate() {
+            assert!((a - b).abs() <= 1e-13 * b, "d = {d}: {a} against {b}");
+            if d % 64 == 0 {
+                assert_eq!(a, b, "d = {d}");
+            }
+        }
     }
 
     #[test]
@@ -316,7 +327,7 @@ mod tests {
         }
         // a symbol inside random samples: the prefix is found exactly
         let mut rng = Rng::new(5);
-        let data: Vec<C64> = (0..52).map(|_| rng.qpsk()).collect();
+        let data: Vec<C64> = (0..52).map(|_| qpsk(&mut rng)).collect();
         let mut r: Vec<C64> = (0..30).map(|_| rng.complex_gaussian() * 0.01).collect();
         r.extend(ofdm.modulate(&data).unwrap());
         r.extend((0..n + 8 - 30).map(|_| rng.complex_gaussian() * 0.01));

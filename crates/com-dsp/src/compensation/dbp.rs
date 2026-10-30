@@ -1,8 +1,9 @@
 //! Digital back-propagation.
 //!
 //! The receiver runs the split-step solver of [`com_math::nlse`] through the negated
-//! medium, span after span in reverse order, removing the amplifier gain first. With
-//! the forward step and no noise it inverts the forward split step exactly.
+//! medium, span after span in reverse order, removing the amplifier gain first. Given the
+//! [`Steps`] of the forward model ([`Dbp::forward`]) and as many steps per span, it
+//! uses those steps and inverts the forward split step exactly without noise.
 //!
 //! # Model
 //!
@@ -27,13 +28,14 @@
 //! # Examples
 //! ```
 //! use com_dsp::compensation::dbp::Dbp;
-//! use com_math::nlse::{Medium, SplitStep};
+//! use com_math::nlse::{Medium, SplitStep, Steps};
 //! use com_math::C64;
 //! let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
 //! let x: Vec<C64> = (0..128).map(|n| C64::new(1e-2 * (n % 3) as f64, 0.0)).collect();
 //! let mut y = x.clone();
-//! SplitStep::new(&m, 2.0, 2.0, 40, 128, 64e9).run(&mut y);      // one 80 km span
-//! let dbp = Dbp { forward_step_km: Some(2.0), steps_per_span: 40, ..Dbp::new(m, 80.0, 1, 1.0) };
+//! let forward = Steps::new(40, 2.0);                         // one 80 km span
+//! SplitStep::new(&m, forward, 128, 64e9).run(&mut y);
+//! let dbp = Dbp { forward: Some(forward), steps_per_span: 40, ..Dbp::new(m, 80.0, 1, 1.0) };
 //! let z = dbp.run(&y, 64e9).unwrap();
 //! assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-12));
 //! ```
@@ -45,7 +47,7 @@
 
 use com_core::{Result, ensure};
 use com_math::C64;
-use com_math::nlse::{Medium, SplitStep};
+use com_math::nlse::{Medium, SplitStep, Steps};
 
 /// Digital back-propagation of a link of `n_spans` identical spans.
 #[derive(Clone, Debug, PartialEq)]
@@ -62,41 +64,49 @@ pub struct Dbp {
     pub steps_per_span: usize,
     /// Scale `ξ ≥ 0` of the nonlinear phase.
     pub xi: f64,
-    /// The step of the forward model, if known: with `steps_per_span = ⌊L_span/h⌋` the
-    /// back-propagation uses exactly that step and nonlinear length (the exact inverse).
-    pub forward_step_km: Option<f64>,
+    /// The steps of a span of the forward model, if known: with as many steps per span
+    /// (`steps_per_span == forward.n_steps`, compared as integers) the back-propagation
+    /// uses exactly those steps and their nonlinear length (the exact inverse).
+    pub forward: Option<Steps>,
 }
 
 impl Dbp {
     /// One step per span, the full nonlinear phase, the effective length.
     pub fn new(medium: Medium, span_km: f64, n_spans: usize, span_gain: f64) -> Dbp {
-        Dbp { medium, span_km, n_spans, span_gain, steps_per_span: 1, xi: 1.0, forward_step_km: None }
+        Dbp { medium, span_km, n_spans, span_gain, steps_per_span: 1, xi: 1.0, forward: None }
     }
 
-    /// Whether the steps are those of the forward model.
-    fn exact(&self) -> bool {
-        self.forward_step_km.is_some_and(|h| h > 0.0 && self.steps_per_span == (self.span_km / h).floor() as usize)
+    /// The forward steps, when they are those of the back-propagation.
+    fn exact(&self) -> Option<Steps> {
+        self.forward.filter(|f| f.n_steps == self.steps_per_span)
     }
 
-    /// The step length (km).
+    /// The step length (km): that of the forward model with as many steps, the span
+    /// divided by the steps otherwise.
     pub fn step_km(&self) -> f64 {
-        match self.forward_step_km {
-            Some(h) if self.exact() => h,
-            _ => self.span_km / self.steps_per_span as f64,
+        match self.exact() {
+            Some(f) => f.step_km,
+            None => self.span_km / self.steps_per_span as f64,
         }
     }
 
-    /// The steps of one span for a block of `n` samples at `fs`.
+    /// The steps of one span for a block of `n` samples at `fs` (an empty block has
+    /// nothing to propagate).
     fn steps(&self, n: usize, fs: f64) -> Result<SplitStep> {
         ensure(self.steps_per_span >= 1, || "at least one step per span".into())?;
         ensure(self.xi >= 0.0, || format!("the nonlinear scale must be non-negative, got {}", self.xi))?;
-        let exact = self.exact();
         let h = self.step_km();
         let a = self.medium.alpha_np_km;
-        // nonlinear length of a step: the step itself for the exact inverse, the
-        // effective length of the symmetric step otherwise
-        let h_nl = self.xi * if exact || a * h < 1e-12 { h } else { 2.0 * (a * h / 2.0).sinh() / a };
-        Ok(SplitStep::new(&self.medium.negated(), h, h_nl, self.steps_per_span, n, fs))
+        // nonlinear length of a step: that of the forward model for the exact inverse,
+        // the effective length of the symmetric step otherwise
+        let h_nl = self.xi
+            * match self.exact() {
+                Some(f) => f.nl_length_km,
+                None if a * h < 1e-12 => h,
+                None => 2.0 * (a * h / 2.0).sinh() / a,
+            };
+        let steps = Steps { n_steps: self.steps_per_span, step_km: h, nl_length_km: h_nl };
+        Ok(SplitStep::new(&self.medium.negated(), steps, n, fs))
     }
 
     /// Back-propagate a field (√W) sampled at `fs`.
@@ -139,6 +149,32 @@ impl Dbp {
 mod tests {
     use super::*;
     use com_math::nlse::{ManakovSplitStep, StepRule};
+
+    #[test]
+    fn an_empty_field_is_back_propagated_to_an_empty_field_instead_of_panicking() {
+        let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        assert_eq!(Dbp::new(m, 80.0, 1, 1.0).run(&[], 64e9).unwrap(), Vec::<C64>::new());
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        Dbp { steps_per_span: 4, ..Dbp::new(m, 80.0, 2, 3.0) }.run_dual(&mut x, &mut y, 64e9).unwrap();
+        assert!(x.is_empty() && y.is_empty());
+    }
+
+    #[test]
+    fn the_forward_steps_are_recognised_by_their_number_not_by_a_floor_of_lengths() {
+        // 80 km in 115 steps: 80/115 is not representable, and the floor of 80 over it
+        // may be 114
+        let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        let forward = Steps::new(115, 80.0 / 115.0);
+        let x: Vec<C64> = (0..64).map(|n| C64::new(1e-2 * (n % 5) as f64, 1e-3 * (n % 2) as f64)).collect();
+        let mut y = x.clone();
+        SplitStep::new(&m, forward, 64, 64e9).run(&mut y);
+        let dbp = Dbp { forward: Some(forward), steps_per_span: 115, ..Dbp::new(m, 80.0, 1, 1.0) };
+        assert_eq!(dbp.step_km(), forward.step_km);
+        let z = dbp.run(&y, 64e9).unwrap();
+        assert!(x.iter().zip(&z).all(|(a, b)| (a - b).norm() < 1e-12));
+        // another number of steps: the span divided by the steps
+        assert_eq!(Dbp { steps_per_span: 4, ..dbp }.step_km(), 20.0);
+    }
 
     #[test]
     fn manakov_dbp_undoes_the_nonlinearity_of_two_polarisations() {

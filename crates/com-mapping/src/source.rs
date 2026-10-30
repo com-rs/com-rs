@@ -1,6 +1,7 @@
 //! Sources of bits and symbols (OptiCommPy `optic.comm.sources`).
 //!
-//! - [`bits`]: independent fair bits from a seeded generator;
+//! - [`bits`]: independent fair bits from a seeded generator, and [`qpsk`], one
+//!   unit-energy QPSK point (the pilots and preambles drawn from a seed);
 //! - [`prbs`]: maximal-length pseudo-random binary sequences of the ITU-T O.150 family
 //!   (orders 7, 9, 11, 15, 20, 23, 31), produced by a Fibonacci linear-feedback shift
 //!   register: the sequence of order `n` has period `2ⁿ - 1` and contains every
@@ -28,6 +29,20 @@ use com_math::C64;
 /// `n` independent fair bits (`0` or `1`).
 pub fn bits(n: usize, rng: &mut Rng) -> Vec<u8> {
     (0..n).map(|_| rng.bit()).collect()
+}
+
+/// One unit-energy QPSK point $e^{j\pi(2i + 1)/4}$, $i$ uniform in `0..4` (one draw of
+/// [`Rng::below`]): the pilots and preambles drawn from a seed.
+///
+/// # Examples
+/// ```
+/// use com_core::rng::Rng;
+/// let s = com_mapping::source::qpsk(&mut Rng::new(1));
+/// assert!((s.norm() - 1.0).abs() < 1e-15 && (s.re.abs() - s.im.abs()).abs() < 1e-15);
+/// ```
+#[inline]
+pub fn qpsk(rng: &mut Rng) -> C64 {
+    C64::from_polar(1.0, std::f64::consts::FRAC_PI_4 * (2 * rng.below(4) + 1) as f64)
 }
 
 /// Feedback taps `(n, k)` of the PRBS polynomials `xⁿ + xᵏ + 1` (ITU-T O.150).

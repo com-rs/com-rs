@@ -130,8 +130,14 @@ impl Field {
         if a == 0 || b == 0 { 0 } else { self.exp[(self.log[a as usize] + self.log[b as usize]) as usize] }
     }
 
-    /// The quotient $a / b$ (`b` must be non-zero; $0 / b = 0$).
+    /// The quotient $a / b$ of a non-zero `b` ($0 / b = 0$).
+    ///
+    /// # Panics
+    /// In debug builds, for `b = 0` (a division by zero is a broken invariant of the
+    /// caller: release builds return a meaningless element instead of checking it in the
+    /// inner loops of the decoders).
     pub fn div(&self, a: u32, b: u32) -> u32 {
+        debug_assert!(b != 0, "division by zero in GF(2^{})", self.m());
         if a == 0 {
             0
         } else {
@@ -141,6 +147,9 @@ impl Field {
     }
 
     /// The inverse $a^{-1}$ of a non-zero element.
+    ///
+    /// # Panics
+    /// In debug builds, for `a = 0` (as [`Field::div`]).
     pub fn inv(&self, a: u32) -> u32 {
         self.div(1, a)
     }
@@ -173,6 +182,13 @@ impl Field {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "division by zero")]
+    fn the_inverse_of_zero_is_a_broken_invariant_in_debug_builds() {
+        let _ = Field::new(4, 0x13).unwrap().inv(0);
+    }
 
     #[test]
     fn a_polynomial_of_the_wrong_degree_is_an_error_not_a_panic() {

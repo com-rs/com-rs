@@ -230,7 +230,7 @@ impl ResourceGrid {
                 return v;
             }
         }
-        com_core::rng::member(self.seed, (l * self.n_subcarriers + k) as u64).qpsk()
+        com_mapping::source::qpsk(&mut com_core::rng::member(self.seed, (l * self.n_subcarriers + k) as u64))
     }
 
     /// The pilot REs $(k, l)$, symbol after symbol.

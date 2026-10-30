@@ -107,32 +107,73 @@ pub fn memory_polynomial<'a>(x: &[C64], terms: impl IntoIterator<Item = (u32, &'
 }
 
 /// A memory-polynomial predistorter.
+///
+/// It stores its polynomial as the amplifier model of `com-hardware` does
+/// (`MemoryPolynomial::terms`): for every order $k$, its $M$ taps $c_{k0}, \dots,
+/// c_{k,M-1}$ ([`MemoryPolynomialDpd::terms`]), so a fitted predistorter is also an
+/// amplifier model. The fields are private: the orders, the memory and the number of
+/// taps agree by construction ([`MemoryPolynomialDpd::new`],
+/// [`MemoryPolynomialDpd::with_coefficients`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemoryPolynomialDpd {
-    /// Nonlinearity orders $k$ (odd orders are the usual choice: 1, 3, 5, …).
-    pub orders: Vec<u32>,
+    /// Every order $k$ and its taps, $M \ge 1$ of them.
+    terms: Vec<(u32, Vec<C64>)>,
     /// Memory depth $M$ (1: memoryless).
-    pub memory: usize,
-    /// Coefficients, order after order, tap after tap.
-    pub coefficients: Vec<C64>,
+    memory: usize,
 }
 
 impl MemoryPolynomialDpd {
-    /// The identity predistorter with the given orders and memory.
+    /// The identity predistorter with the given orders and memory (a memory of 0 is 1).
     pub fn new(orders: Vec<u32>, memory: usize) -> MemoryPolynomialDpd {
         let memory = memory.max(1);
-        let mut coefficients = vec![C64::new(0.0, 0.0); orders.len() * memory];
-        if let Some(i) = orders.iter().position(|k| *k == 1) {
-            coefficients[i * memory] = C64::new(1.0, 0.0);
+        let mut terms: Vec<(u32, Vec<C64>)> =
+            orders.into_iter().map(|k| (k, vec![C64::new(0.0, 0.0); memory])).collect();
+        if let Some((_, taps)) = terms.iter_mut().find(|(k, _)| *k == 1) {
+            taps[0] = C64::new(1.0, 0.0);
         }
-        MemoryPolynomialDpd { orders, memory, coefficients }
+        MemoryPolynomialDpd { terms, memory }
+    }
+
+    /// The predistorter with the coefficients `coefficients`, order after order, tap after
+    /// tap (as [`MemoryPolynomialDpd::coefficients`] gives them).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a memory of 0, [`Error::Shape`] unless there are
+    /// `orders.len() × memory` coefficients.
+    pub fn with_coefficients(orders: Vec<u32>, memory: usize, coefficients: &[C64]) -> Result<MemoryPolynomialDpd> {
+        ensure(memory >= 1, || "the memory depth must be at least 1".into())?;
+        ensure_shape(coefficients.len() == orders.len() * memory, || {
+            format!("{} coefficients for {} orders of memory {memory}", coefficients.len(), orders.len())
+        })?;
+        let terms = orders.into_iter().zip(coefficients.chunks(memory)).map(|(k, c)| (k, c.to_vec())).collect();
+        Ok(MemoryPolynomialDpd { terms, memory })
+    }
+
+    /// The nonlinearity orders $k$ (odd orders are the usual choice: 1, 3, 5, …).
+    pub fn orders(&self) -> Vec<u32> {
+        self.terms.iter().map(|(k, _)| *k).collect()
+    }
+
+    /// The memory depth $M$.
+    pub fn memory(&self) -> usize {
+        self.memory
+    }
+
+    /// Every order and its taps, the layout of the amplifier model of `com-hardware`.
+    pub fn terms(&self) -> &[(u32, Vec<C64>)] {
+        &self.terms
+    }
+
+    /// The coefficients, order after order, tap after tap.
+    pub fn coefficients(&self) -> Vec<C64> {
+        self.terms.iter().flat_map(|(_, c)| c.iter().copied()).collect()
     }
 
     /// The basis matrix $\Phi(u)$: one row per sample, one column per term.
     fn basis(&self, u: &[C64]) -> Array2<C64> {
-        let cols = self.orders.len() * self.memory;
+        let cols = self.terms.len() * self.memory;
         let mut phi = Array2::<C64>::zeros((u.len(), cols));
-        for (j, k) in self.orders.iter().enumerate() {
+        for (j, (k, _)) in self.terms.iter().enumerate() {
             let b = polynomial_term(u, *k);
             for m in 0..self.memory {
                 for n in m..u.len() {
@@ -143,21 +184,9 @@ impl MemoryPolynomialDpd {
         phi
     }
 
-    /// Predistort a block ([`memory_polynomial`] with the coefficients of every order).
-    ///
-    /// # Panics
-    /// If there are not `orders.len() × memory` coefficients.
+    /// Predistort a block ([`memory_polynomial`] with the taps of every order).
     pub fn apply(&self, x: &[C64]) -> Vec<C64> {
-        let memory = self.memory.max(1);
-        assert_eq!(
-            self.coefficients.len(),
-            self.orders.len() * self.memory,
-            "{} coefficients for {} orders of memory {}",
-            self.coefficients.len(),
-            self.orders.len(),
-            self.memory
-        );
-        memory_polynomial(x, self.orders.iter().copied().zip(self.coefficients.chunks(memory)))
+        memory_polynomial(x, self.terms.iter().map(|(k, taps)| (*k, taps.as_slice())))
     }
 
     /// Fit the polynomial that maps `input` to `target` by regularised least squares.
@@ -166,7 +195,7 @@ impl MemoryPolynomialDpd {
     /// [`Error::Shape`] for inputs of different lengths, [`Error::Config`] for no terms,
     /// [`Error::Numerical`] for a singular system.
     pub fn fit(&mut self, input: &[C64], target: &[C64], regularization: f64) -> Result<()> {
-        ensure(!self.orders.is_empty(), || "the predistorter has no terms".into())?;
+        ensure(!self.terms.is_empty(), || "the predistorter has no terms".into())?;
         ensure_shape(input.len() == target.len(), || format!("{} inputs for {} targets", input.len(), target.len()))?;
         let phi = self.basis(input);
         let ph = hermitian(&phi.view());
@@ -175,7 +204,10 @@ impl MemoryPolynomialDpd {
             .dot(&Array2::from_shape_vec((target.len(), 1), target.to_vec()).map_err(|e| Error::Shape(e.to_string()))?);
         let c = solve_hpd(&a.view(), &b.view())
             .map_err(|_| Error::Numerical("the least-squares system is singular".into()))?;
-        self.coefficients = c.column(0).to_vec();
+        let c = c.column(0).to_vec();
+        for ((_, taps), fitted) in self.terms.iter_mut().zip(c.chunks(self.memory)) {
+            taps.copy_from_slice(fitted);
+        }
         Ok(())
     }
 
@@ -213,18 +245,25 @@ mod tests {
     fn the_fit_recovers_a_memory_polynomial() {
         let mut r = Rng::new(1);
         let x: Vec<C64> = (0..2000).map(|_| r.complex_gaussian() * 0.5).collect();
-        let truth = MemoryPolynomialDpd {
-            orders: vec![1, 3],
-            memory: 2,
-            coefficients: vec![C64::new(1.0, 0.1), C64::new(-0.05, 0.02), C64::new(-0.2, 0.05), C64::new(0.03, 0.0)],
-        };
+        let c = [C64::new(1.0, 0.1), C64::new(-0.05, 0.02), C64::new(-0.2, 0.05), C64::new(0.03, 0.0)];
+        let truth = MemoryPolynomialDpd::with_coefficients(vec![1, 3], 2, &c).unwrap();
         let y = truth.apply(&x);
         let mut fit = MemoryPolynomialDpd::new(vec![1, 3], 2);
         fit.fit(&x, &y, 0.0).unwrap();
-        for (a, b) in fit.coefficients.iter().zip(&truth.coefficients) {
+        for (a, b) in fit.coefficients().iter().zip(&c) {
             assert!((a - b).norm() < 1e-10);
         }
         assert!(fit.fit(&x, &y[..10], 0.0).is_err());
+        assert_eq!(fit.orders(), vec![1, 3]);
+        assert_eq!(fit.terms()[1].1.len(), fit.memory());
+    }
+
+    #[test]
+    fn coefficients_that_disagree_with_the_orders_are_an_error_instead_of_a_panic() {
+        let c = [C64::new(1.0, 0.0); 5];
+        assert!(matches!(MemoryPolynomialDpd::with_coefficients(vec![1, 3], 2, &c), Err(Error::Shape(_))));
+        assert!(matches!(MemoryPolynomialDpd::with_coefficients(vec![1, 3], 0, &[]), Err(Error::Config(_))));
+        assert_eq!(MemoryPolynomialDpd::new(vec![1, 3], 0).memory(), 1);
     }
 
     /// `apply` evaluated the basis matrix times the coefficients before the kernel was
@@ -235,8 +274,8 @@ mod tests {
         let x: Vec<C64> = (0..3000).map(|_| r.complex_gaussian() * 0.4).collect();
         for (orders, memory) in [(vec![1, 3, 5], 3), (vec![1, 2, 3], 1), (vec![1, 3], 40)] {
             let coefficients: Vec<C64> = (0..orders.len() * memory).map(|_| r.complex_gaussian() * 0.3).collect();
-            let dpd = MemoryPolynomialDpd { orders, memory, coefficients };
-            let old = dpd.basis(&x).dot(&ndarray::Array1::from(dpd.coefficients.clone())).to_vec();
+            let dpd = MemoryPolynomialDpd::with_coefficients(orders, memory, &coefficients).unwrap();
+            let old = dpd.basis(&x).dot(&ndarray::Array1::from(dpd.coefficients())).to_vec();
             let new = dpd.apply(&x);
             let scale = old.iter().map(|v| v.norm()).fold(0.0, f64::max);
             let worst = old.iter().zip(&new).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max) / scale;

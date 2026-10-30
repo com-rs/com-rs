@@ -130,7 +130,8 @@ impl Scenario for CoherentLink {
         let mut r = GardnerLoop { kp: 3e-3, ki: 1e-5, ..GardnerLoop::default() }.run(&signal::pnorm(&r)).signal;
         r.truncate(r.len() / SPS * SPS);
         let z = signal::pnorm(&resample::decimate(&r, SPS, 1)?);
-        let (z, fo) = carrier::fourth_power_foe_refined(&z, RS, 4)?;
+        let fo = carrier::fourth_power_foe_refined(&z, RS, 4)?;
+        let z = signal::freq_shift(&z, -fo, RS);
         let theta = carrier::unwrap(&carrier::bps(&z, 32, c.points(), 32)?, FRAC_PI_2);
         let z = carrier::derotate(&z, &theta, 1.0)?;
         let (delay, rotation) = frame_sync(&z, &x);

@@ -21,8 +21,36 @@ use crate::C64;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Slicer {
     points: Vec<C64>,
-    /// `(side, step, first real level, first imaginary level, point of every cell)`.
-    grid: Option<(usize, f64, f64, f64, Vec<usize>)>,
+    grid: Option<Grid>,
+}
+
+/// A regular grid of points: a line of levels (PAM) or a square of `side × side` (QAM).
+#[derive(Clone, Debug, PartialEq)]
+struct Grid {
+    /// The levels per axis.
+    side: usize,
+    /// The spacing of the levels.
+    step: f64,
+    /// The first real and imaginary levels.
+    re0: f64,
+    im0: f64,
+    /// Whether the points lie on the real axis (one row).
+    line: bool,
+    /// The point of every cell, row after row (`row · side + column`).
+    lookup: Vec<usize>,
+}
+
+impl Grid {
+    /// The cell of a coordinate `x` along an axis that starts at `x0`, clamped to the grid.
+    fn cell(&self, x: f64, x0: f64) -> usize {
+        ((x - x0) / self.step).round().clamp(0.0, (self.side - 1) as f64) as usize
+    }
+
+    /// The index of the point nearest to `z`.
+    fn nearest(&self, z: C64) -> usize {
+        let c = self.cell(z.re, self.re0);
+        if self.line { self.lookup[c] } else { self.lookup[self.cell(z.im, self.im0) * self.side + c] }
+    }
 }
 
 impl Slicer {
@@ -62,7 +90,7 @@ impl Slicer {
         l.iter().enumerate().all(|(i, v)| (v - (l[0] + step * i as f64)).abs() <= 1e-9 * step.abs()).then_some(step)
     }
 
-    fn detect(points: &[C64]) -> Option<(usize, f64, f64, f64, Vec<usize>)> {
+    fn detect(points: &[C64]) -> Option<Grid> {
         let m = points.len();
         if m < 2 {
             return None;
@@ -80,7 +108,7 @@ impl Slicer {
             for (i, p) in points.iter().enumerate() {
                 lookup[col(p.re)] = i;
             }
-            return Some((m, step, re[0], 0.0, lookup));
+            return Some(Grid { side: m, step, re0: re[0], im0: 0.0, line: true, lookup });
         }
         let im = Slicer::levels(points.iter().map(|p| p.im));
         let step_im = Slicer::regular(&im)?;
@@ -96,16 +124,14 @@ impl Slicer {
             }
             lookup[r * side + c] = i;
         }
-        Some((side, step, re[0], im[0], lookup))
+        Some(Grid { side, step, re0: re[0], im0: im[0], line: false, lookup })
     }
 
     /// Index of the nearest point.
     #[inline]
     pub fn nearest(&self, z: C64) -> usize {
-        if let Some((side, step, re0, im0, lookup)) = &self.grid {
-            let cell = |x: f64, x0: f64| ((x - x0) / step).round().clamp(0.0, (*side - 1) as f64) as usize;
-            let c = cell(z.re, *re0);
-            if lookup.len() == *side { lookup[c] } else { lookup[cell(z.im, *im0) * side + c] }
+        if let Some(grid) = &self.grid {
+            grid.nearest(z)
         } else {
             let mut best = (f64::INFINITY, 0usize);
             for (i, p) in self.points.iter().enumerate() {

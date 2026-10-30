@@ -18,13 +18,16 @@
 //! - NRZ: `sps` ones convolved with a Gaussian `e^{-t²}` sampled on `[-2, 2]`.
 //!
 //! [`rrc_spectrum`] gives the exact root-raised-cosine *frequency* response on the bins
-//! of a periodic block, the matched filter of the split-step simulations.
+//! of a periodic block, the matched filter of the split-step simulations, from the
+//! scalar [`raised_cosine_spectrum`].
 //!
 //! # Filtering
 //!
 //! - [`fir_filter`] convolves with the `same` alignment of `scipy.signal`: the output
 //!   has the length of the input and `y[n] = Σ_k h_k x[n + ⌊(L-1)/2⌋ - k]`, so a
-//!   symmetric filter introduces no delay; long filters use the FFT;
+//!   symmetric filter introduces no delay; long filters use the FFT (directly up to 32
+//!   taps, by overlap-add for a signal longer than 8 filters); a [`Fir`] keeps the
+//!   converted taps and the spectrum of the overlap-add for many blocks;
 //! - [`low_pass_fir`] designs a windowless sinc (`Rect`) or Gaussian low-pass FIR of
 //!   cut-off `fc`;
 //! - [`moving_average`] (centred, zeros outside).
@@ -159,72 +162,130 @@ pub fn pulse_shape(shape: PulseShape, sps: usize, n_taps: usize) -> Vec<f64> {
     pulse.iter().map(|v| v / s).collect()
 }
 
+/// The raised-cosine spectrum of roll-off $\beta$ = `rolloff` at the frequency `f` for
+/// the symbol rate $R_{s}$ = `symbol_rate` (in the same unit), normalised to 1 in the
+/// flat band:
+///
+/// $$
+/// \mathrm{RC}(f) = \begin{cases} 1, & |f| \le f_{1}, \\\\
+/// \frac{1}{2}\left[1 + \cos\left(\frac{\pi}{\beta R_{s}}\left(|f| - f_{1}\right)\right)
+/// \right], & f_{1} < |f| < f_{2}, \\\\ 0, & |f| \ge f_{2}, \end{cases}
+/// \qquad f_{1,2} = \frac{(1 \mp \beta) R_{s}}{2}.
+/// $$
+///
+/// The shape of [`rrc_spectrum`] (its square root) and of the WDM channels of the GN
+/// model (`com_channel::optical::gn::WdmSpectrum`); a rectangular spectrum for
+/// $\beta = 0$.
+///
+/// # Examples
+/// ```
+/// use com_dsp::filter::raised_cosine_spectrum;
+/// assert_eq!(raised_cosine_spectrum(10e9, 32e9, 0.1), 1.0);
+/// assert!((raised_cosine_spectrum(16e9, 32e9, 0.1) - 0.5).abs() < 1e-15);
+/// assert_eq!(raised_cosine_spectrum(-20e9, 32e9, 0.1), 0.0);
+/// ```
+pub fn raised_cosine_spectrum(f: f64, symbol_rate: f64, rolloff: f64) -> f64 {
+    let x = f.abs();
+    let lo = (1.0 - rolloff) * symbol_rate / 2.0;
+    let hi = (1.0 + rolloff) * symbol_rate / 2.0;
+    if x <= lo {
+        1.0
+    } else if x >= hi {
+        0.0
+    } else {
+        0.5 * (1.0 + (PI / (rolloff * symbol_rate) * (x - lo)).cos())
+    }
+}
+
 /// Root of the raised-cosine spectrum on the `n_sym·sps` bins of a periodic block.
 ///
-/// `H_k = √RC(f_k)` with `f_k` the frequency of bin `k` in symbol-rate units; the value
-/// is 1 in the passband, so that shaping followed by matched filtering with this
-/// response is exactly Nyquist on a periodic block.
+/// `H_k = √RC(f_k)` ([`raised_cosine_spectrum`]) with `f_k` the frequency of bin `k` in
+/// symbol-rate units; the value is 1 in the passband, so that shaping followed by
+/// matched filtering with this response is exactly Nyquist on a periodic block.
 pub fn rrc_spectrum(n_sym: usize, sps: usize, rolloff: f64) -> Vec<f64> {
-    let lo = 0.5 * (1.0 - rolloff);
-    let hi = 0.5 * (1.0 + rolloff);
     fft::fftfreq(n_sym * sps, 1.0)
         .into_iter()
-        .map(|f| {
-            let f = (f * sps as f64).abs();
-            let rc = if f <= lo {
-                1.0
-            } else if f < hi {
-                0.5 * (1.0 + (PI / rolloff * (f - lo)).cos())
-            } else {
-                0.0
-            };
-            rc.sqrt()
-        })
+        .map(|f| raised_cosine_spectrum(f * sps as f64, 1.0, rolloff).sqrt())
         .collect()
 }
 
-/// Full linear convolution of `x` with complex taps `h` (direct or by FFT).
-pub fn convolve_full(h: &[C64], x: &[C64]) -> Vec<C64> {
-    if h.is_empty() || x.is_empty() {
-        return Vec::new();
+/// A filter shorter than this (or a signal), in taps, is convolved directly.
+const DIRECT_MAX_TAPS: usize = 32;
+
+/// A signal longer than this many filter lengths is convolved by overlap-add.
+const OVERLAP_ADD_RATIO: usize = 8;
+
+/// The smallest FFT of the overlap-add (blocks of a few filter lengths otherwise).
+const OVERLAP_ADD_MIN_FFT: usize = 64;
+
+/// The spectrum of a filter on the FFT of the overlap-add, `(4 L)` rounded up to a power
+/// of two (at least [`OVERLAP_ADD_MIN_FFT`]).
+#[derive(Clone, Debug)]
+struct OverlapAdd {
+    plan: fft::Fft,
+    spectrum: Vec<C64>,
+}
+
+impl OverlapAdd {
+    fn new(h: &[C64]) -> OverlapAdd {
+        let nfft = (4 * h.len()).next_power_of_two().max(OVERLAP_ADD_MIN_FFT);
+        let plan = fft::plan(nfft);
+        let mut spectrum = vec![C64::new(0.0, 0.0); nfft];
+        spectrum[..h.len()].copy_from_slice(h);
+        plan.forward(&mut spectrum);
+        OverlapAdd { plan, spectrum }
     }
+}
+
+/// The samples `start..start + out.len()` of the full linear convolution of `x` with the
+/// non-empty taps `h`, added to `out` (zeros on entry): directly when the filter or the
+/// signal is short, by overlap-add (with the spectrum of the filter, computed here if
+/// `ola` does not hold it) when the signal is long, by one FFT otherwise. Every sample
+/// adds its terms in the order of the full convolution.
+fn convolve_window(h: &[C64], ola: Option<&OverlapAdd>, x: &[C64], start: usize, out: &mut [C64]) {
     let n = x.len() + h.len() - 1;
-    if h.len().min(x.len()) <= 32 {
-        let mut y = vec![C64::new(0.0, 0.0); n];
+    let end = start + out.len();
+    let mut add = |j: usize, v: C64| {
+        if j >= start && j < end {
+            out[j - start] += v;
+        }
+    };
+    if h.len().min(x.len()) <= DIRECT_MAX_TAPS {
         for (i, &xi) in x.iter().enumerate() {
             for (k, &hk) in h.iter().enumerate() {
-                y[i + k] += hk * xi;
+                add(i + k, hk * xi);
             }
         }
-        return y;
+        return;
     }
     // a long signal and a shorter filter: overlap-add with blocks of a few filter lengths
-    if x.len() > 8 * h.len() {
-        let nfft = (4 * h.len()).next_power_of_two().max(64);
+    if x.len() > OVERLAP_ADD_RATIO * h.len() {
+        let own;
+        let ola = if let Some(o) = ola {
+            o
+        } else {
+            own = OverlapAdd::new(h);
+            &own
+        };
+        let (p, hf) = (&ola.plan, &ola.spectrum);
+        let nfft = p.len();
         let block = nfft - h.len() + 1;
-        let p = fft::plan(nfft);
-        let mut hf = vec![C64::new(0.0, 0.0); nfft];
-        hf[..h.len()].copy_from_slice(h);
-        p.forward(&mut hf);
-        let mut y = vec![C64::new(0.0, 0.0); n];
         let mut buf = vec![C64::new(0.0, 0.0); nfft];
-        for start in (0..x.len()).step_by(block) {
-            let seg = &x[start..(start + block).min(x.len())];
-            for v in &mut buf {
-                *v = C64::new(0.0, 0.0);
-            }
+        for first in (0..x.len()).step_by(block) {
+            let seg = &x[first..(first + block).min(x.len())];
+            buf.fill(C64::new(0.0, 0.0));
             buf[..seg.len()].copy_from_slice(seg);
             p.forward(&mut buf);
-            for (u, v) in buf.iter_mut().zip(&hf) {
+            for (u, v) in buf.iter_mut().zip(hf) {
                 *u *= v;
             }
             p.inverse(&mut buf);
-            let len = (seg.len() + h.len() - 1).min(n - start);
-            for (yo, b) in y[start..start + len].iter_mut().zip(&buf) {
-                *yo += b;
+            let len = (seg.len() + h.len() - 1).min(n - first);
+            for (m, b) in buf[..len].iter().enumerate() {
+                add(first + m, *b);
             }
         }
-        return y;
+        return;
     }
     let m = n.next_power_of_two();
     let p = fft::plan(m);
@@ -238,25 +299,88 @@ pub fn convolve_full(h: &[C64], x: &[C64]) -> Vec<C64> {
         *u *= v;
     }
     p.inverse(&mut a);
-    a.truncate(n);
-    a
+    out.copy_from_slice(&a[start..end]);
+}
+
+/// Full linear convolution of `x` with complex taps `h` (direct or by FFT).
+pub fn convolve_full(h: &[C64], x: &[C64]) -> Vec<C64> {
+    if h.is_empty() || x.is_empty() {
+        return Vec::new();
+    }
+    let mut y = vec![C64::new(0.0, 0.0); x.len() + h.len() - 1];
+    convolve_window(h, None, x, 0, &mut y);
+    y
 }
 
 /// FIR filtering with complex taps and the `same` alignment: as many samples as `x`
 /// (zeros for no tap).
 pub fn fir_filter_complex(h: &[C64], x: &[C64]) -> Vec<C64> {
-    if h.is_empty() || x.is_empty() {
-        return vec![C64::new(0.0, 0.0); x.len()];
+    let mut y = vec![C64::new(0.0, 0.0); x.len()];
+    if !h.is_empty() && !x.is_empty() {
+        convolve_window(h, None, x, (h.len() - 1) / 2, &mut y);
     }
-    let full = convolve_full(h, x);
-    let start = (h.len() - 1) / 2;
-    full[start..start + x.len()].to_vec()
+    y
 }
 
 /// FIR filtering with real taps and the `same` alignment (OptiCommPy `firFilter`).
 pub fn fir_filter(h: &[f64], x: &[C64]) -> Vec<C64> {
     let hc: Vec<C64> = h.iter().map(|&v| C64::new(v, 0.0)).collect();
     fir_filter_complex(&hc, x)
+}
+
+/// An FIR filter built once for many blocks: [`fir_filter_complex`] (the `same`
+/// alignment, the same results bit for bit) with the taps converted once and, for a
+/// filter of more than 32 taps, the spectrum of the overlap-add of long signals computed
+/// once; [`Fir::filter_into`] reuses its output (ADR 0011).
+///
+/// # Examples
+/// ```
+/// use com_dsp::filter::{Fir, fir_filter};
+/// use com_math::C64;
+/// let h: Vec<f64> = (0..41).map(|k| 1.0 / (1.0 + (k as f64 - 20.0).abs())).collect();
+/// let x: Vec<C64> = (0..1000).map(|n| C64::new((0.1 * n as f64).sin(), 0.0)).collect();
+/// let fir = Fir::new(&h);
+/// let mut y = Vec::new();
+/// fir.filter_into(&x, &mut y);
+/// assert_eq!(y, fir_filter(&h, &x));
+/// ```
+#[derive(Clone, Debug)]
+pub struct Fir {
+    taps: Vec<C64>,
+    overlap_add: Option<OverlapAdd>,
+}
+
+impl Fir {
+    /// The filter of the real taps `taps`.
+    pub fn new(taps: &[f64]) -> Fir {
+        Fir::complex(&taps.iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>())
+    }
+
+    /// The filter of the complex taps `taps`.
+    pub fn complex(taps: &[C64]) -> Fir {
+        Fir { taps: taps.to_vec(), overlap_add: (taps.len() > DIRECT_MAX_TAPS).then(|| OverlapAdd::new(taps)) }
+    }
+
+    /// The taps.
+    pub fn taps(&self) -> &[C64] {
+        &self.taps
+    }
+
+    /// Filter `x` with the `same` alignment ([`fir_filter_complex`]).
+    pub fn filter(&self, x: &[C64]) -> Vec<C64> {
+        let mut y = Vec::new();
+        self.filter_into(x, &mut y);
+        y
+    }
+
+    /// [`Fir::filter`] into `out`, resized to the length of `x` and filled in place.
+    pub fn filter_into(&self, x: &[C64], out: &mut Vec<C64>) {
+        out.clear();
+        out.resize(x.len(), C64::new(0.0, 0.0));
+        if !self.taps.is_empty() && !x.is_empty() {
+            convolve_window(&self.taps, self.overlap_add.as_ref(), x, (self.taps.len() - 1) / 2, out);
+        }
+    }
 }
 
 /// Low-pass FIR filter types of [`low_pass_fir`].
@@ -369,6 +493,42 @@ mod tests {
         assert!(up.iter().all(|v| (v - C64::new(1.0, 0.0)).norm() < 1e-12));
         let d = delay_fft(&x, 0.0, 1.0);
         assert!(d.iter().zip(&x).all(|(a, b)| (a - b).norm() < 1e-12));
+    }
+
+    #[test]
+    fn a_fir_built_once_filters_as_the_functions_bit_for_bit() {
+        // the three paths: direct (17 taps), one FFT (101 taps, 500 samples) and
+        // overlap-add (101 taps, 5000 samples), with a reused output
+        let x: Vec<C64> = (0..5000).map(|k| C64::new((k as f64 * 0.37).sin(), (k as f64 * 0.11).cos())).collect();
+        let h: Vec<f64> = (0..101).map(|k| ((k as f64 - 50.0) * 0.21).cos() / (1.0 + k as f64)).collect();
+        let mut out = Vec::with_capacity(5000);
+        for (taps, len) in [(&h[..17], 300), (&h[..], 500), (&h[..], 5000)] {
+            let fir = Fir::new(taps);
+            fir.filter_into(&x[..len], &mut out);
+            assert_eq!(out, fir_filter(taps, &x[..len]));
+            assert_eq!(fir.filter(&x[..len]), out);
+        }
+        assert!(out.capacity() >= 5000);
+        assert_eq!(Fir::new(&[]).filter(&x[..3]), vec![C64::new(0.0, 0.0); 3]);
+    }
+
+    #[test]
+    fn the_raised_cosine_spectrum_is_the_former_formula_of_rrc_spectrum() {
+        for rolloff in [0.0, 0.1, 0.3, 1.0] {
+            let (lo, hi) = (0.5 * (1.0 - rolloff), 0.5 * (1.0 + rolloff));
+            for k in 0..200 {
+                let f = (k as f64 - 100.0) * 0.0123;
+                let a = f64::abs(f);
+                let former = if a <= lo {
+                    1.0
+                } else if a < hi {
+                    0.5 * (1.0 + (PI / rolloff * (a - lo)).cos())
+                } else {
+                    0.0
+                };
+                assert_eq!(raised_cosine_spectrum(f, 1.0, rolloff), former);
+            }
+        }
     }
 
     #[test]
