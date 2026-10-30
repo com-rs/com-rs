@@ -36,7 +36,9 @@ RUST_ITEM = re.compile(
 RUST_IMPL = re.compile(
     r"^impl(?:<[^>]*>)?\s+(?:(?P<trait>[A-Za-z0-9_:<>, ]+?)\s+for\s+)?(?P<type>[A-Za-z_][A-Za-z0-9_]*)"
 )
-RUST_MACRO_ITEM = re.compile(r"^\s*(?:pub\s+)?struct\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\{")
+RUST_MACRO_ITEM = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?struct\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\{"
+)
 
 
 def rust_items(path: Path) -> list[tuple[str, str, str]]:

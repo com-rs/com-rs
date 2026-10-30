@@ -20,6 +20,7 @@ block  # Interleaver::block (the row-column interleaver) / PilotPattern::block (
 block_len
 bussgang
 check
+check_link  # blocks::check_link is the thin wrapper of schema::check_link on the registry, as json_schema
 code
 coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 conditions
