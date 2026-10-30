@@ -119,6 +119,25 @@ Rules
 - **OptiCommPy without numba** means ``NUMBA_DISABLE_JIT=1``: numba's own switch, which
   runs every ``@njit`` function of OptiCommPy as plain Python (OptiCommPy has no option
   of its own). Its results are those of the compiled code; it is timed only.
+
+Limits of this comparison
+-------------------------
+
+- **CPU only.** Sionna is designed for GPUs, large batches, learning and automatic
+  differentiation; here it runs on the CPU, eagerly, without ``torch.compile``. Its
+  times on a GPU would be different, and com-rs has no GPU path.
+- **Python libraries only.** komm, OptiCommPy and Sionna are NumPy, numba and PyTorch
+  code. Specialised C++ libraries (AFF3CT, SIMD decoders) are not timed here: com-rs is
+  compared with AFF3CT on its error rates only (:doc:`comparisons <comparisons>`).
+- **Precision.** com-rs computes in float64, Sionna in float32 by default: the faster
+  library is not always doing less work, but the two are not strictly the same
+  computation.
+- **One machine, cases chosen by com-rs.** The scenarios are the classical links that
+  several libraries offer; other machines, sizes and cases may rank the libraries
+  differently. The scripts are published to be rerun.
+- **Where com-rs is slower.** Over flat Rayleigh fading on one thread, the comrs
+  functions are slower than Sionna: the detector is called for every symbol, a fixed
+  cost of a fraction of a microsecond per call that dominates single-antenna links.
 """
 
 
