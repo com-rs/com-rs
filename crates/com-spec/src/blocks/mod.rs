@@ -89,6 +89,7 @@ pub(crate) mod tests;
 pub use crate::params::parse;
 pub use context::BuildContext;
 use context::FIBER_DOC;
+pub(crate) use context::merge_fiber;
 pub use frame::{CaptureState, ChannelState, Coding, Frame, InFlight, Layout, ReceiverState};
 pub use optical::WdmFrame;
 use per_pol::{part, per_pol};

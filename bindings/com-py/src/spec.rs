@@ -313,18 +313,26 @@ fn spec_check_link(kinds: Vec<String>) -> PyResult<()> {
 ///         list.
 ///     threads (int, optional): worker threads.
 ///     progress (bool): print one line per condition.
+///     report_path (str | os.PathLike | None): write the verification report there,
+///         the JSON file of ``comrs verify``.
 ///
 /// Returns:
 ///     dict: ``results`` (a list of dicts, as `run_spec`), ``checks`` (one dict per check with ``name``,
 ///     ``source``, ``condition``, ``metric``, ``expected``, ``value``, ``lo``, ``hi``,
 ///     ``passed``) and ``passed`` (all checks passed).
+///
+/// Raises:
+///     ValueError: for a specification without expectations, an invalid one, or an
+///         expectation that checks no condition.
+///     OSError: if the report cannot be written.
 #[pyfunction]
-#[pyo3(signature = (spec, *, threads = None, progress = false))]
+#[pyo3(signature = (spec, *, threads = None, progress = false, report_path = None))]
 fn verify_spec<'py>(
     py: Python<'py>,
     spec: &Bound<'py, PyAny>,
     threads: Option<usize>,
     progress: bool,
+    report_path: Option<PathBuf>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let spec = load(py, spec)?;
     let opts = RunOptions { threads, progress: Some(progress), ..RunOptions::default() };
@@ -337,6 +345,10 @@ fn verify_spec<'py>(
         }
     };
     out.set_item("results", PyList::new(py, items)?)?;
+    if let Some(p) = &report_path {
+        verify::write_report(p, &spec, &opts, &checks).py()?;
+    }
+    // the checks with the fields of the report of `comrs verify`
     let cs = PyList::empty(py);
     for c in &checks {
         let d = PyDict::new(py);
@@ -345,9 +357,9 @@ fn verify_spec<'py>(
         d.set_item("condition", &c.condition)?;
         d.set_item("metric", &c.metric)?;
         d.set_item("expected", c.expected)?;
-        d.set_item("value", c.measured.0)?;
-        d.set_item("lo", c.measured.1)?;
-        d.set_item("hi", c.measured.2)?;
+        d.set_item("value", c.measured.value)?;
+        d.set_item("lo", c.measured.lo)?;
+        d.set_item("hi", c.measured.hi)?;
         d.set_item("passed", c.passed)?;
         cs.append(d)?;
     }

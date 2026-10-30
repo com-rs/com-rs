@@ -50,9 +50,10 @@
 use crate::params::parse;
 use crate::{RunOptions, Spec, SpecScenario};
 use com_core::{Error, Result, ensure};
-use com_sim::grid::{Condition, Grid, Value};
+use com_sim::grid::{Condition, Grid};
 use com_sim::json;
-use com_sim::loggers::{create_parent_dir, csv_field};
+use com_sim::loggers::{create_parent_dir, csv_field, run_header, value_json, write_json as write_json_file};
+use com_sim::runner::RunInfo;
 use serde::Deserialize;
 use serde_json::Value as Json;
 use std::path::Path;
@@ -186,8 +187,11 @@ pub(crate) fn first_points(spec: &Spec) -> Option<Spec> {
 pub fn search(spec: &Spec, opts: &RunOptions) -> Result<Vec<SearchResult>> {
     let s = spec.search.as_ref().ok_or_else(|| Error::Config(format!("{}: no search section", spec.name)))?;
     let g = |v: f64| if s.log { v.max(1e-300).log10() } else { v };
+    let combos = combinations(&spec.grid, &s.along);
+    let info = spec.bare_runner(opts).run_info(&spec.name, combos.len());
+    let t0 = std::time::Instant::now();
     let mut results = Vec::new();
-    for base in combinations(&spec.grid, &s.along) {
+    for base in combos {
         let eval = |x: f64| -> Result<Evaluation> {
             let cond = base.clone().with(&s.along, x);
             // a single condition: index 0, so every value of the variable sees the same
@@ -255,7 +259,7 @@ pub fn search(spec: &Spec, opts: &RunOptions) -> Result<Vec<SearchResult>> {
         write_csv(p, &results)?;
     }
     if let Some(p) = opts.json.as_ref().or(spec.json.as_ref()) {
-        write_json(p, spec, &results)?;
+        write_json(p, &info, t0.elapsed().as_secs_f64(), &results)?;
     }
     Ok(results)
 }
@@ -300,27 +304,15 @@ fn write_csv(path: &Path, results: &[SearchResult]) -> Result<()> {
     Ok(())
 }
 
-fn write_json(path: &Path, spec: &Spec, results: &[SearchResult]) -> Result<()> {
-    create_parent_dir(path)?;
+/// The JSON report of a search: the header of the reports of the runs
+/// ([`com_sim::loggers::run_header`]), the wall time, and every operating point with its
+/// evaluations.
+fn write_json(path: &Path, info: &RunInfo, wall_s: f64, results: &[SearchResult]) -> Result<()> {
     let items: Vec<String> = results
         .iter()
         .map(|r| {
-            let cond: Vec<(&str, String)> = r
-                .condition
-                .entries()
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        k.as_str(),
-                        match v {
-                            Value::F64(x) => json::number(*x),
-                            Value::I64(x) => x.to_string(),
-                            Value::Str(s) => json::string(s),
-                            Value::Bool(b) => b.to_string(),
-                        },
-                    )
-                })
-                .collect();
+            let cond: Vec<(&str, String)> =
+                r.condition.entries().iter().map(|(k, v)| (k.as_str(), value_json(v))).collect();
             let evals: Vec<String> = r
                 .evaluations
                 .iter()
@@ -347,17 +339,10 @@ fn write_json(path: &Path, spec: &Spec, results: &[SearchResult]) -> Result<()> 
             ])
         })
         .collect();
-    let doc = json::object(&[
-        ("scenario", json::string(&spec.name)),
-        ("seed", spec.seed.to_string()),
-        ("confidence", json::number(spec.confidence)),
-        ("version", json::string(com_sim::VERSION)),
-        ("commit", json::string(com_sim::COMMIT)),
-        ("config", spec.source.to_string()),
-        ("search", json::array(&items)),
-    ]);
-    std::fs::write(path, doc + "\n")?;
-    Ok(())
+    let mut fields = run_header(info);
+    fields.push(("wall_s", json::number(wall_s)));
+    fields.push(("search", json::array(&items)));
+    write_json_file(path, &json::object(&fields))
 }
 
 #[cfg(test)]
@@ -419,7 +404,11 @@ mod tests {
         let csv = std::fs::read_to_string(dir.join("s.csv")).unwrap();
         assert!(csv.starts_with("m,metric,target,ebn0_db,ebn0_db_lo,ebn0_db_hi,converged,evaluations\n"), "{csv}");
         assert_eq!(csv.lines().count(), 3);
-        assert!(std::fs::read_to_string(dir.join("s.json")).unwrap().contains("\"evaluations\""));
+        let json = std::fs::read_to_string(dir.join("s.json")).unwrap();
+        // the header of the reports of the runs
+        for key in ["\"evaluations\"", "\"batch\"", "\"threads\"", "\"stop\"", "\"commit\"", "\"wall_s\""] {
+            assert!(json.contains(key), "{key} missing");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }

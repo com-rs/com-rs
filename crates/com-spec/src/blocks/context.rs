@@ -57,15 +57,7 @@ impl BuildContext {
     }
 
     fn fiber_map(&self, block: Option<&Json>) -> Result<Map<String, Json>> {
-        let mut m = Map::new();
-        for src in [self.fiber.as_ref(), block].into_iter().flatten() {
-            match src {
-                Json::Object(o) => m.extend(o.clone()),
-                Json::Null => {}
-                other => return Err(Error::Config(format!("fiber must be a mapping, got {other}"))),
-            }
-        }
-        Ok(m)
+        merge_fiber(self.fiber.as_ref(), block)
     }
 
     /// A path relative to the specification.
@@ -76,6 +68,23 @@ impl BuildContext {
             _ => p,
         }
     }
+}
+
+/// The fibre mapping of a block (or of a theory) merged over that of the
+/// specification: the keys of `block` replace those of `spec`.
+///
+/// # Errors
+/// [`Error::Config`] for a value that is not a mapping.
+pub(crate) fn merge_fiber(spec: Option<&Json>, block: Option<&Json>) -> Result<Map<String, Json>> {
+    let mut m = Map::new();
+    for src in [spec, block].into_iter().flatten() {
+        match src {
+            Json::Object(o) => m.extend(o.clone()),
+            Json::Null => {}
+            other => return Err(Error::Config(format!("fiber must be a mapping, got {other}"))),
+        }
+    }
+    Ok(m)
 }
 
 #[derive(Deserialize)]

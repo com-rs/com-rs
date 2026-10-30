@@ -166,7 +166,6 @@ fn verify_one(path: &PathBuf, a: &Args) -> com_core::Result<usize> {
     let failed = checks.iter().filter(|c| !c.passed).count();
     println!("{}: {} checks, {} failed", spec.name, checks.len(), failed);
     for c in &checks {
-        let (v, lo, hi) = c.measured;
         println!(
             "  {} {} | {} | {}: expected {:.4e}, measured {:.4e} [{:.3e}, {:.3e}]",
             if c.passed { "ok  " } else { "FAIL" },
@@ -174,21 +173,12 @@ fn verify_one(path: &PathBuf, a: &Args) -> com_core::Result<usize> {
             c.condition,
             c.metric,
             c.expected,
-            v,
-            lo,
-            hi
+            c.measured.value,
+            c.measured.lo,
+            c.measured.hi
         );
     }
-    let report: Vec<serde_json::Value> = checks
-        .iter()
-        .map(|c| {
-            serde_json::json!({"name": c.name, "source": c.source, "condition": c.condition, "metric": c.metric,
-                "expected": c.expected, "value": c.measured.0, "lo": c.measured.1, "hi": c.measured.2, "passed": c.passed})
-        })
-        .collect();
-    std::fs::create_dir_all(&a.out)?;
-    let doc = serde_json::json!({"spec": spec.name, "version": env!("CARGO_PKG_VERSION"), "checks": report});
-    std::fs::write(a.out.join(format!("{}.verify.json", spec.name)), to_json(&doc)?)?;
+    verify::write_report(&a.out.join(format!("{}.verify.json", spec.name)), &spec, &opts, &checks)?;
     Ok(failed)
 }
 

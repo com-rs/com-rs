@@ -49,7 +49,8 @@ pub struct Spec {
     pub json: Option<PathBuf>,
     /// Directory of the specification file (relative paths of the blocks).
     pub base_dir: Option<PathBuf>,
-    /// The expected results (see [`verify`]).
+    /// The expected results (see [`verify`]), the fibre of their `gn_snr_db` theories
+    /// merged over the `fiber` of the specification.
     pub expect: Vec<Json>,
     /// The search of an operating point (see [`search`]), instead of the sweep.
     pub search: Option<search::SearchSpec>,
@@ -361,7 +362,12 @@ impl Spec {
         if raw.link.is_empty() {
             return Err(Error::Config("the link has no block".into()));
         }
-        for e in &raw.expect {
+        let expect = raw
+            .expect
+            .into_iter()
+            .map(|e| verify::resolve_fiber(e, raw.fiber.as_ref()))
+            .collect::<Result<Vec<_>>>()?;
+        for e in &expect {
             verify::Expectation::from_json(e)?;
         }
         Ok(Spec {
@@ -383,7 +389,7 @@ impl Spec {
             csv: raw.output.csv,
             json: raw.output.json,
             base_dir: None,
-            expect: raw.expect,
+            expect,
             search: raw.search.as_ref().map(search::SearchSpec::from_json).transpose()?,
         })
     }
