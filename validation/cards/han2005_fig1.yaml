@@ -1,0 +1,42 @@
+id: han2005_fig1
+title: The 0.1 percent PAPR of QPSK OFDM, unmodified and with SLM of 16 candidates
+literature: han2005
+source:
+  kind: paper
+  reference: "S. H. Han, J. H. Lee, An overview of peak-to-average power ratio reduction techniques for multicarrier transmission, IEEE Wireless Commun. 12(2), 56-65, 2005"
+  locator: "Fig. 1 and the text of Sec. 'The CCDF of the PAPR': the PAPR exceeded by 0.1 % of the blocks"
+  file: multicarrier/2005_han_papr-reduction-overview_wcm.pdf
+description: >
+  QPSK on N = 256 and 1024 subcarriers, oversampled L = 4 times (comrs.waveform.ofdm.Ofdm),
+  the PAPR of eq. (4) (comrs.math.papr_db) of 100 000 random blocks per N, unmodified
+  and with SLM of 16 candidates (comrs.waveform.papr.Slm: the original block and 15
+  random sequences of +-1, +-j); the PAPR exceeded by 0.1 % of the blocks.
+run:
+  test: validation/tests/han2005.rs::han_lee_2005_fig_1
+tier: campaign
+duration: "40 s on an Apple M6"
+tolerance: {atol: 0.15}
+why: >
+  the values are printed to 0.1 dB (0.05 dB of rounding); the 0.1 % point of 100 000
+  blocks has a standard error of about 0.03 dB (unmodified) and less with SLM, whose
+  curves are steeper
+findings:
+  - "SLM uses random sequences of +-1, +-j (the paper does not give its sequences); the 0.1 % PAPR is 11.31, 11.72, 8.05 and 8.94 dB against 11.3, 11.7, 8.1 and 8.9"
+  - "the closed forms of com-rs give the same points within 0.13 dB: Ochiai and Imai's eq. (27) for the oversampled signal (ccdf_oversampled, raised to the power 16 for SLM, ccdf_slm) reaches 0.1 % at 11.40, 11.83, 8.10 and 9.00 dB; eq. (6) of the paper (Nyquist rate) at 10.95 and 11.41 dB, 0.3 dB too low, as the text warns"
+cases:
+  - inputs: {n: 256, candidates: 1}
+    expected: 11.3
+  - inputs: {n: 1024, candidates: 1}
+    expected: 11.7
+  - inputs: {n: 256, candidates: 16}
+    expected: 8.1
+  - inputs: {n: 1024, candidates: 16}
+    expected: 8.9
+  - inputs: {n: 256, metric: reduction_db}
+    expected: 3.2
+    tolerance: {atol: 0.2}
+    why: "the difference of two values printed to 0.1 dB, each with its Monte Carlo error"
+  - inputs: {n: 1024, metric: reduction_db}
+    expected: 2.8
+    tolerance: {atol: 0.2}
+    why: "the difference of two values printed to 0.1 dB, each with its Monte Carlo error"

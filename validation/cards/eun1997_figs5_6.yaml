@@ -1,0 +1,38 @@
+id: eun1997_figs5_6
+title: NMSE of indirect-learning predistortion of a satellite channel with memory
+literature: eun1997
+source:
+  kind: paper
+  reference: "C. Eun, E. J. Powers, A new Volterra predistorter based on the indirect learning architecture, IEEE Trans. Signal Process. 45(1), 223-227, 1997"
+  locator: "Sec. V, Figs. 5(c) and 6(c): NMSE of eq. (18) printed in the captions and the text"
+  file: hardware/1997_eun_volterra-predistorter-indirect-learning_tsp.pdf
+description: >
+  The channel of Fig. 2: causal transmit filter h = [0.8, 0.1] (eq. 19), the TWT of
+  eqs. (15)-(16) with alpha_a = 2, beta_a = 1, alpha_phi = pi/3, beta_phi = 1
+  (comrs.hardware.amplifier.Saleh), causal receive filter g = [0.9, 0.2, 0.1] (eq. 20);
+  16-PSK and 16-QAM at one sample per symbol, peak amplitude 0.64, no noise. A memory
+  polynomial of orders 1 and 3 and memory 3 (comrs.dsp.compensation.dpd) is trained by
+  indirect learning on 4000 symbols (6 iterations of batch least squares) for the unit
+  gain; the NMSE of eq. (18) is measured on 500 fresh symbols.
+run:
+  test: validation/tests/eun1997.rs::eun_powers_1997_figs_5_6
+tier: ci
+tolerance: {factor: 12.0}
+why: >
+  the agreement obtained, not a precision of the paper: its predistorter is a full
+  third-order Volterra series of memory 3 (eqs. 1-4), whose cross terms
+  |x[n-k]|^2 x[n-l] (k != l) model the intersymbol interference ahead of the TWT; the
+  memory polynomial of com-rs is its diagonal (most likely the cause), and stops 5 to 11 times above the
+  printed NMSE
+findings:
+  - "the memory polynomial of the same order and memory (orders 1 and 3, memory 3) reaches an NMSE of 7.7e-3 (16-PSK) and 4.2e-3 (16-QAM), 11 and 5 times the printed 7e-4 and 8.0e-4; more terms barely help (orders 1, 3, 5 and memory 5: 5.3e-3 and 2.4e-3, seed 1997): the gap most likely comes from the cross terms of the Volterra series, which com-rs does not implement (no generalized memory polynomial or full Volterra predistorter)"
+  - "the predistorter is fitted by batch least squares (6 iterations of indirect learning), not by the RLS of eqs. (10)-(14)"
+  - "the pth-order inverse (NMSE 0.088 and 0.17, Figs. 5(d) and 6(d)) is not implemented"
+  - "the captions of Figs. 5 and 6 call the predistorter 'direct Volterra' where the text says indirect"
+cases:
+  - inputs: {modulation: 16psk}
+    expected: 7.0e-4
+    note: "Fig. 5(c) and the text: NMSE = 0.0007 with the Volterra predistorter"
+  - inputs: {modulation: 16qam}
+    expected: 8.0e-4
+    note: "Fig. 6(c) and the text: NMSE = 8.0e-4 with the Volterra predistorter"
