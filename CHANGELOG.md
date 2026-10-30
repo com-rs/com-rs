@@ -272,7 +272,7 @@ A review of the whole library before the release settled its conventions
 ### Conventions of the API (plan of 30 October 2026)
 
 The rules of `docs/ARCHITECTURE.md` (naming conventions, errors) applied to the
-crates; the Python API keeps its names until its own pass.
+crates; the Python API follows in the next section.
 
 - Units in the names: `Cdl::{fc_hz, velocity_mps, delay_spread_s(), max_doppler_hz()}`,
   `Ray::doppler_hz`, `WdmSpectrum::freqs_hz`, `WdmTransmitter::freqs_hz`,
@@ -306,6 +306,78 @@ crates; the Python API keeps its names until its own pass.
 - The optical propagators work in place and return `Result`: `Ssfm::propagate`
   (`propagate_f32`, `propagate_with`), `Edfa::apply`, `PmdLink::apply` (on a `DualPol`),
   as `ManakovSsfm` and `ManakovPmd`.
+
+### Conventions of the Python API (plan of 30 October 2026)
+
+The Python rules of `docs/ARCHITECTURE.md` and the names of the crates, applied to the
+package (0.2.0 is unreleased: the former names are not kept).
+
+- Names of the crates: `Constellation.map_bits`/`demap_bits` and the same for `Dpsk`
+  (were `modulate`/`demodulate`), `Ccdm.match_bits` (`matched`), `ManakovPmd`
+  (`Manakov`), `CeOfdm(n_subcarriers)` and `CeOfdm.n_subcarriers` (`n_data`),
+  `CeOfdm.ser_esn0`/`ber_esn0` (`ser`/`ber`), `theory_ser_esn0` (new), `lagrange_cubic`
+  (`interpolate_cubic`), `snr_crb_nmse(sps=)` (`samples_per_symbol`),
+  `CdlChannel(spacing_wavelengths=)` (`spacing`), `TurboCode(max_log=False)`
+  (`exact=True`), `Photodiode(temperature_k=, dark_current_a=)` and its attributes
+  (`temperature_c` in °C, `dark_current`), `NrLdpc(k, e)` and `NrPolar(k, e)` (`n`),
+  `NrLdpc(max_iterations=)` and `Dvbs2.max_iterations` (`iterations`: both stop on a
+  codeword).
+- Closed forms named `theory_*`: `theory_cm_capacity`, `theory_bicm_capacity`,
+  `theory_cm_cutoff_rate`, `theory_bicm_cutoff_rate`, `theory_biawgn_capacity`,
+  `theory_normal_approximation`, `theory_shannon_limit_ebn0_db`,
+  `theory_ergodic_capacity`, `theory_outage_probability`, `theory_outage_capacity`,
+  `theory_css_ser`, `theory_css_ber`, `theory_css_ser_interference`, `theory_msk_psd`,
+  `theory_sdr_gain_limited`, `theory_sdr_optimum_correction`,
+  `theory_differential_phase_tail` and `theory_ce_ofdm_ber_optimum`; arrays for the SNR
+  of `theory_css_ser_interference` and `theory_outage_probability` (the rate a number),
+  for the frequency of `theory_jitter_snr_db` and `zero_order_hold_gain` and for
+  `enob_from_sinad_db`; the linear SNRs `theory_phase_pdf(snr_lin)` and
+  `theory_differential_phase_tail(esn0_lin)`.
+- Stream-major arrays: `mimo_detect`, `mimo_llr` and `mimo_estimate` take the received
+  streams `(n_rx, n)` and return `(n_tx, n)` (the LLRs `(n_tx, n · log2 M)`, the LLR
+  sequence of every stream); the dual-polarisation fields of `ManakovPmd` and
+  `ManakovSsfm` (`propagate`, `backpropagate`, `backpropagate_with_pmd`,
+  `equalize_pmd`) are `(2, n)` arrays.
+- One return type per function: `Ofdm.modulate(data)` and
+  `Ofdm.modulate_with(data, reduction)` (the samples and the side information),
+  `Ofdm.demodulate(samples)` and `Ofdm.demodulate_with(samples, reduction, side=)`;
+  `papr_db(x)` (a float) and `papr_db_blocks(x, block_len)`; `mimo_channel` (one
+  matrix) and `mimo_channels(n, n_rx, n_tx, rng)` (was `mimo_channel(n=)`);
+  `mimo_capacity` an array `(n,)`; `ChannelTaps.frequency_response` always
+  `(n_bins, n_rx, n_tx)`; `read_sigmf` the first channel by default (1-D),
+  `channel=None` for every channel `(n_channels, n)`; `ManakovSsfm.propagate` the field
+  only, its number of steps in `ManakovSsfm.last_steps`.
+- The 5G NR and OFDM grids: `(n_subcarriers, n_symbols)` arrays with `(k, l)` pairs
+  for the resource elements: `nr_ssb_indices` and the `indices` of `nr_pdsch_dmrs`
+  (were the linear indices `l · K + k`), `ResourceGrid.map` (the grid), `extract` and
+  `ofdm_estimate` (the grid, or the symbols of `Ofdm.demodulate`), `Ofdm.modulate` and
+  `modulate_with` (a grid `(data_len, n_blocks)` too); the key
+  `subcarrier_spacing_hz` of `nr_numerology`.
+- The generator last: `GammaGamma.draw(n, rng)`, `PointingError.draw(n, rng)`,
+  `Fso.gains(n, rng)`; an optional generator by keyword: `Ssfm.propagate(x, fs, *,
+  precision, rng)`, `ManakovPmd.propagate(u, fs, *, rng)`,
+  `ManakovSsfm.propagate(u, fs, *, rng)`.
+- Keyword-only options: `fading` of the CM and BICM rates, `branches` of
+  `theory_ber_rayleigh_mrc`, `rho2` and `sigma_ratio` of `theory_ber_imperfect_csi`,
+  `lag` and `fs` of `cyclic_autocorrelation`, `fs` of `psd` and `periodogram`, `n_taps`
+  of `cd_savory_taps`, `pulse` of `Cpm`, `approximation` of `theory_css_ser`, `pbch` of
+  `nr_ssb_grid`, `iterations` of `message_passing`, `receiver` of
+  `CeOfdm.subcarrier_snr` and `ber_receiver`, the arguments of `Chain.run` and
+  `Chain.to_spec` but the grid (they were in two orders), `ax` of
+  `comrs.plot.constellation`, `eye`, `time` and `psd`.
+- Units in the names: `aclr_db(bandwidth_hz, offset_hz)`, `delay_fft(delay_s)`,
+  `freq_shift(offset_hz)`, `gn_closed_form(spacing_hz)`, `wdm_grid(spacing_hz)`,
+  `estimate_symbol_rate(f_min_hz, f_max_hz)`, `theory_jitter_snr_db(f_hz)`,
+  `zero_order_hold_gain(f_hz)`, `write_sigmf(fc_hz=)`.
+- `comrs.sim.Stop.to_spec()`, the `stop` mapping of a rule (`com_spec::stop_mapping`):
+  `Chain.run` given a `Stop` runs a native chain on every core when a specification can
+  write the rule. `comrs.sim.grid` expands its axes with `com_spec::grid_conditions`
+  instead of a specification built for the purpose.
+- Every fallible binding documents its exceptions (`Raises:`), those of the runner and
+  of the specifications included; the checks that the crates make are no longer
+  repeated in the bindings (`ddpll` pilots, `phase_noise` rate, `ResourceGrid.extract`).
+- The palette has one name per colour: `COBALT` (`BLUE`) and `GREY_WARM` (`GREY`) are
+  removed.
 
 ### Waveforms and hardware (review of 30 October 2026)
 

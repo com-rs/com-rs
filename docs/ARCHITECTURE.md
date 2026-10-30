@@ -336,13 +336,34 @@ convention in its name when it is not Eb/N0 (`theory::ser_esn0`).
 ### Python
 
 - Signals and multi-antenna arrays are stream-major, `(n_streams, n)`, everywhere; a
-  channel matrix is `(n_rx, n_tx)`.
-- The random generator is the last parameter, named `rng`.
+  channel matrix is `(n_rx, n_tx)`, a stack of them `(n, n_rx, n_tx)`, one per channel
+  use. The received streams of a MIMO detector are `(n_rx, n)` and its decisions
+  `(n_tx, n)`; its LLRs are the LLR sequence of every stream, `(n_tx, n · log2 M)`. A
+  dual-polarisation field is a `(2, n)` array.
+- A time-frequency grid is a `(n_subcarriers, n_symbols)` array, a column per OFDM
+  symbol, and its resource elements are `(k, l)` pairs, an `(n, 2)` array, so that
+  `grid[idx[:, 0], idx[:, 1]]` reads them. The functions that read a grid also take
+  the symbols of `Ofdm.demodulate` (symbol after symbol, the order of the crates).
+- The random generator is the last positional parameter, named `rng`; an optional
+  generator is a keyword (`propagate(x, fs, *, rng=None)`).
 - Tuning parameters are keyword-only.
-- A function returns one type, whatever its arguments.
+- A function returns one type, whatever its arguments: a second result is a second
+  function (`Ofdm.modulate` and `modulate_with`, `papr_db` and `papr_db_blocks`,
+  `mimo_channel` and `mimo_channels`); an array keeps its dimensions (a SISO frequency
+  response is `(n_bins, 1, 1)`). The closed forms that follow the shape of their SNR
+  argument, a float for a number and an array for an array, are the exception, as
+  NumPy's functions are.
 - A closed form is named `theory_*` and accepts arrays for its SNR argument.
 - Each item has the name of its Rust item, unless the Python idiom requires otherwise
-  (`__repr__`, `n_streams` properties).
+  (`__repr__`, `n_streams` properties). The Python names flatten the modules: a
+  function whose Rust name is only clear inside its module takes the module in its
+  name (`gn_closed_form`, `fog_attenuation_db_per_km`, `theory_ergodic_capacity` for
+  `capacity::ergodic_rayleigh`), and the parameters of a class that has a block in the
+  specifications are those of the block (`Ofdm(n_fft, n_subcarriers)` as `ofdm_tx`,
+  where the Rust field is `n_active`).
+- The choice of the Jacobian logarithm is the boolean keyword `max_log`, as the
+  specifications write it (`Constellation.llr`, `Dvbs2.llr`, `TurboCode`); the prior
+  probabilities of the points are `px`, everywhere.
 
 ## Core types and traits
 
