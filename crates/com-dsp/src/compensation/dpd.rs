@@ -54,10 +54,11 @@
 //!    polynomial model for digital predistortion of RF power amplifiers," *IEEE Trans.
 //!    Signal Process.*, 54(10), 3852–3860, 2006.
 
+use crate::filter::convolve_full;
 use com_core::{Error, Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::linalg::{hermitian, identity, solve_hpd};
-use ndarray::{Array1, Array2};
+use ndarray::Array2;
 
 /// The term of order `k` of a memory polynomial, $x\[n\] \lvert x\[n\] \rvert^{k-1}$,
 /// shared by the predistorter and the amplifier model of `com-hardware`.
@@ -72,6 +73,37 @@ use ndarray::{Array1, Array2};
 pub fn polynomial_term(x: &[C64], k: u32) -> Vec<C64> {
     let p = i32::try_from(k.saturating_sub(1)).unwrap_or(0);
     x.iter().map(|v| v * v.norm().powi(p)).collect()
+}
+
+/// The output of a memory polynomial: for every term, the order $k$ and the taps
+/// $a_{k0}, \dots, a_{k,M-1}$,
+///
+/// $$
+/// y\[n\] = \sum_{k} \sum_{m=0}^{M-1} a_{km}\\, x\[n-m\]\\, \lvert x\[n-m\] \rvert^{k-1},
+/// $$
+///
+/// the samples before the block taken as zero: every term is the causal filtering of its
+/// basis [`polynomial_term`] by its taps ([`convolve_full`], truncated to the block). The
+/// one kernel of the predistorter ([`MemoryPolynomialDpd::apply`]) and of the amplifier
+/// model of `com-hardware` (`MemoryPolynomial`).
+///
+/// # Examples
+/// ```
+/// use com_dsp::compensation::dpd::memory_polynomial;
+/// use com_math::C64;
+/// // y[n] = x[n] - 0.5 x[n-1] |x[n-1]|²
+/// let x = [C64::new(1.0, 0.0), C64::new(0.0, 2.0)];
+/// let y = memory_polynomial(&x, [(1, &[C64::new(1.0, 0.0)][..]), (3, &[C64::new(0.0, 0.0), C64::new(-0.5, 0.0)][..])]);
+/// assert_eq!(y, [C64::new(1.0, 0.0), C64::new(-0.5, 2.0)]);
+/// ```
+pub fn memory_polynomial<'a>(x: &[C64], terms: impl IntoIterator<Item = (u32, &'a [C64])>) -> Vec<C64> {
+    let mut y = vec![C64::new(0.0, 0.0); x.len()];
+    for (k, taps) in terms {
+        for (yn, v) in y.iter_mut().zip(convolve_full(taps, &polynomial_term(x, k))) {
+            *yn += v;
+        }
+    }
+    y
 }
 
 /// A memory-polynomial predistorter.
@@ -111,9 +143,21 @@ impl MemoryPolynomialDpd {
         phi
     }
 
-    /// Predistort a block.
+    /// Predistort a block ([`memory_polynomial`] with the coefficients of every order).
+    ///
+    /// # Panics
+    /// If there are not `orders.len() × memory` coefficients.
     pub fn apply(&self, x: &[C64]) -> Vec<C64> {
-        self.basis(x).dot(&Array1::from(self.coefficients.clone())).to_vec()
+        let memory = self.memory.max(1);
+        assert_eq!(
+            self.coefficients.len(),
+            self.orders.len() * self.memory,
+            "{} coefficients for {} orders of memory {}",
+            self.coefficients.len(),
+            self.orders.len(),
+            self.memory
+        );
+        memory_polynomial(x, self.orders.iter().copied().zip(self.coefficients.chunks(memory)))
     }
 
     /// Fit the polynomial that maps `input` to `target` by regularised least squares.
@@ -181,5 +225,22 @@ mod tests {
             assert!((a - b).norm() < 1e-10);
         }
         assert!(fit.fit(&x, &y[..10], 0.0).is_err());
+    }
+
+    /// `apply` evaluated the basis matrix times the coefficients before the kernel was
+    /// shared with the amplifier: the two agree to the rounding of their sums.
+    #[test]
+    fn apply_is_the_basis_matrix_times_the_coefficients() {
+        let mut r = Rng::new(7);
+        let x: Vec<C64> = (0..3000).map(|_| r.complex_gaussian() * 0.4).collect();
+        for (orders, memory) in [(vec![1, 3, 5], 3), (vec![1, 2, 3], 1), (vec![1, 3], 40)] {
+            let coefficients: Vec<C64> = (0..orders.len() * memory).map(|_| r.complex_gaussian() * 0.3).collect();
+            let dpd = MemoryPolynomialDpd { orders, memory, coefficients };
+            let old = dpd.basis(&x).dot(&ndarray::Array1::from(dpd.coefficients.clone())).to_vec();
+            let new = dpd.apply(&x);
+            let scale = old.iter().map(|v| v.norm()).fold(0.0, f64::max);
+            let worst = old.iter().zip(&new).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max) / scale;
+            assert!(worst < 1e-14, "memory {memory}: {worst}");
+        }
     }
 }

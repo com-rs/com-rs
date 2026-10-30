@@ -173,7 +173,7 @@ impl Ufmc {
                 let mut grid = vec![C64::new(0.0, 0.0); n];
                 for q in 0..self.subband_size {
                     let i = b * self.subband_size + q;
-                    grid[self.subcarrier(i).rem_euclid(n as isize) as usize] = symbol[i] * scale;
+                    grid[fft::centred_bin(i, self.n_active(), n)] = symbol[i] * scale;
                 }
                 for (xt, v) in x.iter_mut().zip(convolve_full(f, &fft::ifft(&grid))) {
                     *xt += v;
@@ -205,7 +205,8 @@ impl Ufmc {
             buf.resize(2 * n, C64::new(0.0, 0.0));
             let spec = fft::fft(&buf);
             for (i, g) in gains.iter().enumerate() {
-                let bin = (2 * self.subcarrier(i)).rem_euclid(2 * n as isize) as usize;
+                // the DFT of twice the size: the subcarrier k is the bin 2k
+                let bin = 2 * fft::centred_bin(i, self.n_active(), n);
                 out.push(spec[bin] / g);
             }
         }

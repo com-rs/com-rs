@@ -82,7 +82,7 @@
 //! 3. H. Ochiai and H. Imai, "Performance analysis of deliberately clipped OFDM signals,"
 //!    *IEEE Trans. Commun.* 50(1), 89–101, 2002.
 
-use com_math::fft::{fft, ifft};
+use com_math::fft::{centred_bin, fft, ifft};
 use com_math::{C64, db2lin, erfc};
 use std::f64::consts::PI;
 
@@ -174,7 +174,7 @@ pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
 /// let (k, d) = (b.gain, b.distortion);
 /// let g = 2.0f64;
 /// let want = 1.0 - (-g).exp() + 0.5 * (std::f64::consts::PI * g).sqrt() * com_math::erfc(g.sqrt());
-/// assert!((k.re - want).abs() < 1e-6 && k.im.abs() < 1e-15); // erfc: 1.2e-7
+/// assert!((k.re - want).abs() < 1e-9 && k.im.abs() < 1e-15);
 /// // σ_d² = P (1 - e^{-γ} - K²)
 /// assert!((d - 0.5 * (1.0 - (-g).exp() - want * want)).abs() < 1e-6);
 /// ```
@@ -226,8 +226,7 @@ fn laguerre_projections(values: &[C64], n_terms: usize) -> Vec<C64> {
 pub fn distortion_spectrum(c: &[f64], occupied: usize, bins: usize) -> (Vec<f64>, Vec<f64>) {
     let mut p = vec![C64::new(0.0, 0.0); bins];
     for i in 0..occupied {
-        let k = (i + bins - occupied / 2) % bins;
-        p[k] = C64::new(1.0 / occupied as f64, 0.0);
+        p[centred_bin(i, occupied, bins)] = C64::new(1.0 / occupied as f64, 0.0);
     }
     let pf = fft(&p);
     let useful: Vec<f64> = p.iter().map(|v| c.first().copied().unwrap_or(0.0) * v.re).collect();

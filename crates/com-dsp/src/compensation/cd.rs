@@ -111,7 +111,7 @@ pub fn cd_taps_needed(beta2_s2_km: f64, length_km: f64, symbol_rate: f64, fs: f6
 pub fn cd_fir_taps(beta2_s2_km: f64, length_km: f64, fs: f64, n: usize) -> Vec<C64> {
     let t = fft::ifft(&inverse_dispersion(n, beta2_s2_km, length_km, fs));
     // centre: tap i of the FIR is the impulse response at time i - ⌊n/2⌋
-    (0..n).map(|i| t[(i + n - n / 2) % n]).collect()
+    fft::fftshift(&t)
 }
 
 /// The dispersion factor $K = -\beta_{2} L f_{s}^{2}/2$ of the digital compensation

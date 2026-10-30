@@ -819,7 +819,7 @@ mod tests {
         };
         let pi = std::f64::consts::PI;
         for rho in [0.1, 1.0, 4.0, 20.0] {
-            // to the accuracy of `erfc` (1.2e-7 relative)
+            // to the accuracy of the midpoint rule
             assert!((integral(-pi, pi, rho) - 1.0).abs() < 1e-6, "{rho}: {}", integral(-pi, pi, rho));
             // BPSK: an error is Re r < 0, Q(√(2ρ)); QPSK: 2Q(√ρ) - Q(√ρ)²
             let bpsk = 2.0 * integral(pi / 2.0, pi, rho);

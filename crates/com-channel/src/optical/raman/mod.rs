@@ -105,10 +105,11 @@ mod solver;
 
 pub use gain::RamanGain;
 
+use super::edfa::ase_density;
 use super::fiber::{Amplification, FiberParams};
 use com_core::Result;
 use com_core::rng::Rng;
-use com_math::{C64, PLANCK, SPEED_OF_LIGHT, db2lin, fft, np2db};
+use com_math::{C64, SPEED_OF_LIGHT, db2lin, fft, np2db};
 
 /// The direction of propagation of a pump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -383,7 +384,7 @@ impl FieldSpan {
             p.forward(&mut w);
             for (b, (v, wb)) in x.iter_mut().zip(&w).enumerate() {
                 let edfa = match amplification {
-                    Amplification::Edfa if g[b] > 1.0 => (g[b] * nf - 1.0) / 2.0 * PLANCK * self.freqs[b],
+                    Amplification::Edfa if g[b] > 1.0 => ase_density(g[b], nf, self.freqs[b]),
                     _ => 0.0,
                 };
                 *v += wb * ((ase[b] / 2.0 * g[b] + edfa) * fs).sqrt();
@@ -396,7 +397,7 @@ impl FieldSpan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use com_math::BOLTZMANN;
+    use com_math::{BOLTZMANN, PLANCK};
 
     fn fiber(span_km: f64) -> FiberParams {
         FiberParams { span_km, ..FiberParams::default() }

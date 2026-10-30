@@ -375,7 +375,7 @@ mod tests {
     }
 
     // the Euler–Maclaurin sum of the fine quantisers against the cell-by-cell quadrature
-    // (its accuracy is that of erf beyond √2·2, 1.2e-7 relative on erfc)
+    // (its accuracy is that of erf and erfc, about 1e-15)
     #[test]
     fn the_granular_series_is_the_cell_by_cell_quadrature() {
         let (nodes, weights) = com_math::gauss_legendre(5);

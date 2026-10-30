@@ -75,7 +75,9 @@ impl ErrorRate {
         let z2 = z * z;
         let centre = (p + z2 / (2.0 * n)) / (1.0 + z2 / n);
         let half = z * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt() / (1.0 + z2 / n);
-        ((centre - half).max(0.0), (centre + half).min(1.0))
+        // without errors the lower end is exactly 0: `centre - half` would leave a rounding residue
+        let lower = if self.errors == 0 { 0.0 } else { (centre - half).max(0.0) };
+        (lower, (centre + half).min(1.0))
     }
 }
 

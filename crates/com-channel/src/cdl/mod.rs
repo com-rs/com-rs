@@ -111,9 +111,10 @@ pub use array::{Array, Pattern};
 pub use tables::{Cluster, Profile, RAY_OFFSETS, RAYS_PER_CLUSTER, Spreads};
 
 use crate::multipath::Taps;
-use array::{dot, unit_vector};
+use array::unit_vector;
 use com_core::prelude::*;
 use com_core::{ensure, same_len};
+use com_math::geometry::{dot, norm};
 use com_math::{SPEED_OF_LIGHT, cis, db2lin};
 use std::f64::consts::PI;
 
@@ -252,7 +253,7 @@ impl Cdl {
 
     /// The maximum Doppler shift $|\bar{v}| / \lambda$ (Hz).
     pub fn max_doppler(&self) -> f64 {
-        dot(self.velocity, self.velocity).sqrt() * self.carrier_frequency / SPEED_OF_LIGHT
+        norm(self.velocity) * self.carrier_frequency / SPEED_OF_LIGHT
     }
 
     /// Draw a realisation: the ray coupling and initial phases of every cluster, from

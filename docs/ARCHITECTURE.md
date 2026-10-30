@@ -55,7 +55,7 @@ com-rs/
 │   │  ── Layer 0: foundation ──────────────────────────────────────────────
 │   ├── com-core/              # signal, traits, units, rng, error
 │   ├── com-math/              # special functions, quadrature, fft, linalg, nearest,
-│   │                          # nlse, gf2, gf2m, bigint, bits, search
+│   │                          # geometry, nlse, gf2, gf2m, bigint, bits, search
 │   │  ── Layer 1: generic signal processing ───────────────────────────────
 │   ├── com-dsp/
 │   │   ├── filter  resample  signal  window
@@ -107,7 +107,7 @@ contain" column is as binding as the first one.
 | Crate | Layer | Owns | Must not contain | Depends on |
 | --- | --- | --- | --- | --- |
 | `com-core` | 0 | Signal containers, verb traits, unit newtypes, the generator and its streams, the error type | Any algorithm; any heavy dependency | `num-complex`, `ndarray`, `thiserror` |
-| `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`, `qfuncinv`, `diric`), Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans and their unitary and centred forms, complex linear algebra (tridiagonal systems included), nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, LFSR sequences, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
+| `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`, `qfuncinv`, `diric`), Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans and their unitary and centred forms, complex linear algebra (tridiagonal systems included), vectors of 3-D space, nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, LFSR sequences, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
 | `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, cyclic prefixes and frequency shifts, synchronisation, equalisation, estimation, interpolation, spectral estimation, memoryless nonlinearities driven by Gaussian signals (Bussgang), compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
 | `com-fec` | 2 | Channel codes, CRC, scrambling, interleaving, puncturing, distribution matching, finite-length bounds | Modulation or channel knowledge beyond LLR input | 0 |
 | `com-mapping` | 2 | Constellations, labelling, hard and soft demapping, differential PSK, sources, the closed forms of error and information rates | Pulse shaping or framing | 0 |

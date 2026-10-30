@@ -173,11 +173,7 @@ impl SplitStep {
             mul(y, &self.lin);
             p.inverse(x);
             p.inverse(y);
-            for (u, v) in x.iter_mut().zip(y.iter_mut()) {
-                let e = cis(k * (u.norm_sqr() + v.norm_sqr()));
-                *u *= e;
-                *v *= e;
-            }
+            manakov_rotation(x, y, k);
             p.forward(x);
             p.forward(y);
             mul(x, &self.lin);
@@ -439,6 +435,36 @@ impl ManakovSplitStep {
             steps += 1;
         }
         Ok(steps)
+    }
+}
+
+/// The nonlinear step of the Manakov equation with a phase that does not change during
+/// the step: both polarisations rotated by the same phase,
+///
+/// $$
+/// A_{x,y}(t) \leftarrow A_{x,y}(t)\, e^{j k (|A_{x}(t)|^{2} + |A_{y}(t)|^{2})},
+/// $$
+///
+/// with $k = \frac{8}{9} \gamma h_{\mathrm{NL}}$ (negated to undo it). The step of
+/// [`SplitStep::run_dual`] and of the Manakov-PMD equation of
+/// `com_channel::optical::pmd::Manakov`.
+///
+/// # Panics
+/// If the polarisations have different lengths.
+///
+/// # Examples
+/// ```
+/// use com_math::{C64, nlse::manakov_rotation};
+/// let (mut x, mut y) = ([C64::new(1.0, 0.0)], [C64::new(0.0, 1.0)]);
+/// manakov_rotation(&mut x, &mut y, std::f64::consts::FRAC_PI_4);
+/// assert!((x[0] - C64::new(0.0, 1.0)).norm() < 1e-15 && (y[0] - C64::new(-1.0, 0.0)).norm() < 1e-15);
+/// ```
+pub fn manakov_rotation(x: &mut [C64], y: &mut [C64], k: f64) {
+    assert_eq!(x.len(), y.len(), "the polarisations must have the same length");
+    for (u, v) in x.iter_mut().zip(y.iter_mut()) {
+        let e = cis(k * (u.norm_sqr() + v.norm_sqr()));
+        *u *= e;
+        *v *= e;
     }
 }
 

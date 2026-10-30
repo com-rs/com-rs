@@ -17,6 +17,7 @@ use com_core::ensure;
 use com_core::ensure_shape;
 use com_core::prelude::*;
 use com_math::fft;
+use com_math::nlse::manakov_rotation;
 use com_math::{cis, effective_length};
 
 /// A `2×2` Jones matrix `[[a, b], [c, d]]` (row-major).
@@ -190,6 +191,15 @@ impl PmdLink {
 /// given). [`Manakov::backpropagate_with_pmd`] is the exact inverse (the upper bound of
 /// a receiver that knows the PMD), [`Manakov::equalize_pmd`] the lumped ideal MIMO
 /// equaliser `J(ω)⁻¹`.
+///
+/// The solvers of `com_math::nlse` do not apply here: their linear step is a scalar
+/// response, the same for both polarisations and for every step, while the
+/// birefringence of a section is a `2×2` Jones matrix per frequency that changes from
+/// section to section; and they are symmetric (half linear steps around the nonlinear
+/// one), where this coarse-step model takes one whole section then its nonlinear
+/// rotation, so that a section is one realisation of the PMD. The nonlinear rotation
+/// itself is [`com_math::nlse::manakov_rotation`], the step of
+/// `com_math::nlse::SplitStep::run_dual`.
 #[derive(Clone, Debug)]
 pub struct Manakov {
     /// The link.
@@ -226,12 +236,7 @@ impl Manakov {
         let a = f.alpha_np_km();
         let dz = self.pmd.section_km;
         let l_eff = effective_length(a, dz);
-        let k = sign * 8.0 / 9.0 * f.gamma_w_km * l_eff;
-        for (p, q) in u.x.iter_mut().zip(u.y.iter_mut()) {
-            let e = cis(k * (p.norm_sqr() + q.norm_sqr()));
-            *p *= e;
-            *q *= e;
-        }
+        manakov_rotation(&mut u.x, &mut u.y, sign * 8.0 / 9.0 * f.gamma_w_km * l_eff);
     }
 
     /// Propagate a dual-polarisation field sampled at `fs` (ASE from `rng` if given).
