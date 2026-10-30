@@ -109,7 +109,7 @@ use super::edfa::ase_density;
 use super::fiber::{Amplification, FiberParams};
 use com_core::Result;
 use com_core::rng::Rng;
-use com_math::{C64, SPEED_OF_LIGHT, db2lin, fft, np2db};
+use com_math::{C64, db2lin, fft, nm2hz, np2db};
 
 /// The direction of propagation of a pump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,7 +137,7 @@ impl RamanPump {
     /// A pump of `power_w` at the vacuum wavelength `wavelength_nm`, with the
     /// attenuation of the fibre.
     pub fn at_wavelength(wavelength_nm: f64, power_w: f64, direction: Direction) -> RamanPump {
-        RamanPump { frequency_hz: SPEED_OF_LIGHT / (wavelength_nm * 1e-9), power_w, direction, alpha_db_km: None }
+        RamanPump { frequency_hz: nm2hz(wavelength_nm), power_w, direction, alpha_db_km: None }
     }
 }
 
@@ -397,7 +397,7 @@ impl FieldSpan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use com_math::{BOLTZMANN, PLANCK};
+    use com_math::{BOLTZMANN, PLANCK, SPEED_OF_LIGHT};
 
     fn fiber(span_km: f64) -> FiberParams {
         FiberParams { span_km, ..FiberParams::default() }
