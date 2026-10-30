@@ -150,6 +150,86 @@ impl StopSpec {
     }
 }
 
+/// The `stop` mapping of a specification of confidence level `confidence` whose rule is
+/// `stop`: the inverse of the parser, for a rule the format can write. A specification
+/// stops when all its targets (`min_errors`, `precision`, with `min_trials`) are met, or
+/// any of its caps (`max_trials`, `max_time_s`).
+///
+/// ```
+/// use com_sim::stopping::Stop;
+/// let rule = Stop::min_errors("ber", 100).or(Stop::max_trials(1000));
+/// let m = com_spec::stop_mapping(&rule, 0.95)?;
+/// assert_eq!(m, serde_json::json!({"min_errors": {"ber": 100}, "max_trials": 1000}));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+///
+/// # Errors
+/// [`Error::Config`] for a rule the format cannot write: targets combined by *or*, a cap
+/// inside an *and*, a cap or a target given twice, a precision target at another
+/// confidence level than `confidence`, or no target and no cap.
+pub fn stop_mapping(stop: &Stop, confidence: f64) -> Result<Json> {
+    /// The operands of nested `Any` (`any`) or `All` rules.
+    fn operands<'a>(s: &'a Stop, any: bool, out: &mut Vec<&'a Stop>) {
+        match s {
+            Stop::Any(v) if any => v.iter().for_each(|x| operands(x, any, out)),
+            Stop::All(v) if !any => v.iter().for_each(|x| operands(x, any, out)),
+            _ => out.push(s),
+        }
+    }
+    let none = || {
+        Error::Config(format!(
+            "the rule {stop} has no `stop` mapping: a specification stops when all its targets \
+             (with min_trials, at the confidence {confidence}) or any of its caps are met"
+        ))
+    };
+    let once = |m: &mut Map<String, Json>, k: &str, v: Json| match m.insert(k.to_string(), v) {
+        None => Ok(()),
+        Some(_) => Err(none()),
+    };
+    // the targets, then the caps, in the order of the format
+    let (mut errors, mut precision, mut min_trials, mut caps) = (Map::new(), Map::new(), Map::new(), Map::new());
+    let (mut any, mut grouped) = (Vec::new(), false);
+    operands(stop, true, &mut any);
+    for s in any {
+        match s {
+            Stop::MaxTrials(n) => once(&mut caps, "max_trials", Json::from(*n))?,
+            Stop::MaxTime(d) => once(&mut caps, "max_time_s", Json::from(d.as_secs_f64()))?,
+            _ if !grouped => {
+                grouped = true;
+                let mut all = Vec::new();
+                operands(s, false, &mut all);
+                for t in all {
+                    match t {
+                        Stop::MinErrors { metric, errors: k } => once(&mut errors, metric, Json::from(*k))?,
+                        Stop::Precision { metric, relative, confidence: c } if *c == confidence => {
+                            once(&mut precision, metric, Json::from(*relative))?;
+                        }
+                        Stop::MinTrials(n) => once(&mut min_trials, "min_trials", Json::from(*n))?,
+                        _ => return Err(none()),
+                    }
+                }
+                if errors.is_empty() && precision.is_empty() {
+                    return Err(none());
+                }
+            }
+            _ => return Err(none()),
+        }
+    }
+    let mut out = Map::new();
+    if !errors.is_empty() {
+        out.insert("min_errors".into(), Json::Object(errors));
+    }
+    if !precision.is_empty() {
+        out.insert("precision".into(), Json::Object(precision));
+    }
+    out.extend(min_trials);
+    out.extend(caps);
+    if out.is_empty() {
+        return Err(none());
+    }
+    Ok(Json::Object(out))
+}
+
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct CallbacksSpec {
@@ -326,6 +406,36 @@ fn grid_axis(name: &str, v: &Json) -> Result<Vec<Value>> {
     }
 }
 
+/// `grid` with one axis per entry of `axes` (the last varying fastest), checked.
+fn with_axes(mut grid: Grid, axes: &Map<String, Json>) -> Result<Grid> {
+    for (k, v) in axes {
+        grid = grid.axis(k, grid_axis(k, v)?);
+    }
+    grid.check()?;
+    Ok(grid)
+}
+
+/// The conditions of a grid as a specification writes it: the Cartesian product of its
+/// axes, the last one varying fastest. An axis is a list of values, `{from, to, step}`,
+/// `{linspace: [start, stop, count]}` or one scalar.
+///
+/// ```
+/// use com_spec::grid_conditions;
+/// let conds = grid_conditions(&serde_json::json!({"m": [4, 16], "snr_db": {"from": 0, "to": 10, "step": 10}}))?;
+/// assert_eq!(conds.len(), 4);
+/// assert_eq!(conds[1].f64("snr_db")?, 10.0);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+///
+/// # Errors
+/// [`Error::Config`] if `axes` is not a mapping or an axis is invalid.
+pub fn grid_conditions(axes: &Json) -> Result<Vec<Condition>> {
+    let Json::Object(axes) = axes else {
+        return Err(Error::Config(format!("a grid is a mapping of axes, got {axes}")));
+    };
+    Ok(with_axes(Grid::new(), axes)?.conditions())
+}
+
 impl Spec {
     /// Parse a specification from a JSON tree.
     ///
@@ -342,7 +452,7 @@ impl Spec {
         }
         let raw: RawSpec = serde_json::from_value(v).map_err(|e| Error::Config(format!("specification: {e}")))?;
         check_confidence(raw.confidence, "confidence")?;
-        let mut grid = if raw.cases.is_empty() {
+        let grid = if raw.cases.is_empty() {
             Grid::new()
         } else {
             let mut conds = Vec::new();
@@ -355,10 +465,7 @@ impl Spec {
             }
             Grid::from_conditions(conds)
         };
-        for (k, v) in &raw.grid {
-            grid = grid.axis(k, grid_axis(k, v)?);
-        }
-        grid.check()?;
+        let grid = with_axes(grid, &raw.grid)?;
         if raw.link.is_empty() {
             return Err(Error::Config("the link has no block".into()));
         }
@@ -452,6 +559,36 @@ mod tests {
             s("{min_errors: {ber: 10}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5}"),
             "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and min_trials(2)) or max_trials(5))"
         );
+    }
+
+    #[test]
+    fn stop_mappings_parse_back_to_their_rules() {
+        let parse = |m: &Json| {
+            let v = serde_json::json!({"name": "t", "link": ["source"], "stop": m});
+            Spec::from_json(v).unwrap().stop
+        };
+        for y in [
+            "{max_trials: 5}",
+            "{min_errors: {ber: 10}, max_trials: 5}",
+            "{min_errors: {ber: 10, fer: 2}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5, max_time_s: 1.5}",
+        ] {
+            let rule = Spec::from_yaml(&format!("name: t\nlink: [source]\nstop: {y}")).unwrap().stop;
+            assert_eq!(parse(&stop_mapping(&rule, 0.95).unwrap()), rule, "{y}");
+        }
+        let nested = Stop::min_errors("ber", 10).or(Stop::max_trials(5)).or(Stop::max_time(Duration::from_secs(2)));
+        assert_eq!(
+            stop_mapping(&nested, 0.95).unwrap(),
+            serde_json::json!({"min_errors": {"ber": 10}, "max_trials": 5, "max_time_s": 2.0})
+        );
+        for bad in [
+            Stop::min_errors("ber", 10).or(Stop::min_errors("fer", 1)).or(Stop::max_trials(5)),
+            Stop::min_errors("ber", 10).and(Stop::max_trials(5)),
+            Stop::precision_at("ber", 0.1, 0.99).or(Stop::max_trials(5)),
+            Stop::max_trials(5).or(Stop::max_trials(6)),
+            Stop::min_trials(5),
+        ] {
+            assert!(stop_mapping(&bad, 0.95).is_err(), "{bad}");
+        }
     }
 
     #[test]
