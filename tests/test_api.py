@@ -200,7 +200,12 @@ def fallible_bindings(lines):
             depth = s.count("(") - s.count(")") + s.count("[") - s.count("]")
             while depth > 0:
                 i += 1
-                depth += lines[i].count("(") - lines[i].count(")") + lines[i].count("[") - lines[i].count("]")
+                depth += (
+                    lines[i].count("(")
+                    - lines[i].count(")")
+                    + lines[i].count("[")
+                    - lines[i].count("]")
+                )
             i += 1
             continue
         seen, attrs = " ".join(attrs), []
