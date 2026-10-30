@@ -45,7 +45,7 @@
 //!    Annex B.2 (EPA, EVA, ETU).
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, NameOr, Named, Params};
+use super::{Block, Extension, Frame, NameOr, Named};
 use com_channel::cdl::{Array, Cdl, Profile as CdlProfile};
 use com_channel::fading::Mimo;
 use com_channel::multipath::{Profile, Taps, Tdl};
@@ -90,75 +90,66 @@ impl Csi {
 
 pub use com_waveform::ofdm::link::OfdmFrame;
 
-/// The documentation of the wireless blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "mimo_tx",
             "Spread the symbols over n_tx antennas: spatial multiplexing (power 1/n_tx per antenna) or Alamouti's code.",
             MimoTxSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(MimoTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "rayleigh",
             "Flat fading y = H x on every antenna; records the channel for a genie-aided receiver.",
             RayleighSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(Rayleigh { p: q })),
         ),
-        block_info!(
+        builtin!(
             "tdl",
             "Tapped-delay-line multipath fading with Clarke/Jakes Doppler; records the taps for a genie-aided receiver.",
             TdlSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(TdlBlock::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "cdl",
             "Clustered delay line of 3GPP TR 38.901 between uniform linear arrays (one tap per cluster, random ray phases and coupling); records the taps for a genie-aided receiver.",
             CdlSpec,
             needs[Samples],
             gives[Csi],
+            |q, _, _| Ok(Box::new(CdlBlock::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "ofdm_tx",
             "Map every antenna's symbols on resource grids with pilots and OFDM-modulate them (power K/(LN) per sample).",
             OfdmTxSpec,
             needs[Samples],
             gives[Ofdm],
+            |q, _, _| Ok(Box::new(OfdmTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "ofdm_rx",
             "Demodulate the OFDM grids, estimate the channel and detect every data resource element; output the symbols and their noise variances.",
             OfdmRxSpec,
             needs [Samples, Constellation, Ofdm],
             gives [Noise, Llr],
+            |q, _, _| Ok(Box::new(OfdmRx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "mimo_rx",
             "Detect a single-carrier link over flat fading with the known channel; output the symbols and their noise variances.",
             DetectorSpec,
             needs [Samples, Constellation, Csi],
             gives [Noise, Llr],
+            |q, _, _| Ok(Box::new(MimoRx(Detection::new(&q)?))),
         ),
     ]
-}
-
-/// Build a wireless block, or `None` for another type.
-pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let b: Result<Box<dyn Block>> = match kind {
-        "mimo_tx" => MimoTxSpec::parse(kind, p).and_then(|q| MimoTx::new(&q)).map(|b| Box::new(b) as Box<dyn Block>),
-        "rayleigh" => RayleighSpec::parse(kind, p).map(|p| Box::new(Rayleigh { p }) as _),
-        "tdl" => TdlSpec::parse(kind, p).and_then(|q| TdlBlock::new(&q)).map(|b| Box::new(b) as _),
-        "cdl" => CdlSpec::parse(kind, p).and_then(|q| CdlBlock::new(&q)).map(|b| Box::new(b) as _),
-        "ofdm_tx" => OfdmTxSpec::parse(kind, p).and_then(|q| OfdmTx::new(&q)).map(|b| Box::new(b) as _),
-        "ofdm_rx" => OfdmRxSpec::parse(kind, p).and_then(|q| OfdmRx::new(&q)).map(|b| Box::new(b) as _),
-        "mimo_rx" => DetectorSpec::parse(kind, p).and_then(|q| Detection::new(&q)).map(|d| Box::new(MimoRx(d)) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------ mimo_tx

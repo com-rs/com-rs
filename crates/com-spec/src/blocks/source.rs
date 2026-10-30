@@ -1,6 +1,6 @@
 //! Sources: simulated symbols (`source`) and measured recordings (`capture`, `reference_sync`).
 
-use super::{Block, BlockInfo, BuildContext, CaptureState, ConstellationParam, Frame, Layout, Params, parse_constellation};
+use super::{Block, Extension, BuildContext, CaptureState, ConstellationParam, Frame, Layout, parse_constellation};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -13,45 +13,34 @@ use com_mapping::source as sources;
 use com_math::C64;
 use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             start "source",
             "Draw the bits and symbols of a block (Gray labels of OptiCommPy).",
             SourceSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples],
+            |q, _, _| Ok(Box::new(Source::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             start "capture",
             "A measured recording as the source: one segment per trial, the reference sequence not yet aligned.",
             CaptureSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples, Capture],
+            |q, _, ctx| Ok(Box::new(Capture::new(&q, ctx)?)),
         ),
-        block_info!(
+        builtin!(
             "reference_sync",
             "Align the periodic reference of a capture on the received symbols (circular correlation); records offset and quality.",
             ReferenceSyncSpec,
             needs [Samples, Constellation, Capture],
             gives [Bits, Symbols],
+            |q, label, _| Ok(Box::new(ReferenceSync { p: q, label })),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "source" => Box::new(Source::new(&SourceSpec::parse(k, p)?)?),
-            "capture" => Box::new(Capture::new(&CaptureSpec::parse(k, p)?, ctx)?),
-            "reference_sync" => Box::new(ReferenceSync { p: ReferenceSyncSpec::parse(k, p)?, label }),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 // ------------------------------------------------------------------- transmitter

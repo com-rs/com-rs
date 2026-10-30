@@ -1,7 +1,7 @@
 //! Receiver DSP: shaping and matched filtering, resampling and decimation, clock recovery, adaptive equalisation, carrier recovery, frame synchronisation.
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, NumberOrList, Params, part, per_pol};
+use super::{Block, Extension, Frame, NumberOrList, part, per_pol};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -22,87 +22,86 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 use std::f64::consts::{FRAC_PI_2, PI};
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             per_polarization "pulse_shape",
             "Upsample and filter with a transmit pulse, then normalise to unit power.",
             PulseSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(PulseShaping::new(&q)?)),
         ),
-        block_info!("normalize", "Scale the samples to a mean power.", Normalize, needs [Samples], gives []),
-        block_info!(
+        builtin!(
+            "normalize", "Scale the samples to a mean power.", Normalize, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             per_polarization "resample",
             "Band-limited resampling of the block (FFT) to a number of samples per symbol.",
             Resample,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(
+        builtin!(
             per_polarization "matched_filter",
             "Filter with a receive pulse at the current samples per symbol.",
             MatchedSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(MatchedFilter::new(q)?)),
         ),
-        block_info!(per_polarization "decimate", "Reduce the samples per symbol.", DecimateSpec, needs [Samples], gives []),
-        block_info!(per_polarization "gardner", "Gardner clock recovery at 2 samples per symbol.", Gardner, needs [Samples], gives []),
-        block_info!(
+        builtin!(
+            per_polarization "decimate", "Reduce the samples per symbol.", DecimateSpec, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(Decimate::new(&q))),
+        ),
+        builtin!(
+            per_polarization "gardner", "Gardner clock recovery at 2 samples per symbol.", Gardner, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             "adaptive_equalizer",
             "Adaptive FIR equaliser, output at 1 sample per symbol; the n × n butterfly over the polarisations or antennas.",
             EqualizerSpec,
             needs [Samples, Constellation],
             gives [],
+            |q, label, _| Ok(Box::new(Equalizer::new(&q, label)?)),
         ),
-        block_info!(
+        builtin!(
             per_polarization "foe",
             "Frequency-offset estimation by the M-th power and correction; records foe_hz.",
             FoeSpec,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Foe { p: q, label })),
         ),
-        block_info!(
+        builtin!(
             per_polarization "bps",
             "Blind phase search, unwrapped with a period of π/2, and correction.",
             Bps,
             needs [Samples, Constellation],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(per_polarization "viterbi", "Viterbi–Viterbi phase estimation and correction.", Viterbi, needs [Samples], gives []),
-        block_info!(per_polarization "ddpll", "Decision-directed phase-locked loop.", Ddpll, needs [Samples, Constellation], gives []),
-        block_info!(
+        builtin!(
+            per_polarization "viterbi", "Viterbi–Viterbi phase estimation and correction.", Viterbi, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
+            per_polarization "ddpll", "Decision-directed phase-locked loop.", Ddpll, needs [Samples, Constellation], gives [],
+            |q, _, _| Ok(Box::new(q)),
+        ),
+        builtin!(
             "frame_sync",
             "Delay and rotation on known symbols, output aligned on the transmitted symbols; records delay and quality.",
             FrameSyncSpec,
             needs [Samples, Symbols],
             gives [],
+            |q, label, _| Ok(Box::new(FrameSync { p: q, label })),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "pulse_shape" => Box::new(PulseShaping::new(&PulseSpec::parse(k, p)?)?),
-            "normalize" => Box::new(Normalize::parse(k, p)?),
-            "resample" => Box::new(Resample::parse(k, p)?),
-            "matched_filter" => Box::new(MatchedFilter::new(MatchedSpec::parse(k, p)?)?),
-            "decimate" => Box::new(Decimate::new(&DecimateSpec::parse(k, p)?)),
-            "gardner" => Box::new(Gardner::parse(k, p)?),
-            "adaptive_equalizer" => Box::new(Equalizer::new(&EqualizerSpec::parse(k, p)?, label)?),
-            "foe" => Box::new(Foe { p: FoeSpec::parse(k, p)?, label }),
-            "bps" => Box::new(Bps::parse(k, p)?),
-            "viterbi" => Box::new(Viterbi::parse(k, p)?),
-            "ddpll" => Box::new(Ddpll::parse(k, p)?),
-            "frame_sync" => Box::new(FrameSync { p: FrameSyncSpec::parse(k, p)?, label }),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 block_params! {

@@ -55,7 +55,8 @@
 //! | [`systems`] | the DVB-S2 chain of `com-systems` (ADR 0010) |
 //! | [`analysis`] | probes, recordings of the samples (`dump`), the declared posterior of a receiver |
 //!
-//! Every module documents its blocks next to their code (`infos`); a test checks
+//! Every module declares its blocks next to their code (`blocks`: the documentation
+//! and the builder of every block, an [`Extension`] as the blocks of other crates); a test checks
 //! that the parameters a block accepts and those it documents are the same.
 
 use com_core::rng::Rng;
@@ -94,6 +95,7 @@ pub use frame::{CaptureState, ChannelState, Coding, Frame, InFlight, Layout, Rec
 pub use optical::WdmFrame;
 use per_pol::{part, per_pol};
 pub use registry::{BlockInfo, Extension, build, check_link, json_schema, register, registry};
+pub(crate) use registry::{build_parts, with_registry};
 pub use schema::{Fact, Mapping, NameOr, Named, ParamDefault, ParamInfo, Params};
 use schema::NumberOrList;
 pub use wireless::{Csi, OfdmFrame};

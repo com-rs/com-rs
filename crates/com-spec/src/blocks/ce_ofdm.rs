@@ -1,46 +1,34 @@
 //! Constant-envelope OFDM (Thompson et al. 2008): the modulator and the phase
 //! demodulator, which records the error rates of the linear regime.
 
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
+use super::{Block, Extension, Frame};
 use com_core::Result;
 use com_core::rng::Rng;
 use com_waveform::ce_ofdm::CeOfdm;
 use com_waveform::ce_ofdm::gamp::Gamp;
 use com_waveform::ce_ofdm::theory as ce_theory;
 use com_waveform::ce_ofdm::{Receiver, Unwrap};
-use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "ce_ofdm_tx",
             "Constant-envelope OFDM modulator (Thompson et al. 2008): K symbols per block on the bins 1..K of an N = 2J(K + 1) DFT, exp(j2πh x).",
             CeOfdmSpec,
             needs [Samples],
             gives [],
+            |q, _, _| Ok(Box::new(CeOfdmTx(q.link()))),
         ),
-        block_info!(
+        builtin!(
             "ce_ofdm_rx",
             "CE-OFDM receiver back to the symbols: the arctangent phase demodulator, the linear and enhanced receivers of Ahmed and Zeidler (2015) or GAMP (López Morales et al. 2022); records ser_theory and ber_theory when esn0_db is given.",
             CeOfdmRxSpec,
             needs [Samples, Constellation],
             gives [],
+            |q, label, _| Ok(Box::new(CeOfdmRx::new(&q, label)?)),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "ce_ofdm_tx" => Box::new(CeOfdmTx(CeOfdmSpec::parse(k, p)?.link())),
-            "ce_ofdm_rx" => Box::new(CeOfdmRx::new(&CeOfdmRxSpec::parse(k, p)?, label)?),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 // --------------------------------------------------------------------------- CE-OFDM

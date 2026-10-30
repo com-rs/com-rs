@@ -51,6 +51,7 @@ use super::Frame;
 use com_core::{Error, Result};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as Json, json};
+use std::borrow::Borrow;
 use std::fmt::Write;
 
 /// What the [`Frame`] of a trial holds at some point of a link.
@@ -795,7 +796,8 @@ macro_rules! block_params {
 /// # Errors
 /// [`Error::Config`] naming the first block that misses a fact, and the blocks that give
 /// it.
-pub fn check_link(kinds: &[&str], registry: &[super::BlockInfo]) -> Result<()> {
+pub fn check_link<B: Borrow<super::BlockInfo>>(kinds: &[&str], registry: &[B]) -> Result<()> {
+    let registry: Vec<&super::BlockInfo> = registry.iter().map(Borrow::borrow).collect();
     let mut have: Vec<Fact> = Vec::new();
     for (i, k) in kinds.iter().enumerate() {
         let Some(b) = registry.iter().find(|b| b.name == *k) else { continue };
@@ -815,9 +817,9 @@ pub fn check_link(kinds: &[&str], registry: &[super::BlockInfo]) -> Result<()> {
 /// The JSON Schema of a block of a link: one alternative per block of the registry (a
 /// mapping with its `type`, an optional `label` and its parameters, or its name alone
 /// when it needs no parameter).
-pub fn json_schema(registry: &[super::BlockInfo]) -> Json {
+pub fn json_schema<B: Borrow<super::BlockInfo>>(registry: &[B]) -> Json {
     let mut alternatives = Vec::new();
-    for b in registry {
+    for b in registry.iter().map(Borrow::borrow) {
         let mut s = object_schema(&b.params, &[("type", json!({"const": b.name}))]);
         if let Some(Json::Object(props)) = s.get_mut("properties") {
             props.insert("label".into(), json!({"type": "string", "description": "prefix of the recorded values"}));

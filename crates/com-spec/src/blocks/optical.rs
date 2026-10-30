@@ -71,7 +71,7 @@
 use super::dsp::PulseSettings;
 use super::fiber::AmplifierSettings;
 use super::fiber::fiber_json;
-use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList, Params};
+use super::{Block, Extension, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList};
 use com_channel::optical::manakov::ManakovSsfm;
 use com_channel::optical::pmd::{Jones, PmdLink};
 use com_core::rng::Rng;
@@ -91,61 +91,50 @@ pub struct WdmFrame {
     pub cut: usize,
 }
 
-/// The documentation of the optical blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "wdm_tx",
             "WDM transmitter: the channel under test and independently modulated neighbours on the grid of OptiCommPy's simpleWDMTx.",
             WdmTxSpec,
             needs[Samples],
             gives[Wdm],
+            |q, _, _| Ok(Box::new(WdmTx::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "manakov",
             "Dual-polarisation nonlinear propagation over the link (Manakov equation, OptiCommPy's manakovSSF), EDFAs with ASE.",
             ManakovSpec,
             needs [Samples],
             gives [],
+            |q, label, ctx| Ok(Box::new(ManakovBlock::new(&q, ctx, label)?)),
         ),
-        block_info!(
+        builtin!(
             "pmd",
             "Random rotation of the polarisations and polarisation-mode dispersion of a dual-polarisation signal, a new realisation every trial.",
             PmdBlock,
             needs [Samples],
             gives [],
+            |q, label, _| Ok(Box::new(Pmd { p: q, label })),
         ),
-        block_info!(
+        builtin!(
             "manakov_dbp",
             "Dual-polarisation digital back-propagation of the link (Manakov equation, coefficients negated).",
             DbpSpec,
             needs [Samples],
             gives [],
+            |q, _, ctx| Ok(Box::new(ManakovDbpBlock::new(&q, ctx)?)),
         ),
-        block_info!(
+        builtin!(
             "wdm_rx",
             "Bring the channel under test to baseband and keep its band (ideal low-pass by resampling).",
             WdmRx,
             needs [Samples, Wdm],
             gives [],
+            |q, _, _| Ok(Box::new(q)),
         ),
     ]
-}
-
-/// Build an optical block, or `None` for another type.
-pub(super) fn build(kind: &str, label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let (p, label) = (p.clone(), label.to_string());
-    let b: Result<Box<dyn Block>> = match kind {
-        "wdm_tx" => WdmTxSpec::parse(kind, p).and_then(|q| WdmTx::new(&q)).map(|b| Box::new(b) as Box<dyn Block>),
-        "manakov" => {
-            ManakovSpec::parse(kind, p).and_then(|q| ManakovBlock::new(&q, ctx, label)).map(|b| Box::new(b) as _)
-        }
-        "wdm_rx" => WdmRx::parse(kind, p).map(|b| Box::new(b) as _),
-        "pmd" => PmdBlock::parse(kind, p).map(|p| Box::new(Pmd { p, label }) as _),
-        "manakov_dbp" => DbpSpec::parse(kind, p).and_then(|q| ManakovDbpBlock::new(&q, ctx)).map(|b| Box::new(b) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------- wdm_tx

@@ -47,7 +47,7 @@
 //!    Trans. Inf. Theory*, 44(3), 927–946, 1998.
 
 use super::schema::{ParamType, variants_schema};
-use super::{Block, BlockInfo, BuildContext, Coding, ConstellationParam, Frame, ParamInfo, Params, parse_constellation};
+use super::{Block, Extension, Coding, ConstellationParam, Frame, ParamInfo, Params, parse_constellation};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_fec::block::BlockCode;
@@ -65,71 +65,58 @@ use com_systems::pas::Pas;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-/// The documentation of the coding blocks.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             start "pas_encode",
             "Probabilistic amplitude shaping: CCDM-shaped amplitudes, an LDPC code whose parity bits are the signs, square QAM (the first block of a link).",
             PasSpec,
             needs [],
             gives [Bits, Symbols, Constellation, Samples, Payload],
+            |q, _, _| Ok(Box::new(PasEncode(PasLink::new(&q)?))),
         ),
-        block_info!(
+        builtin!(
             "pas_decode",
             "PAS receiver: bit LLRs with the amplitude priors, LDPC decoding, dematching (the parameters of pas_encode).",
             PasSpec,
             needs [Samples, Symbols, Noise],
             gives [Decoded],
+            |q, _, _| Ok(Box::new(PasDecode(PasLink::new(&q)?))),
         ),
-        block_info!(
+        builtin!(
             start "fec_encode",
             "Draw the information bits of the coded blocks and encode them (the first block of a coded link).",
             EncodeSpec,
             needs [],
             gives [Bits, Payload],
+            |q, _, _| Ok(Box::new(Encode(Coder::new(&q.code, q.blocks, q.interleaver)?))),
         ),
-        block_info!(
+        builtin!(
             "map",
             "Map the coded bits on a constellation (Gray labels, the last symbol padded with random bits).",
             MapSpec,
             needs [Bits],
             gives [Symbols, Constellation, Samples],
+            |q, _, _| Ok(Box::new(Map::new(&q)?)),
         ),
-        block_info!(
+        builtin!(
             "demap",
             "Bit LLRs of the received symbols, with the noise variance of every symbol (from the receiver, or the noise block).",
             Demap,
             needs [Samples, Symbols, Constellation, Noise],
             gives [Llr],
+            |q, _, _| Ok(Box::new(q)),
         ),
-        block_info!(
+        builtin!(
             "fec_decode",
             "Deinterleave and decode the LLRs into the information bits.",
             DecodeSpec,
             needs[Llr],
             gives[Decoded],
+            |q, _, _| Ok(Box::new(Decode(Coder::new(&q.code, 1, q.interleaver)?))),
         ),
     ]
-}
-
-/// Build a coding block, or `None` for another type.
-pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let b: Result<Box<dyn Block>> = match kind {
-        "fec_encode" => EncodeSpec::parse(kind, p)
-            .and_then(|q| Coder::new(&q.code, q.blocks, q.interleaver))
-            .map(|c| Box::new(Encode(c)) as Box<dyn Block>),
-        "fec_decode" => DecodeSpec::parse(kind, p)
-            .and_then(|q| Coder::new(&q.code, 1, q.interleaver))
-            .map(|c| Box::new(Decode(c)) as _),
-        "map" => MapSpec::parse(kind, p).and_then(|q| Map::new(&q)).map(|b| Box::new(b) as _),
-        "pas_encode" => PasSpec::parse(kind, p).and_then(|q| PasLink::new(&q)).map(|b| Box::new(PasEncode(b)) as _),
-        "pas_decode" => PasSpec::parse(kind, p).and_then(|q| PasLink::new(&q)).map(|b| Box::new(PasDecode(b)) as _),
-        "demap" => Demap::parse(kind, p).map(|b| Box::new(b) as _),
-        _ => return None,
-    };
-    Some(b)
 }
 
 // ------------------------------------------------------------------------- codes

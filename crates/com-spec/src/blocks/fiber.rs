@@ -1,6 +1,6 @@
 //! Single-polarisation fibre propagation and its compensation: linear fibre, split-step Fourier, EDFA, dispersion compensation, digital back-propagation.
 
-use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, Params};
+use super::{Block, Extension, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping};
 use com_channel::optical::edfa::Edfa;
 use com_channel::optical::fiber::FiberParams;
 use com_channel::optical::fiber::linear_fiber_channel;
@@ -12,74 +12,41 @@ use com_core::rng::Rng;
 use com_dsp::compensation::cd;
 use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             per_polarization "fiber",
             "Linear fibre (loss and dispersion, OptiCommPy linearFiberChannel).",
             FiberBlock,
             needs [Samples],
             gives [],
+            |q, _, ctx| {
+                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
+                let length_km = q.length_km.unwrap_or(fiber.total_km());
+                Ok(Box::new(LinearFiber { length_km, fiber, compensate: q.compensate_loss }))
+            },
         ),
-        block_info!(per_polarization "ssfm", "Split-step Fourier propagation over the link, one polarisation.", SsfmBlock, needs [Samples], gives []),
-        block_info!(per_polarization "edfa", "Erbium-doped fibre amplifier with ASE.", EdfaBlock, needs [Samples], gives []),
-        block_info!(per_polarization "cdc", "Chromatic-dispersion compensation in the frequency domain.", CdcBlock, needs [Samples], gives []),
-        block_info!(per_polarization "dbp", "Digital back-propagation by the split-step method.", DbpBlock, needs [Samples], gives []),
+        builtin!(
+            per_polarization "ssfm", "Split-step Fourier propagation over the link, one polarisation.", SsfmBlock, needs [Samples], gives [],
+            |q, _, ctx| Ok(Box::new(SplitStep::new(&q, ctx)?)),
+        ),
+        builtin!(
+            per_polarization "edfa", "Erbium-doped fibre amplifier with ASE.", EdfaBlock, needs [Samples], gives [],
+            |q, _, _| Ok(Box::new(EdfaStage(Edfa { gain_db: q.gain_db, nf_db: q.nf_db, fc_hz: q.fc_hz }))),
+        ),
+        builtin!(
+            per_polarization "cdc", "Chromatic-dispersion compensation in the frequency domain.", CdcBlock, needs [Samples], gives [],
+            |q, _, ctx| {
+                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
+                Ok(Box::new(Cdc { length_km: q.length_km.unwrap_or(fiber.total_km()), fiber }))
+            },
+        ),
+        builtin!(
+            per_polarization "dbp", "Digital back-propagation by the split-step method.", DbpBlock, needs [Samples], gives [],
+            |q, _, ctx| Ok(Box::new(Dbp::new(&q, ctx)?)),
+        ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "fiber" => {
-                let q = FiberBlock::parse(k, p)?;
-                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
-                Box::new(LinearFiber {
-                    length_km: q.length_km.unwrap_or(fiber.total_km()),
-                    fiber,
-                    compensate: q.compensate_loss,
-                })
-            }
-            "ssfm" => {
-                let q = SsfmBlock::parse(k, p)?;
-                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
-                let ssfm = Ssfm {
-                    fiber,
-                    step_km: q.step_km,
-                    amplification: q.amplifiers.amplification()?,
-                    raman: ctx.raman(fiber_json(q.fiber.as_ref()))?,
-                };
-                let precision: Precision = q.precision.parse().map_err(|e: Error| e.context("ssfm"))?;
-                ensure(!(precision == Precision::F32 && ssfm.raman.is_some()), || {
-                    "ssfm: the Raman amplification is simulated in double precision only".into()
-                })?;
-                Box::new(SplitStep { ssfm, noise: q.amplifiers.noise(), precision })
-            }
-            "edfa" => {
-                let q = EdfaBlock::parse(k, p)?;
-                Box::new(EdfaStage(Edfa { gain_db: q.gain_db, nf_db: q.nf_db, fc_hz: q.fc_hz }))
-            }
-            "cdc" => {
-                let q = CdcBlock::parse(k, p)?;
-                let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
-                Box::new(Cdc { length_km: q.length_km.unwrap_or(fiber.total_km()), fiber })
-            }
-            "dbp" => {
-                let q = DbpBlock::parse(k, p)?;
-                let mut fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
-                if !q.nonlinear {
-                    fiber.gamma_w_km = 0.0;
-                }
-                let ssfm = Ssfm { fiber, step_km: 1.0, amplification: q.amplification.parse()?, raman: None };
-                Box::new(Dbp { ssfm, steps: q.steps_per_span, xi: q.nonlinear_scale })
-            }
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 /// The fibre of a block as given, merged over that of the specification by the context.
@@ -152,6 +119,23 @@ struct SplitStep {
     precision: Precision,
 }
 
+impl SplitStep {
+    fn new(q: &SsfmBlock, ctx: &BuildContext) -> Result<SplitStep> {
+        let fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
+        let ssfm = Ssfm {
+            fiber,
+            step_km: q.step_km,
+            amplification: q.amplifiers.amplification()?,
+            raman: ctx.raman(fiber_json(q.fiber.as_ref()))?,
+        };
+        let precision: Precision = q.precision.parse().map_err(|e: Error| e.context("ssfm"))?;
+        ensure(!(precision == Precision::F32 && ssfm.raman.is_some()), || {
+            "ssfm: the Raman amplification is simulated in double precision only".into()
+        })?;
+        Ok(SplitStep { ssfm, noise: q.amplifiers.noise(), precision })
+    }
+}
+
 impl Block for SplitStep {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         let rng = if self.noise { Some(rng) } else { None };
@@ -212,6 +196,17 @@ struct Dbp {
     ssfm: Ssfm,
     steps: usize,
     xi: f64,
+}
+
+impl Dbp {
+    fn new(q: &DbpBlock, ctx: &BuildContext) -> Result<Dbp> {
+        let mut fiber = ctx.fiber(fiber_json(q.fiber.as_ref()))?;
+        if !q.nonlinear {
+            fiber.gamma_w_km = 0.0;
+        }
+        let ssfm = Ssfm { fiber, step_km: 1.0, amplification: q.amplification.parse()?, raman: None };
+        Ok(Dbp { ssfm, steps: q.steps_per_span, xi: q.nonlinear_scale })
+    }
 }
 
 impl Block for Dbp {

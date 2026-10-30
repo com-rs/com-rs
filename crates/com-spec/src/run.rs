@@ -106,7 +106,7 @@ pub struct ProfileRow {
 pub fn profile(results: &[ConditionResult], labels: &[String]) -> Vec<ProfileRow> {
     let mean = |name: &str| {
         let v: Vec<f64> =
-            results.iter().filter_map(|r| r.record.iter().find(|(k, _)| *k == name).map(|(_, e)| e.value())).collect();
+            results.iter().filter_map(|r| r.record.get(name).map(com_sim::stats::Estimate::value)).collect();
         (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64)
     };
     let Some(total) = mean("link.time_ms") else { return Vec::new() };
@@ -121,13 +121,16 @@ pub fn profile(results: &[ConditionResult], labels: &[String]) -> Vec<ProfileRow
     rows
 }
 
-/// The profile of a specification's results: the labels come from its first condition.
+/// The profile of a specification's results: the labels of its blocks come from its
+/// first condition ([`link_labels`](crate::link_labels), without building the link).
 ///
 /// # Errors
-/// The errors of building the link.
+/// [`com_core::Error::Config`] for a variable that the condition does not define or a
+/// block that is neither a name nor a mapping with a type.
 pub fn profile_of(spec: &Spec, results: &[ConditionResult]) -> Result<Vec<ProfileRow>> {
     let Some(cond) = spec.conditions().into_iter().next() else { return Ok(Vec::new()) };
-    Ok(profile(results, &spec.link_for(&cond)?.labels))
+    let link = spec.link.iter().map(|b| crate::substitute(b, &cond)).collect::<Result<Vec<_>>>()?;
+    Ok(profile(results, &crate::link_labels(&link)?))
 }
 
 #[cfg(test)]

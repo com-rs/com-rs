@@ -8,7 +8,7 @@
 //! the decided constellation points.
 
 use super::schema::ParamType;
-use super::{Block, BlockInfo, BuildContext, Frame, Params};
+use super::{Block, Extension, Frame};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
@@ -16,37 +16,26 @@ use com_waveform::cpm::{Cpm, CpmConfig, FrequencyPulse, msk_bits, msk_precode};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-/// The documentation of the blocks of this module.
-pub(super) fn infos() -> Vec<BlockInfo> {
+/// The blocks of this module: their documentation and their builders.
+pub(super) fn blocks() -> Vec<Extension> {
     vec![
-        block_info!(
+        builtin!(
             "cpm_tx",
             "Continuous-phase modulator of the symbols of a real constellation (CPFSK, MSK, GMSK, raised-cosine CPM): a unit-envelope signal at sps samples per symbol.",
             CpmSpec,
             needs [Samples, Constellation],
             gives [],
+            |q, _, _| Ok(Box::new(CpmTx(q))),
         ),
-        block_info!(
+        builtin!(
             "cpm_rx",
             "CPM detector (maximum-likelihood sequence detection over the phase trellis, or one-symbol differential detection) back to the symbols.",
             CpmRxSpec,
             needs [Samples, Constellation],
             gives [],
+            |q, _, _| Ok(Box::new(CpmRx::new(q))),
         ),
     ]
-}
-
-/// Build a block of this module, or `None` for another type.
-pub(super) fn build(k: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
-    let p = p.clone();
-    let block = move || -> Result<Option<Box<dyn Block>>> {
-        Ok(Some(match k {
-            "cpm_tx" => Box::new(CpmTx(CpmSpec::parse(k, p)?)),
-            "cpm_rx" => Box::new(CpmRx::new(CpmRxSpec::parse(k, p)?)),
-            _ => return Ok(None),
-        }))
-    };
-    block().transpose()
 }
 
 block_params! {
