@@ -125,9 +125,9 @@ Machine and versions
    * - Rust
      - rustc 1.99.1 (58cf8f9c3 2026-10-13)
    * - com-rs commit
-     - ``f45f160b09d0``
+     - ``f20118f9160d``
    * - Generated
-     - 2026-10-30T07:35:52+00:00
+     - 2026-10-30T08:05:23+00:00
    * - comrs
      - 0.2.0
    * - komm
@@ -530,46 +530,46 @@ Median of 5 runs, ns per bit; workload: 1000000 bits at Eb/N0 = 6.0 dB. *Relativ
      - First call
    * - comrs (functions)
      - float64
-     - 7.50
-     - 7.54
+     - 7.58
+     - 7.56
      - 1.00
-     - 0.00884 s
+     - 0.0198 s
    * - comrs.run_spec
      - float64
-     - 9.57
-     - 1.65
-     - 1.28
-     - 0.0097 s
+     - 9.60
+     - 1.71
+     - 1.27
+     - 0.00968 s
    * - comrs binary (Rust)
      - float64
-     - 12.3
-     - 4.54
-     - 1.64
-     - 0.0133 s
+     - 12.9
+     - 4.57
+     - 1.70
+     - 0.0136 s
    * - komm
      - float64
      - 249
-     - 245
-     - 33.1
-     - 0.252 s
+     - 252
+     - 32.9
+     - 0.253 s
    * - OptiCommPy (numba)
      - complex64 symbols (its Gray constellation), float64 noise
-     - 24.1
-     - 15.0
-     - 3.21
-     - 0.916 s
+     - 24.2
+     - 15.1
+     - 3.19
+     - 0.921 s
    * - OptiCommPy (no numba)
      - complex64 symbols (its Gray constellation), float64 noise
-     - 375
-     - 382
-     - 50.0
-     - 0.0425 s
+     - 373
+     - 373
+     - 49.2
+     - 0.0376 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 25.1
+     - 25.2
      - 16.4
-     - 3.34
-     - 0.0376 s
+     - 3.33
+     - 0.0377 s
 
 .. rubric:: 16-QAM: time
 
@@ -586,46 +586,46 @@ Median of 5 runs, ns per bit; workload: 1000000 bits at Eb/N0 = 6.0 dB. *Relativ
      - First call
    * - comrs (functions)
      - float64
-     - 4.42
-     - 4.42
+     - 4.44
+     - 4.39
      - 1.00
-     - 0.00445 s
+     - 0.00451 s
    * - comrs.run_spec
      - float64
-     - 5.42
-     - 1.09
-     - 1.23
-     - 0.00546 s
+     - 5.41
+     - 1.11
+     - 1.22
+     - 0.00539 s
    * - comrs binary (Rust)
      - float64
-     - 8.07
-     - 3.75
+     - 8.14
+     - 3.76
      - 1.83
-     - 0.00832 s
+     - 0.0086 s
    * - komm
      - float64
      - 136
-     - 134
-     - 30.8
-     - 0.14 s
+     - 139
+     - 30.6
+     - 0.137 s
    * - OptiCommPy (numba)
      - complex64 symbols (its Gray constellation), float64 noise
-     - 21.1
-     - 9.75
-     - 4.77
-     - 0.0215 s
+     - 20.9
+     - 9.85
+     - 4.70
+     - 0.0213 s
    * - OptiCommPy (no numba)
      - complex64 symbols (its Gray constellation), float64 noise
-     - 193
-     - 193
-     - 43.6
-     - 0.0195 s
+     - 192
+     - 191
+     - 43.2
+     - 0.0192 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 32.5
+     - 32.9
      - 19.1
-     - 7.36
-     - 0.0361 s
+     - 7.41
+     - 0.0362 s
 
 .. dropdown:: The commands of every run
 
@@ -860,22 +860,22 @@ Median of 5 runs, ns per bit; workload: 1000000 bits at Eb/N0 = 10.0 dB. *Relati
      - First call
    * - comrs (functions)
      - float64
-     - 293
-     - 297
+     - 76.5
+     - 77.2
      - 1.00
-     - 0.299 s
+     - 0.0814 s
    * - comrs.run_spec
      - float64
-     - 302
-     - 65.5
-     - 1.03
-     - 0.302 s
+     - 99.7
+     - 18.0
+     - 1.30
+     - 0.1 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 86.7
-     - 71.4
-     - 0.296
-     - 0.0982 s
+     - 87.6
+     - 72.6
+     - 1.15
+     - 0.099 s
 
 .. rubric:: QPSK: time
 
@@ -892,21 +892,21 @@ Median of 5 runs, ns per bit; workload: 1000000 bits at Eb/N0 = 10.0 dB. *Relati
      - First call
    * - comrs (functions)
      - float64
-     - 148
-     - 148
+     - 39.1
+     - 39.4
      - 1.00
-     - 0.149 s
+     - 0.0404 s
    * - comrs.run_spec
      - float64
-     - 152
-     - 35.3
-     - 1.03
-     - 0.152 s
+     - 50.9
+     - 9.96
+     - 1.30
+     - 0.0514 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 62.5
-     - 45.8
-     - 0.423
+     - 63.0
+     - 46.7
+     - 1.61
      - 0.0628 s
 
 .. dropdown:: The commands of every run
@@ -1229,22 +1229,22 @@ Median of 5 runs, µs per vector; workload: 10000 vectors at Eb/N0 = 12.0 dB. *R
      - First call
    * - comrs (functions)
      - float64
-     - 0.774
-     - 0.779
+     - 0.76
+     - 0.763
      - 1.00
-     - 0.00834 s
+     - 0.00823 s
    * - comrs.run_spec
      - float64
-     - 0.771
-     - 0.208
-     - 0.996
-     - 0.00782 s
+     - 0.776
+     - 0.175
+     - 1.02
+     - 0.00794 s
    * - Sionna
      - float32 (config.precision = 'single')
      - 1.06
-     - 0.795
-     - 1.37
-     - 0.0146 s
+     - 0.796
+     - 1.40
+     - 0.0148 s
 
 .. rubric:: MMSE: time
 
@@ -1261,22 +1261,22 @@ Median of 5 runs, µs per vector; workload: 10000 vectors at Eb/N0 = 12.0 dB. *R
      - First call
    * - comrs (functions)
      - float64
-     - 0.771
-     - 0.773
+     - 0.761
+     - 0.76
      - 1.00
-     - 0.00776 s
+     - 0.00759 s
    * - comrs.run_spec
      - float64
-     - 0.771
-     - 0.196
-     - 1.00
-     - 0.00777 s
+     - 0.778
+     - 0.174
+     - 1.02
+     - 0.00782 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 1.29
-     - 0.977
-     - 1.67
-     - 0.0128 s
+     - 1.28
+     - 0.98
+     - 1.68
+     - 0.0129 s
 
 .. rubric:: ML (exhaustive): time
 
@@ -1294,21 +1294,21 @@ Median of 5 runs, µs per vector; workload: 1000 vectors at Eb/N0 = 12.0 dB. *Re
    * - comrs (functions)
      - float64
      - 393
-     - 393
+     - 394
      - 1.00
-     - 0.399 s
+     - 0.393 s
    * - comrs.run_spec
      - float64
      - 393
-     - 84.9
+     - 105
      - 1
-     - 0.393 s
+     - 0.398 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 1530
+     - 1519
      - 908
-     - 3.89
-     - 1.61 s
+     - 3.87
+     - 1.57 s
 
 .. rubric:: ML (sphere decoder): time
 
@@ -1325,15 +1325,15 @@ Median of 5 runs, µs per vector; workload: 10000 vectors at Eb/N0 = 12.0 dB. *R
      - First call
    * - comrs (functions)
      - float64
-     - 1.04
-     - 1.04
+     - 1.02
+     - 1.02
      - 1.00
-     - 0.0109 s
+     - 0.0108 s
    * - comrs.run_spec
      - float64
      - 1.03
-     - 0.218
-     - 0.995
+     - 0.209
+     - 1.01
      - 0.0104 s
 
 .. dropdown:: The commands of every run
@@ -1726,19 +1726,19 @@ Median of 5 runs, ms per frame; workload: decoder only, 200 frames at Eb/N0 = 3.
      - 0.276
      - 0.277
      - 1.00
-     - 0.000787 s
+     - 0.000821 s
    * - komm
      - float64
      - 0.566
-     - 0.57
+     - 0.564
      - 2.05
-     - 0.0191 s
+     - 0.0188 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 1.14
-     - 0.919
-     - 4.11
-     - 0.0295 s
+     - 1.13
+     - 0.916
+     - 4.10
+     - 0.0305 s
 
 .. rubric:: 5G NR LDPC (1024, 2048): decoder time
 
@@ -1755,16 +1755,16 @@ Median of 5 runs, ms per frame; workload: decoder only, 200 frames at Eb/N0 = 2.
      - First call
    * - comrs (functions)
      - float64
-     - 1.72
      - 1.70
+     - 1.68
      - 1.00
-     - 0.00359 s
+     - 0.00361 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 7.76
+     - 7.74
      - 4.23
-     - 4.52
-     - 0.0205 s
+     - 4.54
+     - 0.0213 s
 
 .. rubric:: LDPC (1024, 512), same LLRs: decoder time
 
@@ -1781,28 +1781,28 @@ Median of 5 runs, ms per frame; workload: decoder only, 200 frames at Eb/N0 = 2.
      - First call
    * - comrs (functions)
      - float64
-     - 0.317
-     - 0.326
+     - 0.316
+     - 0.323
      - 1.00
-     - 0.000754 s
+     - 0.000748 s
    * - OptiCommPy (numba)
      - float32 (decodeLDPC default prec = np.float32)
-     - 1.49
-     - 4.67
-     - 4.69
-     - 1.51 s
+     - 1.47
+     - 4.53
+     - 4.66
+     - 1.47 s
    * - OptiCommPy (no numba)
      - float32 (decodeLDPC default prec = np.float32)
-     - 43.4
-     - 42.8
-     - 137
-     - 0.0834 s
+     - 42.4
+     - 42.0
+     - 134
+     - 0.082 s
    * - Sionna
      - float32 (config.precision = 'single')
      - 2.29
      - 1.26
-     - 7.22
-     - 0.00652 s
+     - 7.25
+     - 0.00648 s
 
 .. rubric:: convolutional (133, 171), soft Viterbi: whole-chain time
 
@@ -1819,34 +1819,34 @@ Median of 5 runs, ms per frame; workload: whole chain, 200 frames at Eb/N0 = 3.0
      - First call
    * - comrs (functions)
      - float64
-     - 0.324
-     - 0.327
+     - 0.325
+     - 0.325
      - 1.00
-     - 0.000787 s
+     - 0.000821 s
    * - comrs.run_spec
      - float64
-     - 0.325
-     - 0.0519
-     - 1.00
-     - 0.0653 s
+     - 0.324
+     - 0.0513
+     - 0.997
+     - 0.0651 s
    * - comrs binary (Rust)
      - float64
-     - 0.334
-     - 0.0674
+     - 0.336
+     - 0.0688
      - 1.03
-     - 0.0675 s
+     - 0.0696 s
    * - komm
      - float64
-     - 0.693
-     - 0.692
-     - 2.14
-     - 0.0191 s
+     - 0.687
+     - 0.687
+     - 2.11
+     - 0.0188 s
    * - Sionna
      - float32 (config.precision = 'single')
-     - 1.24
+     - 1.23
      - 1.01
-     - 3.83
-     - 0.0295 s
+     - 3.79
+     - 0.0305 s
 
 .. rubric:: 5G NR LDPC (1024, 2048): whole-chain time
 
@@ -1863,16 +1863,16 @@ Median of 5 runs, ms per frame; workload: whole chain, 200 frames at Eb/N0 = 2.0
      - First call
    * - comrs (functions)
      - float64
-     - 1.76
-     - 1.76
+     - 1.75
+     - 1.74
      - 1.00
-     - 0.00359 s
+     - 0.00361 s
    * - Sionna
      - float32 (config.precision = 'single')
      - 7.84
-     - 4.30
-     - 4.45
-     - 0.0205 s
+     - 4.28
+     - 4.48
+     - 0.0213 s
 
 .. rubric:: LDPC (1024, 512), same LLRs: whole-chain time
 
@@ -1889,28 +1889,28 @@ Median of 5 runs, ms per frame; workload: whole chain, 200 frames at Eb/N0 = 2.0
      - First call
    * - comrs (functions)
      - float64
-     - 0.357
-     - 0.367
+     - 0.356
+     - 0.363
      - 1.00
-     - 0.000754 s
+     - 0.000748 s
    * - OptiCommPy (numba)
      - float32 (decodeLDPC default prec = np.float32)
-     - 1.45
-     - 4.36
-     - 4.05
-     - 1.51 s
+     - 1.44
+     - 4.31
+     - 4.04
+     - 1.47 s
    * - OptiCommPy (no numba)
      - float32 (decodeLDPC default prec = np.float32)
-     - 37.5
-     - 37.3
-     - 105
-     - 0.0834 s
+     - 37.0
+     - 36.5
+     - 104
+     - 0.082 s
    * - Sionna
      - float32 (config.precision = 'single')
      - 2.35
      - 1.32
      - 6.60
-     - 0.00652 s
+     - 0.00648 s
 
 .. dropdown:: The commands of every run
 
@@ -2016,40 +2016,40 @@ Median of 5 runs, s per propagation; workload: 65536 samples, 10 x 80 km, 1 km s
      - First call
    * - comrs (functions), f64
      - float64
-     - 0.555
-     - 0.559
+     - 0.556
+     - 0.554
      - 1.00
-     - 0.553 s
+     - 0.561 s
    * - comrs (functions), f32
      - float32
-     - 0.362
-     - 0.363
-     - 0.652
-     - 0.361 s
+     - 0.365
+     - 0.364
+     - 0.656
+     - 0.365 s
    * - OptiCommPy (numba), f64
      - float64 (prec = np.complex128)
      - 1.28
-     - 1.29
+     - 1.28
      - 2.31
      - 1.29 s
    * - OptiCommPy (no numba), f64
      - float64 (prec = np.complex128)
      - 1.28
-     - 1.29
-     - 2.31
-     - 1.28 s
+     - 1.28
+     - 2.30
+     - 1.29 s
    * - Sionna, single
      - float32 (precision = 'single', the default)
-     - 1.01
-     - 0.877
-     - 1.82
-     - 0.996 s
+     - 1.00
+     - 0.872
+     - 1.80
+     - 0.999 s
    * - Sionna, double
      - float64 (precision = 'double')
      - 1.30
-     - 1.10
-     - 2.35
-     - 1.3 s
+     - 1.11
+     - 2.34
+     - 1.29 s
 
 .. dropdown:: The commands of every run
 

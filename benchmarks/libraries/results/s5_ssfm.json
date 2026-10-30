@@ -11,7 +11,7 @@
   "timing": "one propagation over the 10 spans"
  },
  "quick": false,
- "generated_utc": "2026-10-30T07:47:30+00:00",
+ "generated_utc": "2026-10-30T08:16:07+00:00",
  "machine": {
   "platform": "macOS-27.0-arm64-arm-64bit",
   "machine": "arm64",
@@ -29,7 +29,7 @@
   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
  },
  "git": {
-  "commit": "f45f160b09d04f99a5df936876bbd89fe37a4eb3",
+  "commit": "f20118f9160da9e0aa252475d014743f03902f88",
   "dirty": false
  },
  "versions": {
@@ -97,7 +97,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 17.431444249989,
+   "wall_s": 17.484702666988596,
    "threading": {
     "cpu_count": 12
    },
@@ -107,18 +107,18 @@
      "variant": "f64",
      "precision": "float64",
      "samples": 65536,
-     "first_call_s": 0.552940999972634,
+     "first_call_s": 0.560845291998703,
      "timing": {
-      "warmup_s": 0.5545097090071067,
-      "median_s": 0.5550214999821037,
-      "min_s": 0.5545012500369921,
-      "max_s": 0.5585458750138059,
+      "warmup_s": 0.5573933750274591,
+      "median_s": 0.5557977500138804,
+      "min_s": 0.5549205410061404,
+      "max_s": 0.5576968749519438,
       "times_s": [
-       0.5585458750138059,
-       0.5550516250077635,
-       0.5545012500369921,
-       0.5548317080247216,
-       0.5550214999821037
+       0.5552777500124648,
+       0.5549205410061404,
+       0.5557977500138804,
+       0.5576968749519438,
+       0.5566063330043107
       ],
       "repeats": 5,
       "units": 1,
@@ -131,18 +131,18 @@
      "variant": "f32",
      "precision": "float32",
      "samples": 65536,
-     "first_call_s": 0.3613636670052074,
+     "first_call_s": 0.3651285410160199,
      "timing": {
-      "warmup_s": 0.36219520901795477,
-      "median_s": 0.3620946250157431,
-      "min_s": 0.361827542015817,
-      "max_s": 0.3624030419741757,
+      "warmup_s": 0.36496233398793265,
+      "median_s": 0.36462758301058784,
+      "min_s": 0.36430270900018513,
+      "max_s": 0.36513949994696304,
       "times_s": [
-       0.361827542015817,
-       0.362105457985308,
-       0.3620030829915777,
-       0.3624030419741757,
-       0.3620946250157431
+       0.36485941702267155,
+       0.36513949994696304,
+       0.36430270900018513,
+       0.36462758301058784,
+       0.36435866699321195
       ],
       "repeats": 5,
       "units": 1,
@@ -155,11 +155,11 @@
      "variant": "reference",
      "precision": "float64",
      "step_km": 0.05,
-     "wall_s": 11.003490458009765
+     "wall_s": 11.024123375013005
     }
    ],
    "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s5_ssfm.py --lib comrs --threads 1 --work results/_work --out results/_work/s5_ssfm_comrs_1.json",
-   "process_wall_s": 17.52930145803839
+   "process_wall_s": 17.581053250003606
   },
   {
    "scenario": "s5_ssfm",
@@ -188,7 +188,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 6.465467415982857,
+   "wall_s": 6.4403032919508405,
    "threading": {
     "cpu_count": 12
    },
@@ -198,18 +198,18 @@
      "variant": "f64",
      "precision": "float64",
      "samples": 65536,
-     "first_call_s": 0.5571890409919433,
+     "first_call_s": 0.5526669580140151,
      "timing": {
-      "warmup_s": 0.5588177919853479,
-      "median_s": 0.5589636660297401,
-      "min_s": 0.5584740419872105,
-      "max_s": 0.5627459170063958,
+      "warmup_s": 0.5544802920194343,
+      "median_s": 0.5543166660354473,
+      "min_s": 0.5538922920241021,
+      "max_s": 0.5580109999864362,
       "times_s": [
-       0.5591553749982268,
-       0.5589636660297401,
-       0.5584740419872105,
-       0.5585152920102701,
-       0.5627459170063958
+       0.5545011670328677,
+       0.5538922920241021,
+       0.5543166660354473,
+       0.5580109999864362,
+       0.5541832500020973
       ],
       "repeats": 5,
       "units": 1,
@@ -222,18 +222,18 @@
      "variant": "f32",
      "precision": "float32",
      "samples": 65536,
-     "first_call_s": 0.36203575000399724,
+     "first_call_s": 0.36413187498692423,
      "timing": {
-      "warmup_s": 0.36370554100722075,
-      "median_s": 0.3634510829579085,
-      "min_s": 0.36295408400474116,
-      "max_s": 0.36494129203492776,
+      "warmup_s": 0.3639744999818504,
+      "median_s": 0.3644785839715041,
+      "min_s": 0.36424450000049546,
+      "max_s": 0.3646013329853304,
       "times_s": [
-       0.36494129203492776,
-       0.36295408400474116,
-       0.3634510829579085,
-       0.3630922919837758,
-       0.36353241704637185
+       0.36424450000049546,
+       0.3643776659737341,
+       0.36449366697343066,
+       0.3646013329853304,
+       0.3644785839715041
       ],
       "repeats": 5,
       "units": 1,
@@ -243,7 +243,7 @@
     }
    ],
    "command": " python s5_ssfm.py --lib comrs --threads all --work results/_work --out results/_work/s5_ssfm_comrs_all.json --timing-only",
-   "process_wall_s": 6.562709999969229
+   "process_wall_s": 6.538113916001748
   },
   {
    "scenario": "s5_ssfm",
@@ -259,7 +259,7 @@
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
     "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_82781_1793346370201355000"
+    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793348086528952000"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -272,7 +272,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 10.206866499967873,
+   "wall_s": 10.222172915993724,
    "threading": {
     "cpu_count": 12,
     "numba_threads": 1,
@@ -284,18 +284,18 @@
      "variant": "f64",
      "precision": "float64 (prec = np.complex128)",
      "samples": 65536,
-     "first_call_s": 1.2893288749619387,
+     "first_call_s": 1.2892172080464661,
      "timing": {
-      "warmup_s": 1.279603999981191,
-      "median_s": 1.279539167007897,
-      "min_s": 1.2791102909832262,
-      "max_s": 1.2829484169487841,
+      "warmup_s": 1.2824754170142114,
+      "median_s": 1.2814683750038967,
+      "min_s": 1.2804098750348203,
+      "max_s": 1.2842179169529118,
       "times_s": [
-       1.2795101249939762,
-       1.279539167007897,
-       1.2829484169487841,
-       1.2799403329845518,
-       1.2791102909832262
+       1.2804098750348203,
+       1.2811696670250967,
+       1.2842179169529118,
+       1.2814683750038967,
+       1.2820364169892855
       ],
       "repeats": 5,
       "units": 1,
@@ -305,7 +305,7 @@
     }
    ],
    "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s5_ssfm.py --lib opticommpy --threads 1 --work results/_work --out results/_work/s5_ssfm_opticommpy_1.json",
-   "process_wall_s": 10.356485709024128
+   "process_wall_s": 10.372082666959614
   },
   {
    "scenario": "s5_ssfm",
@@ -321,7 +321,7 @@
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
     "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_82781_1793346380558208000"
+    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793348096901406000"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -334,7 +334,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 10.232800833007786,
+   "wall_s": 10.208990708983038,
    "threading": {
     "cpu_count": 12,
     "numba_threads": 12,
@@ -346,18 +346,18 @@
      "variant": "f64",
      "precision": "float64 (prec = np.complex128)",
      "samples": 65536,
-     "first_call_s": 1.2888110829517245,
+     "first_call_s": 1.2869487500283867,
      "timing": {
-      "warmup_s": 1.2845077920355834,
-      "median_s": 1.2855657920008525,
-      "min_s": 1.284511375008151,
-      "max_s": 1.2893874580040574,
+      "warmup_s": 1.284612208022736,
+      "median_s": 1.281684125016909,
+      "min_s": 1.2806851250352338,
+      "max_s": 1.284759624977596,
       "times_s": [
-       1.284511375008151,
-       1.2855657920008525,
-       1.2893874580040574,
-       1.287130790995434,
-       1.2851956670056097
+       1.2806851250352338,
+       1.284759624977596,
+       1.2820607089670375,
+       1.2815059169661254,
+       1.281684125016909
       ],
       "repeats": 5,
       "units": 1,
@@ -367,7 +367,7 @@
     }
    ],
    "command": " python s5_ssfm.py --lib opticommpy --threads all --work results/_work --out results/_work/s5_ssfm_opticommpy_all.json --timing-only",
-   "process_wall_s": 10.384112291969359
+   "process_wall_s": 10.359543583996128
   },
   {
    "scenario": "s5_ssfm",
@@ -396,7 +396,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 10.19565941701876,
+   "wall_s": 10.195062457991298,
    "threading": {
     "cpu_count": 12,
     "numba_threads": 1,
@@ -408,18 +408,18 @@
      "variant": "f64",
      "precision": "float64 (prec = np.complex128)",
      "samples": 65536,
-     "first_call_s": 1.2845523749710992,
+     "first_call_s": 1.2850859999889508,
      "timing": {
-      "warmup_s": 1.279791707987897,
-      "median_s": 1.2797845000168309,
-      "min_s": 1.2791965830256231,
-      "max_s": 1.283702666987665,
+      "warmup_s": 1.2803950419765897,
+      "median_s": 1.2806530839879997,
+      "min_s": 1.2801285409950651,
+      "max_s": 1.2842446669819765,
       "times_s": [
-       1.2797845000168309,
-       1.2801529580028728,
-       1.283702666987665,
-       1.27945858304156,
-       1.2791965830256231
+       1.2806530839879997,
+       1.2842446669819765,
+       1.280923750018701,
+       1.2806388749741018,
+       1.2801285409950651
       ],
       "repeats": 5,
       "units": 1,
@@ -429,7 +429,7 @@
     }
    ],
    "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 NUMBA_DISABLE_JIT=1 python s5_ssfm.py --lib opticommpy-nojit --threads 1 --work results/_work --out results/_work/s5_ssfm_opticommpy-nojit_1.json --timing-only",
-   "process_wall_s": 10.348391041043214
+   "process_wall_s": 10.34462116699433
   },
   {
    "scenario": "s5_ssfm",
@@ -458,7 +458,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 10.244610499998089,
+   "wall_s": 10.210431542014703,
    "threading": {
     "cpu_count": 12,
     "numba_threads": 12,
@@ -470,18 +470,18 @@
      "variant": "f64",
      "precision": "float64 (prec = np.complex128)",
      "samples": 65536,
-     "first_call_s": 1.2923559590126388,
+     "first_call_s": 1.2876058329711668,
      "timing": {
-      "warmup_s": 1.2815408339956775,
-      "median_s": 1.290151875000447,
-      "min_s": 1.28649766696617,
-      "max_s": 1.2938524589990266,
+      "warmup_s": 1.281968958035577,
+      "median_s": 1.2819465000065975,
+      "min_s": 1.281265750003513,
+      "max_s": 1.2856873749988154,
       "times_s": [
-       1.28649766696617,
-       1.2938524589990266,
-       1.2914649579906836,
-       1.290151875000447,
-       1.288700915989466
+       1.2828259169473313,
+       1.2856873749988154,
+       1.281265750003513,
+       1.2819465000065975,
+       1.2817519169766456
       ],
       "repeats": 5,
       "units": 1,
@@ -491,7 +491,7 @@
     }
    ],
    "command": "NUMBA_DISABLE_JIT=1 python s5_ssfm.py --lib opticommpy-nojit --threads all --work results/_work --out results/_work/s5_ssfm_opticommpy-nojit_all.json --timing-only",
-   "process_wall_s": 10.394648374989629
+   "process_wall_s": 10.361026708036661
   },
   {
    "scenario": "s5_ssfm",
@@ -520,7 +520,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 21.61533550004242,
+   "wall_s": 21.535430042014923,
    "threading": {
     "cpu_count": 12,
     "torch_intra_op_threads": 1,
@@ -534,18 +534,18 @@
      "samples": 65536,
      "torch_intra_op_threads": 1,
      "torch_interop_threads": 1,
-     "first_call_s": 0.9957314999774098,
+     "first_call_s": 0.9988277500378899,
      "timing": {
-      "warmup_s": 1.0148218750255182,
-      "median_s": 1.0077233749907464,
-      "min_s": 0.9993980000144802,
-      "max_s": 1.0165966670028865,
+      "warmup_s": 1.0062921670032665,
+      "median_s": 1.0025995000032708,
+      "min_s": 0.9981274580350146,
+      "max_s": 1.0129195839981548,
       "times_s": [
-       0.9993980000144802,
-       1.0037877079448663,
-       1.0099096670164727,
-       1.0077233749907464,
-       1.0165966670028865
+       1.0025995000032708,
+       1.0066329590044916,
+       0.9989224590244703,
+       0.9981274580350146,
+       1.0129195839981548
       ],
       "repeats": 5,
       "units": 1,
@@ -560,18 +560,18 @@
      "samples": 65536,
      "torch_intra_op_threads": 1,
      "torch_interop_threads": 1,
-     "first_call_s": 1.3020554590038955,
+     "first_call_s": 1.2855951249948703,
      "timing": {
-      "warmup_s": 1.3035957089741714,
-      "median_s": 1.303889499977231,
-      "min_s": 1.2881748329964466,
-      "max_s": 1.3072534580132924,
+      "warmup_s": 1.2869056250201538,
+      "median_s": 1.2997195000061765,
+      "min_s": 1.2941311670001596,
+      "max_s": 1.3018051250255667,
       "times_s": [
-       1.303889499977231,
-       1.306100250047166,
-       1.2977439580135979,
-       1.3072534580132924,
-       1.2881748329964466
+       1.3018051250255667,
+       1.2997195000061765,
+       1.2982029999839142,
+       1.3001715000136755,
+       1.2941311670001596
       ],
       "repeats": 5,
       "units": 1,
@@ -581,7 +581,7 @@
     }
    ],
    "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMBA_NUM_THREADS=1 RAYON_NUM_THREADS=1 python s5_ssfm.py --lib sionna --threads 1 --work results/_work --out results/_work/s5_ssfm_sionna_1.json",
-   "process_wall_s": 21.936437125026714
+   "process_wall_s": 21.85739158396609
   },
   {
    "scenario": "s5_ssfm",
@@ -610,7 +610,7 @@
     "numpy": "2.5.4",
     "scipy": "1.18.1"
    },
-   "wall_s": 17.00118720898172,
+   "wall_s": 17.030684416997246,
    "threading": {
     "cpu_count": 12,
     "torch_intra_op_threads": 2,
@@ -624,18 +624,18 @@
      "samples": 65536,
      "torch_intra_op_threads": 2,
      "torch_interop_threads": 12,
-     "first_call_s": 0.8768109580269083,
+     "first_call_s": 0.8847501249983907,
      "timing": {
-      "warmup_s": 0.8792496249661781,
-      "median_s": 0.8770032920292579,
-      "min_s": 0.8628478330210783,
-      "max_s": 0.8776790829724632,
+      "warmup_s": 0.876400624983944,
+      "median_s": 0.87235854199389,
+      "min_s": 0.8668211660115048,
+      "max_s": 0.8768423749716021,
       "times_s": [
-       0.8776790829724632,
-       0.8770032920292579,
-       0.8628478330210783,
-       0.8631554580060765,
-       0.8775620420346968
+       0.8768423749716021,
+       0.87235854199389,
+       0.8668211660115048,
+       0.8672927500447258,
+       0.8735889579984359
       ],
       "repeats": 5,
       "units": 1,
@@ -650,18 +650,18 @@
      "samples": 65536,
      "torch_intra_op_threads": 2,
      "torch_interop_threads": 12,
-     "first_call_s": 1.1059224579948932,
+     "first_call_s": 1.094095875043422,
      "timing": {
-      "warmup_s": 1.1041868340107612,
-      "median_s": 1.1045619579963386,
-      "min_s": 1.1044563329778612,
-      "max_s": 1.1126345829688944,
+      "warmup_s": 1.1106843749876134,
+      "median_s": 1.113573250011541,
+      "min_s": 1.1102933750371449,
+      "max_s": 1.118267416022718,
       "times_s": [
-       1.1086475839838386,
-       1.1044563329778612,
-       1.1126345829688944,
-       1.104512958030682,
-       1.1045619579963386
+       1.113573250011541,
+       1.118267416022718,
+       1.1102933750371449,
+       1.1127791669568978,
+       1.116208374965936
       ],
       "repeats": 5,
       "units": 1,
@@ -671,7 +671,7 @@
     }
    ],
    "command": " python s5_ssfm.py --lib sionna --threads all --work results/_work --out results/_work/s5_ssfm_sionna_all.json --timing-only",
-   "process_wall_s": 17.318988082988653
+   "process_wall_s": 17.35055283398833
   }
  ],
  "agreement": {
