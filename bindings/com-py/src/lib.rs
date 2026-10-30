@@ -25,6 +25,31 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods};
 use pyo3::exceptions::{PyArithmeticError, PyOSError, PyValueError};
 use pyo3::prelude::*;
 
+/// The `#[pymethods]` of a class wrapping a Rust value `inner`: a getter and a setter
+/// per listed field (`name / set_name: type`, the getter documented by the doc comments
+/// before it), then the other methods of the class. The fields stay those of the Rust
+/// struct: nothing is mirrored or converted back.
+macro_rules! wrapper_methods {
+    ($py:ty { $( $(#[doc = $doc:literal])* $get:ident / $set:ident : $t:ty ),* $(,)? } $($rest:tt)*) => {
+        #[pyo3::pymethods]
+        impl $py {
+            $(
+                $(#[doc = $doc])*
+                #[getter]
+                fn $get(&self) -> $t {
+                    self.inner.$get
+                }
+
+                #[setter]
+                fn $set(&mut self, value: $t) {
+                    self.inner.$get = value;
+                }
+            )*
+            $($rest)*
+        }
+    };
+}
+
 mod blind;
 mod cdl;
 mod chain;
@@ -134,15 +159,6 @@ pub(crate) fn uvec(x: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
         .collect()
 }
 
-/// A 2-D array-like (rows = modes) as complex samples.
-pub(crate) fn cmat(x: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<C64>>> {
-    let a = as_numpy(x, "complex128")?;
-    let a = a
-        .cast::<PyArray2<C64>>()
-        .map_err(|_| PyValueError::new_err("expected a 2-D array of complex samples (modes × samples)"))?;
-    Ok(a.readonly().as_array().rows().into_iter().map(|r| r.to_vec()).collect())
-}
-
 /// A complex array of any number of dimensions.
 pub(crate) fn carray(x: &Bound<'_, PyAny>) -> PyResult<ndarray::ArrayD<C64>> {
     let a = as_numpy(x, "complex128")?;
@@ -156,7 +172,10 @@ pub(crate) fn streams_in(x: &Bound<'_, PyAny>) -> PyResult<(Vec<Vec<C64>>, bool)
     match a.ndim() {
         1 => Ok((vec![a.iter().copied().collect()], true)),
         2 => Ok((a.outer_iter().map(|r| r.iter().copied().collect()).collect(), false)),
-        _ => Err(PyValueError::new_err("x must be (n,) or (n_tx, n)")),
+        _ => Err(PyValueError::new_err(format!(
+            "expected a 1-D (n,) or 2-D (n_streams, n) array, got {} dimensions",
+            a.ndim()
+        ))),
     }
 }
 
@@ -226,6 +245,11 @@ pub(crate) fn map_real(x: &Bound<'_, PyAny>, f: impl Fn(f64) -> PyResult<f64>) -
 /// `OverflowError` of an unsigned conversion).
 pub(crate) fn count(n: i64, what: &str) -> PyResult<usize> {
     usize::try_from(n).map_err(|_| PyValueError::new_err(format!("{what} must be non-negative, got {n}")))
+}
+
+/// A boolean as Python writes it in a `repr` (`True`, `False`).
+pub(crate) fn py_bool(b: bool) -> &'static str {
+    if b { "True" } else { "False" }
 }
 
 /// Taps `(delay in s, power in dB)` from an `(n, 2)` array-like (a list of pairs works).

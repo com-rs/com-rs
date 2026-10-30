@@ -391,9 +391,7 @@ pub struct PyGammaGamma {
 impl PyGammaGamma {
     #[new]
     fn new(alpha: f64, beta: f64) -> PyResult<Self> {
-        let inner = GammaGamma { alpha, beta };
-        fso::Fso { loss_db: 0.0, turbulence: Turbulence::GammaGamma(inner), pointing: None }.check().py()?;
-        Ok(PyGammaGamma { inner })
+        Ok(PyGammaGamma { inner: GammaGamma::new(alpha, beta).py()? })
     }
 
     /// The parameters predicted by the Rytov variance for a negligible inner scale.
@@ -407,12 +405,7 @@ impl PyGammaGamma {
     #[staticmethod]
     #[pyo3(signature = (rytov, wave="plane"))]
     fn from_rytov(rytov: f64, wave: &str) -> PyResult<Self> {
-        let wave = match wave {
-            "plane" => Wave::Plane,
-            "spherical" => Wave::Spherical,
-            _ => return Err(PyValueError::new_err(format!("wave must be 'plane' or 'spherical', got {wave:?}"))),
-        };
-        Ok(PyGammaGamma { inner: GammaGamma::from_rytov(rytov, wave).py()? })
+        Ok(PyGammaGamma { inner: GammaGamma::from_rytov(rytov, wave.parse::<Wave>().py()?).py()? })
     }
 
     /// float: `α`.
@@ -480,9 +473,7 @@ pub struct PyPointingError {
 impl PyPointingError {
     #[new]
     fn new(beam_radius_m: f64, aperture_radius_m: f64, jitter_m: f64) -> PyResult<Self> {
-        let inner = PointingError { beam_radius_m, aperture_radius_m, jitter_m };
-        fso::Fso { loss_db: 0.0, turbulence: Turbulence::None, pointing: Some(inner) }.check().py()?;
-        Ok(PyPointingError { inner })
+        Ok(PyPointingError { inner: PointingError::new(beam_radius_m, aperture_radius_m, jitter_m).py()? })
     }
 
     /// The fraction `A₀ = erf²(v)` collected without displacement.
@@ -569,21 +560,14 @@ impl PyFso {
         pointing: Option<PyRef<'_, PyPointingError>>,
     ) -> PyResult<Self> {
         let turbulence = match turbulence {
-            None => Turbulence::None,
-            Some(t) => {
-                if let Ok(g) = t.cast::<PyGammaGamma>() {
-                    Turbulence::GammaGamma(g.borrow().inner)
-                } else {
-                    match t.extract::<String>()?.as_str() {
-                        "lognormal" => Turbulence::LogNormal {
-                            scintillation_index: scintillation_index
-                                .ok_or_else(|| PyValueError::new_err("lognormal needs scintillation_index"))?,
-                        },
-                        "negative-exponential" => Turbulence::NegativeExponential,
-                        other => return Err(PyValueError::new_err(format!("unknown turbulence {other:?}"))),
-                    }
+            Some(t) if t.is_instance_of::<PyGammaGamma>() => {
+                if scintillation_index.is_some() {
+                    return Err(PyValueError::new_err("scintillation_index is that of the log-normal model"));
                 }
+                Turbulence::GammaGamma(t.cast::<PyGammaGamma>()?.borrow().inner)
             }
+            Some(t) => Turbulence::from_name(&t.extract::<String>()?, scintillation_index).py()?,
+            None => Turbulence::from_name("none", scintillation_index).py()?,
         };
         let inner = fso::Fso { loss_db, turbulence, pointing: pointing.map(|p| p.inner) };
         inner.check().py()?;
@@ -630,47 +614,34 @@ impl PyFso {
 ///     >>> rx = comrs.PinFetReceiver.komine2004()
 ///     >>> rx.responsivity
 ///     0.53
-#[pyclass(name = "PinFetReceiver", module = "comrs", get_all, set_all)]
+#[pyclass(name = "PinFetReceiver", module = "comrs")]
 #[derive(Clone)]
 pub struct PyPinFet {
-    /// float: Responsivity (A/W).
-    responsivity: f64,
-    /// float: Background current of the ambient light (A).
-    background_current_a: f64,
-    /// float: Open-loop voltage gain.
-    open_loop_gain: f64,
-    /// float: Fixed capacitance per unit area (F/m²).
-    capacitance_f_per_m2: f64,
-    /// float: FET channel noise factor.
-    channel_noise_factor: f64,
-    /// float: FET transconductance (S).
-    transconductance_s: f64,
-    /// float: Absolute temperature (K).
-    temperature_k: f64,
-    /// float: Noise bandwidth factor `I₂`.
-    i2: f64,
-    /// float: Noise bandwidth factor `I₃`.
-    i3: f64,
+    inner: PinFetReceiver,
 }
 
-impl PyPinFet {
-    fn to_rust(&self) -> PinFetReceiver {
-        PinFetReceiver {
-            responsivity: self.responsivity,
-            background_current_a: self.background_current_a,
-            open_loop_gain: self.open_loop_gain,
-            capacitance_f_per_m2: self.capacitance_f_per_m2,
-            channel_noise_factor: self.channel_noise_factor,
-            transconductance_s: self.transconductance_s,
-            temperature_k: self.temperature_k,
-            i2: self.i2,
-            i3: self.i3,
-        }
+wrapper_methods! {
+    PyPinFet {
+        /// float: Responsivity (A/W) (read and write).
+        responsivity / set_responsivity: f64,
+        /// float: Background current of the ambient light (A) (read and write).
+        background_current_a / set_background_current_a: f64,
+        /// float: Open-loop voltage gain (read and write).
+        open_loop_gain / set_open_loop_gain: f64,
+        /// float: Fixed capacitance per unit area (F/m²) (read and write).
+        capacitance_f_per_m2 / set_capacitance_f_per_m2: f64,
+        /// float: FET channel noise factor (read and write).
+        channel_noise_factor / set_channel_noise_factor: f64,
+        /// float: FET transconductance (S) (read and write).
+        transconductance_s / set_transconductance_s: f64,
+        /// float: Absolute temperature (K) (read and write).
+        temperature_k / set_temperature_k: f64,
+        /// float: Noise bandwidth factor `I₂` (read and write).
+        i2 / set_i2: f64,
+        /// float: Noise bandwidth factor `I₃` (read and write).
+        i3 / set_i3: f64,
     }
-}
 
-#[pymethods]
-impl PyPinFet {
     #[new]
     #[allow(clippy::too_many_arguments, reason = "one argument per field of the receiver")]
     fn new(
@@ -685,15 +656,17 @@ impl PyPinFet {
         i3: f64,
     ) -> Self {
         PyPinFet {
-            responsivity,
-            background_current_a,
-            open_loop_gain,
-            capacitance_f_per_m2,
-            channel_noise_factor,
-            transconductance_s,
-            temperature_k,
-            i2,
-            i3,
+            inner: PinFetReceiver {
+                responsivity,
+                background_current_a,
+                open_loop_gain,
+                capacitance_f_per_m2,
+                channel_noise_factor,
+                transconductance_s,
+                temperature_k,
+                i2,
+                i3,
+            },
         }
     }
 
@@ -703,18 +676,7 @@ impl PyPinFet {
     ///     PinFetReceiver: the receiver.
     #[staticmethod]
     fn komine2004() -> Self {
-        let r = PinFetReceiver::komine2004();
-        PyPinFet {
-            responsivity: r.responsivity,
-            background_current_a: r.background_current_a,
-            open_loop_gain: r.open_loop_gain,
-            capacitance_f_per_m2: r.capacitance_f_per_m2,
-            channel_noise_factor: r.channel_noise_factor,
-            transconductance_s: r.transconductance_s,
-            temperature_k: r.temperature_k,
-            i2: r.i2,
-            i3: r.i3,
-        }
+        PyPinFet { inner: PinFetReceiver::komine2004() }
     }
 
     /// The variance of the shot noise (A²) of the signal and of the ambient light.
@@ -727,7 +689,7 @@ impl PyPinFet {
     /// Returns:
     ///     float: the variance (A²).
     fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().shot_variance(signal_w, isi_w, bandwidth_hz)
+        self.inner.shot_variance(signal_w, isi_w, bandwidth_hz)
     }
 
     /// The variance of the thermal noise (A²) of the feedback resistor and of the FET.
@@ -739,7 +701,7 @@ impl PyPinFet {
     /// Returns:
     ///     float: the variance (A²).
     fn thermal_variance(&self, area_m2: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().thermal_variance(area_m2, bandwidth_hz)
+        self.inner.thermal_variance(area_m2, bandwidth_hz)
     }
 
     /// The SNR (dB) of on–off keying with intersymbol interference (their eq. (16)).
@@ -753,7 +715,39 @@ impl PyPinFet {
     /// Returns:
     ///     float: the SNR (dB).
     fn ook_snr_db(&self, signal_w: f64, isi_w: f64, area_m2: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().ook_snr_db(signal_w, isi_w, area_m2, bandwidth_hz)
+        self.inner.ook_snr_db(signal_w, isi_w, area_m2, bandwidth_hz)
+    }
+
+    fn __repr__(&self) -> String {
+        let r = &self.inner;
+        format!(
+            "comrs.PinFetReceiver({}, {:e}, {}, {:e}, {}, {}, {}, {}, {})",
+            r.responsivity,
+            r.background_current_a,
+            r.open_loop_gain,
+            r.capacitance_f_per_m2,
+            r.channel_noise_factor,
+            r.transconductance_s,
+            r.temperature_k,
+            r.i2,
+            r.i3
+        )
+    }
+
+    #[allow(clippy::type_complexity, reason = "the nine positional arguments of the constructor")]
+    fn __getnewargs__(&self) -> (f64, f64, f64, f64, f64, f64, f64, f64, f64) {
+        let r = &self.inner;
+        (
+            r.responsivity,
+            r.background_current_a,
+            r.open_loop_gain,
+            r.capacitance_f_per_m2,
+            r.channel_noise_factor,
+            r.transconductance_s,
+            r.temperature_k,
+            r.i2,
+            r.i3,
+        )
     }
 }
 

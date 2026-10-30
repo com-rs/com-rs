@@ -2,12 +2,13 @@
 //! photodiodes, the 90° hybrid and the coherent receiver.
 
 use crate::rng::PyRng;
-use crate::{CArr, FArr, IntoPy, carr, count, cvec, farr, fvec};
+use crate::{CArr, FArr, IntoPy, carr, count, cvec, farr, fvec, py_bool};
 use comrs::channel::awgn as awgn_ch;
 use comrs::dsp::filter::LowPass;
 use comrs::hardware::optical::{self as devices, Iqm, Laser, Mzm, Photodiode};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 /// Add circular complex Gaussian noise for an SNR of `snr_db` within the bandwidth
 /// `bandwidth` of a signal sampled at `fs` (OptiCommPy `awgn`):
@@ -232,57 +233,52 @@ fn iqm<'py>(
 ///     thermal_noise (bool): add thermal noise.
 ///     bandwidth_limitation (bool): filter to the bandwidth.
 ///     ideal (bool): ideal square-law detection (overrides the three flags above).
-#[pyclass(name = "Photodiode", module = "comrs", get_all, set_all)]
+#[pyclass(name = "Photodiode", module = "comrs")]
 #[derive(Clone)]
 pub struct PyPhotodiode {
-    /// float: Responsivity (A/W) (read and write).
-    pub responsivity: f64,
-    /// float: Temperature (°C) (read and write).
-    pub temperature_c: f64,
-    /// float: Dark current (A) (read and write).
-    pub dark_current: f64,
-    /// float: Load resistance (Ω) (read and write).
-    pub load_ohm: f64,
-    /// float: Electrical bandwidth `B` (Hz) (read and write).
-    pub bandwidth_hz: f64,
-    /// int: Taps of the bandwidth-limiting filter (made odd) (read and write).
-    pub n_taps: usize,
-    /// str: The filter, `"rect"` or `"gauss"` (read and write).
-    pub filter_kind: String,
-    /// bool: Add shot noise (read and write).
-    pub shot_noise: bool,
-    /// bool: Add thermal noise (read and write).
-    pub thermal_noise: bool,
-    /// bool: Filter to the bandwidth (read and write).
-    pub bandwidth_limitation: bool,
-    /// bool: Ideal square-law detection (overrides the three flags above) (read and write).
-    pub ideal: bool,
+    inner: Photodiode,
 }
 
-impl PyPhotodiode {
-    fn to_rust(&self) -> PyResult<Photodiode> {
-        let filter: LowPass = self.filter_kind.parse().py()?;
-        Ok(Photodiode {
-            responsivity: self.responsivity,
-            temperature_c: self.temperature_c,
-            dark_current: self.dark_current,
-            load_ohm: self.load_ohm,
-            bandwidth_hz: self.bandwidth_hz,
-            n_taps: self.n_taps,
-            filter,
-            shot_noise: self.shot_noise,
-            thermal_noise: self.thermal_noise,
-            bandwidth_limitation: self.bandwidth_limitation,
-            ideal: self.ideal,
-        })
+wrapper_methods! {
+    PyPhotodiode {
+        /// float: Responsivity (A/W) (read and write).
+        responsivity / set_responsivity: f64,
+        /// float: Temperature (°C) (read and write).
+        temperature_c / set_temperature_c: f64,
+        /// float: Dark current (A) (read and write).
+        dark_current / set_dark_current: f64,
+        /// float: Load resistance (Ω) (read and write).
+        load_ohm / set_load_ohm: f64,
+        /// float: Electrical bandwidth `B` (Hz) (read and write).
+        bandwidth_hz / set_bandwidth_hz: f64,
+        /// int: Taps of the bandwidth-limiting filter (made odd) (read and write).
+        n_taps / set_n_taps: usize,
+        /// bool: Add shot noise (read and write).
+        shot_noise / set_shot_noise: bool,
+        /// bool: Add thermal noise (read and write).
+        thermal_noise / set_thermal_noise: bool,
+        /// bool: Filter to the bandwidth (read and write).
+        bandwidth_limitation / set_bandwidth_limitation: bool,
+        /// bool: Ideal square-law detection (overrides the three flags above) (read and write).
+        ideal / set_ideal: bool,
     }
-}
 
-#[pymethods]
-impl PyPhotodiode {
     #[new]
-    #[pyo3(signature = (*, responsivity = 1.0, temperature_c = 25.0, dark_current = 5e-9, load_ohm = 50.0, bandwidth_hz = 30e9, n_taps = 255, filter_kind = "rect".to_string(), shot_noise = true, thermal_noise = true, bandwidth_limitation = true, ideal = false))]
-    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        *,
+        responsivity = Photodiode::default().responsivity,
+        temperature_c = Photodiode::default().temperature_c,
+        dark_current = Photodiode::default().dark_current,
+        load_ohm = Photodiode::default().load_ohm,
+        bandwidth_hz = Photodiode::default().bandwidth_hz,
+        n_taps = Photodiode::default().n_taps,
+        filter_kind = Photodiode::default().filter.name(),
+        shot_noise = Photodiode::default().shot_noise,
+        thermal_noise = Photodiode::default().thermal_noise,
+        bandwidth_limitation = Photodiode::default().bandwidth_limitation,
+        ideal = Photodiode::default().ideal,
+    ))]
+    #[allow(clippy::too_many_arguments, reason = "one keyword argument per field of the photodiode")]
     fn new(
         responsivity: f64,
         temperature_c: f64,
@@ -290,25 +286,40 @@ impl PyPhotodiode {
         load_ohm: f64,
         bandwidth_hz: f64,
         n_taps: usize,
-        filter_kind: String,
+        filter_kind: &str,
         shot_noise: bool,
         thermal_noise: bool,
         bandwidth_limitation: bool,
         ideal: bool,
-    ) -> Self {
-        PyPhotodiode {
-            responsivity,
-            temperature_c,
-            dark_current,
-            load_ohm,
-            bandwidth_hz,
-            n_taps,
-            filter_kind,
-            shot_noise,
-            thermal_noise,
-            bandwidth_limitation,
-            ideal,
-        }
+    ) -> PyResult<Self> {
+        Ok(PyPhotodiode {
+            inner: Photodiode {
+                responsivity,
+                temperature_c,
+                dark_current,
+                load_ohm,
+                bandwidth_hz,
+                n_taps,
+                filter: filter_kind.parse().py()?,
+                shot_noise,
+                thermal_noise,
+                bandwidth_limitation,
+                ideal,
+            },
+        })
+    }
+
+    /// str: The filter, `"rect"` or `"gauss"` (read and write; a name is checked when
+    /// it is assigned).
+    #[getter]
+    fn filter_kind(&self) -> &'static str {
+        self.inner.filter.name()
+    }
+
+    #[setter]
+    fn set_filter_kind(&mut self, value: &str) -> PyResult<()> {
+        self.inner.filter = value.parse::<LowPass>().py()?;
+        Ok(())
     }
 
     /// Photocurrent of an optical field (one polarisation).
@@ -330,7 +341,7 @@ impl PyPhotodiode {
         fs: f64,
         mut rng: PyRefMut<'py, PyRng>,
     ) -> PyResult<FArr<'py>> {
-        Ok(farr(py, self.to_rust()?.detect(&cvec(e)?, fs, &mut rng.inner).py()?))
+        Ok(farr(py, self.inner.detect(&cvec(e)?, fs, &mut rng.inner).py()?))
     }
 
     /// Photocurrent of an optical power.
@@ -349,12 +360,48 @@ impl PyPhotodiode {
         fs: f64,
         mut rng: PyRefMut<'py, PyRng>,
     ) -> PyResult<FArr<'py>> {
-        Ok(farr(py, self.to_rust()?.detect_power(&fvec(p)?, fs, &mut rng.inner).py()?))
+        Ok(farr(py, self.inner.detect_power(&fvec(p)?, fs, &mut rng.inner).py()?))
+    }
+
+    fn __repr__(&self) -> String {
+        let d = &self.inner;
+        format!(
+            "comrs.Photodiode(responsivity={}, temperature_c={}, dark_current={:e}, load_ohm={}, bandwidth_hz={:e}, \
+             n_taps={}, filter_kind='{}', shot_noise={}, thermal_noise={}, bandwidth_limitation={}, ideal={})",
+            d.responsivity,
+            d.temperature_c,
+            d.dark_current,
+            d.load_ohm,
+            d.bandwidth_hz,
+            d.n_taps,
+            d.filter.name(),
+            py_bool(d.shot_noise),
+            py_bool(d.thermal_noise),
+            py_bool(d.bandwidth_limitation),
+            py_bool(d.ideal)
+        )
+    }
+
+    fn __getnewargs_ex__<'py>(&self, py: Python<'py>) -> PyResult<((), Bound<'py, PyDict>)> {
+        let d = &self.inner;
+        let kw = PyDict::new(py);
+        kw.set_item("responsivity", d.responsivity)?;
+        kw.set_item("temperature_c", d.temperature_c)?;
+        kw.set_item("dark_current", d.dark_current)?;
+        kw.set_item("load_ohm", d.load_ohm)?;
+        kw.set_item("bandwidth_hz", d.bandwidth_hz)?;
+        kw.set_item("n_taps", d.n_taps)?;
+        kw.set_item("filter_kind", d.filter.name())?;
+        kw.set_item("shot_noise", d.shot_noise)?;
+        kw.set_item("thermal_noise", d.thermal_noise)?;
+        kw.set_item("bandwidth_limitation", d.bandwidth_limitation)?;
+        kw.set_item("ideal", d.ideal)?;
+        Ok(((), kw))
     }
 }
 
-fn photodiode_or_ideal(pd: Option<&PyPhotodiode>) -> PyResult<Photodiode> {
-    pd.map_or(Ok(Photodiode::ideal()), PyPhotodiode::to_rust)
+fn photodiode_or_ideal(pd: Option<&PyPhotodiode>) -> Photodiode {
+    pd.map_or_else(Photodiode::ideal, |p| p.inner.clone())
 }
 
 /// Balanced detection `i(E₁) - i(E₂)`.
@@ -378,7 +425,7 @@ fn balanced_photodiode<'py>(
     mut rng: PyRefMut<'py, PyRng>,
     photodiode: Option<&PyPhotodiode>,
 ) -> PyResult<FArr<'py>> {
-    let pd = photodiode_or_ideal(photodiode)?;
+    let pd = photodiode_or_ideal(photodiode);
     Ok(farr(py, devices::balanced_photodiode(&cvec(e1)?, &cvec(e2)?, &pd, fs, &mut rng.inner).py()?))
 }
 
@@ -426,7 +473,7 @@ fn coherent_receiver<'py>(
     mut rng: PyRefMut<'py, PyRng>,
     photodiode: Option<&PyPhotodiode>,
 ) -> PyResult<CArr<'py>> {
-    let pd = photodiode_or_ideal(photodiode)?;
+    let pd = photodiode_or_ideal(photodiode);
     Ok(carr(py, devices::coherent_receiver(&cvec(es)?, &cvec(elo)?, &pd, fs, &mut rng.inner).py()?))
 }
 
