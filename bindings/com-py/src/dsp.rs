@@ -514,8 +514,11 @@ fn fourth_power_foe<'py>(
     let x = cvec(x)?;
     let (y, fo) = py
         .detach(|| {
-            let fo =
-                if refined { carrier::fourth_power_foe_refined(&x, fs, m) } else { carrier::fourth_power_foe(&x, fs, m) }?;
+            let fo = if refined {
+                carrier::fourth_power_foe_refined(&x, fs, m)
+            } else {
+                carrier::fourth_power_foe(&x, fs, m)
+            }?;
             Ok::<_, comrs::Error>((comrs::dsp::signal::freq_shift(&x, -fo, fs), fo))
         })
         .py()?;

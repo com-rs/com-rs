@@ -32,9 +32,7 @@ const LENTZ_TOLERANCE: f64 = 1e-16;
 const SERIES_TOLERANCE: f64 = 1e-17;
 
 /// The real or complex numbers the series and continued fractions are evaluated in.
-trait Scalar:
-    Copy + Add<Output = Self> + Mul<Output = Self> + MulAssign + AddAssign + Div<f64, Output = Self>
-{
+trait Scalar: Copy + Add<Output = Self> + Mul<Output = Self> + MulAssign + AddAssign + Div<f64, Output = Self> {
     /// [`LENTZ_TINY`] in this field.
     fn tiny() -> Self;
     /// The modulus.

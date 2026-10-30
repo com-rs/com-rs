@@ -377,7 +377,8 @@ impl<'a> ErrorLaws<'a> {
             }
             Algorithm::Rde => {
                 let r = ym.norm();
-                let rr = self.radii.iter().copied().min_by(|a, b| (a - r).abs().total_cmp(&(b - r).abs())).unwrap_or(1.0);
+                let rr =
+                    self.radii.iter().copied().min_by(|a, b| (a - r).abs().total_cmp(&(b - r).abs())).unwrap_or(1.0);
                 let d = rr * rr - ym.norm_sqr();
                 (ym * d, d * d)
             }

@@ -46,7 +46,9 @@ use std::f64::consts::TAU;
 /// the `n` phase samples against them and the `span` (2 or 3) of the differences (a
 /// length).
 fn check(n: usize, ts: f64, m: usize, span: usize) -> Result<()> {
-    ensure(m >= 1 && ts > 0.0, || format!("the averaging factor must be positive and the period too, got {m} and {ts} s"))?;
+    ensure(m >= 1 && ts > 0.0, || {
+        format!("the averaging factor must be positive and the period too, got {m} and {ts} s")
+    })?;
     ensure_shape(n > span * m, || {
         format!("{n} phase samples for an averaging factor of {m} (at least {} needed)", span * m + 1)
     })
