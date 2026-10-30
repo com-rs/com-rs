@@ -1,6 +1,6 @@
 //! The symmetric split-step Fourier solvers of the nonlinear Schrödinger equation:
-//! scalar ([`SplitStep`], [`SplitStepF32`]) and dual-polarisation Manakov
-//! ([`ManakovSplitStep`]).
+//! scalar ([`SplitStep`], [`SplitStepF32`], both built from the [`Steps`] of a span)
+//! and dual-polarisation Manakov ([`ManakovSplitStep`]).
 //!
 //! The same solver propagates a field through a fibre (`com_channel::optical::fiber`)
 //! and back-propagates it at the receiver (`com_dsp::compensation::dbp`, with the
@@ -52,14 +52,14 @@
 //!
 //! # Examples
 //! ```
-//! use com_math::nlse::{Medium, SplitStep};
+//! use com_math::nlse::{Medium, SplitStep, Steps};
 //! use com_math::C64;
 //! // without loss and nonlinearity, forward then negated propagation is the identity
 //! let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 0.0 };
 //! let x: Vec<C64> = (0..64).map(|n| C64::new((n % 3) as f64, (n % 2) as f64)).collect();
 //! let mut e = x.clone();
-//! SplitStep::new(&m, 10.0, 10.0, 8, 64, 64e9).run(&mut e);
-//! SplitStep::new(&m.negated(), 10.0, 10.0, 8, 64, 64e9).run(&mut e);
+//! SplitStep::new(&m, Steps::forward(8, 10.0), 64, 64e9).run(&mut e);
+//! SplitStep::new(&m.negated(), Steps::forward(8, 10.0), 64, 64e9).run(&mut e);
 //! assert!(x.iter().zip(&e).all(|(a, b)| (a - b).norm() < 1e-9));
 //! ```
 //!
@@ -79,7 +79,6 @@ use crate::fft::{self, Fft};
 use crate::{C64, cis};
 use com_core::{Error, Result, ensure, same_len};
 use num_complex::Complex32 as C32;
-use std::sync::Arc;
 
 /// The coefficients of the scalar NLSE, per kilometre.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -102,48 +101,98 @@ impl Medium {
     /// The linear response `e^{-αL/2} e^{jβ₂ω²L/2}` of `length_km` of the medium at
     /// every angular frequency (loss and dispersion of the field).
     pub fn linear_response(&self, omega: &[f64], length_km: f64) -> Vec<C64> {
+        let mut out = vec![C64::new(0.0, 0.0); omega.len()];
+        self.linear_response_into(omega, length_km, &mut out);
+        out
+    }
+
+    /// [`Medium::linear_response`] into `out` (one value per angular frequency).
+    fn linear_response_into(&self, omega: &[f64], length_km: f64, out: &mut [C64]) {
         let (a, b2) = (self.alpha_np_km, self.beta2_s2_km);
-        omega.iter().map(|wk| (-(a / 2.0) * length_km).exp() * cis(b2 / 2.0 * wk * wk * length_km)).collect()
+        for (o, wk) in out.iter_mut().zip(omega) {
+            *o = (-(a / 2.0) * length_km).exp() * cis(b2 / 2.0 * wk * wk * length_km);
+        }
     }
 
     /// The half linear step `e^{-αh/4} e^{jβ₂ω²h/4}` at every angular frequency.
     fn half_step(&self, omega: &[f64], h: f64) -> Vec<C64> {
         self.linear_response(omega, h / 2.0)
     }
+
+    /// [`Medium::half_step`] into `out`.
+    fn half_step_into(&self, omega: &[f64], h: f64, out: &mut [C64]) {
+        self.linear_response_into(omega, h / 2.0, out);
+    }
 }
 
-/// `n_steps` symmetric split steps of length `step_km` (one span), in double precision.
+/// The steps of one span: `n_steps` symmetric steps of `step_km`, the nonlinear phase
+/// of each over `nl_length_km` (the step itself for the forward model, the effective
+/// length of a coarse step for a back-propagation). Shared by [`SplitStep`] and
+/// [`SplitStepF32`], and given by a forward model to its back-propagation
+/// (`com_dsp::compensation::dbp::Dbp::forward`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Steps {
+    /// Number of steps.
+    pub n_steps: usize,
+    /// Length of a step (km).
+    pub step_km: f64,
+    /// Nonlinear length of a step (km).
+    pub nl_length_km: f64,
+}
+
+impl Steps {
+    /// The steps of the forward model: `n_steps` of `step_km`, whose nonlinear length is
+    /// the step.
+    pub fn forward(n_steps: usize, step_km: f64) -> Steps {
+        Steps { n_steps, step_km, nl_length_km: step_km }
+    }
+
+    /// The length covered, $n h$ (km).
+    pub fn length_km(&self) -> f64 {
+        self.n_steps as f64 * self.step_km
+    }
+}
+
+/// The [`Steps`] of one span in double precision.
 #[derive(Clone, Debug)]
 pub struct SplitStep {
     lin: Vec<C64>,
-    plan: Fft,
+    /// `None` for an empty block (nothing to propagate).
+    plan: Option<Fft>,
     gamma_w_km: f64,
-    nl_length_km: f64,
-    step_km: f64,
-    n_steps: usize,
+    steps: Steps,
 }
 
 impl SplitStep {
-    /// The steps through `medium` for a block of `n` samples at `fs`, with the
-    /// nonlinear length `nl_length_km` per step.
-    pub fn new(medium: &Medium, step_km: f64, nl_length_km: f64, n_steps: usize, n: usize, fs: f64) -> SplitStep {
+    /// The `steps` through `medium` for a block of `n` samples at `fs` (no plan for an
+    /// empty block: the steps then leave it empty).
+    pub fn new(medium: &Medium, steps: Steps, n: usize, fs: f64) -> SplitStep {
         let omega = fft::angular_frequencies(n, fs);
         SplitStep {
-            lin: medium.half_step(&omega, step_km),
-            plan: fft::plan(n),
+            lin: medium.half_step(&omega, steps.step_km),
+            plan: (n > 0).then(|| fft::plan(n)),
             gamma_w_km: medium.gamma_w_km,
-            nl_length_km,
-            step_km,
-            n_steps,
+            steps,
         }
     }
 
+    /// The steps.
+    pub fn steps(&self) -> Steps {
+        self.steps
+    }
+
     /// Propagate `e` (√W, time domain) through the steps, in place.
+    ///
+    /// # Panics
+    /// If `e` has another length than the block of [`SplitStep::new`].
     pub fn run(&self, e: &mut [C64]) {
-        let p = &self.plan;
-        let (g, h) = (self.gamma_w_km, self.nl_length_km);
+        let Some(p) = self.plan.as_ref() else {
+            assert!(e.is_empty(), "a field for an empty block");
+            return;
+        };
+        let (g, h) = (self.gamma_w_km, self.steps.nl_length_km);
         p.forward(e);
-        for _ in 0..self.n_steps {
+        for _ in 0..self.steps.n_steps {
             mul(e, &self.lin);
             p.inverse(e);
             for v in e.iter_mut() {
@@ -161,14 +210,18 @@ impl SplitStep {
     /// step (the back-propagation of a dual-polarisation link).
     ///
     /// # Panics
-    /// If the polarisations have different lengths.
+    /// If the polarisations have different lengths, or another length than the block of
+    /// [`SplitStep::new`].
     pub fn run_dual(&self, x: &mut [C64], y: &mut [C64]) {
         assert_eq!(x.len(), y.len(), "the polarisations must have the same length");
-        let p = &self.plan;
-        let k = 8.0 / 9.0 * self.gamma_w_km * self.nl_length_km;
+        let Some(p) = self.plan.as_ref() else {
+            assert!(x.is_empty(), "a field for an empty block");
+            return;
+        };
+        let k = 8.0 / 9.0 * self.gamma_w_km * self.steps.nl_length_km;
         p.forward(x);
         p.forward(y);
-        for _ in 0..self.n_steps {
+        for _ in 0..self.steps.n_steps {
             mul(x, &self.lin);
             mul(y, &self.lin);
             p.inverse(x);
@@ -188,12 +241,18 @@ impl SplitStep {
     /// of the field at every frequency (FFT order) from $z_{0}$ to $z_{1}$ (km, from the
     /// start of the steps). The medium then carries no attenuation: `gain` holds the
     /// loss as well (the power profile of a Raman-pumped span, `com_channel::optical::raman`).
+    ///
+    /// # Panics
+    /// If `e` has another length than the block of [`SplitStep::new`].
     pub fn run_with_gain(&self, e: &mut [C64], gain: FieldGain<'_>) {
-        let p = &self.plan;
-        let (g, h) = (self.gamma_w_km, self.nl_length_km);
-        let step = self.step_km;
+        let Some(p) = self.plan.as_ref() else {
+            assert!(e.is_empty(), "a field for an empty block");
+            return;
+        };
+        let (g, h) = (self.gamma_w_km, self.steps.nl_length_km);
+        let step = self.steps.step_km;
         let mut buf = vec![0.0; e.len()];
-        for k in 0..self.n_steps {
+        for k in 0..self.steps.n_steps {
             let z0 = k as f64 * step;
             p.forward(e);
             mul(e, &self.lin);
@@ -217,7 +276,9 @@ impl SplitStep {
 pub type FieldGain<'a> = &'a dyn Fn(f64, f64, &mut [f64]);
 
 /// [`SplitStep`] in single precision: the field, the FFTs, the linear operator and the
-/// nonlinear phase are computed in `f32` (about twice as fast).
+/// nonlinear phase are computed in `f32` (about twice as fast), with the same [`Steps`]
+/// (a back-propagation included); the plans and their work space are cached per thread
+/// as those of [`fft::plan`].
 ///
 /// The rounding error grows like `ε √K` with `ε ≈ 6·10⁻⁸` and `K` the number of
 /// steps: below `10⁻⁴` relative for thousands of steps.
@@ -225,10 +286,10 @@ pub type FieldGain<'a> = &'a dyn Fn(f64, f64, &mut [f64]);
 pub struct SplitStepF32 {
     lin: Vec<C32>,
     lin_n: Vec<C32>,
-    fwd: Arc<dyn rustfft::Fft<f32>>,
-    inv: Arc<dyn rustfft::Fft<f32>>,
+    /// `None` for an empty block.
+    plan: Option<fft::FftF32>,
     gamma_h: f32,
-    n_steps: usize,
+    steps: Steps,
 }
 
 impl std::fmt::Debug for SplitStepF32 {
@@ -236,49 +297,58 @@ impl std::fmt::Debug for SplitStepF32 {
         f.debug_struct("SplitStepF32")
             .field("n", &self.lin.len())
             .field("gamma_h", &self.gamma_h)
-            .field("n_steps", &self.n_steps)
+            .field("steps", &self.steps)
             .finish_non_exhaustive()
     }
 }
 
 impl SplitStepF32 {
-    /// The steps through `medium` for a block of `n ≥ 1` samples at `fs` (the
-    /// nonlinear length of a step is the step).
-    pub fn new(medium: &Medium, step_km: f64, n_steps: usize, n: usize, fs: f64) -> SplitStepF32 {
+    /// The `steps` through `medium` for a block of `n` samples at `fs` (no plan for an
+    /// empty block).
+    pub fn new(medium: &Medium, steps: Steps, n: usize, fs: f64) -> SplitStepF32 {
         let omega = fft::angular_frequencies(n, fs);
-        let half = medium.half_step(&omega, step_km);
+        let half = medium.half_step(&omega, steps.step_km);
         // the 1/N of the inverse transform is folded into the first half step
         let inv_n = 1.0 / n.max(1) as f64;
         let lin = half.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
         let lin_n = half.iter().map(|v| v * inv_n).map(|v| C32::new(v.re as f32, v.im as f32)).collect();
-        let mut planner = rustfft::FftPlanner::<f32>::new();
         SplitStepF32 {
             lin,
             lin_n,
-            fwd: planner.plan_fft_forward(n),
-            inv: planner.plan_fft_inverse(n),
-            gamma_h: (medium.gamma_w_km * step_km) as f32,
-            n_steps,
+            plan: (n > 0).then(|| fft::plan_f32(n)),
+            gamma_h: (medium.gamma_w_km * steps.nl_length_km) as f32,
+            steps,
         }
     }
 
+    /// The steps.
+    pub fn steps(&self) -> Steps {
+        self.steps
+    }
+
     /// Propagate `e` through the steps, in place.
+    ///
+    /// # Panics
+    /// If `e` has another length than the block of [`SplitStepF32::new`].
     pub fn run(&self, e: &mut [C32]) {
+        let Some(p) = self.plan.as_ref() else {
+            assert!(e.is_empty(), "a field for an empty block");
+            return;
+        };
+        assert_eq!(e.len(), self.lin.len(), "FFT length mismatch");
         let n = e.len();
-        let mut scratch =
-            vec![C32::new(0.0, 0.0); self.fwd.get_inplace_scratch_len().max(self.inv.get_inplace_scratch_len())];
-        self.fwd.process_with_scratch(e, &mut scratch);
-        for _ in 0..self.n_steps {
+        p.forward(e);
+        for _ in 0..self.steps.n_steps {
             e.iter_mut().zip(&self.lin_n).for_each(|(u, l)| *u *= l);
-            self.inv.process_with_scratch(e, &mut scratch);
+            p.inverse_unnormalized(e);
             for v in e.iter_mut() {
                 let (sn, cs) = (self.gamma_h * v.norm_sqr()).sin_cos();
                 *v *= C32::new(cs, sn);
             }
-            self.fwd.process_with_scratch(e, &mut scratch);
+            p.forward(e);
             e.iter_mut().zip(&self.lin).for_each(|(u, l)| *u *= l);
         }
-        self.inv.process_with_scratch(e, &mut scratch);
+        p.inverse_unnormalized(e);
         let s = 1.0 / n as f32;
         for v in e.iter_mut() {
             *v *= s;
@@ -307,6 +377,30 @@ pub struct ManakovSplitStep {
     pub max_iterations: usize,
     /// Convergence tolerance of the iterations: the relative change of the fields.
     pub tolerance: f64,
+}
+
+/// The buffers of [`ManakovSplitStep`], allocated once per run.
+struct ManakovWork {
+    /// The angular frequencies of the bins.
+    omega: Vec<f64>,
+    /// $P(z)$, the total power at the start of the step.
+    p0: Vec<f64>,
+    /// The total power of the last iteration, then the phase $\phi$ of the trapezoid.
+    p1: Vec<f64>,
+    phi: Vec<f64>,
+    /// The half linear step, and its two versions with a distributed gain.
+    lin: Vec<C64>,
+    lin1: Vec<C64>,
+    lin2: Vec<C64>,
+    gain: Vec<f64>,
+    /// The fields after the first half step, and those of the current iteration.
+    xh: Vec<C64>,
+    yh: Vec<C64>,
+    xf: Vec<C64>,
+    yf: Vec<C64>,
+    /// The fields of the last iteration (the field at z at the start of a step).
+    xc: Vec<C64>,
+    yc: Vec<C64>,
 }
 
 impl ManakovSplitStep {
@@ -345,6 +439,37 @@ impl ManakovSplitStep {
         self.run_inner(x, y, length_km, fs, Some(gain))
     }
 
+    /// The parameter of the step rule, checked: the fixed step (km) or the rotation (rad).
+    fn rule_parameter(&self) -> Result<f64> {
+        let (step, what) = match self.rule {
+            StepRule::Fixed(h) => (h, "fixed step (km)"),
+            StepRule::NonlinearPhase(r) => (r, "nonlinear rotation (rad)"),
+        };
+        ensure(step > 0.0, || format!("the {what} must be positive, got {step}"))?;
+        Ok(step)
+    }
+
+    /// The length of the next step at `z` with `rest` km left and the phase `phi`
+    /// (rad/km) of the step.
+    ///
+    /// # Errors
+    /// [`Error::Numerical`] for a step that does not advance `z`.
+    fn step_length(&self, phi: &[f64], z: f64, rest: f64) -> Result<f64> {
+        let h = match self.rule {
+            StepRule::Fixed(hf) => hf.min(rest),
+            StepRule::NonlinearPhase(rot) => {
+                let m = phi.iter().copied().fold(0.0, f64::max);
+                if m > 0.0 && rest >= rot / m { rot / m } else { rest }
+            }
+        };
+        // a step that does not advance (an infinite power, a step below the precision
+        // of z) would never reach the end of the fibre
+        if z + h <= z || h.is_nan() {
+            return Err(Error::Numerical(format!("the split step vanishes at z = {z} km (step {h} km)")));
+        }
+        Ok(h)
+    }
+
     fn run_inner(
         &self,
         x: &mut [C64],
@@ -354,87 +479,99 @@ impl ManakovSplitStep {
         gain: Option<FieldGain<'_>>,
     ) -> Result<usize> {
         same_len(x.len(), y.len(), "the polarisations")?;
-        let (step, what) = match self.rule {
-            StepRule::Fixed(h) => (h, "fixed step (km)"),
-            StepRule::NonlinearPhase(r) => (r, "nonlinear rotation (rad)"),
-        };
-        ensure(step > 0.0, || format!("the {what} must be positive, got {step}"))?;
+        self.rule_parameter()?;
         ensure(length_km.is_finite(), || format!("the length must be finite, got {length_km} km"))?;
         let n = x.len();
         if n == 0 || length_km <= 0.0 {
             return Ok(0);
         }
         let p = fft::plan(n);
-        let omega = fft::angular_frequencies(n, fs);
+        let zero = C64::new(0.0, 0.0);
+        let mut w = ManakovWork {
+            omega: fft::angular_frequencies(n, fs),
+            p0: vec![0.0; n],
+            p1: vec![0.0; n],
+            phi: vec![0.0; n],
+            lin: vec![zero; n],
+            lin1: vec![zero; n],
+            lin2: vec![zero; n],
+            gain: vec![0.0; n],
+            xh: vec![zero; n],
+            yh: vec![zero; n],
+            xf: vec![zero; n],
+            yf: vec![zero; n],
+            xc: x.to_vec(),
+            yc: y.to_vec(),
+        };
         let k = 8.0 / 9.0 * self.medium.gamma_w_km;
-        let power =
-            |u: &[C64], v: &[C64]| -> Vec<f64> { u.iter().zip(v).map(|(p, q)| p.norm_sqr() + q.norm_sqr()).collect() };
-        // the fields of the last iteration (the field at z at the start of a step)
-        let (mut xc, mut yc) = (x.to_vec(), y.to_vec());
-        let (mut xh, mut yh) = (vec![C64::new(0.0, 0.0); n], vec![C64::new(0.0, 0.0); n]);
         let mut z = 0.0;
         let mut steps = 0;
         while z < length_km {
-            let p0 = power(x, y);
-            let mut phi: Vec<f64> = p0.iter().zip(power(&xc, &yc)).map(|(u, v)| k * (u + v) / 2.0).collect();
-            let rest = length_km - z;
-            let h = match self.rule {
-                StepRule::Fixed(hf) => hf.min(rest),
-                StepRule::NonlinearPhase(rot) => {
-                    let m = phi.iter().copied().fold(0.0, f64::max);
-                    if m > 0.0 && rest >= rot / m { rot / m } else { rest }
-                }
-            };
-            // a step that does not advance (an infinite power, a step below the precision
-            // of z) would never reach the end of the fibre
-            if z + h <= z || h.is_nan() {
-                return Err(Error::Numerical(format!("the split step vanishes at z = {z} km (step {h} km)")));
-            }
-            let lin = self.medium.half_step(&omega, h);
+            total_power(x, y, &mut w.p0);
+            total_power(&w.xc, &w.yc, &mut w.p1);
+            trapezoid(&w.p0, &w.p1, k, &mut w.phi);
+            let h = self.step_length(&w.phi, z, length_km - z)?;
+            self.medium.half_step_into(&w.omega, h, &mut w.lin);
             // the two half steps differ only with a distributed gain
-            let (lin1, lin2) = match gain {
-                None => (None, None),
-                Some(g) => {
-                    let mut buf = vec![0.0; n];
-                    let mut half = |z0: f64, z1: f64| -> Vec<C64> {
-                        g(z0, z1, &mut buf);
-                        lin.iter().zip(&buf).map(|(l, b)| l * b).collect()
-                    };
-                    (Some(half(z, z + h / 2.0)), Some(half(z + h / 2.0, z + h)))
+            if let Some(g) = gain {
+                for (half, z0, z1) in [(&mut w.lin1, z, z + h / 2.0), (&mut w.lin2, z + h / 2.0, z + h)] {
+                    g(z0, z1, &mut w.gain);
+                    for ((o, l), b) in half.iter_mut().zip(&w.lin).zip(&w.gain) {
+                        *o = l * b;
+                    }
                 }
-            };
-            let lin1 = lin1.as_ref().unwrap_or(&lin);
-            let lin2 = lin2.as_ref().unwrap_or(&lin);
-            xh.copy_from_slice(x);
-            yh.copy_from_slice(y);
-            for u in [&mut xh, &mut yh] {
+            }
+            let (lin1, lin2) = if gain.is_some() { (&w.lin1, &w.lin2) } else { (&w.lin, &w.lin) };
+            w.xh.copy_from_slice(x);
+            w.yh.copy_from_slice(y);
+            for u in [&mut w.xh, &mut w.yh] {
                 p.forward(u);
                 mul(u, lin1);
                 p.inverse(u);
             }
             for it in 0..self.max_iterations.max(1) {
-                let mut xf: Vec<C64> = xh.iter().zip(&phi).map(|(v, f)| v * cis(f * h)).collect();
-                let mut yf: Vec<C64> = yh.iter().zip(&phi).map(|(v, f)| v * cis(f * h)).collect();
-                for u in [&mut xf, &mut yf] {
+                for (o, (v, f)) in w.xf.iter_mut().zip(w.xh.iter().zip(&w.phi)) {
+                    *o = v * cis(f * h);
+                }
+                for (o, (v, f)) in w.yf.iter_mut().zip(w.yh.iter().zip(&w.phi)) {
+                    *o = v * cis(f * h);
+                }
+                for u in [&mut w.xf, &mut w.yf] {
                     p.forward(u);
                     mul(u, lin2);
                     p.inverse(u);
                 }
-                let diff: f64 = xf.iter().zip(&xc).chain(yf.iter().zip(&yc)).map(|(u, v)| (u - v).norm_sqr()).sum();
-                let norm: f64 = xc.iter().chain(&yc).map(C64::norm_sqr).sum();
-                xc = xf;
-                yc = yf;
+                let diff: f64 =
+                    w.xf.iter().zip(&w.xc).chain(w.yf.iter().zip(&w.yc)).map(|(u, v)| (u - v).norm_sqr()).sum();
+                let norm: f64 = w.xc.iter().chain(&w.yc).map(C64::norm_sqr).sum();
+                std::mem::swap(&mut w.xc, &mut w.xf);
+                std::mem::swap(&mut w.yc, &mut w.yf);
                 if norm == 0.0 || (diff / norm).sqrt() < self.tolerance || it + 1 == self.max_iterations {
                     break;
                 }
-                phi = p0.iter().zip(power(&xc, &yc)).map(|(u, v)| k * (u + v) / 2.0).collect();
+                total_power(&w.xc, &w.yc, &mut w.p1);
+                trapezoid(&w.p0, &w.p1, k, &mut w.phi);
             }
-            x.copy_from_slice(&xc);
-            y.copy_from_slice(&yc);
+            x.copy_from_slice(&w.xc);
+            y.copy_from_slice(&w.yc);
             z += h;
             steps += 1;
         }
         Ok(steps)
+    }
+}
+
+/// $P = |A_{x}|^{2} + |A_{y}|^{2}$ at every sample.
+fn total_power(u: &[C64], v: &[C64], out: &mut [f64]) {
+    for (o, (p, q)) in out.iter_mut().zip(u.iter().zip(v)) {
+        *o = p.norm_sqr() + q.norm_sqr();
+    }
+}
+
+/// The phase per kilometre of the trapezoidal rule, $\phi = k (P_{0} + P_{1}) / 2$.
+fn trapezoid(p0: &[f64], p1: &[f64], k: f64, phi: &mut [f64]) {
+    for (f, (u, v)) in phi.iter_mut().zip(p0.iter().zip(p1)) {
+        *f = k * (u + v) / 2.0;
     }
 }
 
@@ -485,11 +622,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_empty_field_propagates_to_an_empty_field_instead_of_panicking() {
+        let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        let steps = Steps { n_steps: 3, step_km: 1.0, nl_length_km: 0.8 };
+        let s = SplitStep::new(&m, steps, 0, 64e9);
+        let (mut x, mut y): (Vec<C64>, Vec<C64>) = (Vec::new(), Vec::new());
+        s.run(&mut x);
+        s.run_dual(&mut x, &mut y);
+        s.run_with_gain(&mut x, &|_, _, _| {});
+        SplitStepF32::new(&m, steps, 0, 64e9).run(&mut []);
+        assert!(x.is_empty() && y.is_empty() && s.steps() == steps);
+        assert!((steps.length_km() - 3.0).abs() < 1e-15);
+    }
+
+    #[test]
     fn lossless_split_step_conserves_energy() {
         let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
         let mut e: Vec<C64> = (0..256).map(|n| cis(0.1 * n as f64) * (1e-2 * (n % 7) as f64)).collect();
         let e0: f64 = e.iter().map(C64::norm_sqr).sum();
-        SplitStep::new(&m, 1.0, 1.0, 80, 256, 64e9).run(&mut e);
+        SplitStep::new(&m, Steps::forward(80, 1.0), 256, 64e9).run(&mut e);
         let e1: f64 = e.iter().map(C64::norm_sqr).sum();
         assert!((e1 / e0 - 1.0).abs() < 1e-12);
     }
@@ -515,7 +666,7 @@ mod tests {
         s.run(&mut x, &mut y, 20.0, 128e9).unwrap();
         let mut e = x0;
         let scalar = Medium { gamma_w_km: 8.0 / 9.0 * 1.3, ..m };
-        SplitStep::new(&scalar, 0.01, 0.01, 2000, 512, 128e9).run(&mut e);
+        SplitStep::new(&scalar, Steps::forward(2000, 0.01), 512, 128e9).run(&mut e);
         let err = x.iter().zip(&e).map(|(u, v)| (u - v).norm()).fold(0.0, f64::max);
         let peak = e.iter().map(|v| v.norm()).fold(0.0, f64::max);
         assert!(err < 1e-4 * peak, "{}", err / peak);
@@ -582,7 +733,7 @@ mod tests {
         let m = Medium { alpha_np_km: 0.0, beta2_s2_km: b2, gamma_w_km: gamma };
         let mut a = a0.clone();
         // two dispersion lengths (L_D = T0²/|β₂| = 5 km)
-        SplitStep::new(&m, 0.01, 0.01, 1000, n, fs).run(&mut a);
+        SplitStep::new(&m, Steps::forward(1000, 0.01), n, fs).run(&mut a);
         let err = a.iter().zip(&a0).map(|(u, v)| (u.norm() - v.norm()).abs()).fold(0.0, f64::max);
         assert!(err < 1e-3 * p0.sqrt(), "relative envelope error {}", err / p0.sqrt());
     }

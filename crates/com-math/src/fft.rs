@@ -22,6 +22,7 @@
 //! ```
 
 use crate::C64;
+use num_complex::Complex32 as C32;
 use rustfft::FftPlanner;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -48,10 +49,13 @@ thread_local! {
     static PLANS: RefCell<(FftPlanner<f64>, HashMap<usize, Fft>)> = RefCell::new((FftPlanner::new(), HashMap::new()));
     // the work space of the transforms of this thread, grown to the largest length seen
     static SCRATCH: RefCell<Vec<C64>> = const { RefCell::new(Vec::new()) };
+    // the same in single precision, for the solver `nlse::SplitStepF32`
+    static PLANS_F32: RefCell<(FftPlanner<f32>, HashMap<usize, FftF32>)> =
+        RefCell::new((FftPlanner::new(), HashMap::new()));
+    static SCRATCH_F32: RefCell<Vec<C32>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Run `f` on `len` values of the work space of this thread (grown, never shrunk). The
-/// `f32` solver `nlse::SplitStepF32` keeps its own work space for a whole run.
+/// Run `f` on `len` values of the work space of this thread (grown, never shrunk).
 fn with_scratch(len: usize, f: impl FnOnce(&mut [C64])) {
     SCRATCH.with(|c| {
         // a transform never calls back into another one, so the cell is free; a nested
@@ -65,6 +69,58 @@ fn with_scratch(len: usize, f: impl FnOnce(&mut [C64])) {
             f(&mut vec![C64::new(0.0, 0.0); len]);
         }
     });
+}
+
+/// The forward and inverse plans of one length in single precision, cached per thread
+/// with their work space as [`Fft`]; both transforms are unnormalised (the solver
+/// `nlse::SplitStepF32` folds the `1/N` into its linear step).
+#[derive(Clone)]
+pub(crate) struct FftF32 {
+    fwd: Arc<dyn rustfft::Fft<f32>>,
+    inv: Arc<dyn rustfft::Fft<f32>>,
+    scratch: usize,
+}
+
+/// The (cached) single-precision plans of length `n ≥ 1`.
+pub(crate) fn plan_f32(n: usize) -> FftF32 {
+    PLANS_F32.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let (planner, cache) = &mut *guard;
+        if let Some(p) = cache.get(&n) {
+            return p.clone();
+        }
+        let (fwd, inv) = (planner.plan_fft_forward(n), planner.plan_fft_inverse(n));
+        let scratch = fwd.get_inplace_scratch_len().max(inv.get_inplace_scratch_len());
+        let p = FftF32 { fwd, inv, scratch };
+        cache.insert(n, p.clone());
+        p
+    })
+}
+
+impl FftF32 {
+    /// Run `f` on the work space of this thread.
+    fn with_scratch(&self, f: impl FnOnce(&mut [C32])) {
+        SCRATCH_F32.with(|c| {
+            if let Ok(mut s) = c.try_borrow_mut() {
+                if s.len() < self.scratch {
+                    s.resize(self.scratch, C32::new(0.0, 0.0));
+                }
+                f(&mut s[..self.scratch]);
+            } else {
+                f(&mut vec![C32::new(0.0, 0.0); self.scratch]);
+            }
+        });
+    }
+
+    /// In-place forward transform (unnormalised).
+    pub(crate) fn forward(&self, x: &mut [C32]) {
+        self.with_scratch(|s| self.fwd.process_with_scratch(x, s));
+    }
+
+    /// In-place inverse transform, not divided by `N`.
+    pub(crate) fn inverse_unnormalized(&self, x: &mut [C32]) {
+        self.with_scratch(|s| self.inv.process_with_scratch(x, s));
+    }
 }
 
 /// The (cached) plans of length `n ≥ 1`.
@@ -225,7 +281,10 @@ pub fn filter(x: &[C64], h: impl IntoIterator<Item = C64>) -> Vec<C64> {
         }
     }
     assert!(h.next().is_none(), "fft::filter: more response values than the {} samples", x.len());
-    ifft(&y)
+    if !y.is_empty() {
+        plan(y.len()).inverse(&mut y);
+    }
+    y
 }
 
 /// Frequencies of the DFT bins for a sample spacing `d` (`numpy.fft.fftfreq`):
