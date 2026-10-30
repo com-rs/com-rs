@@ -87,7 +87,7 @@ use serde_json::Value as Json;
 #[derive(Clone, Debug)]
 pub struct WdmFrame {
     /// The centre frequencies of the channels relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
+    pub freqs_hz: Vec<f64>,
     /// The index of the channel under test.
     pub cut: usize,
 }
@@ -177,7 +177,7 @@ impl WdmTx {
         let cut = p.channel.unwrap_or(p.n_channels / 2);
         ensure(cut < p.n_channels, || format!("wdm_tx: channel {cut} out of the {} channels", p.n_channels))?;
         let tx = WdmTransmitter {
-            freqs: wdm_grid(p.n_channels, p.spacing_hz),
+            freqs_hz: wdm_grid(p.n_channels, p.spacing_hz),
             powers_w: powers_dbm.into_iter().map(dbm2w).collect(),
             taps: p.pulse.taps(p.sps)?,
             sps: p.sps,
@@ -209,7 +209,7 @@ impl Block for WdmTx {
         })?;
         s.set_streams(out);
         s.sps = self.tx.sps as f64;
-        s.in_flight.wdm = Some(WdmFrame { freqs: self.tx.freqs.clone(), cut: self.cut });
+        s.in_flight.wdm = Some(WdmFrame { freqs_hz: self.tx.freqs_hz.clone(), cut: self.cut });
         Ok(())
     }
 }
@@ -364,7 +364,7 @@ impl Block for WdmRx {
             format!("wdm_rx: sps must be between 1 and the {sps_in} samples per symbol of the multiplex")
         })?;
         let fs = s.fs();
-        let f = w.freqs[w.cut];
+        let f = w.freqs_hz[w.cut];
         let n_out = s.samples.len() / sps_in * self.sps;
         for x in s.streams_mut() {
             *x = wdm_demultiplex(x, f, fs, n_out);

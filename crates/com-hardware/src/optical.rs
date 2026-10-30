@@ -261,10 +261,10 @@ impl Iqm {
 pub struct Photodiode {
     /// Responsivity (A/W).
     pub responsivity: f64,
-    /// Temperature (°C).
-    pub temperature_c: f64,
+    /// Temperature (K).
+    pub temperature_k: f64,
     /// Dark current (A).
-    pub dark_current: f64,
+    pub dark_current_a: f64,
     /// Load resistance (Ω).
     pub load_ohm: f64,
     /// Electrical bandwidth (Hz).
@@ -284,12 +284,12 @@ pub struct Photodiode {
 }
 
 impl Default for Photodiode {
-    /// OptiCommPy defaults: 1 A/W, 25 °C, 5 nA, 50 Ω, 30 GHz, 255-tap rectangular filter.
+    /// OptiCommPy defaults: 1 A/W, 25 °C (298.15 K), 5 nA, 50 Ω, 30 GHz, 255-tap rectangular filter.
     fn default() -> Self {
         Photodiode {
             responsivity: 1.0,
-            temperature_c: 25.0,
-            dark_current: 5e-9,
+            temperature_k: 25.0 + ZERO_CELSIUS,
+            dark_current_a: 5e-9,
             load_ohm: 50.0,
             bandwidth_hz: 30e9,
             n_taps: 255,
@@ -352,12 +352,12 @@ impl Photodiode {
         ensure(fs >= 2.0 * b, || format!("the sampling rate {fs} Hz is below twice the bandwidth {b} Hz"))?;
         if self.shot_noise {
             for v in &mut i {
-                let s2 = shot_noise_variance(*v + self.dark_current, b);
+                let s2 = shot_noise_variance(*v + self.dark_current_a, b);
                 *v += (fs * s2 / (2.0 * b)).max(0.0).sqrt() * rng.gaussian();
             }
         }
         if self.thermal_noise {
-            let s2 = thermal_noise_variance(self.temperature_c + ZERO_CELSIUS, self.load_ohm, b);
+            let s2 = thermal_noise_variance(self.temperature_k, self.load_ohm, b);
             let s = (fs * s2 / (2.0 * b)).sqrt();
             for v in &mut i {
                 *v += s * rng.gaussian();

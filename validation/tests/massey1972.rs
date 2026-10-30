@@ -51,7 +51,7 @@ fn check(table: &[Row<'_>], psk: bool) {
     for (sync, n, rows) in table {
         let mut got = [[0.0; 2]; 3];
         for (k, snr) in [0.5, 1.0, 2.0].iter().enumerate() {
-            for (j, rule) in [SyncRule::Optimum { snr: *snr }, SyncRule::Correlation].iter().enumerate() {
+            for (j, rule) in [SyncRule::Optimum { snr_lin: *snr }, SyncRule::Correlation].iter().enumerate() {
                 let p = error_rate(sync, *n, *snr, *rule, psk, &mut rng);
                 let want = rows[k][j];
                 let sd = (want.max(0.01) * (1.0 - want) / 100.0).sqrt();

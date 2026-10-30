@@ -105,7 +105,7 @@ use std::f64::consts::PI;
 #[derive(Clone, Debug, PartialEq)]
 pub struct WdmSpectrum {
     /// Centre frequencies relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
+    pub freqs_hz: Vec<f64>,
     /// Launch power of every channel, both polarisations (W).
     pub powers_w: Vec<f64>,
     /// Symbol rate $R_{s}$ (Bd).
@@ -115,16 +115,16 @@ pub struct WdmSpectrum {
 }
 
 impl WdmSpectrum {
-    /// `n` channels of power `power_w` on the grid `freqs`.
-    pub fn uniform(freqs: Vec<f64>, power_w: f64, symbol_rate: f64, rolloff: f64) -> WdmSpectrum {
-        let n = freqs.len();
-        WdmSpectrum { freqs, powers_w: vec![power_w; n], symbol_rate, rolloff }
+    /// `n` channels of power `power_w` on the grid `freqs_hz` (Hz).
+    pub fn uniform(freqs_hz: Vec<f64>, power_w: f64, symbol_rate: f64, rolloff: f64) -> WdmSpectrum {
+        let n = freqs_hz.len();
+        WdmSpectrum { freqs_hz, powers_w: vec![power_w; n], symbol_rate, rolloff }
     }
 
     /// The power spectral density $G(f)$ (W/Hz).
     pub fn psd(&self, f: f64) -> f64 {
         let rs = self.symbol_rate;
-        self.freqs.iter().zip(&self.powers_w).map(|(fc, p)| p / rs * self.shape(f - fc)).sum()
+        self.freqs_hz.iter().zip(&self.powers_w).map(|(fc, p)| p / rs * self.shape(f - fc)).sum()
     }
 
     /// The raised-cosine power shape of a channel at the offset `x` from its centre
@@ -141,10 +141,10 @@ impl WdmSpectrum {
     /// [`com_core::Error::Shape`] for no channel or another number of powers than of
     /// channels, [`com_core::Error::Config`] for the rest.
     fn check(&self) -> Result<()> {
-        ensure_shape(!self.freqs.is_empty() && self.freqs.len() == self.powers_w.len(), || {
+        ensure_shape(!self.freqs_hz.is_empty() && self.freqs_hz.len() == self.powers_w.len(), || {
             format!(
                 "the spectrum needs one power per channel, got {} channels and {} powers",
-                self.freqs.len(),
+                self.freqs_hz.len(),
                 self.powers_w.len()
             )
         })?;
@@ -152,7 +152,7 @@ impl WdmSpectrum {
         ensure(rs.is_finite() && rs > 0.0, || format!("the symbol rate must be positive and finite, got {rs}"))?;
         let b = self.rolloff;
         ensure((0.0..=1.0).contains(&b), || format!("the roll-off must lie in [0, 1], got {b}"))?;
-        ensure(self.freqs.iter().chain(&self.powers_w).all(|v| v.is_finite()), || {
+        ensure(self.freqs_hz.iter().chain(&self.powers_w).all(|v| v.is_finite()), || {
             "the frequencies and powers of the channels must be finite".into()
         })
     }
@@ -160,8 +160,8 @@ impl WdmSpectrum {
     /// The band occupied by the channels (Hz).
     fn band(&self) -> (f64, f64) {
         let half = (1.0 + self.rolloff) * self.symbol_rate / 2.0;
-        let lo = self.freqs.iter().copied().fold(f64::INFINITY, f64::min) - half;
-        let hi = self.freqs.iter().copied().fold(f64::NEG_INFINITY, f64::max) + half;
+        let lo = self.freqs_hz.iter().copied().fold(f64::INFINITY, f64::min) - half;
+        let hi = self.freqs_hz.iter().copied().fold(f64::NEG_INFINITY, f64::max) + half;
         (lo, hi)
     }
 }
@@ -300,8 +300,8 @@ impl GnModel {
     /// # Errors
     /// As [`GnModel::snr`].
     pub fn ase_psd_channel(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
-        ensure(ch < spectrum.freqs.len(), || {
-            format!("no channel {ch}: the spectrum has {} channels", spectrum.freqs.len())
+        ensure(ch < spectrum.freqs_hz.len(), || {
+            format!("no channel {ch}: the spectrum has {} channels", spectrum.freqs_hz.len())
         })?;
         let profile = self.profile(spectrum)?;
         Ok(self.ase_with(spectrum, ch, profile.as_ref()))
@@ -312,7 +312,7 @@ impl GnModel {
         let fib = &self.fiber;
         let g = db2lin(-p.net_gain_db(ch));
         // the EDFA restores the channel where the Raman gain does not, both polarisations
-        let edfa = if g > 1.0 { 2.0 * ase_density(g, db2lin(fib.nf_db), fib.fc_hz + spectrum.freqs[ch]) } else { 0.0 };
+        let edfa = if g > 1.0 { 2.0 * ase_density(g, db2lin(fib.nf_db), fib.fc_hz + spectrum.freqs_hz[ch]) } else { 0.0 };
         fib.n_spans as f64 * (p.ase_psd[ch] * g + edfa)
     }
 
@@ -324,7 +324,7 @@ impl GnModel {
         let Some(raman) = &self.raman else { return Ok(None) };
         spectrum.check()?;
         let signals: Vec<(f64, f64)> =
-            spectrum.freqs.iter().zip(&spectrum.powers_w).map(|(f, p)| (self.fiber.fc_hz + f, *p)).collect();
+            spectrum.freqs_hz.iter().zip(&spectrum.powers_w).map(|(f, p)| (self.fiber.fc_hz + f, *p)).collect();
         raman.solve(&self.fiber, &signals).map(Some)
     }
 
@@ -473,12 +473,12 @@ impl GnModel {
     /// As [`GnModel::nli_psd`], [`com_core::Error::Config`] for a missing channel and
     /// [`com_core::Error::Shape`] for another number of powers than of channels.
     pub fn snr(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
-        ensure(ch < spectrum.freqs.len(), || {
-            format!("no channel {ch}: the spectrum has {} channels", spectrum.freqs.len())
+        ensure(ch < spectrum.freqs_hz.len(), || {
+            format!("no channel {ch}: the spectrum has {} channels", spectrum.freqs_hz.len())
         })?;
-        com_core::same_len(spectrum.freqs.len(), spectrum.powers_w.len(), "the channels and their powers")?;
+        com_core::same_len(spectrum.freqs_hz.len(), spectrum.powers_w.len(), "the channels and their powers")?;
         let profile = self.profile(spectrum)?;
-        let nli = self.nli_with(spectrum, spectrum.freqs[ch], profile.as_ref())?;
+        let nli = self.nli_with(spectrum, spectrum.freqs_hz[ch], profile.as_ref())?;
         let ase = self.ase_with(spectrum, ch, profile.as_ref());
         Ok(spectrum.powers_w[ch] / ((ase + nli) * spectrum.symbol_rate))
     }
@@ -492,7 +492,7 @@ impl GnModel {
     /// # Errors
     /// As [`GnModel::snr`].
     pub fn eta(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
-        let freqs = &spectrum.freqs;
+        let freqs = &spectrum.freqs_hz;
         ensure(ch < freqs.len(), || format!("no channel {ch}: the grid has {} channels", freqs.len()))?;
         let p = if self.raman.is_some() { RAMAN_REFERENCE_POWER_W } else { 1.0 };
         let s = WdmSpectrum::uniform(freqs.clone(), p, spectrum.symbol_rate, spectrum.rolloff);
@@ -506,12 +506,12 @@ impl GnModel {
     /// # Errors
     /// As [`GnModel::snr`] and [`GnModel::optimal_power`].
     pub fn summary(&self, spectrum: &WdmSpectrum, channel: Option<usize>) -> Result<GnSummary> {
-        let n = spectrum.freqs.len();
+        let n = spectrum.freqs_hz.len();
         let ch = channel.unwrap_or(n / 2);
         ensure(ch < n, || format!("no channel {ch}: the spectrum has {n} channels"))?;
         Ok(GnSummary {
             channel: ch,
-            nli_psd: self.nli_psd(spectrum, spectrum.freqs[ch])?,
+            nli_psd: self.nli_psd(spectrum, spectrum.freqs_hz[ch])?,
             ase_psd: self.ase_psd_channel(spectrum, ch)?,
             snr: self.snr(spectrum, ch)?,
             eta: self.eta(spectrum, ch)?,
@@ -528,7 +528,7 @@ impl GnModel {
     pub fn optimal_power(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64> {
         let ase = if self.raman.is_some() {
             let reference = WdmSpectrum::uniform(
-                spectrum.freqs.clone(),
+                spectrum.freqs_hz.clone(),
                 RAMAN_REFERENCE_POWER_W,
                 spectrum.symbol_rate,
                 spectrum.rolloff,
@@ -651,17 +651,17 @@ fn fejer_cell_average(n: usize, phi: f64, du: f64, dv: f64) -> f64 {
 fn egn_correction(spectrum: &WdmSpectrum, f: f64, df: f64, fm: FormatMoments, mu: &dyn Fn(i64, i64) -> C64) -> f64 {
     let rs = spectrum.symbol_rate;
     let half = (1.0 + spectrum.rolloff) * rs / 2.0;
-    let Some(cut) = (0..spectrum.freqs.len())
-        .filter(|k| (spectrum.freqs[*k] - f).abs() < half)
-        .min_by(|a, b| (spectrum.freqs[*a] - f).abs().total_cmp(&(spectrum.freqs[*b] - f).abs()))
+    let Some(cut) = (0..spectrum.freqs_hz.len())
+        .filter(|k| (spectrum.freqs_hz[*k] - f).abs() < half)
+        .min_by(|a, b| (spectrum.freqs_hz[*a] - f).abs().total_cmp(&(spectrum.freqs_hz[*b] - f).abs()))
     else {
         return 0.0;
     };
     // the field spectrum of channel k at the offset n df from f: √shape / R_s
-    let s = |k: usize, n: i64| spectrum.shape(f + n as f64 * df - spectrum.freqs[k]).sqrt() / rs;
+    let s = |k: usize, n: i64| spectrum.shape(f + n as f64 * df - spectrum.freqs_hz[k]).sqrt() / rs;
     let support = |k: usize| -> Vec<(i64, f64)> {
-        let lo = ((spectrum.freqs[k] - f - half) / df).ceil() as i64;
-        let hi = ((spectrum.freqs[k] - f + half) / df).floor() as i64;
+        let lo = ((spectrum.freqs_hz[k] - f - half) / df).ceil() as i64;
+        let hi = ((spectrum.freqs_hz[k] - f + half) / df).floor() as i64;
         (lo..=hi).map(|n| (n, s(k, n))).filter(|(_, v)| *v > 0.0).collect()
     };
     let band = support(cut);
@@ -695,7 +695,7 @@ fn egn_correction(spectrum: &WdmSpectrum, f: f64, df: f64, fm: FormatMoments, mu
     let kappa3 = 16.0 / 81.0 * rs * t.norm_sqr() * df3 * df;
     let mut corr = pc * pc * pc * (fm.phi * kappa2 + fm.psi * kappa3);
     // XCI, the X1 domain of every interfering channel: κ12
-    for k in (0..spectrum.freqs.len()).filter(|k| *k != cut) {
+    for k in (0..spectrum.freqs_hz.len()).filter(|k| *k != cut) {
         let int = support(k);
         let mut x = 0.0;
         for &(n1, s1) in &band {
@@ -785,7 +785,7 @@ mod tests {
         let s = WdmSpectrum::uniform(wdm_grid(5, 50e9), 1e-3, 32e9, 0.1);
         let got = model.summary(&s, None).unwrap();
         assert_eq!(got.channel, 2);
-        assert_eq!(got.nli_psd, model.nli_psd(&s, s.freqs[2]).unwrap());
+        assert_eq!(got.nli_psd, model.nli_psd(&s, s.freqs_hz[2]).unwrap());
         assert_eq!(got.snr, model.snr(&s, 2).unwrap());
         assert_eq!(got.optimal_power_w, model.optimal_power(&s, 2).unwrap());
         assert_eq!(model.summary(&s, Some(0)).unwrap().ase_psd, model.ase_psd_channel(&s, 0).unwrap());
@@ -824,7 +824,7 @@ mod tests {
             let fiber = FiberParams { n_spans: spans, d_ps_nm_km: 16.7, ..FiberParams::default() };
             let gn = GnModel { coherent, ..GnModel::new(fiber) };
             let s = WdmSpectrum::uniform(wdm_grid(9, 50e9), 1e-3, 32e9, 0.02);
-            let f = s.freqs[0];
+            let f = s.freqs_hz[0];
             let default = gn.nli_psd(&s, f).unwrap();
             let df = 2e8f64.min(32e9 / 256.0);
             let fine = GnModel { resolution_hz: Some(df / 4.0), ..gn.clone() }.nli_psd(&s, f).unwrap();

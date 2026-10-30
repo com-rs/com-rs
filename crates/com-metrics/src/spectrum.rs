@@ -42,19 +42,19 @@ pub fn band_power(freqs: &[f64], density: &[f64], f_lo: f64, f_hi: f64) -> f64 {
 
 /// The adjacent channel leakage ratio (dB) of a density: the power of the channel
 /// $[-B/2, B/2)$ over the larger of the powers of the channels of width $B$ centred at
-/// $\pm$`offset`.
+/// $\pm$`offset_hz`.
 ///
 /// # Errors
 /// [`com_core::Error::Config`] if the adjacent channels leave the band of the density.
-pub fn aclr_db(freqs: &[f64], density: &[f64], bandwidth: f64, offset: f64) -> Result<f64> {
+pub fn aclr_db(freqs: &[f64], density: &[f64], bandwidth_hz: f64, offset_hz: f64) -> Result<f64> {
     let top = freqs.last().copied().unwrap_or(0.0);
     ensure(
-        offset + bandwidth / 2.0 <= top + (top - freqs.first().copied().unwrap_or(0.0)) / freqs.len().max(1) as f64,
+        offset_hz + bandwidth_hz / 2.0 <= top + (top - freqs.first().copied().unwrap_or(0.0)) / freqs.len().max(1) as f64,
         || "the adjacent channel lies outside the observed band".into(),
     )?;
-    let main = band_power(freqs, density, -bandwidth / 2.0, bandwidth / 2.0);
-    let lower = band_power(freqs, density, -offset - bandwidth / 2.0, -offset + bandwidth / 2.0);
-    let upper = band_power(freqs, density, offset - bandwidth / 2.0, offset + bandwidth / 2.0);
+    let main = band_power(freqs, density, -bandwidth_hz / 2.0, bandwidth_hz / 2.0);
+    let lower = band_power(freqs, density, -offset_hz - bandwidth_hz / 2.0, -offset_hz + bandwidth_hz / 2.0);
+    let upper = band_power(freqs, density, offset_hz - bandwidth_hz / 2.0, offset_hz + bandwidth_hz / 2.0);
     Ok(com_math::lin2db(main / lower.max(upper).max(1e-300)))
 }
 

@@ -260,7 +260,7 @@ impl Profile {
         self.los().map(|s| s.power_db - self.table()[0].power_db)
     }
 
-    /// The power-delay profile for the desired RMS delay spread `delay_spread` (s):
+    /// The power-delay profile for the desired RMS delay spread `delay_spread_s` (s):
     /// one tap per cluster, `(delay in s, power in dB)`, the powers normalised to a
     /// unit sum and the specular component of CDL-D/E added to its cluster. It is the
     /// tap list [`crate::multipath::Tdl::new`] takes, for a CDL profile with
@@ -274,9 +274,9 @@ impl Profile {
     /// assert_eq!(pdp.len(), 23);
     /// assert!((rms_delay_spread(&pdp) - 100e-9).abs() < 2e-9);
     /// ```
-    pub fn pdp(self, delay_spread: f64) -> Vec<(f64, f64)> {
+    pub fn pdp(self, delay_spread_s: f64) -> Vec<(f64, f64)> {
         let powers = self.cluster_powers();
-        self.table().iter().zip(&powers).map(|(c, &p)| (c.delay * delay_spread, lin2db(p))).collect()
+        self.table().iter().zip(&powers).map(|(c, &p)| (c.delay * delay_spread_s, lin2db(p))).collect()
     }
 
     /// The normalised cluster powers $P_{n}$ (unit sum, the specular component of

@@ -27,7 +27,7 @@
 //! use com_core::rng::Rng;
 //! use com_math::C64;
 //! let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 4, 129)?;
-//! let tx = WdmTransmitter { freqs: wdm_grid(3, 50e9), powers_w: vec![1e-3; 3], taps, sps: 4, linewidth_hz: 0.0, mzm_scale: None };
+//! let tx = WdmTransmitter { freqs_hz: wdm_grid(3, 50e9), powers_w: vec![1e-3; 3], taps, sps: 4, linewidth_hz: 0.0, mzm_scale: None };
 //! let x = tx.multiplex(2, 64, 32e9, &mut Rng::new(1), |_, _, _| vec![C64::new(1.0, 0.0); 64])?;
 //! assert_eq!((x.len(), x[0].len()), (2, 64 * 4));
 //! # Ok::<(), com_core::Error>(())
@@ -39,7 +39,7 @@ use com_dsp::filter::fir_filter;
 use com_hardware::optical::{Iqm, Laser};
 use com_math::C64;
 
-/// A WDM transmitter: channels of the same symbol rate on the frequencies `freqs`
+/// A WDM transmitter: channels of the same symbol rate on the frequencies `freqs_hz`
 /// (relative to the carrier), each shaped by the pulse `taps` at `sps` samples per
 /// symbol, of power `powers_w` (W, both polarisations), on a laser of linewidth
 /// `linewidth_hz` (OptiCommPy's `simpleWDMTx`; see the module).
@@ -50,7 +50,7 @@ use com_math::C64;
 #[derive(Clone, Debug, PartialEq)]
 pub struct WdmTransmitter {
     /// Centre frequencies of the channels relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
+    pub freqs_hz: Vec<f64>,
     /// Launch power of every channel, both polarisations (W).
     pub powers_w: Vec<f64>,
     /// Taps of the pulse.
@@ -71,8 +71,8 @@ impl WdmTransmitter {
     /// [`com_core::Error::Config`] for no channel, no tap, zero samples per symbol, or a
     /// negative or non-finite power.
     pub fn check(&self) -> Result<()> {
-        ensure(!self.freqs.is_empty(), || "a WDM transmitter needs at least one channel".into())?;
-        same_len(self.powers_w.len(), self.freqs.len(), "powers and frequencies of the channels")?;
+        ensure(!self.freqs_hz.is_empty(), || "a WDM transmitter needs at least one channel".into())?;
+        same_len(self.powers_w.len(), self.freqs_hz.len(), "powers and frequencies of the channels")?;
         ensure(!self.taps.is_empty() && self.sps >= 1, || {
             "the pulse needs taps and one sample per symbol or more".into()
         })?;
@@ -125,7 +125,7 @@ impl WdmTransmitter {
         let n = n_symbols * self.sps;
         let fs = symbol_rate * self.sps as f64;
         let mut out = vec![vec![C64::new(0.0, 0.0); n]; pols];
-        for (ch, (&f, &p)) in self.freqs.iter().zip(&self.powers_w).enumerate() {
+        for (ch, (&f, &p)) in self.freqs_hz.iter().zip(&self.powers_w).enumerate() {
             // the carrier of the channel, with the phase noise of its laser
             let carrier =
                 Laser { linewidth_hz: self.linewidth_hz, freq_shift_hz: f, ..Laser::default() }.carrier(n, fs, rng)?;
@@ -155,7 +155,7 @@ mod tests {
         // three channels of 1 mW; the centre one, demultiplexed, is its shaped symbols
         let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 8, 1025).unwrap();
         let tx = WdmTransmitter {
-            freqs: wdm_grid(3, 50e9),
+            freqs_hz: wdm_grid(3, 50e9),
             powers_w: vec![1e-3; 3],
             taps,
             sps: 8,

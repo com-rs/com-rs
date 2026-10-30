@@ -156,17 +156,17 @@ pub fn enob_from_sinad_db(sinad_db: f64) -> f64 {
     (sinad_db - com_math::lin2db(1.5)) / com_math::amp2db(2.0)
 }
 
-/// The SNR of a sine of frequency `f` (Hz) sampled with an RMS clock jitter of
+/// The SNR of a sine of frequency `f_hz` (Hz) sampled with an RMS clock jitter of
 /// `jitter_s` seconds: $-20 \log_{10}(2\pi f \sigma_{j})$ dB.
-pub fn jitter_snr_db(f: f64, jitter_s: f64) -> f64 {
-    -com_math::amp2db(2.0 * PI * f * jitter_s)
+pub fn jitter_snr_db(f_hz: f64, jitter_s: f64) -> f64 {
+    -com_math::amp2db(2.0 * PI * f_hz * jitter_s)
 }
 
-/// The amplitude response at `f` of a zero-order hold of `hold` output samples per
+/// The amplitude response at `f_hz` of a zero-order hold of `hold` output samples per
 /// input sample at the input rate `fs`: $|\sin(\pi f/f_{s}) / (H \sin(\pi f/(H f_{s})))|$.
-pub fn zero_order_hold_gain(f: f64, fs: f64, hold: usize) -> f64 {
+pub fn zero_order_hold_gain(f_hz: f64, fs: f64, hold: usize) -> f64 {
     let hold = hold.max(1);
-    com_math::diric(2.0 * PI * f / (hold as f64 * fs), hold).abs()
+    com_math::diric(2.0 * PI * f_hz / (hold as f64 * fs), hold).abs()
 }
 
 /// $\Phi(u)$ and $\varphi(u)$ of the standard normal distribution.

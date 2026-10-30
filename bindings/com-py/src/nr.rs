@@ -36,7 +36,7 @@ use pyo3::types::PyDict;
 fn nr_numerology(py: Python<'_>, mu: u32, extended_cp: bool, n_fft: usize) -> PyResult<Bound<'_, PyDict>> {
     let n = Numerology::new(mu, extended_cp).py()?;
     let d = PyDict::new(py);
-    d.set_item("subcarrier_spacing", n.subcarrier_spacing())?;
+    d.set_item("subcarrier_spacing", n.subcarrier_spacing_hz())?;
     d.set_item("slots_per_subframe", n.slots_per_subframe())?;
     d.set_item("slots_per_frame", n.slots_per_frame())?;
     d.set_item("symbols_per_slot", n.symbols_per_slot())?;

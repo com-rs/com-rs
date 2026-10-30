@@ -352,8 +352,8 @@ impl Block for CdlBlock {
         fade(s, rng, |x, fs, rng| {
             let tx = Array::linear(x.len(), self.spacing);
             let mut cdl = Cdl::new(self.profile, self.delay_spread, fs, tx, Array::linear(self.n_rx, self.spacing))?;
-            cdl.velocity = [0.0, self.velocity, 0.0];
-            cdl.carrier_frequency = self.carrier;
+            cdl.velocity_mps = [0.0, self.velocity, 0.0];
+            cdl.fc_hz = self.carrier;
             let taps = cdl.draw(x[0].len(), rng)?;
             Ok((taps.apply(x)?, Csi::Taps(taps)))
         })

@@ -268,8 +268,10 @@ the specifications, Python parameters and Rust parameters.
 | `_k` | K |
 | `_lin` | a linear ratio that could be mistaken for dB, such as a linear SNR |
 
-Names that stay bare: the vocabulary documented below (`fs` in Hz, `rolloff`, `beta2`,
-`gamma`, `noise_var`, linear by its name), counts and dimensionless quantities. A
+Names that stay bare: the vocabulary documented below (`fs` and `sample_rate` in Hz,
+the rate of a signal or of a channel as `Signal::sample_rate` gives it; `rolloff`,
+`beta2`, `gamma`, `noise_var`, linear by its name), counts and dimensionless
+quantities. A
 quantity in another unit says so too (`spacing_wavelengths`, `coherence_samples`).
 A function of the sampling grid names its argument by what it is: `fftfreq(n, spacing_s)`
 takes the sample spacing $1/f_s$ (s), `angular_frequencies(n, fs)` the rate (Hz).

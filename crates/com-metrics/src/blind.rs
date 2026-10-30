@@ -331,7 +331,7 @@ pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
 
 /// The Cramér–Rao bound on the normalised mean squared error
 /// $\mathbb{E}[(\hat{\rho} - \rho)^{2}]/\rho^{2}$ of an unbiased estimator of the SNR
-/// $\rho$ (`snr`, linear) from $N_{\mathrm{sym}}$ known PSK symbols (`n_symbols`) and
+/// $\rho$ (`snr_lin`, linear) from $N_{\mathrm{sym}}$ known PSK symbols (`n_symbols`) and
 /// $N_{\mathrm{ss}}$ independent samples per symbol (`samples_per_symbol`) in complex AWGN
 /// (Pauluzzi & Beaulieu 2000, eq. (65)), or twice it in real AWGN (`real`, their eq. (67)):
 ///
@@ -355,12 +355,12 @@ pub fn snr_m2m4(r: &[C64], c: &Constellation) -> Result<f64> {
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for no symbol or no sample per symbol.
-pub fn snr_crb_nmse(snr: f64, n_symbols: usize, samples_per_symbol: usize, real: bool) -> Result<f64> {
+pub fn snr_crb_nmse(snr_lin: f64, n_symbols: usize, samples_per_symbol: usize, real: bool) -> Result<f64> {
     ensure(n_symbols > 0 && samples_per_symbol > 0, || {
         format!("n_symbols and samples_per_symbol must be positive, got {n_symbols} and {samples_per_symbol}")
     })?;
     let n = n_symbols as f64;
-    let complex = 2.0 / (snr * n) + 1.0 / (samples_per_symbol as f64 * n);
+    let complex = 2.0 / (snr_lin * n) + 1.0 / (samples_per_symbol as f64 * n);
     Ok(if real { 2.0 * complex } else { complex })
 }
 

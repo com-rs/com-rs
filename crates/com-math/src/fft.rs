@@ -287,13 +287,13 @@ pub fn filter(x: &[C64], h: impl IntoIterator<Item = C64>) -> Vec<C64> {
     y
 }
 
-/// Frequencies of the DFT bins for a sample spacing `d` (`numpy.fft.fftfreq`):
+/// Frequencies of the DFT bins for a sample spacing `spacing_s` (`numpy.fft.fftfreq`):
 /// `[0, 1, …, ⌈N/2⌉-1, -⌊N/2⌋, …, -1] / (N d)`.
-pub fn fftfreq(n: usize, d: f64) -> Vec<f64> {
+pub fn fftfreq(n: usize, spacing_s: f64) -> Vec<f64> {
     (0..n)
         .map(|k| {
             let s = if k < n.div_ceil(2) { k as f64 } else { k as f64 - n as f64 };
-            s / (n as f64 * d)
+            s / (n as f64 * spacing_s)
         })
         .collect()
 }

@@ -134,7 +134,7 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<f64> {
 
 /// The Cramér–Rao bound of the variance of an unbiased estimate of the frequency of a
 /// complex tone of unknown phase from $N$ samples at the SNR $\rho = b_{0}^{2}/(2\sigma^{2})$
-/// per sample (`snr`, linear; $\sigma^{2}$ the noise variance of each of the real and
+/// per sample (`snr_lin`, linear; $\sigma^{2}$ the noise variance of each of the real and
 /// imaginary parts), in cycles per sample squared: Rife & Boorstyn (1974), eq. (17),
 /// $12\sigma^{2}/(b_{0}^{2} N (N^{2} - 1))$ rad² per sample², that is
 /// $3/(2\pi^{2} \rho N (N^{2} - 1))$ (multiply by $f_{s}^{2}$ for Hz²).
@@ -142,9 +142,9 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<f64> {
 /// [`fourth_power_foe_refined`] with $M = 1$ is their maximum-likelihood estimator (the
 /// largest bin of the DFT, then the maximum of $|A(\omega)|$ next to it), which meets the
 /// bound above the threshold.
-pub fn tone_frequency_crb(n: usize, snr: f64) -> f64 {
+pub fn tone_frequency_crb(n: usize, snr_lin: f64) -> f64 {
     let nf = n as f64;
-    3.0 / (2.0 * PI * PI * snr * nf * (nf * nf - 1.0))
+    3.0 / (2.0 * PI * PI * snr_lin * nf * (nf * nf - 1.0))
 }
 
 /// The probability that the largest bin of the $N$-point DFT of a complex tone in noise

@@ -227,8 +227,8 @@ pub fn moose(r: &[C64], start: usize, ofdm: &Ofdm) -> Result<f64> {
 /// The standard deviation of Moose's estimate for small errors,
 /// $1/(2\pi\sqrt{E_{s}/N_{0}})$, with $E_{s}/N_{0}$ (linear) the energy of one block over
 /// the noise density (eq. (26)).
-pub fn moose_std(es_n0: f64) -> f64 {
-    1.0 / (TAU * es_n0.sqrt())
+pub fn moose_std(es_n0_lin: f64) -> f64 {
+    1.0 / (TAU * es_n0_lin.sqrt())
 }
 
 /// The weight $c_{d}$ with which, under a frequency offset `eps` (in subcarrier
@@ -259,17 +259,17 @@ pub fn ici_power(ofdm: &Ofdm, i: usize, eps: f64) -> f64 {
 }
 
 /// Moose's lower bound of the SNR of a subcarrier after the DFT under a frequency offset
-/// `eps` (in subcarrier spacings), for an SNR `snr` (linear, $E_{c}/N_{0}$; infinite for
+/// `eps` (in subcarrier spacings), for an SNR `snr_lin` (linear, $E_{c}/N_{0}$; infinite for
 /// the interference alone), eq. (15):
 /// $\mathrm{SNR}\,(\sin\pi\varepsilon/\pi\varepsilon)^{2} / (1 + 0.5947\, \mathrm{SNR}
 /// \sin^{2}\pi\varepsilon)$ (linear).
-pub fn cfo_snr_bound(snr: f64, eps: f64) -> f64 {
+pub fn cfo_snr_bound(snr_lin: f64, eps: f64) -> f64 {
     let s = (std::f64::consts::PI * eps).sin();
-    sinc(eps).powi(2) / (1.0 / snr + MOOSE_ICI_BOUND * s * s)
+    sinc(eps).powi(2) / (1.0 / snr_lin + MOOSE_ICI_BOUND * s * s)
 }
 
 /// The joint maximum-likelihood timing and frequency offset of van de Beek, Sandell &
-/// Börjesson (1997) from the cyclic prefix, for an SNR `snr` (linear) per sample: over
+/// Börjesson (1997) from the cyclic prefix, for an SNR `snr_lin` (linear) per sample: over
 /// every start $\theta$ such that the prefix and its copy lie in `r` (a window of
 /// $2N + L$ samples that contains one whole symbol), the maximum of $|\gamma(\theta)| -
 /// \rho\Phi(\theta)$ ([`delayed_correlation`] and [`windowed_energy`]); the timing is the
@@ -278,12 +278,12 @@ pub fn cfo_snr_bound(snr: f64, eps: f64) -> f64 {
 /// # Errors
 /// [`com_core::Error::Config`] without a cyclic prefix or for a non-positive SNR,
 /// [`com_core::Error::Shape`] if `r` is shorter than one symbol.
-pub fn cp_ml(r: &[C64], ofdm: &Ofdm, snr: f64) -> Result<Estimate> {
+pub fn cp_ml(r: &[C64], ofdm: &Ofdm, snr_lin: f64) -> Result<Estimate> {
     let (n, l) = (ofdm.fft_len(), ofdm.oversampling * ofdm.n_cp);
     ensure(l > 0, || "the estimator needs a cyclic prefix".into())?;
-    ensure(snr > 0.0, || format!("the SNR must be positive, got {snr}"))?;
+    ensure(snr_lin > 0.0, || format!("the SNR must be positive, got {snr_lin}"))?;
     ensure_shape(r.len() >= n + l, || format!("{} samples are shorter than one symbol of {}", r.len(), n + l))?;
-    let rho = snr / (snr + 1.0);
+    let rho = snr_lin / (snr_lin + 1.0);
     // P(θ) = Σ r*(k) r(k + N) = γ(θ)*
     let p = delayed_correlation(r, n, l);
     let e = windowed_energy(r, l);

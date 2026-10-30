@@ -296,10 +296,10 @@ fn sliding_sums<T: Copy + Default + Add<Output = T>>(t: &[T], w: usize) -> Vec<T
 pub enum SyncRule {
     /// The correlation $\sum_{i} s_{i} \rho_{i+\mu}$ (its absolute value with a sign ambiguity).
     Correlation,
-    /// The optimum rule of Massey (1972) at the SNR $E/N_{0}$ `snr` (linear).
+    /// The optimum rule of Massey (1972) at the SNR $E/N_{0}$ `snr_lin` (linear).
     Optimum {
         /// $E/N_{0}$ of a symbol (linear).
-        snr: f64,
+        snr_lin: f64,
     },
 }
 
@@ -323,25 +323,25 @@ fn ln_cosh(y: f64) -> f64 {
 /// let barker7 = [1.0, 1.0, 1.0, -1.0, -1.0, 1.0, -1.0];
 /// let mut r = vec![1.0; 28];
 /// r[10..17].copy_from_slice(&barker7);
-/// assert_eq!(locate_sync_word(&r, &barker7, SyncRule::Optimum { snr: 1.0 }, false)?, 10);
+/// assert_eq!(locate_sync_word(&r, &barker7, SyncRule::Optimum { snr_lin: 1.0 }, false)?, 10);
 /// # Ok::<(), com_core::Error>(())
 /// ```
 pub fn locate_sync_word(r: &[f64], sync: &[f64], rule: SyncRule, ambiguous: bool) -> Result<usize> {
     let (n, l) = (r.len(), sync.len());
     ensure(l >= 1 && l <= n, || format!("a sync word of {l} symbols in a frame of {n}"))?;
-    if let SyncRule::Optimum { snr } = rule {
-        ensure(snr > 0.0, || format!("the SNR must be positive, got {snr}"))?;
+    if let SyncRule::Optimum { snr_lin } = rule {
+        ensure(snr_lin > 0.0, || format!("the SNR must be positive, got {snr_lin}"))?;
     }
     let statistic = |mu: usize| {
         let corr: f64 = (0..l).map(|i| sync[i] * r[(mu + i) % n]).sum();
         match (rule, ambiguous) {
             (SyncRule::Correlation, false) => corr,
             (SyncRule::Correlation, true) => corr.abs(),
-            (SyncRule::Optimum { snr }, false) => {
-                corr - (0..l).map(|i| ln_cosh(2.0 * snr * r[(mu + i) % n])).sum::<f64>() / (2.0 * snr)
+            (SyncRule::Optimum { snr_lin }, false) => {
+                corr - (0..l).map(|i| ln_cosh(2.0 * snr_lin * r[(mu + i) % n])).sum::<f64>() / (2.0 * snr_lin)
             }
-            (SyncRule::Optimum { snr }, true) => {
-                ln_cosh(2.0 * snr * corr) - (0..l).map(|i| ln_cosh(2.0 * snr * r[(mu + i) % n])).sum::<f64>()
+            (SyncRule::Optimum { snr_lin }, true) => {
+                ln_cosh(2.0 * snr_lin * corr) - (0..l).map(|i| ln_cosh(2.0 * snr_lin * r[(mu + i) % n])).sum::<f64>()
             }
         }
     };

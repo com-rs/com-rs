@@ -138,8 +138,8 @@ impl PyCdl {
         }
         let array = |n: usize| if dual_polarized { Array::linear_dual(n, spacing) } else { Array::linear(n, spacing) };
         let mut inner = Cdl::new(self::profile(profile)?, delay_spread_s, fs, array(n_tx), array(n_rx)).py()?;
-        inner.velocity = [0.0, velocity_mps, 0.0];
-        inner.carrier_frequency = fc_hz;
+        inner.velocity_mps = [0.0, velocity_mps, 0.0];
+        inner.fc_hz = fc_hz;
         if velocity_mps != 0.0 && fc_hz <= 0.0 {
             return Err(PyValueError::new_err("the carrier frequency must be positive for a moving receiver"));
         }
@@ -175,7 +175,7 @@ impl PyCdl {
     /// float: The maximum Doppler shift `|v| f_c / c` (Hz).
     #[getter]
     fn max_doppler_hz(&self) -> f64 {
-        self.inner.max_doppler()
+        self.inner.max_doppler_hz()
     }
 
     /// Apply the channel to transmitted streams whose samples before the signal are
@@ -227,7 +227,7 @@ impl PyCdl {
             self.inner.delays().len(),
             self.inner.n_rx(),
             self.inner.n_tx(),
-            self.inner.max_doppler()
+            self.inner.max_doppler_hz()
         )
     }
 }
