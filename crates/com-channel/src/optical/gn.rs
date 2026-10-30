@@ -379,13 +379,16 @@ impl GnModel {
             }
             out
         });
+        // the integrand is symmetric in (f1, f2), and so is its evaluation (the phase
+        // c (u v), the Fejér factor and the link function are computed symmetrically):
+        // the cells below the diagonal are those above it
         let mut acc = 0.0;
         for i in 0..m {
             if g[i] == 0.0 {
                 continue;
             }
             let u = node(i as i64) - f;
-            for j in 0..m {
+            for j in i..m {
                 // f1 + f2 - f is node i + j + k_lo
                 let k3 = i as i64 + j as i64 + k_lo;
                 if g[j] == 0.0 || k3 < 0 || k3 >= m as i64 {
@@ -395,7 +398,7 @@ impl GnModel {
                 if g3 == 0.0 {
                     continue;
                 }
-                let ph = c * u * (node(j as i64) - f);
+                let ph = c * (u * (node(j as i64) - f));
                 let rho2 = match &half_log {
                     // |1 - e^{-αL} e^{jφ}|² / (α² + φ²/L²)
                     None => (1.0 - 2.0 * e * ph.cos() + e * e) / (a * a + (ph / ls) * (ph / ls)),
@@ -408,7 +411,8 @@ impl GnModel {
                 } else {
                     ns
                 };
-                acc += g[i] * g[j] * g3 * rho2 * chi;
+                let cell = g[i] * g[j] * g3 * rho2 * chi;
+                acc += if j == i { cell } else { 2.0 * cell };
             }
         }
         let gn = 16.0 / 27.0 * fib.gamma_w_km * fib.gamma_w_km * acc * df * df;
@@ -529,7 +533,8 @@ fn fejer_cell_average(n: usize, phi: f64, du: f64, dv: f64) -> f64 {
         let (_, cos_k) = h_phi.next();
         let (su, _) = h_u.next();
         let (sv, _) = h_v.next();
-        sum += 2.0 * (n - k) as f64 * cos_k * sinc(su, du / 2.0, kf) * sinc(sv, dv / 2.0, kf);
+        // symmetric in (du, dv)
+        sum += 2.0 * (n - k) as f64 * cos_k * (sinc(su, du / 2.0, kf) * sinc(sv, dv / 2.0, kf));
     }
     sum
 }
@@ -559,7 +564,11 @@ fn egn_correction(spectrum: &WdmSpectrum, f: f64, df: f64, fm: FormatMoments, mu
     let band = support(cut);
     let pc = spectrum.powers_w[cut];
     let df3 = df * df * df;
-    // SCI: κ2 (two terms) and κ3
+    // SCI: κ2 (two terms) and κ3, with one evaluation of μ per pair (n1, n2) of the
+    // band whose sum n3 = n1 + n2 is in the band too: the second term of κ2 sums
+    // μ(n1, n3 - n1) s1 s(n3 - n1) over n1 for every n3, in the same order
+    let n0 = band.first().map_or(0, |v| v.0);
+    let mut inner_b = vec![C64::new(0.0, 0.0); band.last().map_or(0, |v| (v.0 - n0 + 1) as usize)];
     let (mut a, mut b, mut t) = (0.0, 0.0, C64::new(0.0, 0.0));
     for &(n1, s1) in &band {
         let mut inner = C64::new(0.0, 0.0);
@@ -569,19 +578,15 @@ fn egn_correction(spectrum: &WdmSpectrum, f: f64, df: f64, fm: FormatMoments, mu
                 let m = mu(n1, n2);
                 inner += m * w;
                 t += m * (s1 * w);
+                if let Some(slot) = usize::try_from(n1 + n2 - n0).ok().and_then(|k| inner_b.get_mut(k)) {
+                    *slot += m * (s1 * s2);
+                }
             }
         }
         a += s1 * s1 * inner.norm_sqr();
     }
     for &(n3, s3) in &band {
-        let mut inner = C64::new(0.0, 0.0);
-        for &(n1, s1) in &band {
-            let w = s1 * s(cut, n3 - n1);
-            if w != 0.0 {
-                inner += mu(n1, n3 - n1) * w;
-            }
-        }
-        b += s3 * s3 * inner.norm_sqr();
+        b += s3 * s3 * inner_b[(n3 - n0) as usize].norm_sqr();
     }
     let kappa2 = rs * rs * (80.0 / 81.0 * a + 16.0 / 81.0 * b) * df3;
     let kappa3 = 16.0 / 81.0 * rs * t.norm_sqr() * df3 * df;
@@ -711,6 +716,47 @@ mod tests {
             let fine = GnModel { resolution_hz: Some(df / 4.0), ..gn.clone() }.nli_psd(&s, f).unwrap();
             let db = com_math::lin2db(default / fine);
             assert!(db.abs() < 0.02, "{spans} spans: {db} dB");
+        }
+    }
+
+    // the half of the grid above the diagonal (the symmetry in f1, f2) against the whole
+    // grid, as integrated before, coherent and incoherent
+    #[test]
+    fn the_symmetric_half_of_the_grid_gives_the_whole_integral() {
+        let fib = FiberParams { n_spans: 5, ..FiberParams::default() };
+        let s = WdmSpectrum::uniform(vec![-50e9, 0.0, 50e9], 1e-3, 32e9, 0.1);
+        let df = 32e9 / 32.0;
+        let (a, ls) = (fib.alpha_np_km(), fib.span_km);
+        let (e, c) = ((-a * ls).exp(), 4.0 * PI * PI * fib.beta2_s2_km() * ls);
+        for coherent in [false, true] {
+            let model = GnModel { coherent, resolution_hz: Some(df), ..GnModel::new(fib.clone()) };
+            for f in [0.0, 7e9] {
+                let (lo, hi) = s.band();
+                let k_lo = ((lo - f) / df).floor() as i64;
+                let n = (((hi - f) / df).ceil() as i64 - k_lo + 1) as usize;
+                let node = |i: usize| f + (k_lo + i as i64) as f64 * df;
+                let g: Vec<f64> = (0..n).map(|i| s.psd(node(i))).collect();
+                let mut acc = 0.0;
+                for i in 0..n {
+                    for j in 0..n {
+                        let Some(&g3) = usize::try_from(i as i64 + j as i64 + k_lo).ok().and_then(|k| g.get(k)) else {
+                            continue;
+                        };
+                        let (u, v) = (node(i) - f, node(j) - f);
+                        let ph = c * u * v;
+                        let rho2 = (1.0 - 2.0 * e * ph.cos() + e * e) / (a * a + (ph / ls) * (ph / ls));
+                        let chi = if coherent {
+                            fejer_cell_average(fib.n_spans, ph, c * v * df, c * u * df)
+                        } else {
+                            fib.n_spans as f64
+                        };
+                        acc += g[i] * g[j] * g3 * rho2 * chi;
+                    }
+                }
+                let whole = 16.0 / 27.0 * fib.gamma_w_km * fib.gamma_w_km * acc * df * df;
+                let half = model.nli_psd(&s, f).unwrap();
+                assert!((half / whole - 1.0).abs() < 1e-12, "coherent {coherent}, f = {f}: {half} vs {whole}");
+            }
         }
     }
 

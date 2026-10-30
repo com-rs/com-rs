@@ -690,31 +690,47 @@ fn soft(c: &Constellation, trace: &Trace) -> Result<Vec<f64>> {
     c.llr(&trace.z, trace.noise_var.max(1e-300), None, false)
 }
 
+impl Amp {
+    fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
+        let prior = Prior::uniform(&self.constellation);
+        lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)
+    }
+}
+
 impl MimoDetector for Amp {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        let prior = Prior::uniform(&self.constellation);
-        let t = lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)?;
-        Ok(decide(&self.constellation, &t))
+        Ok(decide(&self.constellation, &self.trace(h, y, noise_var)?))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
+        soft(&self.constellation, &self.trace(h, y, noise_var)?)
+    }
+
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+        let t = self.trace(h, y, noise_var)?;
+        Ok((decide(&self.constellation, &t), soft(&self.constellation, &t)?))
+    }
+}
+
+impl Oamp {
+    fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
         let prior = Prior::uniform(&self.constellation);
-        let t = lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)?;
-        soft(&self.constellation, &t)
+        oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)
     }
 }
 
 impl MimoDetector for Oamp {
     fn detect(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<usize>> {
-        let prior = Prior::uniform(&self.constellation);
-        let t = oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)?;
-        Ok(decide(&self.constellation, &t))
+        Ok(decide(&self.constellation, &self.trace(h, y, noise_var)?))
     }
 
     fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
-        let prior = Prior::uniform(&self.constellation);
-        let t = oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)?;
-        soft(&self.constellation, &t)
+        soft(&self.constellation, &self.trace(h, y, noise_var)?)
+    }
+
+    fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
+        let t = self.trace(h, y, noise_var)?;
+        Ok((decide(&self.constellation, &t), soft(&self.constellation, &t)?))
     }
 }
 
