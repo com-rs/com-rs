@@ -168,7 +168,7 @@ impl Gamp {
     /// use com_mapping::constellation::Constellation;
     /// use com_core::rng::Rng;
     /// // 2πh = 1.4: the phase leaves (-π, π] and the arctangent receiver fails
-    /// let ce = CeOfdm { n_data: 63, oversampling: 4, h: 1.4 / std::f64::consts::TAU, n_cp: 0 };
+    /// let ce = CeOfdm::new(63, 4, 1.4 / std::f64::consts::TAU).unwrap();
     /// let c = Constellation::qam(4).unwrap().normalized();
     /// let (_, d) = com_mapping::source::symbols(&c, 63, None, &mut Rng::new(1)).unwrap();
     /// let r = ce.modulate(&d).unwrap();
@@ -287,7 +287,7 @@ mod tests {
         // 2πh = 1.4 (López Morales et al. 2022, Fig. 3): the phase wraps, the arctangent
         // receiver floors at a SER of 0.1 and more, GAMP decodes
         let c = Constellation::qam(4).unwrap().normalized();
-        let ce = CeOfdm { n_data: 63, oversampling: 4, h: 1.4 / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(63, 4, 1.4 / TAU).unwrap();
         let mut rng = Rng::new(3);
         let (_, d) = com_mapping::source::symbols(&c, 63 * 8, None, &mut rng).unwrap();
         for ebn0 in [8.0, 30.0] {

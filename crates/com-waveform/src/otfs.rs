@@ -54,6 +54,7 @@
 //!    "Orthogonal time-frequency space modulation: a promising next-generation
 //!    waveform," *IEEE Wireless Commun.*, 28(4), 136–144, 2021.
 
+use crate::ofdm::check_rate;
 use com_core::prelude::*;
 use com_core::{ensure, ensure_shape};
 use com_dsp::signal::{extend_with_prefix, strip_prefix};
@@ -62,7 +63,7 @@ use com_math::{C64, cis, fft};
 
 /// An OTFS modem: `n_fft` delay bins $M$ (the subcarriers), `n_symbols` Doppler bins $N$
 /// (the symbols of a frame) and one prefix of `n_cp` samples per frame (see the module).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Otfs {
     /// Delay bins $M$, the subcarriers of the Heisenberg transform.
     pub n_fft: usize,
@@ -71,15 +72,18 @@ pub struct Otfs {
     /// The cyclic prefix of a frame, in samples (OTFS has no oversampling: one sample
     /// per delay bin).
     pub n_cp: usize,
+    /// The rate of the samples, $M \Delta f$: the rate of the [`Signal`] of [`Modulate`]
+    /// and the rate [`Demodulate`] expects; 1 Hz by default (time in samples).
+    pub sample_rate: Hertz,
 }
 
 impl Otfs {
-    /// $M$ delay bins and $N$ Doppler bins, no prefix.
+    /// $M$ delay bins and $N$ Doppler bins, no prefix, at the sample rate 1 Hz.
     ///
     /// # Errors
     /// [`Error::Config`] for an empty grid.
     pub fn new(n_fft: usize, n_symbols: usize) -> Result<Otfs> {
-        let o = Otfs { n_fft, n_symbols, n_cp: 0 };
+        let o = Otfs { n_fft, n_symbols, n_cp: 0, sample_rate: Hertz(1.0) };
         o.check()?;
         Ok(o)
     }
@@ -87,14 +91,16 @@ impl Otfs {
     /// Validate the configuration.
     ///
     /// # Errors
-    /// [`Error::Config`] for an empty grid or a prefix longer than the frame.
+    /// [`Error::Config`] for an empty grid, a prefix longer than the frame or a sample
+    /// rate that is not positive and finite.
     pub fn check(&self) -> Result<()> {
         ensure(self.n_fft >= 1 && self.n_symbols >= 1, || {
             format!("an OTFS grid needs at least one bin, got {} × {}", self.n_fft, self.n_symbols)
         })?;
         ensure(self.n_cp <= self.n_fft * self.n_symbols, || {
             format!("a prefix of {} samples is longer than the frame of {}", self.n_cp, self.n_fft * self.n_symbols)
-        })
+        })?;
+        check_rate(self.sample_rate)
     }
 
     /// Samples per frame, $MN$ plus the prefix.
@@ -234,18 +240,22 @@ impl Otfs {
 }
 
 /// OTFS as a [`Modulate`] block: one stream of delay–Doppler symbols into one stream of
-/// samples.
+/// samples at [`Otfs::sample_rate`].
 impl Modulate for Otfs {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OTFS modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&Otfs::modulate(self, x.stream_slice(0))?, Hertz(1.0));
+        out.set_stream(&Otfs::modulate(self, x.stream_slice(0))?, self.sample_rate);
         Ok(())
     }
 }
 
+/// OTFS as a [`Demodulate`] block: one stream of samples at [`Otfs::sample_rate`].
 impl Demodulate for Otfs {
+    /// # Errors
+    /// [`Error::Config`] for several streams or a signal at another sample rate, and the
+    /// errors of [`Otfs::demodulate`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
-        ensure(y.n_streams() == 1, || format!("OTFS demodulates one stream, not {}", y.n_streams()))?;
+        crate::ofdm::check_input(y, self.sample_rate, "OTFS")?;
         out.set_stream(&Otfs::demodulate(self, y.stream(0))?);
         Ok(())
     }
@@ -254,6 +264,25 @@ impl Demodulate for Otfs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_traits_carry_the_rate_of_the_modem() {
+        let mut o = Otfs { n_cp: 2, sample_rate: Hertz(480e3), ..Otfs::new(8, 4).unwrap() };
+        let x = Symbols::from_stream((0..32).map(|i| C64::new(f64::from(i), 1.0)).collect()).unwrap();
+        let s = Modulate::modulate(&o, &x).unwrap();
+        assert_eq!(s.sample_rate(), Hertz(480e3));
+        assert!(
+            Demodulate::demodulate(&mut o, &s)
+                .unwrap()
+                .as_slice()
+                .iter()
+                .zip(x.as_slice())
+                .all(|(a, b)| (a - b).norm() < 1e-12)
+        );
+        let wrong = Signal::from_stream(s.stream(0).to_vec(), Hertz(1.0)).unwrap();
+        assert!(Demodulate::demodulate(&mut o, &wrong).is_err());
+        assert!(Otfs { sample_rate: Hertz(f64::NAN), ..o }.check().is_err());
+    }
 
     #[test]
     fn a_channel_without_delay_or_doppler_is_the_identity_and_rows_are_sparse() {

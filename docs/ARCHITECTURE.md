@@ -315,7 +315,8 @@ Implementations: every `BlockCode` of `com-fec` (`Encode`, `Decode`, by the macr
 `container_traits!`): `ConvolutionalCode`, `TurboCode`, `PuncturedTurbo`,
 `Punctured<C>`, `LdpcCode`, `PolarCode`, `ReedSolomon`, `Bch`, `NrLdpc`, `NrPolar`
 (`Dvbs2Fec` of `com-systems` is a `BlockCode` only); `Constellation` (`Map`, `Demap`);
-`Ofdm`, `Ufmc`, `Otfs` (`Modulate`, `Demodulate`); `Eigenmode`, `LinearPrecoder`,
+`Ofdm`, `Ufmc`, `Otfs`, `CeOfdm`, `Fbmc` (`Modulate`, `Demodulate`, at the sample
+rate of the modem, checked on the input); `Eigenmode`, `LinearPrecoder`,
 `Ostbc` (`Precode`); `detection::Coherent` (`Detect`); `Awgn`, `Noise`, `Rayleigh`,
 `Mimo` (`fading`), `Tdl`, `DelayDopplerModel` (`multipath`), `Cdl`, `Fso`
 (`owc::atmospheric`), `Ssfm` (`optical::fiber`) (`Propagate`); `Rapp`, `Saleh`,

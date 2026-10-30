@@ -158,7 +158,7 @@ fn circular_spectrum(r: &[f64]) -> Vec<f64> {
 /// # Examples
 /// ```
 /// use com_waveform::ce_ofdm::{CeOfdm, theory};
-/// let ce = CeOfdm { n_data: 16, oversampling: 4, h: 0.5 / std::f64::consts::TAU, n_cp: 0 };
+/// let ce = CeOfdm::new(16, 4, 0.5 / std::f64::consts::TAU).unwrap();
 /// let s = theory::psd(&ce).unwrap();
 /// assert!((s.iter().sum::<f64>() / s.len() as f64 - 1.0).abs() < 1e-12);
 /// ```
@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn the_psd_is_that_of_a_simulated_block() {
         // 2πh = 1.0, K = 32, J = 4: the mean periodogram of random QPSK blocks
-        let ce = CeOfdm { n_data: 32, oversampling: 4, h: 1.0 / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(32, 4, 1.0 / TAU).unwrap();
         let n = ce.n_fft();
         let theory = psd(&ce).unwrap();
         assert!((theory.iter().sum::<f64>() / n as f64 - 1.0).abs() < 1e-12);
@@ -449,7 +449,7 @@ mod tests {
         for (two_pi_h, theta_max) in
             [(0.5, None), (1.25, None), (1.5, Some(std::f64::consts::PI)), (1.5, Some(0.9 * std::f64::consts::PI))]
         {
-            let ce = CeOfdm { n_data: 31, oversampling: 4, h: two_pi_h / TAU, n_cp: 0 };
+            let ce = CeOfdm::new(31, 4, two_pi_h / TAU).unwrap();
             let phase = |x: f64| {
                 let p = two_pi_h * x;
                 com_math::cis(theta_max.map_or(p, |t| p.clamp(-t, t)))
@@ -473,7 +473,7 @@ mod tests {
             assert!((g / want - 1.0).abs() < 0.03, "2πh = {two_pi_h}, {theta_max:?}: {g} vs {want}");
         }
         // eq. (8) of the 2016 letter is the linear theory of QPSK
-        let ce = CeOfdm { n_data: 31, oversampling: 4, h: 0.6 / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(31, 4, 0.6 / TAU).unwrap();
         for eb in [4.0, 8.0] {
             let lin = ber(&ce, ConstellationKind::Qam, 4, eb + com_math::lin2db(2.0)).unwrap();
             assert!((ber_optimum(0.6, eb) / lin - 1.0).abs() < 1e-9);
@@ -527,7 +527,7 @@ mod literature {
             let exact = 4.0 - 4.0 * (-v / 2.0f64).exp() + (1.0 + (-2.0 * v).exp()) / 2.0;
             let series = 1.0 + v + v * v / 2.0 - 7.0 / 12.0 * v.powi(3);
             assert!((exact - series).abs() < v.powi(4), "{v}");
-            let ce = CeOfdm { n_data: 512, oversampling: 2, h: v.sqrt() / TAU, n_cp: 0 };
+            let ce = CeOfdm::new(512, 2, v.sqrt() / TAU).unwrap();
             let n = 1024.0;
             let gain = receiver_gain(&ce, Receiver::Linear);
             assert!((gain - (1.0 - v * (n - 1.0) / (2.0 * n))).abs() < v * v, "{v}");
@@ -547,7 +547,7 @@ mod literature {
     #[test]
     fn ahmed_2012_eqs_13_14_and_fig_6_cycle_slips() {
         let k = 32;
-        let ce = CeOfdm { n_data: k, oversampling: 32, h: 0.8 / TAU, n_cp: 0 };
+        let ce = CeOfdm::new(k, 32, 0.8 / TAU).unwrap();
         let n = ce.n_fft();
         let pi_h_cn = std::f64::consts::PI * ce.h / (k as f64).sqrt();
         let mut extremes = [(0.0f64, 0.0f64); 10];
