@@ -171,7 +171,7 @@ def test_every_public_routine_documents_its_arguments(name, obj):
             assert re.search(rf"^\s+{p} \(", doc, re.M), f"{name}: argument {p} is not documented"
 
 
-BINDINGS = pathlib.Path(__file__).parents[1] / "bindings" / "com-py" / "src"
+BINDINGS = ROOT / "bindings" / "com-py" / "src"
 # the files of the runner and of the specifications are reviewed in their own batch
 RAISES_PENDING = {"sim.rs", "spec.rs"}
 

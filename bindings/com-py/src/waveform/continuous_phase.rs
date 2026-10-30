@@ -328,6 +328,9 @@ impl PyCpm {
     ///
     /// Returns:
     ///     float: `d²` (infinite if no sequence merges within `max_len` symbols).
+    ///
+    /// Raises:
+    ///     ValueError: if `(2M-1)^max_len` exceeds 2^20 sequences.
     #[pyo3(signature = (*, max_len=3))]
     fn min_distance2(&self, py: Python<'_>, max_len: usize) -> PyResult<f64> {
         py.detach(|| self.inner.min_distance2(max_len)).py()
