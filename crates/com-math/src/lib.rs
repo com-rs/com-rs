@@ -364,7 +364,11 @@ pub fn bessel_j0(x: f64) -> f64 {
 /// \cosh(\nu t)\, dt$ by the trapezoidal rule (exponentially convergent on this even,
 /// entire integrand), summed in the log domain so that neither the large values at
 /// small $x$ and large $\nu$ nor the small ones at large $x$ overflow; to about
-/// $10^{-13}$ relative. `NaN` for $x \le 0$.
+/// $10^{-13}$ relative. The limits: $-\infty$ for $x = +\infty$ ($K_{\nu}(x) \to 0$),
+/// $+\infty$ for an infinite order, and the leading term $\ln\left(\tfrac{1}{2}
+/// \Gamma(\nu)\right) + \nu \ln(2/x)$ when $\nu / x$ overflows (a subnormal $x$; for
+/// $\nu \ge 0.05$, where the next term is below $e^{-70}$ relative); `NaN` for
+/// $x \le 0$, a `NaN` argument, or an overflowing $\nu / x$ with a smaller order.
 ///
 /// # Examples
 /// ```
@@ -380,10 +384,20 @@ pub fn bessel_j0(x: f64) -> f64 {
 /// assert!((ln_bessel_k(30.0, 1e-3) - asymptotic).abs() < 1e-3);
 /// ```
 pub fn ln_bessel_k(nu: f64, x: f64) -> f64 {
-    if x.is_nan() || x <= 0.0 {
+    if x.is_nan() || nu.is_nan() || x <= 0.0 {
         return f64::NAN;
     }
     let nu = nu.abs();
+    if x == f64::INFINITY {
+        return f64::NEG_INFINITY;
+    }
+    if nu == f64::INFINITY {
+        return f64::INFINITY;
+    }
+    if nu >= 0.05 && !(nu / x).is_finite() {
+        // K_ν(x) = ½ Γ(ν) (2/x)^ν (1 + O((x/2)^{2ν} + x²)), the correction below e^{-70}
+        return -std::f64::consts::LN_2 + ln_gamma(nu) + nu * (std::f64::consts::LN_2 - x.ln());
+    }
     // ln cosh(νt) - x cosh t, without overflow
     let f = |t: f64| {
         let a = nu * t;
@@ -400,6 +414,9 @@ pub fn ln_bessel_k(nu: f64, x: f64) -> f64 {
     loop {
         let t = k as f64 * h;
         let v = f(t) - peak;
+        if v.is_nan() {
+            return f64::NAN;
+        }
         acc += v.exp();
         if t > t_max && v < -50.0 {
             break;
@@ -847,6 +864,23 @@ pub fn log_sum_exp_iter<I: Iterator<Item = f64> + Clone>(v: I) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ln_bessel_k_returns_its_limits_instead_of_looping() {
+        assert_eq!(ln_bessel_k(0.0, f64::INFINITY), f64::NEG_INFINITY);
+        assert_eq!(ln_bessel_k(2.5, f64::INFINITY), f64::NEG_INFINITY);
+        assert_eq!(ln_bessel_k(f64::INFINITY, 1.0), f64::INFINITY);
+        assert_eq!(bessel_k(1.0, f64::INFINITY), 0.0);
+        assert!(ln_bessel_k(f64::NAN, 1.0).is_nan());
+        assert!(ln_bessel_k(1.0, f64::NAN).is_nan());
+        assert!(ln_bessel_k(1.0, 0.0).is_nan());
+        // ν/x overflows: the leading term ½Γ(ν)(2/x)^ν, which the quadrature matches
+        // just before the overflow
+        let lead = |nu: f64, x: f64| -std::f64::consts::LN_2 + ln_gamma(nu) + nu * (std::f64::consts::LN_2 - x.ln());
+        assert!((ln_bessel_k(2.0, 1e-300) / lead(2.0, 1e-300) - 1.0).abs() < 1e-12);
+        assert_eq!(ln_bessel_k(2.0, 1e-310), lead(2.0, 1e-310));
+        assert!(ln_bessel_k(0.01, 1e-320).is_nan());
+    }
 
     #[test]
     #[allow(clippy::unreadable_literal, reason = "the values of SciPy, digit for digit")]

@@ -103,7 +103,7 @@ impl ManakovSsfm {
             for _ in 0..f.n_spans {
                 let span = raman.field_span(f, &[&u.x, &u.y], fs)?;
                 steps += solver
-                    .run_with_gain(&mut u.x, &mut u.y, f.span_km, fs, &|z0, z1, out| span.field_gain(z0, z1, out));
+                    .run_with_gain(&mut u.x, &mut u.y, f.span_km, fs, &|z0, z1, out| span.field_gain(z0, z1, out))?;
                 span.amplify(&mut u.x, fs, &self.amplification, f.nf_db, rng.as_deref_mut());
                 span.amplify(&mut u.y, fs, &self.amplification, f.nf_db, rng.as_deref_mut());
             }
@@ -111,7 +111,7 @@ impl ManakovSsfm {
         }
         let mut steps = 0;
         for _ in 0..f.n_spans {
-            steps += solver.run(&mut u.x, &mut u.y, f.span_km, fs);
+            steps += solver.run(&mut u.x, &mut u.y, f.span_km, fs)?;
             self.amplification.apply(&mut u.x, f, f.span_km, fs, rng.as_deref_mut())?;
             self.amplification.apply(&mut u.y, f, f.span_km, fs, rng.as_deref_mut())?;
         }

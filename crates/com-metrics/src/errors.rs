@@ -31,14 +31,23 @@ use com_core::{Result, ensure, same_len};
 use com_mapping::constellation::{Constellation, ConstellationKind};
 use com_math::{C64, power};
 
-/// Number of positions where two bit sequences differ (over the shorter length).
-pub fn bit_errors(a: &[u8], b: &[u8]) -> usize {
-    a.iter().zip(b).filter(|(x, y)| (*x & 1) != (*y & 1)).count()
+/// Number of positions where two bit sequences of equal length differ (the least
+/// significant bit of every value).
+///
+/// # Errors
+/// [`com_core::Error::Shape`] if the sequences have different lengths.
+pub fn bit_errors(a: &[u8], b: &[u8]) -> Result<usize> {
+    same_len(a.len(), b.len(), "bit_errors")?;
+    Ok(a.iter().zip(b).filter(|(x, y)| (*x & 1) != (*y & 1)).count())
 }
 
-/// Number of positions where two label sequences differ.
-pub fn symbol_errors(a: &[usize], b: &[usize]) -> usize {
-    a.iter().zip(b).filter(|(x, y)| x != y).count()
+/// Number of positions where two label sequences of equal length differ.
+///
+/// # Errors
+/// [`com_core::Error::Shape`] if the sequences have different lengths.
+pub fn symbol_errors(a: &[usize], b: &[usize]) -> Result<usize> {
+    same_len(a.len(), b.len(), "symbol_errors")?;
+    Ok(a.iter().zip(b).filter(|(x, y)| x != y).count())
 }
 
 /// Number of blocks of `block_len` values in error: the blocks of `rx` and `tx` (cut
@@ -70,7 +79,7 @@ pub fn block_errors(rx: &[u8], tx: &[u8], block_len: usize) -> Result<usize> {
 /// [`com_core::Error::Shape`] if the sequences have different lengths.
 pub fn ber(rx_bits: &[u8], tx_bits: &[u8]) -> Result<f64> {
     same_len(rx_bits.len(), tx_bits.len(), "ber")?;
-    Ok(if tx_bits.is_empty() { f64::NAN } else { bit_errors(rx_bits, tx_bits) as f64 / tx_bits.len() as f64 })
+    Ok(if tx_bits.is_empty() { f64::NAN } else { bit_errors(rx_bits, tx_bits)? as f64 / tx_bits.len() as f64 })
 }
 
 /// Q factor in dB of a bit error rate, $20 \log_{10}\left(\sqrt{2}\, \operatorname{erfc}^{-1}(2 P_{b})\right)$
@@ -218,4 +227,18 @@ pub fn evm(symbols: &[C64], c: &Constellation, tx: Option<&[C64]>) -> Result<f64
     };
     let num: f64 = y.iter().zip(&d).map(|(a, b)| (a - b).norm_sqr()).sum();
     Ok(num / d.iter().map(C64::norm_sqr).sum::<f64>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_counts_reject_sequences_of_different_lengths_instead_of_truncating() {
+        assert!(matches!(bit_errors(&[0, 1, 1], &[0, 1]), Err(com_core::Error::Shape(_))));
+        assert!(matches!(symbol_errors(&[0, 1], &[0, 1, 2]), Err(com_core::Error::Shape(_))));
+        // only the least significant bit counts
+        assert_eq!(bit_errors(&[0, 1, 2], &[1, 1, 0]).unwrap(), 1);
+        assert_eq!(symbol_errors(&[0, 1, 2], &[0, 3, 2]).unwrap(), 1);
+    }
 }

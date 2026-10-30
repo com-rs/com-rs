@@ -79,10 +79,12 @@ impl Field {
     /// (bit $i$ the coefficient of $x^{i}$).
     ///
     /// # Errors
-    /// [`com_core::Error::Config`] for a degree outside 2 to 20 or a polynomial that
-    /// is not primitive (its powers of $x$ do not run through every non-zero element).
+    /// [`com_core::Error::Config`] for a degree outside 2 to 20, a polynomial of another
+    /// degree, or one that is not primitive (its powers of $x$ do not run through every
+    /// non-zero element).
     pub fn new(m: u32, poly: u32) -> Result<Field> {
         ensure((2..=20).contains(&m), || format!("GF(2^m): the field degree must be 2 to 20, got {m}"))?;
+        ensure(poly >> m == 1, || format!("GF(2^m): {poly:#x} is not a polynomial of degree {m}"))?;
         let q = 1usize << m;
         let mut exp = vec![0u32; 2 * q];
         let mut log = vec![0u32; q];
@@ -171,6 +173,18 @@ impl Field {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_polynomial_of_the_wrong_degree_is_an_error_not_a_panic() {
+        // x⁸ + x⁴ + x³ + x² + 1 for GF(16), and x³ + x + 1 for GF(16)
+        assert!(Field::new(4, 0x11D).is_err());
+        assert!(Field::new(4, 0xB).is_err());
+        assert!(Field::new(4, 0).is_err());
+        assert!(Field::new(8, u32::MAX).is_err());
+        // x⁴ + x³ + x² + x + 1 has the degree but is not primitive (order 5)
+        assert!(Field::new(4, 0x1F).is_err());
+        assert!(Field::new(4, 0x13).is_ok());
+    }
 
     #[test]
     fn every_default_polynomial_is_primitive_and_the_arithmetic_is_consistent() {

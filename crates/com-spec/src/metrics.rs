@@ -178,7 +178,7 @@ impl Metrics {
                 format!("metric {m:?} needs a coded link: fec_encode first and fec_decode before the metrics")
             })?;
             if m == "coded_ber" {
-                let e = metrics::bit_errors(&s.coding.payload, &s.coding.decoded);
+                let e = metrics::bit_errors(&s.coding.payload, &s.coding.decoded)?;
                 rec.errors(m, e as u64, s.coding.payload.len() as u64);
             } else {
                 let k = s.coding.payload.len() / s.coding.n_blocks.max(1);
@@ -226,12 +226,12 @@ impl Metrics {
                     let c = s.constellation("metrics: ber")?;
                     let b = c.bits_per_symbol();
                     let tx: Vec<u8> = idx.iter().flat_map(|&i| s.bits[i * b..(i + 1) * b].iter().copied()).collect();
-                    rec.errors("ber", metrics::bit_errors(&c.demodulate(&z), &tx) as u64, tx.len() as u64);
+                    rec.errors("ber", metrics::bit_errors(&c.demodulate(&z), &tx)? as u64, tx.len() as u64);
                 }
                 "ser" => {
                     let c = s.constellation("metrics: ser")?;
                     let tx: Vec<usize> = idx.iter().map(|&i| s.indices[i]).collect();
-                    rec.errors("ser", metrics::symbol_errors(&c.decide(&z), &tx) as u64, tx.len() as u64);
+                    rec.errors("ser", metrics::symbol_errors(&c.decide(&z), &tx)? as u64, tx.len() as u64);
                 }
                 "snr_db" => rec.value("snr_db", com_math::lin2db(sig2 / err2.max(f64::MIN_POSITIVE))),
                 "snr_eff_db" => rec.value("snr_eff_db", snr_eff_db),

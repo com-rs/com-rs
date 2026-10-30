@@ -77,6 +77,7 @@
 
 use crate::fft::{self, Fft};
 use crate::{C64, cis};
+use com_core::{Error, Result, ensure, same_len};
 use num_complex::Complex32 as C32;
 use std::sync::Arc;
 
@@ -320,11 +321,14 @@ impl ManakovSplitStep {
     }
 
     /// Propagate the two polarisations (√W, time domain, equal lengths) over
-    /// `length_km` of fibre sampled at `fs`, in place: the number of steps.
+    /// `length_km` of fibre sampled at `fs`, in place: the number of steps (none for a
+    /// length that is not positive).
     ///
-    /// # Panics
-    /// If the polarisations have different lengths.
-    pub fn run(&self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64) -> usize {
+    /// # Errors
+    /// [`Error::Shape`] if the polarisations have different lengths, [`Error::Config`]
+    /// for a fixed step or a rotation that is not positive or a length that is not
+    /// finite, [`Error::Numerical`] if a step vanishes (a non-finite field).
+    pub fn run(&self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64) -> Result<usize> {
         self.run_inner(x, y, length_km, fs, None)
     }
 
@@ -332,17 +336,37 @@ impl ManakovSplitStep {
     /// [`SplitStep::run_with_gain`]): the medium carries no attenuation, `gain` holds the
     /// power profile of the span.
     ///
-    /// # Panics
-    /// If the polarisations have different lengths.
-    pub fn run_with_gain(&self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64, gain: FieldGain<'_>) -> usize {
+    /// # Errors
+    /// As [`ManakovSplitStep::run`].
+    pub fn run_with_gain(
+        &self,
+        x: &mut [C64],
+        y: &mut [C64],
+        length_km: f64,
+        fs: f64,
+        gain: FieldGain<'_>,
+    ) -> Result<usize> {
         self.run_inner(x, y, length_km, fs, Some(gain))
     }
 
-    fn run_inner(&self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64, gain: Option<FieldGain<'_>>) -> usize {
-        assert_eq!(x.len(), y.len(), "the polarisations must have the same length");
+    fn run_inner(
+        &self,
+        x: &mut [C64],
+        y: &mut [C64],
+        length_km: f64,
+        fs: f64,
+        gain: Option<FieldGain<'_>>,
+    ) -> Result<usize> {
+        same_len(x.len(), y.len(), "the polarisations")?;
+        let (step, what) = match self.rule {
+            StepRule::Fixed(h) => (h, "fixed step (km)"),
+            StepRule::NonlinearPhase(r) => (r, "nonlinear rotation (rad)"),
+        };
+        ensure(step > 0.0, || format!("the {what} must be positive, got {step}"))?;
+        ensure(length_km.is_finite(), || format!("the length must be finite, got {length_km} km"))?;
         let n = x.len();
         if n == 0 || length_km <= 0.0 {
-            return 0;
+            return Ok(0);
         }
         let p = fft::plan(n);
         let omega = fft::angular_frequencies(n, fs);
@@ -365,6 +389,11 @@ impl ManakovSplitStep {
                     if m > 0.0 && rest >= rot / m { rot / m } else { rest }
                 }
             };
+            // a step that does not advance (an infinite power, a step below the precision
+            // of z) would never reach the end of the fibre
+            if z + h <= z || h.is_nan() {
+                return Err(Error::Numerical(format!("the split step vanishes at z = {z} km (step {h} km)")));
+            }
             let lin = self.medium.half_step(&omega, h);
             // the two half steps differ only with a distributed gain
             let (lin1, lin2) = match gain {
@@ -409,7 +438,7 @@ impl ManakovSplitStep {
             z += h;
             steps += 1;
         }
-        steps
+        Ok(steps)
     }
 }
 
@@ -457,7 +486,7 @@ mod tests {
         let (x0, _) = dual_field(512);
         let (mut x, mut y) = (x0.clone(), vec![C64::new(0.0, 0.0); 512]);
         let s = ManakovSplitStep { rule: StepRule::Fixed(0.01), max_iterations: 20, tolerance: 1e-12, medium: m };
-        s.run(&mut x, &mut y, 20.0, 128e9);
+        s.run(&mut x, &mut y, 20.0, 128e9).unwrap();
         let mut e = x0;
         let scalar = Medium { gamma_w_km: 8.0 / 9.0 * 1.3, ..m };
         SplitStep::new(&scalar, 0.01, 0.01, 2000, 512, 128e9).run(&mut e);
@@ -468,12 +497,36 @@ mod tests {
     }
 
     #[test]
+    fn manakov_rejects_a_step_that_does_not_advance_instead_of_looping() {
+        let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        for rule in [
+            StepRule::Fixed(0.0),
+            StepRule::Fixed(-1.0),
+            StepRule::Fixed(f64::NAN),
+            StepRule::NonlinearPhase(0.0),
+            StepRule::NonlinearPhase(-2e-2),
+        ] {
+            let (mut x, mut y) = dual_field(64);
+            let s = ManakovSplitStep { rule, ..ManakovSplitStep::new(m) };
+            assert!(matches!(s.run(&mut x, &mut y, 1.0, 256e9), Err(Error::Config(_))), "{rule:?}");
+        }
+        let s = ManakovSplitStep::new(m);
+        let (mut x, mut y) = dual_field(64);
+        assert!(matches!(s.run(&mut x, &mut y, f64::INFINITY, 256e9), Err(Error::Config(_))));
+        assert!(matches!(s.run(&mut x, &mut y[..32], 1.0, 256e9), Err(Error::Shape(_))));
+        assert_eq!(s.run(&mut x, &mut y, 0.0, 256e9).unwrap(), 0);
+        // an infinite power: a nonlinear step of zero length
+        x[0] = C64::new(f64::INFINITY, 0.0);
+        assert!(matches!(s.run(&mut x, &mut y, 1.0, 256e9), Err(Error::Numerical(_))));
+    }
+
+    #[test]
     fn manakov_conserves_the_total_energy_and_converges_with_the_step() {
         let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
         let run = |rule| {
             let (mut x, mut y) = dual_field(1024);
             let s = ManakovSplitStep { rule, ..ManakovSplitStep::new(m) };
-            let steps = s.run(&mut x, &mut y, 80.0, 256e9);
+            let steps = s.run(&mut x, &mut y, 80.0, 256e9).unwrap();
             (x, y, steps)
         };
         let (x0, y0) = dual_field(1024);

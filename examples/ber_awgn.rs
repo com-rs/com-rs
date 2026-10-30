@@ -36,7 +36,7 @@ impl Scenario for QamAwgn {
         let x = c.modulate(&bits)?;
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, k as f64, 1.0, rng);
         let decided = c.demodulate(&y);
-        rec.errors("ber", metrics::bit_errors(&decided, &bits) as u64, bits.len() as u64);
+        rec.errors("ber", metrics::bit_errors(&decided, &bits)? as u64, bits.len() as u64);
         Ok(())
     }
 }

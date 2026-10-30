@@ -39,7 +39,7 @@
 //!         let b = c.bits_per_symbol();
 //!         let y = channels::awgn_ebn0(&x, cond.f64("ebn0_db")?, b as f64, 1.0, rng);
 //!         let dec = c.decide(&y);
-//!         rec.errors("ser", metrics::symbol_errors(&dec, &idx) as u64, idx.len() as u64);
+//!         rec.errors("ser", metrics::symbol_errors(&dec, &idx)? as u64, idx.len() as u64);
 //!         rec.value("snr_db", metrics::snr_db(&y, &x)?);
 //!         Ok(())
 //!     }

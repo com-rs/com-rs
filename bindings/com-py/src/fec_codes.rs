@@ -125,13 +125,13 @@ impl PyReedSolomon {
     /// int: Word length in symbols.
     #[getter]
     fn n(&self) -> usize {
-        self.inner.n()
+        self.inner.n_symbols()
     }
 
     /// int: Information symbols per word, ``n - 2t``.
     #[getter]
     fn k(&self) -> usize {
-        self.inner.k()
+        self.inner.k_symbols()
     }
 
     /// int: Symbol errors corrected per word.
@@ -270,8 +270,8 @@ impl PyReedSolomon {
     fn __repr__(&self) -> String {
         format!(
             "ReedSolomonCode(n={}, k={}, t={}, m={})",
-            self.inner.n(),
-            self.inner.k(),
+            self.inner.n_symbols(),
+            self.inner.k_symbols(),
             self.inner.t(),
             self.inner.m()
         )

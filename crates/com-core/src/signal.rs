@@ -26,7 +26,7 @@
 //! ```
 
 use crate::C64;
-use crate::error::{Error, Result, same_len};
+use crate::error::{Error, Result, expect_len, same_len};
 use crate::units::Hertz;
 use ndarray::{Array2, ArrayView1, ArrayViewMut1};
 
@@ -248,7 +248,9 @@ impl Signal {
     /// process the streams independently.
     ///
     /// # Errors
-    /// The first error of `f`.
+    /// The first error of `f`; [`Error::Shape`] if `f` returns another number of
+    /// samples than it was given, rather than leaving the samples of an earlier use of
+    /// `out` in place.
     pub fn try_map_streams(
         &self,
         out: &mut Signal,
@@ -257,6 +259,7 @@ impl Signal {
         out.reshape(self.n_streams(), self.n_samples(), self.sample_rate());
         for s in 0..self.n_streams() {
             let y = f(s, self.stream(s))?;
+            expect_len(y.len(), self.n_samples(), "samples returned")?;
             for (o, v) in out.as_array_mut().row_mut(s).iter_mut().zip(y) {
                 *o = v;
             }
@@ -265,8 +268,14 @@ impl Signal {
     }
 
     /// [`Signal::try_map_streams`] for an `f` that cannot fail.
+    ///
+    /// # Panics
+    /// If `f` returns another number of samples than it was given (a broken invariant
+    /// of the calling block).
     pub fn map_streams(&self, out: &mut Signal, mut f: impl FnMut(usize, &[C64]) -> Vec<C64>) {
-        let _ = self.try_map_streams(out, |s, x| Ok(f(s, x)));
+        if let Err(e) = self.try_map_streams(out, |s, x| Ok(f(s, x))) {
+            panic!("map_streams: {e}");
+        }
     }
 
     /// Mean power of every stream, `mean(|x|²)`.
@@ -351,5 +360,25 @@ mod tests {
         let d = DualPol::from_signal(&s).unwrap();
         assert_eq!(d.to_signal(Hertz(1.0)).unwrap(), s);
         assert!((d.power() - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn try_map_streams_rejects_a_short_stream_instead_of_keeping_stale_samples() {
+        let x = Signal::from_streams(&[vec![C64::new(1.0, 0.0); 4]], Hertz(1.0)).unwrap();
+        // a reused buffer of the same shape, full of samples of an earlier block
+        let mut out = Signal::from_streams(&[vec![C64::new(9.0, 9.0); 4]], Hertz(1.0)).unwrap();
+        let err = x.try_map_streams(&mut out, |_, s| Ok(s[..3].to_vec())).unwrap_err();
+        assert!(matches!(err, Error::Shape(_)), "{err}");
+        assert!(x.try_map_streams(&mut out, |_, s| Ok([s, s].concat())).is_err());
+        x.try_map_streams(&mut out, |_, s| Ok(s.iter().map(|v| v * 2.0).collect())).unwrap();
+        assert_eq!(out.stream(0), &[C64::new(2.0, 0.0); 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "map_streams")]
+    fn map_streams_panics_on_a_short_stream() {
+        let x = Signal::from_streams(&[vec![C64::new(1.0, 0.0); 4]], Hertz(1.0)).unwrap();
+        let mut out = x.clone();
+        x.map_streams(&mut out, |_, s| s[..2].to_vec());
     }
 }

@@ -368,9 +368,9 @@ impl Block for Foe {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let fs = s.fs();
         let (y, fo) = if self.p.refined {
-            carrier::fourth_power_foe_refined(&s.samples, fs, self.p.m)
+            carrier::fourth_power_foe_refined(&s.samples, fs, self.p.m)?
         } else {
-            carrier::fourth_power_foe(&s.samples, fs, self.p.m)
+            carrier::fourth_power_foe(&s.samples, fs, self.p.m)?
         };
         s.samples = y;
         s.record(&self.label, "foe_hz", fo);
@@ -390,7 +390,7 @@ impl Block for Bps {
         let pts = s.constellation("bps")?.points().to_vec();
         let z = signal::pnorm(&s.samples);
         let theta = carrier::unwrap(&carrier::bps(&z, self.n, &pts, self.b)?, FRAC_PI_2);
-        s.samples = carrier::derotate(&z, &theta, 1.0);
+        s.samples = carrier::derotate(&z, &theta, 1.0)?;
         Ok(())
     }
 }
@@ -405,7 +405,7 @@ block_params! {
 impl Block for Viterbi {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let theta = carrier::viterbi_viterbi(&s.samples, self.n, self.m);
-        s.samples = carrier::derotate(&s.samples, &theta, 1.0);
+        s.samples = carrier::derotate(&s.samples, &theta, 1.0)?;
         Ok(())
     }
 }
@@ -423,7 +423,7 @@ impl Block for Ddpll {
         let pts = s.constellation("ddpll")?.points().to_vec();
         let z = signal::pnorm(&s.samples);
         let theta = carrier::ddpll(&z, 1.0 / s.symbol_rate, self.kv, self.tau1, self.tau2, &pts, None);
-        s.samples = carrier::derotate(&z, &theta, 1.0);
+        s.samples = carrier::derotate(&z, &theta, 1.0)?;
         Ok(())
     }
 }

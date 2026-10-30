@@ -130,9 +130,9 @@ impl Scenario for CoherentLink {
         let mut r = GardnerLoop { kp: 3e-3, ki: 1e-5, ..GardnerLoop::default() }.run(&signal::pnorm(&r)).signal;
         r.truncate(r.len() / SPS * SPS);
         let z = signal::pnorm(&resample::decimate(&r, SPS, 1)?);
-        let (z, fo) = carrier::fourth_power_foe_refined(&z, RS, 4);
+        let (z, fo) = carrier::fourth_power_foe_refined(&z, RS, 4)?;
         let theta = carrier::unwrap(&carrier::bps(&z, 32, c.points(), 32)?, FRAC_PI_2);
-        let z = carrier::derotate(&z, &theta, 1.0);
+        let z = carrier::derotate(&z, &theta, 1.0)?;
         let (delay, rotation) = frame_sync(&z, &x);
 
         // metrics on the payload, aligned on the transmitted symbols
@@ -140,7 +140,7 @@ impl Scenario for CoherentLink {
         let payload: Vec<C64> = (a..b).map(|n| z[(n as isize + delay) as usize] * rotation).collect();
         let k = c.bits_per_symbol();
         let decided = c.demodulate(&payload);
-        rec.errors("ber", metrics::bit_errors(&decided, &bits[a * k..b * k]) as u64, ((b - a) * k) as u64);
+        rec.errors("ber", metrics::bit_errors(&decided, &bits[a * k..b * k])? as u64, ((b - a) * k) as u64);
         rec.value("snr_dsp_db", metrics::snr_db(&payload, &x[a..b])?);
         // the LO is above the carrier: the receiver sees an offset of -CFO
         rec.value("foe_error_mhz", (fo + CFO) / 1e6);
