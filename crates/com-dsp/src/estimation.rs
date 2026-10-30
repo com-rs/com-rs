@@ -12,9 +12,10 @@
 //! \hat h_{q} = R_{qp} \left(R_{pp} + \frac{\sigma^{2}}{E_{p}} I\right)^{-1} \hat h_{p},
 //! $$
 //!
-//! with the channel correlations $R$ and the pilot energy $E_{p}$ ([`lmmse`]), the
-//! estimator of minimum mean square error among the linear ones (van de Beek et al.
-//! 1995; Edfors et al. 1998); its error covariance is
+//! with the channel correlations $R$ and the pilot energy $E_{p}$ ([`lmmse`], or
+//! [`Lmmse`] to factor $R_{pp} + \frac{\sigma^{2}}{E_{p}} I$ once for the symbols that
+//! share the pilots and correlations), the estimator of minimum mean square error among
+//! the linear ones (van de Beek et al. 1995; Edfors et al. 1998); its error covariance is
 //! $R_{qq} - R_{qp} (R_{pp} + \frac{\sigma^{2}}{E_{p}} I)^{-1} R_{pq}$ ([`lmmse_mse`]);
 //! - [`frequency_correlation`], the correlation between subcarriers of a power-delay
 //!   profile, which the LMMSE estimator needs.
@@ -42,7 +43,7 @@
 
 use com_core::{Error, Result, ensure, ensure_shape, same_len};
 use com_math::C64;
-use com_math::linalg::{CMat, hermitian, identity, solve_hpd};
+use com_math::linalg::{CMat, cholesky, hermitian, identity, solve_cholesky, solve_hpd};
 
 /// The frequency correlation of a channel of power-delay profile `(delays, powers)`
 /// between two subcarriers `delta` bins apart on a grid of `n_fft` bins,
@@ -77,12 +78,14 @@ pub fn ls(y: &[C64], x: &[C64]) -> Result<Vec<C64>> {
     Ok(y.iter().zip(x).map(|(a, b)| a / b).collect())
 }
 
-fn regularized(r_pp: &CMat, noise_to_pilot: f64) -> CMat {
+/// $R_{pp} + \frac{\sigma^{2}}{E_{p}} I$.
+pub(crate) fn regularized(r_pp: &CMat, noise_to_pilot: f64) -> CMat {
     r_pp + &identity(r_pp.nrows()).mapv(|v| v * noise_to_pilot)
 }
 
 /// The linear MMSE estimates at the positions of `r_qp` (rows) from the LS estimates
-/// `h_ls` at the pilots, with `noise_to_pilot` = $\sigma^{2}/E_{p}$.
+/// `h_ls` at the pilots, with `noise_to_pilot` = $\sigma^{2}/E_{p}$: [`Lmmse::new`] then
+/// [`Lmmse::apply`], which factors the system again at each call.
 ///
 /// # Errors
 /// [`Error::Shape`] for inconsistent sizes, [`Error::Numerical`] for a singular system.
@@ -91,9 +94,67 @@ pub fn lmmse(r_qp: &CMat, r_pp: &CMat, noise_to_pilot: f64, h_ls: &[C64]) -> Res
     ensure_shape(r_pp.nrows() == h_ls.len() && r_qp.ncols() == h_ls.len(), || {
         format!("{} pilots for correlations of {} pilots", h_ls.len(), r_pp.nrows())
     })?;
-    let b = ndarray::Array2::from_shape_vec((h_ls.len(), 1), h_ls.to_vec()).map_err(|e| Error::Shape(e.to_string()))?;
-    let z = solve_hpd(&regularized(r_pp, noise_to_pilot).view(), &b.view())?;
-    Ok(r_qp.dot(&z).column(0).to_vec())
+    Lmmse::new(r_qp.clone(), r_pp, noise_to_pilot)?.apply(h_ls)
+}
+
+/// The linear MMSE estimator of [`lmmse`] for one set of pilots and correlations, the
+/// Cholesky factor of $R_{pp} + \frac{\sigma^{2}}{E_{p}} I$ computed once: each
+/// [`Lmmse::apply`] costs two triangular substitutions and the product by $R_{qp}$,
+/// $O(P^{2} + QP)$ for $P$ pilots and $Q$ estimated positions instead of $O(P^{3})$,
+/// with the same operations as [`lmmse`] (the same results, bit for bit).
+///
+/// # Examples
+/// ```
+/// use com_dsp::estimation::{lmmse, Lmmse};
+/// use com_math::C64;
+/// use ndarray::Array2;
+/// let r = Array2::from_shape_fn((4, 4), |(i, j)| C64::new(0.9f64.powi((i as i32 - j as i32).abs()), 0.0));
+/// let est = Lmmse::new(r.clone(), &r, 0.1)?;
+/// let h_ls = [C64::new(1.0, 0.0), C64::new(0.8, 0.1), C64::new(0.7, 0.3), C64::new(0.5, 0.2)];
+/// assert_eq!(est.apply(&h_ls)?, lmmse(&r, &r, 0.1, &h_ls)?);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lmmse {
+    r_qp: CMat,
+    factor: CMat,
+}
+
+impl Lmmse {
+    /// The estimator at the positions of `r_qp` (rows) from the pilots of `r_pp`, with
+    /// `noise_to_pilot` = $\sigma^{2}/E_{p}$.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a negative noise, [`Error::Shape`] unless `r_pp` is square
+    /// with one column of `r_qp` per pilot, [`Error::Numerical`] for a singular system.
+    pub fn new(r_qp: CMat, r_pp: &CMat, noise_to_pilot: f64) -> Result<Lmmse> {
+        ensure(noise_to_pilot >= 0.0, || "negative noise".into())?;
+        ensure_shape(r_pp.nrows() == r_pp.ncols() && r_qp.ncols() == r_pp.nrows(), || {
+            format!("correlations of {}×{} pilots and {} columns", r_pp.nrows(), r_pp.ncols(), r_qp.ncols())
+        })?;
+        let factor = cholesky(&regularized(r_pp, noise_to_pilot).view())?;
+        Ok(Lmmse { r_qp, factor })
+    }
+
+    /// The number of pilots $P$.
+    pub fn n_pilots(&self) -> usize {
+        self.factor.nrows()
+    }
+
+    /// The estimates at the positions of the rows of $R_{qp}$ from the LS estimates
+    /// `h_ls` at the pilots.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] unless `h_ls` has one estimate per pilot.
+    pub fn apply(&self, h_ls: &[C64]) -> Result<Vec<C64>> {
+        ensure_shape(h_ls.len() == self.n_pilots(), || {
+            format!("{} pilots for correlations of {} pilots", h_ls.len(), self.n_pilots())
+        })?;
+        let b =
+            ndarray::Array2::from_shape_vec((h_ls.len(), 1), h_ls.to_vec()).map_err(|e| Error::Shape(e.to_string()))?;
+        let z = solve_cholesky(&self.factor.view(), &b.view())?;
+        Ok(self.r_qp.dot(&z).column(0).to_vec())
+    }
 }
 
 /// The mean square error of every LMMSE estimate (the diagonal of its error covariance),
@@ -145,6 +206,37 @@ mod tests {
         let predicted = lmmse_mse(&r, &r, 1.0, &vec![1.0; n]).unwrap().iter().sum::<f64>() / n as f64;
         assert!((e_mm / 2000.0 / n as f64 / predicted - 1.0).abs() < 0.08);
         assert!(predicted < 0.4);
+    }
+
+    /// The LMMSE estimate as it was computed before: [`solve_hpd`] for every vector.
+    fn former_lmmse(r_qp: &CMat, r_pp: &CMat, noise_to_pilot: f64, h_ls: &[C64]) -> Vec<C64> {
+        let b = Array2::from_shape_vec((h_ls.len(), 1), h_ls.to_vec()).unwrap();
+        let z = solve_hpd(&regularized(r_pp, noise_to_pilot).view(), &b.view()).unwrap();
+        r_qp.dot(&z).column(0).to_vec()
+    }
+
+    #[test]
+    fn the_factored_estimator_is_the_former_solve_for_every_symbol() {
+        let mut rng = Rng::new(3);
+        let (p, q) = (12, 40);
+        let r_pp = Array2::from_shape_fn((p, p), |(i, j)| {
+            frequency_correlation(&[0.0, 1.5, 4.0], &[0.6, 0.3, 0.1], (4 * i) as f64 - (4 * j) as f64, 64)
+        });
+        let r_qp = Array2::from_shape_fn((q, p), |(k, j)| {
+            frequency_correlation(&[0.0, 1.5, 4.0], &[0.6, 0.3, 0.1], k as f64 - (4 * j) as f64, 64)
+        });
+        for noise in [1e-9, 0.01, 1.0] {
+            let est = Lmmse::new(r_qp.clone(), &r_pp, noise).unwrap();
+            for _ in 0..5 {
+                let h: Vec<C64> = (0..p).map(|_| rng.complex_gaussian()).collect();
+                assert_eq!(est.apply(&h).unwrap(), former_lmmse(&r_qp, &r_pp, noise, &h), "noise {noise}");
+                assert_eq!(lmmse(&r_qp, &r_pp, noise, &h).unwrap(), est.apply(&h).unwrap());
+            }
+        }
+        let est = Lmmse::new(r_qp.clone(), &r_pp, 0.1).unwrap();
+        assert!(matches!(est.apply(&vec![C64::new(1.0, 0.0); p - 1]), Err(Error::Shape(_))));
+        assert!(matches!(Lmmse::new(r_qp, &identity(p + 1), 0.1), Err(Error::Shape(_))));
+        assert!(Lmmse::new(identity(3), &identity(3), -1.0).is_err());
     }
 
     #[test]

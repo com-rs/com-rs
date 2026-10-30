@@ -20,6 +20,10 @@
 //! With pilots on every subcarrier (block pattern) LMMSE still smooths the LS estimates
 //! (van de Beek et al. 1995); with a comb it interpolates them.
 //!
+//! The LMMSE estimator and the band-limited interpolator are built once per set of pilot
+//! subcarriers (`com_dsp::estimation::Lmmse`, `com_dsp::interpolation::LowPass`) and
+//! applied to every pilot symbol that shares it.
+//!
 //! # Examples
 //! ```
 //! use com_waveform::ofdm::estimation::{estimate, FrequencyInterpolation};
@@ -47,8 +51,8 @@
 
 use super::grid::ResourceGrid;
 use com_core::{Error, Result, ensure_shape};
-use com_dsp::estimation::{frequency_correlation, lmmse};
-use com_dsp::interpolation;
+use com_dsp::estimation::{Lmmse, frequency_correlation};
+use com_dsp::interpolation::{self, LowPass};
 use com_dsp::resample::resample_fft;
 use com_math::C64;
 use ndarray::Array2;
@@ -175,8 +179,11 @@ pub fn estimate_port(
     if symbols.is_empty() {
         return Err(Error::Config("the grid has no pilots".into()));
     }
-    // the channel of every subcarrier at every pilot-carrying symbol
+    // the channel of every subcarrier at every pilot-carrying symbol; the LMMSE and
+    // band-limited interpolators are built once per set of pilots (and pilot energy)
     let mut per_symbol = Vec::with_capacity(symbols.len());
+    let mut lowpass_plans: Vec<(Vec<usize>, LowPass)> = Vec::new();
+    let mut lmmse_plans: Vec<((Vec<usize>, u64), Lmmse)> = Vec::new();
     for &l in &symbols {
         let ks = grid.port_pilots(l, port, n_ports);
         if ks.is_empty() {
@@ -188,7 +195,9 @@ pub fn estimate_port(
             FrequencyInterpolation::Linear => interpolation::linear(&ks, &hp, k_n)?,
             FrequencyInterpolation::SecondOrder => interpolation::quadratic(&ks, &hp, k_n)?,
             FrequencyInterpolation::Spline => interpolation::spline(&ks, &hp, k_n)?,
-            FrequencyInterpolation::LowPass { half, alpha } => interpolation::lowpass(&ks, &hp, k_n, *half, *alpha)?,
+            FrequencyInterpolation::LowPass { half, alpha } => {
+                cached(&mut lowpass_plans, &ks, || LowPass::new(&ks, k_n, *half, *alpha))?.apply(&hp)?
+            }
             FrequencyInterpolation::TimeDomain => {
                 let spacing = k_n / ks.len();
                 if ks.iter().enumerate().any(|(i, &k)| k != i * spacing) || spacing * ks.len() != k_n {
@@ -199,12 +208,17 @@ pub fn estimate_port(
                 resample_fft(&hp, k_n)
             }
             FrequencyInterpolation::Lmmse(pdp) => {
-                let r_pp =
-                    Array2::from_shape_fn((ks.len(), ks.len()), |(i, j)| pdp.correlation(ks[i] as f64 - ks[j] as f64));
-                let r_qp = Array2::from_shape_fn((k_n, ks.len()), |(q, j)| pdp.correlation(q as f64 - ks[j] as f64));
                 // the LS estimate Y / X of a pilot of energy |X|² has the noise variance σ² / |X|²
                 let energy = pilots.iter().map(C64::norm_sqr).sum::<f64>() / pilots.len() as f64;
-                lmmse(&r_qp, &r_pp, noise_var / energy, &hp)?
+                let plan = cached(&mut lmmse_plans, &(ks.clone(), energy.to_bits()), || {
+                    let r_pp = Array2::from_shape_fn((ks.len(), ks.len()), |(i, j)| {
+                        pdp.correlation(ks[i] as f64 - ks[j] as f64)
+                    });
+                    let r_qp =
+                        Array2::from_shape_fn((k_n, ks.len()), |(q, j)| pdp.correlation(q as f64 - ks[j] as f64));
+                    Lmmse::new(r_qp, &r_pp, noise_var / energy)
+                })?;
+                plan.apply(&hp)?
             }
         };
         per_symbol.push(full);
@@ -218,6 +232,21 @@ pub fn estimate_port(
         }
     }
     Ok(out)
+}
+
+/// The plan of `key` in `cache`, built by `build` the first time.
+fn cached<'a, K: PartialEq + Clone, P>(
+    cache: &'a mut Vec<(K, P)>,
+    key: &K,
+    build: impl FnOnce() -> Result<P>,
+) -> Result<&'a P> {
+    let i = if let Some(i) = cache.iter().position(|(k, _)| k == key) {
+        i
+    } else {
+        cache.push((key.clone(), build()?));
+        cache.len() - 1
+    };
+    Ok(&cache[i].1)
 }
 
 #[cfg(test)]
@@ -264,6 +293,63 @@ mod tests {
         assert!((e_ls / 200.0 / s2 - 1.0).abs() < 0.05);
         // three taps: LMMSE keeps about 3/64 of the noise
         assert!(e_mm / 200.0 < 0.1 * s2, "{}", e_mm / 200.0);
+    }
+
+    #[test]
+    fn the_interpolators_built_once_give_the_former_estimates() {
+        // the former computation: the LMMSE system and the band-limited interpolation
+        // built and solved again for every pilot symbol
+        let former = |grid: &ResourceGrid, rx: &[C64], s2: f64, method: &FrequencyInterpolation| {
+            let k_n = grid.n_subcarriers;
+            let symbols = grid.pilot_symbols();
+            let per_symbol: Vec<Vec<C64>> = symbols
+                .iter()
+                .map(|&l| {
+                    let ks = grid.port_pilots(l, 0, 1);
+                    let pilots: Vec<C64> = ks.iter().map(|&k| grid.pilot(k, l)).collect();
+                    let hp: Vec<C64> = ks.iter().zip(&pilots).map(|(&k, p)| rx[l * k_n + k] / p).collect();
+                    match method {
+                        FrequencyInterpolation::LowPass { half, alpha } => {
+                            interpolation::lowpass(&ks, &hp, k_n, *half, *alpha).unwrap()
+                        }
+                        FrequencyInterpolation::Lmmse(pdp) => {
+                            let r_pp = Array2::from_shape_fn((ks.len(), ks.len()), |(i, j)| {
+                                pdp.correlation(ks[i] as f64 - ks[j] as f64)
+                            });
+                            let r_qp = Array2::from_shape_fn((k_n, ks.len()), |(q, j)| {
+                                pdp.correlation(q as f64 - ks[j] as f64)
+                            });
+                            let energy = pilots.iter().map(C64::norm_sqr).sum::<f64>() / pilots.len() as f64;
+                            com_dsp::estimation::lmmse(&r_qp, &r_pp, s2 / energy, &hp).unwrap()
+                        }
+                        _ => unreachable!(),
+                    }
+                })
+                .collect();
+            let mut out = vec![C64::new(0.0, 0.0); k_n * grid.n_symbols];
+            for k in 0..k_n {
+                let vals: Vec<C64> = per_symbol.iter().map(|v| v[k]).collect();
+                for (l, v) in interpolation::linear(&symbols, &vals, grid.n_symbols).unwrap().into_iter().enumerate() {
+                    out[l * k_n + k] = v;
+                }
+            }
+            out
+        };
+        let pdp = PowerDelayProfile::new(vec![0.0, 2.0, 5.0], &[1.0, 0.5, 0.25], 64);
+        let mut rng = Rng::new(6);
+        for pattern in [PilotPattern::Comb { spacing: 4 }, PilotPattern::Lattice { freq: 3, time: 2 }] {
+            let grid = ResourceGrid { n_subcarriers: 48, n_symbols: 6, pattern, seed: 2 };
+            let (_, rx) = channel(&grid, &pdp, 0.05, &mut rng);
+            for method in
+                [FrequencyInterpolation::Lmmse(pdp.clone()), FrequencyInterpolation::LowPass { half: 4, alpha: 0.5 }]
+            {
+                assert_eq!(
+                    estimate(&grid, &rx, 0.05, &method).unwrap(),
+                    former(&grid, &rx, 0.05, &method),
+                    "{method:?}"
+                );
+            }
+        }
     }
 
     #[test]

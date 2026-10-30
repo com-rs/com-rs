@@ -206,6 +206,10 @@ impl Otfs {
     /// time-domain channel matrix `h` ($MN \times MN$, acting on the frame without its
     /// prefix), for any delays and Doppler shifts (eq. (13)).
     ///
+    /// $F_{N}^{H} \otimes I_{M}$ is symmetric, so the right product transforms every row
+    /// of $H$ and the left one every column of the result, each by $M$ FFTs of $N$
+    /// points: $O((MN)^{2} \log N)$ operations.
+    ///
     /// # Errors
     /// [`Error::Shape`] unless `h` is $MN \times MN$.
     pub fn transform_channel(&self, h: &CMat) -> Result<CMat> {
@@ -213,16 +217,17 @@ impl Otfs {
         ensure_shape(h.nrows() == mn && h.ncols() == mn, || {
             format!("a {}×{} channel for frames of {mn}", h.nrows(), h.ncols())
         })?;
-        // columns: H (F^H ⊗ I) e_q, then rows: (F ⊗ I)
+        // (F^H ⊗ I) is symmetric: row p of H (F^H ⊗ I) is (F^H ⊗ I) applied to row p of H
+        let mut right = CMat::zeros((mn, mn));
+        for (p, row) in h.rows().into_iter().enumerate() {
+            let t = self.doppler_dft(&row.to_vec(), true);
+            right.row_mut(p).iter_mut().zip(t).for_each(|(o, v)| *o = v);
+        }
+        // then (F ⊗ I) on every column
         let mut out = CMat::zeros((mn, mn));
-        for q in 0..mn {
-            let mut e = vec![C64::new(0.0, 0.0); mn];
-            e[q] = C64::new(1.0, 0.0);
-            let s = self.doppler_dft(&e, true);
-            let hs: Vec<C64> = (0..mn).map(|p| (0..mn).map(|j| h[[p, j]] * s[j]).sum()).collect();
-            for (p, v) in self.doppler_dft(&hs, false).into_iter().enumerate() {
-                out[[p, q]] = v;
-            }
+        for (q, col) in right.columns().into_iter().enumerate() {
+            let t = self.doppler_dft(&col.to_vec(), false);
+            out.column_mut(q).iter_mut().zip(t).for_each(|(o, v)| *o = v);
         }
         Ok(out)
     }
@@ -268,6 +273,47 @@ mod tests {
         }
         assert!(o.effective_channel(&[(C64::new(1.0, 0.0), 0, 0.5)], 24.0).is_err());
         assert!(Otfs { n_cp: 25, ..o }.check().is_err());
+    }
+
+    /// The effective channel as it was computed before: column $q$ is
+    /// $(F_{N} \otimes I_{M}) H (F_{N}^{H} \otimes I_{M}) e_{q}$, a dense product per column.
+    fn transform_channel_by_columns(o: &Otfs, h: &CMat) -> CMat {
+        let mn = o.n_fft * o.n_symbols;
+        let mut out = CMat::zeros((mn, mn));
+        for q in 0..mn {
+            let mut e = vec![C64::new(0.0, 0.0); mn];
+            e[q] = C64::new(1.0, 0.0);
+            let s = o.doppler_dft(&e, true);
+            let hs: Vec<C64> = (0..mn).map(|p| (0..mn).map(|j| h[[p, j]] * s[j]).sum()).collect();
+            for (p, v) in o.doppler_dft(&hs, false).into_iter().enumerate() {
+                out[[p, q]] = v;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_transformed_channel_is_the_former_product_and_theorem_1_for_whole_bins() {
+        let mut rng = com_core::rng::Rng::new(5);
+        for (m, n) in [(4usize, 3usize), (8, 4), (5, 7)] {
+            let o = Otfs::new(m, n).unwrap();
+            let mn = m * n;
+            let h = CMat::from_shape_fn((mn, mn), |_| rng.complex_gaussian());
+            let (fast, slow) = (o.transform_channel(&h).unwrap(), transform_channel_by_columns(&o, &h));
+            let err = fast.iter().zip(&slow).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max);
+            assert!(err < 1e-12, "{m} × {n}: {err}");
+        }
+        // a cyclic channel of whole delay and Doppler bins (no prefix): Theorem 1
+        let o = Otfs::new(6, 4).unwrap();
+        let paths = [(C64::new(1.0, 0.0), 0usize, 0.0), (C64::new(0.3, 0.2), 2, 1.0), (C64::new(-0.4, 0.1), 5, -2.0)];
+        let mut h = CMat::zeros((24, 24));
+        for &(g, l, k) in &paths {
+            for p in 0..24 {
+                h[[p, (p + 24 - l) % 24]] += g * cis(std::f64::consts::TAU * k * (p as f64 - l as f64) / 24.0);
+            }
+        }
+        let (a, b) = (o.transform_channel(&h).unwrap(), o.effective_channel(&paths, 24.0).unwrap());
+        assert!(a.iter().zip(&b).all(|(x, y)| (x - y).norm() < 1e-12));
     }
 }
 

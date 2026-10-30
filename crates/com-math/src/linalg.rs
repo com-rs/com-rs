@@ -12,7 +12,8 @@
 //! - [`qr`]: $A = Q R$ with $Q^{H} Q = I$ and $R$ upper triangular with a real,
 //!   non-negative diagonal ($A$ is $m \times n$, $m \ge n$);
 //! - [`cholesky`]: $A = L L^{H}$ with $L$ lower triangular ($A$ Hermitian positive
-//!   definite);
+//!   definite), and the systems of [`solve_hpd`], or of [`solve_cholesky`] with the
+//!   factor computed once;
 //! - [`svd`]: $A = U \Sigma V^{H}$ with the singular values in decreasing order;
 //! - [`solve_tridiagonal`]: a tridiagonal system by the Thomas algorithm.
 //!
@@ -114,7 +115,28 @@ pub fn cholesky(a: &ArrayView2<'_, C64>) -> Result<CMat> {
 /// # Errors
 /// As [`cholesky`], and [`Error::Shape`] if $B$ has another number of rows.
 pub fn solve_hpd(a: &ArrayView2<'_, C64>, b: &ArrayView2<'_, C64>) -> Result<CMat> {
-    let l = cholesky(a)?;
+    solve_cholesky(&cholesky(a)?.view(), b)
+}
+
+/// Solve $L L^{H} X = B$ from the Cholesky factor $L$ of [`cholesky`] (forward, then
+/// backward substitution): [`solve_hpd`] with the factor computed once, for systems that
+/// share the matrix.
+///
+/// # Errors
+/// [`Error::Shape`] if $B$ has another number of rows than $L$.
+///
+/// # Examples
+/// ```
+/// use com_math::C64;
+/// use com_math::linalg::{cholesky, solve_cholesky, solve_hpd};
+/// use ndarray::array;
+/// let a = array![[C64::new(4.0, 0.0), C64::new(1.0, 1.0)], [C64::new(1.0, -1.0), C64::new(3.0, 0.0)]];
+/// let b = array![[C64::new(1.0, 0.0)], [C64::new(0.0, 2.0)]];
+/// let l = cholesky(&a.view())?;
+/// assert_eq!(solve_cholesky(&l.view(), &b.view())?, solve_hpd(&a.view(), &b.view())?);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn solve_cholesky(l: &ArrayView2<'_, C64>, b: &ArrayView2<'_, C64>) -> Result<CMat> {
     let n = l.nrows();
     if b.nrows() != n {
         return Err(Error::Shape(format!("system of size {n} with {} right-hand rows", b.nrows())));
