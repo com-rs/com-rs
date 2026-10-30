@@ -233,7 +233,7 @@ fn gn_snr_db(t: &TheorySpec, name: &str) -> Result<f64> {
     let ctx = crate::blocks::BuildContext::default();
     let fiber = ctx.fiber(t.fiber.as_ref())?;
     let n = t.n_channels.ok_or_else(|| need("n_channels"))?;
-    let freqs = com_hardware::optical::wdm_grid(n, t.spacing_hz.ok_or_else(|| need("spacing_hz"))?);
+    let freqs = com_dsp::signal::wdm_grid(n, t.spacing_hz.ok_or_else(|| need("spacing_hz"))?);
     let rs = t.symbol_rate.ok_or_else(|| need("symbol_rate"))?;
     let p = com_math::dbm2w(t.power_dbm.ok_or_else(|| need("power_dbm"))?);
     let egn = match &t.format {

@@ -75,9 +75,10 @@ use com_channel::optical::pmd::{Jones, PmdLink};
 use com_core::rng::Rng;
 use com_core::signal::DualPol;
 use com_core::{Error, Result, ensure};
-use com_hardware::optical::{WdmTransmitter, wdm_demultiplex, wdm_grid};
+use com_dsp::signal::{wdm_demultiplex, wdm_grid};
 use com_math::nlse::StepRule;
 use com_math::{C64, dbm2w};
+use com_systems::wdm::WdmTransmitter;
 use serde_json::Value as Json;
 
 /// The WDM frame between `wdm_tx` and `wdm_rx`.

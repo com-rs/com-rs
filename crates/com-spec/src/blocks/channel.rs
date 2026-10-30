@@ -182,7 +182,7 @@ impl PhaseNoise {
 impl Block for PhaseNoise {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         let sd = match (self.linewidth_hz, self.sigma) {
-            (Some(lw), _) => increment_sd(lw, s.fs()),
+            (Some(lw), _) => increment_sd(lw, s.fs())?,
             (_, Some(sg)) => sg,
             _ => 0.0,
         };
