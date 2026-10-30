@@ -11,7 +11,9 @@
 //!   about 54 for $n = 10$ at $r = 0.8$, 190 and 160 for $n = 50$ at $r = 0.6$ and 0.8 (read
 //!   on the figure; within 5 %);
 //! - the approximation (13) is within 3.5 % up to $r = 0.8$ (its accuracy falls as $n$
-//!   and $\rho/n$ fall, Sec. III), and (14) shows that $r = 0.7$ costs about 3 dB of SNR;
+//!   and $\rho/n$ fall, Sec. III), and (14) shows that $r = 0.7$ costs about 3 dB of SNR
+//!   ($-10 \log_{10}(1 - r^{2}) = 2.9$ dB): the exact capacity (3) of $r = 0.7$ is that of
+//!   the uncorrelated channel 2.6 dB ($n = 10$) and 2.7 dB ($n = 50$) lower in SNR;
 //! - the mean capacity of the Rayleigh channel $H = L G / \sqrt{n}$, $G$ i.i.d.
 //!   $\mathcal{CN}(0, 1)$ (rows of unit mean power, $\mathbb{E}[H H^{H}] = R$, Sec. II), is
 //!   below the bound (5), Telatar's closed form without correlation. The text finds it
@@ -21,6 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use comrs::channel::spatial::exponential_correlation;
+use comrs::math::bisect;
 use comrs::math::linalg::{CMat, cholesky};
 use comrs::mimo::capacity::{equal_power, ergodic_rayleigh};
 use comrs::prelude::*;
@@ -54,8 +57,19 @@ fn loyka_2001_eqs_3_to_16_and_fig_1() {
         let c = capacity(n, C64::new(r, 0.0), snr);
         assert!((c / read - 1.0).abs() < 0.05, "n = {n}, r = {r}: {c} vs {read}");
     }
-    // (14): r = 0.7 is about 3 dB of SNR
-    assert!((lin2db(1.0 - 0.7f64.powi(2)) + 3.0).abs() < 0.1);
+    // (14): r = 0.7 is the SNR divided by 1 - r² (2.9 dB, "3 dB" in the text); the loss of
+    // the exact capacity (3), the SNR drop that brings the uncorrelated capacity down to
+    // that of r = 0.7, is 2.6 dB for n = 10 and 2.7 dB for n = 50
+    let eq14 = -lin2db(1.0 - 0.7f64.powi(2));
+    assert!((eq14 - 3.0).abs() < 0.1, "{eq14}");
+    let loss = |n: usize| {
+        let target = capacity(n, C64::new(0.7, 0.0), snr);
+        bisect(|db| capacity(n, C64::new(0.0, 0.0), snr * db2lin(-db)) > target, 0.0, 10.0, 60)
+    };
+    let (l10, l50) = (loss(10), loss(50));
+    assert!((l10 - 2.59).abs() < 0.01 && (l50 - 2.68).abs() < 0.01, "{l10} and {l50} dB");
+    // closer to (14) as n grows
+    assert!(l10 < l50 && l50 < eq14 && eq14 - l10 < 0.35, "{l10} and {l50} dB against (14) {eq14} dB");
 }
 
 #[test]

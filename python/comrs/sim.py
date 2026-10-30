@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from comrs._comrs import (
     ConditionResult,
@@ -131,10 +131,12 @@ def run(
             condition.
     """
     if stop is not None and not isinstance(stop, Stop):
-        stop = Stop.from_spec(stop)
+        # a dict: the extension serialises it with `json.dumps`, which takes no other mapping
+        stop = Stop.from_spec(dict(stop))
     return _sim_run(
         trial,
-        conditions,
+        # the extension copies every mapping of any iterable (its stub says list[dict])
+        cast("list[dict[str, Any]]", conditions),
         name=name,
         seed=seed,
         batch=batch,

@@ -210,7 +210,7 @@ def time(
     streams, _, f_fs, _ = _streams(x)
     fs = fs or f_fs
     z = streams[stream][start : None if n is None else start + n]
-    t = np.arange(start, start + z.size)
+    t: np.ndarray = np.arange(start, start + z.size)
     if fs:
         t = t / fs
     if part == "iq":

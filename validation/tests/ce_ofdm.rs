@@ -32,6 +32,7 @@
 //!   it near 1e-6, below the figure) and the enhanced one at high BERs.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::crossing;
 use comrs::mapping::constellation::Constellation;
 use comrs::prelude::*;
 use comrs::waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap, gamp::Gamp, theory};
@@ -64,14 +65,6 @@ fn phase_detector(ce: &CeOfdm, r: &[C64], _: f64) -> Vec<C64> {
     ce.demodulate(r, Unwrap::None).unwrap()
 }
 
-/// The `E_b/N_0` (dB) where the BER crosses `target`, interpolated in log BER between two
-/// simulated points.
-fn crossing(points: &[(f64, f64)], target: f64) -> f64 {
-    let w = points.windows(2).find(|w| w[0].1 >= target && w[1].1 < target).expect("the points bracket the target");
-    let (a, b) = (w[0], w[1]);
-    a.0 + (b.0 - a.0) * (a.1.ln() - target.ln()) / (a.1.ln() - b.1.ln())
-}
-
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn guerreiro2016_fig1_phase_detector() {
@@ -80,7 +73,7 @@ fn guerreiro2016_fig1_phase_detector() {
     for (two_pi_h, paper, grid) in [(0.75, 10.8, [10.0, 10.8, 11.6, 12.4]), (1.0, 11.6, [11.0, 11.8, 12.6, 13.4])] {
         let ce = link(two_pi_h);
         let points: Vec<(f64, f64)> = grid.iter().map(|&e| (e, ber(&ce, e, 2000, 11, &[&phase_detector])[0])).collect();
-        let need = crossing(&points, 1e-3);
+        let need = crossing(&points, 1e-3).expect("the points bracket the target");
         assert!((need - paper).abs() < 0.5, "2πh = {two_pi_h}: {need:.2} dB vs {paper} dB ({points:?})");
         // the phase detector loses against the optimum asymptotic BER (blue curves)
         let opt = comrs::math::bisect(|e| theory::ber_optimum(two_pi_h, e) > 1e-3, 0.0, 20.0, 60);
@@ -108,7 +101,7 @@ fn lopez2022_fig3_gamp_reaches_the_optimum() {
         assert!(b[1] > 4e-2, "{e} dB: phase detector {}", b[1]);
         points.push((e, b[0]));
     }
-    let need = crossing(&points, 1e-3);
+    let need = crossing(&points, 1e-3).expect("the points bracket the target");
     let opt = comrs::math::bisect(|e| theory::ber_optimum(1.4, e) > 1e-3, 0.0, 20.0, 60);
     assert!(need - opt < 1.0 && need - opt > -0.2, "GAMP {need:.2} dB vs the optimum {opt:.2} dB ({points:?})");
     // the floor of the phase detector at a high SNR (above 4e-2 up to 14 dB in Fig. 3)

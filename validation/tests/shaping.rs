@@ -22,7 +22,7 @@ use comrs::fec::ccdm::Ccdm;
 use comrs::mapping::constellation::{Constellation, ConstellationKind};
 use comrs::mapping::source::maxwell_boltzmann;
 use comrs::mapping::theory;
-use comrs::math::{db2lin, entropy, lin2db};
+use comrs::math::{db2lin, entropy, golden_max, lin2db};
 use comrs::systems::dvbs2::fec::{CodeRate, Dvbs2Fec, FrameSize};
 use comrs::systems::pas::Pas;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -209,28 +209,6 @@ fn snr_for(rate: &RateFn<'_>, target: f64) -> Option<f64> {
     Some((a + b) / 2.0)
 }
 
-/// The minimum of a unimodal function on `[lo, hi]` by golden section: `(x, f(x))`.
-fn golden(f: &dyn Fn(f64) -> f64, mut lo: f64, mut hi: f64, iterations: usize) -> (f64, f64) {
-    let g = (5f64.sqrt() - 1.0) / 2.0;
-    let mut x1 = hi - g * (hi - lo);
-    let mut x2 = lo + g * (hi - lo);
-    let (mut f1, mut f2) = (f(x1), f(x2));
-    for _ in 0..iterations {
-        if f1 <= f2 {
-            hi = x2;
-            (x2, f2) = (x1, f1);
-            x1 = hi - g * (hi - lo);
-            f1 = f(x1);
-        } else {
-            lo = x1;
-            (x1, f1) = (x2, f2);
-            x2 = lo + g * (hi - lo);
-            f2 = f(x2);
-        }
-    }
-    if f1 <= f2 { (x1, f1) } else { (x2, f2) }
-}
-
 /// The mutual information (bits per real dimension) of $M$-ASK with the MB parameter
 /// `nu` (0: uniform) at an SNR in dB.
 fn mi_ask(m: usize, nu: f64, snr_db: f64) -> f64 {
@@ -250,8 +228,8 @@ fn snr_mb(m: usize, target: f64, rate: &dyn Fn(f64, f64) -> f64) -> (f64, f64) {
     // nu E_s(uniform) of the optimum is about 1 at every order
     let es = ((m * m - 1) as f64) / 3.0;
     let f = |ln_nu: f64| snr_for(&|s| rate(ln_nu.exp(), s), target).unwrap_or(f64::INFINITY);
-    let (x, s) = golden(&f, (0.05 / es).ln(), (4.0 / es).ln(), 40);
-    (s, x.exp())
+    let x = golden_max(|ln_nu| -f(ln_nu), (0.05 / es).ln(), (4.0 / es).ln(), 40);
+    (f(x), x.exp())
 }
 
 /// Table I of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: the SNR (dB) at
@@ -299,15 +277,24 @@ fn bocherer_2015_table_i_and_iii_shaping_gaps_of_ask() {
 /// SNR.
 fn qam_shaping_gain(m_qam: usize) -> (f64, f64, f64) {
     let m = (m_qam as f64).sqrt().round() as usize;
-    let gain = |mi: f64| {
+    // the SNRs of the uniform and of the shaped input at the MI `mi`
+    let snrs = |mi: f64| {
         let unif = snr_for(&|s| mi_ask(m, 0.0, s), mi / 2.0).unwrap();
         let (shaped, _) = snr_mb(m, mi / 2.0, &|nu, s| mi_ask(m, nu, s));
-        unif - shaped
+        (unif, shaped)
     };
     let bits = (m_qam as f64).log2();
-    let (mi, g) = golden(&|mi| -gain(mi), 2.0, bits - 1.0, 30);
-    let (shaped, _) = snr_mb(m, mi / 2.0, &|nu, s| mi_ask(m, nu, s));
-    (-g, mi, shaped)
+    let mi = golden_max(
+        |mi| {
+            let (unif, shaped) = snrs(mi);
+            unif - shaped
+        },
+        2.0,
+        bits - 1.0,
+        30,
+    );
+    let (unif, shaped) = snrs(mi);
+    (unif - shaped, mi, shaped)
 }
 
 /// Eq. (27) of Liang & Kahn (2025): the ultimate shaping gain of the standard coherent

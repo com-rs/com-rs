@@ -1,6 +1,6 @@
 # com-rs — Architecture & Engineering Guide
 
-Vincent Choqueuse · revised 28 October 2026
+Vincent Choqueuse · revised 30 October 2026
 
 This guide describes the workspace as it is: its layers, where code goes, how it is
 named, documented, tested and released. Its exceptions are recorded in the
@@ -54,49 +54,68 @@ com-rs/
 ├── crates/
 │   │  ── Layer 0: foundation ──────────────────────────────────────────────
 │   ├── com-core/              # signal, traits, units, rng, error
-│   ├── com-math/              # special functions, quadrature, fft, linalg, nearest,
-│   │                          # nlse, gf2, gf2m, bigint, bits, search
+│   ├── com-math/              # special functions, quadrature (lib), fft, linalg, nearest,
+│   │                          # nlse, gf2, gf2m, bigint, bits, search, sequences
 │   │  ── Layer 1: generic signal processing ───────────────────────────────
 │   ├── com-dsp/
-│   │   ├── filter  resample  signal  window
+│   │   ├── filter  resample  signal  window  interpolation
 │   │   ├── sync/              # carrier, timing, frame
 │   │   ├── equalizer          # the n×n butterfly: CMA, RDE, NLMS, DD-LMS
-│   │   ├── estimation         # LS, LMMSE, interpolation (waveform-agnostic)
+│   │   ├── estimation         # LS, LMMSE (waveform-agnostic)
+│   │   ├── nonlinear          # Bussgang's decomposition of memoryless nonlinearities
+│   │   ├── spectrum  cyclo    # Welch's PSD; cyclic autocorrelation, symbol rate
 │   │   └── compensation/      # cd, dbp, dpd
 │   │  ── Layer 2: link blocks ─────────────────────────────────────────────
 │   ├── com-fec/               # crc, scrambling, interleaving, block, conv, puncture,
-│   │                          # turbo, ldpc, polar, rs, bch, ccdm, bounds
-│   ├── com-mapping/           # constellation, demapper, differential, source, theory
+│   │   │                      # turbo, ldpc, polar, rs, bch, algebraic, ccdm, bounds
+│   │   └── nr/                # 5G NR LDPC and polar codes (TS 38.212: ldpc, polar, tables)
+│   ├── com-mapping/           # constellation, demapper, differential, source, theory,
+│   │                          # bicm, imperfect_csi
 │   ├── com-waveform/
-│   │   ├── ofdm/              # grid, estimation, sync, detection, link
+│   │   ├── ofdm/              # grid, estimation, sync, detection, link, correction, nr
 │   │   ├── papr               # distribution and reduction of the PAPR
-│   │   ├── ce_ofdm            # constant-envelope OFDM
-│   │   └── cpm/               # continuous-phase modulation (pulse, detection)
-│   ├── com-mimo/              # detection, receiver, stbc, precoding, capacity
+│   │   ├── ce_ofdm/           # constant-envelope OFDM (gamp, theory)
+│   │   ├── cpm/               # continuous-phase modulation (pulse, detection)
+│   │   ├── css/               # chirp spread spectrum, LoRa (theory)
+│   │   ├── fbmc/              # FBMC/OQAM
+│   │   └── ufmc  otfs         # universal filtered multicarrier; OTFS
+│   ├── com-mimo/              # detection, message_passing, receiver, stbc, precoding,
+│   │                          # capacity
 │   ├── com-channel/
-│   │   ├── awgn  fading  spatial  multipath
+│   │   ├── awgn  fading  spatial
+│   │   ├── multipath          # TDL profiles, the delay–Doppler channel and its model
 │   │   ├── cdl/               # 3GPP TR 38.901 (tables, array)
+│   │   ├── owc/               # optical wireless: indoor (rooms, VLC), atmospheric (FSO)
 │   │   └── optical/           # fiber, manakov, pmd, edfa, gn, raman/   [feature: optical]
 │   ├── com-hardware/
-│   │   ├── amplifier  oscillator  iq
+│   │   ├── amplifier  oscillator  iq  converter
 │   │   └── optical            # laser, modulators, photodiode, receiver [feature: optical]
-│   ├── com-metrics/           # errors, information, spectrum
+│   ├── com-metrics/           # errors, information, spectrum, blind, stability
 │   │  ── Layer 3: simulation ──────────────────────────────────────────────
-│   ├── com-sim/               # scenario, grid, runner, stopping, callbacks, loggers, stats
+│   ├── com-sim/               # scenario, grid, runner, stopping, callbacks, loggers, stats,
+│   │                          # json
 │   │  ── Layer 4: integration ─────────────────────────────────────────────
-│   ├── com-spec/              # specifications, blocks/, verify, search, io, cli, `comrs`
+│   ├── com-spec/              # spec, params, link, metrics, run, blocks/, verify, search,
+│   │                          # io, cli, the `comrs` binary
 │   ├── com-systems/           # dvbs2/ (with fec), pas
 │   └── comrs/                 # facade: re-exports, prelude, examples, benchmarks
 ├── bindings/com-py/           # PyO3 extension of the Python package (built by maturin)
 ├── python/comrs/              # the Python package: chains, results, plots, generated blocks
-├── validation/                # statistical validation (crate com-validation), AFF3CT fixtures
+├── validation/                # statistical validation (crate com-validation): tests/, cards/
+│                              # (validation cards), aff3ct/ fixtures, literature.yaml,
+│                              # maturity.yaml
 ├── specs/                     # specifications; specs/validation/: checked against the literature
-├── tests/                     # Python tests; tests/oracle/: recorded OptiCommPy and GNPy outputs
+├── tests/                     # Python tests; tests/oracle/: recorded OptiCommPy, GNPy, py3gpp
+│                              # and Sionna outputs
 ├── examples/  benches/        # runnable examples and criterion benchmarks of the facade
-├── benchmarks/                # speed against OptiCommPy (bench_opticommpy.py, results.md)
-├── tools/                     # generators of docs/API.md, of the stub and of comrs.blocks
+├── benchmarks/                # speed against OptiCommPy (bench_opticommpy.py, results.md);
+│                              # libraries/: results and speed against komm, OptiCommPy, Sionna
+├── data/                      # a synthetic SigMF capture (`just make-capture`)
+├── tools/                     # generators and checks: API.md, the stub, comrs.blocks,
+│                              # LITERATURE.md, MATURITY.md, the cards, the benchmarks page
 ├── references/                # the list of the documents the code is checked against
-└── docs/                      # this guide, adr/, API.md, katex-header.html, python/ (Sphinx)
+└── docs/                      # this guide, adr/, API.md, LITERATURE.md, MATURITY.md, audit/,
+                               # katex-header.html, python/ (Sphinx)
 ```
 
 ## Crate reference
@@ -108,14 +127,14 @@ contain" column is as binding as the first one.
 | --- | --- | --- | --- | --- |
 | `com-core` | 0 | Signal containers, verb traits, unit newtypes, the generator and its streams, the error type | Any algorithm; any heavy dependency | `num-complex`, `ndarray`, `thiserror` |
 | `com-math` | 0 | Special functions (`erfc`, `erfcinv`, `qfunc`, `qfuncinv`, `diric`), Simpson, Gauss–Hermite and Gauss–Legendre quadrature, FFT plans and their unitary and centred forms, complex linear algebra (tridiagonal systems included), nearest-point search, the NLSE split-step solvers, GF(2) and GF(2^m), exact integers, Gray code, LFSR sequences, bisection and golden-section search, decibels, entropy | Communication semantics (no "symbol", no "channel") | `com-core`, `rustfft` |
-| `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, cyclic prefixes and frequency shifts, synchronisation, equalisation, estimation, interpolation, spectral estimation, memoryless nonlinearities driven by Gaussian signals (Bussgang), compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
-| `com-fec` | 2 | Channel codes, CRC, scrambling, interleaving, puncturing, distribution matching, finite-length bounds | Modulation or channel knowledge beyond LLR input | 0 |
-| `com-mapping` | 2 | Constellations, labelling, hard and soft demapping, differential PSK, sources, the closed forms of error and information rates | Pulse shaping or framing | 0 |
+| `com-dsp` | 1 | Waveform-agnostic signal processing: filters, resampling, cyclic prefixes and frequency shifts, synchronisation, equalisation, estimation, interpolation, spectral estimation, cyclostationary analysis, memoryless nonlinearities driven by Gaussian signals (Bussgang), compensation, predistortion | Code that assumes a specific waveform or standard | 0 |
+| `com-fec` | 2 | Channel codes (the 5G NR LDPC and polar codes included), CRC, scrambling, interleaving, puncturing, distribution matching, finite-length bounds | Modulation or channel knowledge beyond LLR input | 0 |
+| `com-mapping` | 2 | Constellations, labelling, hard and soft demapping, differential PSK, sources, the closed forms of error and information rates (BICM cutoff rates, imperfect channel estimates included) | Pulse shaping or framing | 0 |
 | `com-waveform` | 2 | Time–frequency structure: OFDM and its grid, PAPR, CE-OFDM, CPM, CSS, FBMC/OQAM, UFMC, OTFS | Channel models; MIMO detection algorithms | 0, 1, `com-mapping`, `com-mimo` (ADR 0009) |
-| `com-mimo` | 2 | Detection, the receiver of a link, space-time codes, precoding, capacity | Waveform-specific resource mapping | 0, `com-mapping` (ADR 0008) |
+| `com-mimo` | 2 | Detection (message passing included), the receiver of a link, space-time codes, precoding, capacity | Waveform-specific resource mapping | 0, `com-mapping` (ADR 0008) |
 | `com-channel` | 2 | Propagation media: AWGN, fading, spatial correlation, TDL and CDL multipath, delay–Doppler channels, optical fibre, optical wireless (indoor rooms, free-space optics) | Component non-idealities | 0, 1 |
-| `com-hardware` | 2 | Transmitter and receiver non-idealities, electrical and optical | Propagation effects | 0, 1 |
-| `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, metrics of spectra (ACLR) | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
+| `com-hardware` | 2 | Transmitter and receiver non-idealities, electrical and optical: amplifiers, oscillators, IQ imbalance, converters, lasers, modulators, photodiodes | Propagation effects | 0, 1 |
+| `com-metrics` | 2 | Error counts and rates, SNR, EVM, information rates, metrics of spectra (ACLR), blind estimates (cumulants, modulation classification, the SNR), the frequency stability of oscillators (Allan variances) | Simulation control flow | 0, 1, `com-mapping` (ADR 0007) |
 | `com-sim` | 3 | Monte Carlo engine, grids, stopping rules, callbacks, loggers, statistics | Physical-layer algorithms | 0 (`rayon`) |
 | `com-spec` | 4 | Specifications, their blocks and registry, verification, operating-point search, recordings I/O, the `comrs` command (ADR 0004) | Algorithms of the blocks (they live in layers 0–2) | 0–3, `com-systems` (ADR 0010); `serde`, `serde_yaml`, `toml` |
 | `com-systems` | 4 | Chains of standards and assemblies of several layer-2 crates: `dvbs2` (with its FEC), `pas` | New algorithms (they belong in layers 1–2) | 0–2 |
@@ -292,13 +311,16 @@ pub trait Impair {
 }
 ```
 
-Implementations: every `BlockCode` of `com-fec`, BCH included (`Encode`, `Decode`;
-`Dvbs2Fec` of `com-systems` is a `BlockCode`); `Constellation` (`Map`, `Demap`); `Ofdm`, `Ufmc`,
-`Otfs` (`Modulate`, `Demodulate`); `Eigenmode`, `LinearPrecoder`,
+Implementations: every `BlockCode` of `com-fec` (`Encode`, `Decode`, by the macro
+`container_traits!`): `ConvolutionalCode`, `TurboCode`, `PuncturedTurbo`,
+`Punctured<C>`, `LdpcCode`, `PolarCode`, `ReedSolomon`, `Bch`, `NrLdpc`, `NrPolar`
+(`Dvbs2Fec` of `com-systems` is a `BlockCode` only); `Constellation` (`Map`, `Demap`);
+`Ofdm`, `Ufmc`, `Otfs` (`Modulate`, `Demodulate`); `Eigenmode`, `LinearPrecoder`,
 `Ostbc` (`Precode`); `detection::Coherent` (`Detect`); `Awgn`, `Noise`, `Rayleigh`,
-`Mimo`, `Tdl`, `Cdl`, `DelayDopplerModel`, `Ssfm` (`Propagate`); `Rapp`, `Saleh`, `MemoryPolynomial`,
-`PhaseNoise`, `Cfo`, `TxIq`, `RxIq` (`Impair`). The other blocks expose slice-based
-functions and methods.
+`Mimo` (`fading`), `Tdl`, `DelayDopplerModel` (`multipath`), `Cdl`, `Fso`
+(`owc::atmospheric`), `Ssfm` (`optical::fiber`) (`Propagate`); `Rapp`, `Saleh`,
+`MemoryPolynomial`, `PhaseNoise`, `Cfo`, `TxIq`, `RxIq`, `Adc`, `Dac` (`Impair`). The
+other blocks expose slice-based functions and methods.
 
 ### Randomness
 
@@ -363,9 +385,10 @@ since it tabulates the phase response. The enums that will gain variants are
 `#[non_exhaustive]` (`com_core::Error`, `equalizer::Algorithm`, `filter::{PulseShape,
 LowPass}`, `ConstellationKind`, `CheckRule`, `DetectorKind`, `multipath::Profile`,
 `cdl::{Profile, Pattern}`, `fiber::{Amplification, Precision}`, `PhaseOrigin`,
-`StepRule`, `PilotPattern`, `FrequencyInterpolation`, `ce_ofdm::Unwrap`,
-`papr::{Partition, Companding}`, `cpm::FrequencyPulse`, the DVB-S2 `FrameSize`,
-`CodeRate` and `Modulation`); the configuration structs are not.
+`StepRule`, `PilotPattern`, `FrequencyInterpolation`, `ce_ofdm::{Unwrap, Receiver}`,
+`papr::{Partition, Companding}`, `cpm::FrequencyPulse`, `fbmc::Prototype`,
+`css::Waveform`, `message_passing::Prior`, `atmospheric::Turbulence`, the DVB-S2
+`FrameSize`, `CodeRate` and `Modulation`); the configuration structs are not.
 
 ## Documentation standards
 
@@ -569,10 +592,20 @@ done):
 5. `cargo doc --workspace --no-deps --exclude com-py` with
    `RUSTDOCFLAGS="--html-in-header $PWD/docs/katex-header.html -D warnings"`
 6. every crate ships the same `katex-header.html` as `docs/katex-header.html` (`cmp`)
-7. `ruff check` and `ruff format --check` of `python tests docs/python tools`
-8. `python3 tools/api_index.py --check` (`docs/API.md` is up to date)
-9. `python tools/gen_stubs.py --check` and `python tools/gen_blocks.py --check` (the
-   generated stub and `comrs.blocks` are up to date; they need the extension built)
+7. `ruff check` and `ruff format --check` of `python tests docs/python tools
+   benchmarks/libraries`
+8. `mypy` (`[tool.mypy]` of `pyproject.toml`): the types of the package and of the
+   generated stub, the tests checked as callers of the stub only (a method stubbed
+   `-> None` whose value is used fails)
+9. `python3 tools/api_index.py --check` (`docs/API.md` is up to date)
+10. `python tools/literature_table.py --check` and `python tools/maturity_table.py
+    --check` (`docs/LITERATURE.md`, `docs/MATURITY.md` and the maturity tables are up to
+    date, and every test they cite exists)
+11. `python tools/cards.py --check` (every validation card agrees with the repository)
+12. `python3 tools/benchmarks_page.py --check` (`docs/python/benchmarks.rst` is up to
+    date with `benchmarks/libraries/results/`)
+13. `python tools/gen_stubs.py --check` and `python tools/gen_blocks.py --check` (the
+    generated stub and `comrs.blocks` are up to date; they need the extension built)
 
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests, with read-only
 permissions; it runs the quick tests only:
@@ -583,7 +616,7 @@ permissions; it runs the quick tests only:
 | `test` | Linux, macOS, Windows | `cargo test`; `comrs verify $VALIDATION_SPECS` |
 | `msrv` | Linux, Rust 1.85 | `cargo build` |
 | `deny` | Linux | `cargo deny check` (licences, advisories, `deny.toml`) |
-| `python` | Linux, macOS, Windows × Python 3.11, 3.12, 3.13 | `maturin develop --release` with the dependency groups `test` and `lint`; on Linux with 3.12 only: `ruff check`, `ruff format --check`, `api_index.py --check`, `gen_stubs.py --check`, `gen_blocks.py --check`; then `python -m pytest` |
+| `python` | Linux, macOS, Windows × Python 3.11, 3.12, 3.13 | `maturin develop --release` with the dependency groups `test` and `lint`; on Linux with 3.12 only: `ruff check`, `ruff format --check`, `mypy`, `api_index.py --check`, `literature_table.py --check`, `maturity_table.py --check`, `cards.py --check`, `benchmarks_page.py --check`, `gen_stubs.py --check`, `gen_blocks.py --check`; then `python -m pytest` |
 | `docs-python` | Linux | `sphinx-build -W --keep-going` of `docs/python`; the site is uploaded on pushes to `main` |
 | `deploy-docs` | Linux, pushes to `main` | publishes the site to GitHub Pages |
 
@@ -615,6 +648,9 @@ Generated files are committed and checked:
 | `docs/API.md` | `tools/api_index.py` (`just api-index`; `--duplicates` lists the names defined in several modules) | `--check` |
 | `python/comrs/_comrs.pyi` | `tools/gen_stubs.py`, from the built extension | `--check` |
 | `python/comrs/blocks.py` | `tools/gen_blocks.py`, from the block registry (`just gen-python` runs both) | `--check` |
+| `docs/LITERATURE.md` | `tools/literature_table.py`, from `validation/literature.yaml` (`just literature`) | `--check` |
+| `docs/MATURITY.md`, the maturity tables of `README.md` and `docs/python/maturity.rst` | `tools/maturity_table.py`, from `validation/maturity.yaml` (`just maturity`) | `--check` |
+| `docs/python/benchmarks.rst` | `tools/benchmarks_page.py`, from `benchmarks/libraries/results/` (`just bench-libraries`) | `--check` |
 | `crates/*/katex-header.html` | `just katex` | `cmp` |
 | `tests/oracle/*` | `tests/oracle.py` with `COMRS_RECORD_ORACLE=1` (dependency group `oracle`) | the tests read them |
 | `validation/aff3ct/*.json` | `tools/record_aff3ct.py`, with AFF3CT installed | the tests read them |
@@ -636,7 +672,7 @@ module is summarised in [`MATURITY.md`](MATURITY.md).
 | Statistical | `validation/tests/*.rs` (crate `com-validation`) | Monte Carlo curves against closed forms, published figures and tables, and recorded AFF3CT runs | quick tests with `cargo test`, every push; `#[ignore]` ones on demand (`cargo test --release -p com-validation -- --ignored`, or `validation.yml` started by hand) |
 | Oracle | `tests/test_oracle.py`, `tests/test_gnpy_oracle.py` | The blocks against the recorded outputs of OptiCommPy 0.11 and GNPy 3.0 on the same inputs | `python -m pytest`, every push |
 | Classical results | `tests/test_performance.py` and the gallery of `docs/python` | Textbook results end to end from Python | `python -m pytest`; the gallery when the documentation is built |
-| Benchmark | `benches/blocks.rs` (criterion), `benchmarks/bench_opticommpy.py` | Throughput; speed and agreement against OptiCommPy | on demand (`validation.yml` with its benchmarks switch, `just bench-rust`, `just bench`); not compared with a threshold |
+| Benchmark | `benches/blocks.rs` (criterion), `benchmarks/bench_opticommpy.py`, `benchmarks/libraries/` | Throughput; speed and agreement against OptiCommPy; results and speed against komm, OptiCommPy and Sionna | on demand (`validation.yml` with its benchmarks switch, `just bench-rust`, `just bench`, `just bench-libraries`); not compared with a threshold |
 
 There are no property-based tests (`proptest`): the round trips and identities are
 unit tests on inputs drawn from seeded generators.
@@ -718,7 +754,16 @@ are within the burst-aware bound of the test. The quick configurations run with
 
 ### Statistical validation
 
-`validation/tests/` holds the Monte Carlo checks:
+`validation/tests/` holds the Monte Carlo checks, one file per reference document
+(`raviteja2019.rs`, `tal2015.rs`, `loyka2001.rs`, … named after its first author and
+year, listed with what they reproduce in `validation/literature.yaml` and
+[`LITERATURE.md`](LITERATURE.md)) and the files below. The helpers they share live in
+`validation/src/lib.rs`: the acceptance rule (`within_three_sigma`), the BPSK link of
+the code tests (`bpsk_awgn_llr`), the crossing of an error rate by log-linear
+interpolation (`crossing`, `log_interp`) and the Doppler shift of a speed
+(`max_doppler_hz`). A comparison written as data is a validation card of
+`validation/cards/` (`validation/cards/README.md`), checked by `tools/cards.py` and
+rerun by `just card <id>`.
 
 - `closed_forms.rs`: BPSK over AWGN and flat Rayleigh fading; each point runs until
   100 errors and passes within three standard errors of the closed form

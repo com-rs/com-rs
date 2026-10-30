@@ -15,6 +15,7 @@
 //!   frame, uncoded 4QAM over EVA at 120 km/h (4 GHz, 15 kHz, one path per tap with
 //!   Jakes' Doppler) has a BER falling much faster with the SNR than one-tap CP-OFDM.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::max_doppler_hz;
 use comrs::channel::multipath::{DelayDoppler, DelayDopplerModel, Path, Profile};
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::prelude::*;
@@ -76,7 +77,7 @@ fn fractional_doppler_follows_eq_13() {
 fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
     let (m, n, cp) = (32usize, 16usize, 4usize);
     let fs = m as f64 * 15e3;
-    let fd = kmh / 3.6 * 4e9 / 299_792_458.0;
+    let fd = max_doppler_hz(kmh / 3.6, 4e9);
     let c = Constellation::qam(4).unwrap().normalized();
     let sigma2 = 1.0 / db2lin(snr_db);
     let mut rng = Rng::new(seed);
@@ -131,9 +132,10 @@ fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
 
 /// Hadani et al. 2017, Sec. V and Fig. 5: OTFS spreads every symbol over the whole frame
 /// and collects the diversity of the paths; one-tap OFDM sees one Rayleigh gain per
-/// symbol. From 10 to 20 dB the BER of OFDM falls about eightfold (4.3e-2 to 5.1e-3,
-/// diversity 1), that of OTFS sixtyfold (3.4e-2 to 5.4e-4), ten times below OFDM at
-/// 20 dB.
+/// symbol. From 10 to 20 dB the BER of OFDM falls about eightfold (4.2e-2 to 5.5e-3,
+/// diversity 1), that of OTFS ninetyfold (3.4e-2 to 3.7e-4), fifteen times below OFDM
+/// at 20 dB. The test checks these factors with the margin of the frames simulated: OFDM
+/// between 4 and 15, OTFS above 30, OTFS at least five times below OFDM at 20 dB.
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn hadani_2017_fig_5_diversity_of_otfs() {

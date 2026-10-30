@@ -167,10 +167,15 @@ pub(crate) use com_math::max_star;
 /// Helpers of the tests of the codes.
 #[cfg(test)]
 pub(crate) mod testing {
+    use super::{bpsk, bpsk_llr};
     use com_core::rng::Rng;
 
-    /// The LLRs of the bits `c` sent in BPSK over a real AWGN channel of variance `s2`.
+    /// The LLRs of the bits `c` sent in BPSK over a real AWGN channel of variance `s2`: the
+    /// symbols of [`bpsk`], one Gaussian draw per bit, the LLRs of [`bpsk_llr`] (the link
+    /// of `com_validation::bpsk_awgn_llr`).
     pub(crate) fn awgn_llr(c: &[u8], s2: f64, rng: &mut Rng) -> Vec<f64> {
-        c.iter().map(|b| 2.0 * (1.0 - 2.0 * f64::from(*b) + s2.sqrt() * rng.gaussian()) / s2).collect()
+        let s = s2.sqrt();
+        let y: Vec<f64> = bpsk(c).iter().map(|x| x + s * rng.gaussian()).collect();
+        bpsk_llr(&y, s2)
     }
 }

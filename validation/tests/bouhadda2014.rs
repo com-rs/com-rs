@@ -19,6 +19,7 @@
 //!   against 1.2e-5 and 1.6e-4 read; the "loss of ≈7 dB" of FBMC "at a BER of 5e-3"
 //!   is 0.2 dB there (2.6 dB at 5e-4).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::log_interp;
 use comrs::dsp::nonlinear::bussgang;
 use comrs::hardware::amplifier::Saleh;
 use comrs::mapping::theory::ber_gray_qam;
@@ -88,7 +89,7 @@ fn crossing(curve: impl Fn(f64) -> f64, target: f64) -> f64 {
         let e = 0.5 * k as f64;
         let b = curve(e);
         if b < target {
-            return prev.0 + 0.5 * (prev.1.ln() - target.ln()) / (prev.1.ln() - b.ln());
+            return log_interp(prev, (e, b), target);
         }
         prev = (e, b);
     }

@@ -54,7 +54,9 @@ Issues = "https://github.com/com-rs/com-rs/issues"
 # jsonschema: the validation cards of validation/cards/ and their schema
 # (tests/test_cards.py)
 test = ["pytest>=8", "scipy>=1.11", "matplotlib>=3.9", "sigmf>=1.2", "pyyaml>=6", "jsonschema>=4.18"]
-lint = ["ruff"]
+# ruff, and mypy: the type check of the package and of the stub of the extension
+# (`[tool.mypy]`)
+lint = ["ruff", "mypy>=1.11"]
 # The test oracles, OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause, the Raman
 # amplification) and py3gpp (AGPL-3.0, 5G NR), are never imported by the package. Their outputs are recorded
 # fixtures (tests/oracle/*.json and *.npz, with the version of the tool) that the tests
@@ -97,3 +99,42 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003"]  # long table rows; Greek letter
 
 [tool.ruff.lint.isort]
 known-first-party = ["comrs"]
+
+# The type check of the package and of the generated stub `_comrs.pyi` (py.typed): the
+# modules of the package, and the tests, which call most of the API, are checked against
+# the declared types of the extension, so that a stub saying `-> None` for a method whose
+# value is used fails (`func-returns-value`). Not strict: the public functions are
+# annotated, the helpers need not be. The tests are checked for the stub only: their
+# deliberate misuses (wrong arguments, dynamic attributes) and the loose types of NumPy
+# expressions are not errors there.
+[tool.mypy]
+files = ["python/comrs", "tests"]
+mypy_path = ["python", "."]
+explicit_package_bases = true
+python_version = "3.11"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+strict_equality = true
+
+# optional imports of the package (`Results.to_frame`, the plots)
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "matplotlib", "matplotlib.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disable_error_code = [
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "call-arg",
+    "import-not-found",
+    "import-untyped",
+    "index",
+    "list-item",
+    "misc",
+    "operator",
+    "union-attr",
+    "var-annotated",
+]

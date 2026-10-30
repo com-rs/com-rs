@@ -392,10 +392,11 @@ impl DualPol {
         Signal::from_streams(&[self.x.clone(), self.y.clone()], sample_rate)
     }
 
-    /// The first two streams of a [`Signal`].
+    /// The field of a two-stream [`Signal`]: `x` its first stream, `y` its second (the
+    /// inverse of [`DualPol::to_signal`]).
     ///
     /// # Errors
-    /// [`Error::Shape`] unless the signal has two streams.
+    /// [`Error::Shape`] unless the signal has exactly two streams.
     pub fn from_signal(s: &Signal) -> Result<DualPol> {
         same_len(s.n_streams(), 2, "streams of a dual-polarisation field")?;
         Ok(DualPol { x: s.stream(0).to_vec(), y: s.stream(1).to_vec() })

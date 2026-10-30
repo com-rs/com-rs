@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from comrs import spec as _spec
-from comrs._comrs import Frame, Rng, _run_chain, run_spec
+from comrs._comrs import Frame, Rng, Stop, _run_chain, run_spec
 from comrs.block import Block, Native, Var, _as_block, var
 from comrs.results import Results, Trace
 
@@ -268,7 +268,10 @@ class Chain(Block):
 
         return apply
 
-    def __call__(self, condition: Mapping[str, Any] | Frame | None, rng: Rng) -> Frame:
+    # a chain is a block that also returns its frame: callers of a block ignore the value
+    def __call__(  # type: ignore[override]
+        self, condition: Mapping[str, Any] | Frame | None, rng: Rng
+    ) -> Frame:
         """Run the chain once.
 
         Args:
@@ -379,7 +382,7 @@ class Chain(Block):
         self,
         grid: Mapping[str, Any] | None = None,
         metrics: list[str] | Mapping[str, Any] | None = None,
-        stop: Mapping[str, Any] | None = None,
+        stop: Mapping[str, Any] | Stop | None = None,
         seed: int | None = None,
         name: str | None = None,
         *,
@@ -411,15 +414,13 @@ class Chain(Block):
             Results: one dict per condition, as :func:`comrs.run_spec`, with tabular
             access, plots and persistence.
         """
-        from comrs.sim import Stop
-
-        rule = stop if isinstance(stop, Stop) else None
+        rule, mapping = (stop, None) if isinstance(stop, Stop) else (None, stop)
         spec = _spec.settings(
             self.settings,
             name=name,
             grid=grid,
             metrics=metrics,
-            stop=None if rule else stop,
+            stop=mapping,
             seed=seed,
             **extra,
         )

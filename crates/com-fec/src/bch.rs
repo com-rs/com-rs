@@ -255,18 +255,33 @@ mod tests {
         let code = Bch::new(14, 0b100_0000_0010_1011, 12, 7200).unwrap();
         assert_eq!(code.k(), 7032);
         let mut rng = Rng::new(4);
-        for errors in [0, 1, 5, 12] {
+        // `errors` distinct positions drawn at random
+        let mut positions: Vec<usize> = (0..code.n()).collect();
+        let (mut detected, mut wrong) = (0, 0);
+        for errors in (0..=12).chain((13..=24).flat_map(|e| [e; 4])) {
             let msg: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
             let mut c = code.encode(&msg).unwrap();
-            for _ in 0..errors {
-                let p = rng.below(c.len());
+            rng.shuffle(&mut positions);
+            for &p in &positions[..errors] {
                 c[p] ^= 1;
             }
             let (m, n) = code.decode(&c).unwrap();
-            if errors <= 12 && n.is_some() {
-                assert_eq!(m, msg);
+            if errors <= 12 {
+                // every pattern of at most t errors is corrected and counted
+                assert_eq!((&m, n), (&msg, Some(errors)), "{errors} errors");
+            } else if n.is_none() {
+                // detected: the message bits come back as received
+                assert_eq!(m, c[..code.k()], "{errors} errors");
+                detected += 1;
+            } else {
+                // a decoded word within t of the received one cannot be the sent one
+                assert_ne!(m, msg, "{errors} errors");
+                wrong += 1;
             }
         }
+        // a miscorrection needs the t roots of a wrong locator among the 7200 positions of
+        // the shortened code out of 2^14 - 1: rare, none in these 48 patterns
+        assert_eq!((detected, wrong), (48, 0), "{detected} detected, {wrong} miscorrected");
         // exactly t distinct errors
         let msg: Vec<u8> = (0..code.k()).map(|_| rng.bit()).collect();
         let mut c = code.encode(&msg).unwrap();

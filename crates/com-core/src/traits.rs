@@ -2,8 +2,11 @@
 //!
 //! Methods taking `&self` are pure; `&mut self` signals internal state (memory,
 //! adaptation). Every trait has an `_into` method writing into a caller-owned buffer,
-//! so that hot Monte Carlo loops allocate nothing, and an allocating method that calls
-//! it. Randomness is always explicit: a random block receives `&mut SimRng`.
+//! which it resizes and fills in place (never replaces), so that a loop passing the same
+//! buffer allocates no output once its shape is stable; scratch buffers may still
+//! allocate (`docs/adr/0011-into-reuses-the-output.md`). All but [`Precode`] and
+//! [`Detect`] also have an allocating method that calls it. Randomness is always
+//! explicit: a random block receives `&mut SimRng`.
 //!
 //! | Trait | Role | Input → output |
 //! |---|---|---|

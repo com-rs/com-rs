@@ -28,7 +28,7 @@ import json
 import math
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -132,7 +132,7 @@ class Results(list):
             ys.append(m["value"] if ok else np.nan)
             lo.append(m["lo"] if ok else np.nan)
             hi.append(m["hi"] if ok else np.nan)
-        out = (np.asarray(xs), np.asarray(ys, dtype=float))
+        out: tuple[np.ndarray, ...] = (np.asarray(xs), np.asarray(ys, dtype=float))
         if interval:
             out += (np.asarray(lo, dtype=float), np.asarray(hi, dtype=float))
         return out
@@ -354,11 +354,12 @@ def compare(chains: Mapping[str, Any], *, variable: str = "variant", **run: Any)
         >>> res.values("variant")
         ['8 dB', '4 dB']
     """
-    out = Results(spec={"variable": variable, "variants": {}})
+    variants: dict[str, Any] = {}
+    out = Results(spec={"variable": variable, "variants": variants})
     for name, chain in chains.items():
         res = chain.run(**run)
         out.extend({**r, "condition": {variable: name, **r["condition"]}} for r in res)
-        out.spec["variants"][name] = getattr(res, "spec", None)
+        variants[name] = getattr(res, "spec", None)
     return out
 
 
@@ -418,7 +419,8 @@ class Trace(dict):
             arrays["tx_symbols"] = np.asarray(last.tx_symbols)
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(path, **arrays)
+        # every key is a name of an array (none is the keyword `allow_pickle`)
+        np.savez(path, **cast("dict[str, Any]", arrays))
         return path
 
     def __repr__(self) -> str:

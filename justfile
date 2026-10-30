@@ -36,6 +36,7 @@ check:
     for c in crates/*/; do cmp docs/katex-header.html "$c/katex-header.html"; done
     ruff check python tests docs/python tools benchmarks/libraries
     ruff format --check python tests docs/python tools benchmarks/libraries
+    mypy
     python3 tools/api_index.py --check
     python tools/literature_table.py --check
     python tools/maturity_table.py --check

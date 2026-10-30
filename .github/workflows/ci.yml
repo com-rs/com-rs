@@ -101,6 +101,8 @@ jobs:
           source .venv/bin/activate
           ruff check python tests docs/python tools benchmarks/libraries
           ruff format --check python tests docs/python tools benchmarks/libraries
+          # the types of the package and of the stub of the extension ([tool.mypy])
+          mypy
           python tools/api_index.py --check
           python tools/literature_table.py --check
           python tools/maturity_table.py --check
