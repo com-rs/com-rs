@@ -241,6 +241,8 @@ impl SplitStep {
     /// of the field at every frequency (FFT order) from $z_{0}$ to $z_{1}$ (km, from the
     /// start of the steps). The medium then carries no attenuation: `gain` holds the
     /// loss as well (the power profile of a Raman-pumped span, `com_channel::optical::raman`).
+    /// As in [`SplitStep::run`], the field stays in the frequency domain from the end of
+    /// a step to the start of the next: two FFTs per step.
     ///
     /// # Panics
     /// If `e` has another length than the block of [`SplitStep::new`].
@@ -252,9 +254,9 @@ impl SplitStep {
         let (g, h) = (self.gamma_w_km, self.steps.nl_length_km);
         let step = self.steps.step_km;
         let mut buf = vec![0.0; e.len()];
+        p.forward(e);
         for k in 0..self.steps.n_steps {
             let z0 = k as f64 * step;
-            p.forward(e);
             mul(e, &self.lin);
             gain(z0, z0 + step / 2.0, &mut buf);
             scale(e, &buf);
@@ -266,8 +268,8 @@ impl SplitStep {
             mul(e, &self.lin);
             gain(z0 + step / 2.0, z0 + step, &mut buf);
             scale(e, &buf);
-            p.inverse(e);
         }
+        p.inverse(e);
     }
 }
 
@@ -633,6 +635,22 @@ mod tests {
         SplitStepF32::new(&m, steps, 0, 64e9).run(&mut []);
         assert!(x.is_empty() && y.is_empty() && s.steps() == steps);
         assert!((steps.length_km() - 3.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn a_uniform_gain_of_the_loss_is_the_attenuation_of_the_medium() {
+        // run_with_gain on the lossless medium with the field gain e^{-α Δz / 2} at every
+        // frequency is run on the lossy medium (to the rounding of the factorisation)
+        let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        let lossless = Medium { alpha_np_km: 0.0, ..m };
+        let x: Vec<C64> = (0..256).map(|n| cis(0.3 * n as f64) * (1e-2 * (1 + n % 5) as f64)).collect();
+        let steps = Steps::forward(40, 0.5);
+        let (mut a, mut b) = (x.clone(), x);
+        SplitStep::new(&m, steps, 256, 64e9).run(&mut a);
+        let loss = |z0: f64, z1: f64, out: &mut [f64]| out.fill((-(0.046 / 2.0) * (z1 - z0)).exp());
+        SplitStep::new(&lossless, steps, 256, 64e9).run_with_gain(&mut b, &loss);
+        let peak = a.iter().map(|v| v.norm()).fold(0.0, f64::max);
+        assert!(a.iter().zip(&b).all(|(u, v)| (u - v).norm() < 1e-13 * peak));
     }
 
     #[test]
