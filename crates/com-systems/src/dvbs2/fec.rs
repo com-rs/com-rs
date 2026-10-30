@@ -356,7 +356,8 @@ impl BlockCode for Dvbs2Fec {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
-    use com_fec::block::{bpsk, bpsk_llr};
+    use com_mapping::constellation::bpsk;
+    use com_mapping::demapper::bpsk_llr;
 
     #[test]
     fn every_code_has_the_dimensions_of_tables_5a_and_5b() {

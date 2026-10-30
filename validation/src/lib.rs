@@ -21,7 +21,8 @@
 #[cfg(feature = "spec")]
 pub mod card;
 
-use comrs::fec::block::{bpsk, bpsk_llr};
+use comrs::mapping::constellation::bpsk;
+use comrs::mapping::demapper::bpsk_llr;
 use comrs::math::SPEED_OF_LIGHT;
 
 /// Errors to collect at every simulated point.
