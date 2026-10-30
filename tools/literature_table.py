@@ -14,46 +14,27 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
-from pathlib import Path
 
 import yaml
+from _common import ROOT, THEME_TITLES, fail, missing_test, write_or_check
 from cards import cards
-from cited_tests import defines
 
-ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "validation" / "literature.yaml"
 OUTPUT = ROOT / "docs" / "LITERATURE.md"
 BADGES = {"green": "🟢", "orange": "🟠", "red": "🔴"}
-AREAS = [
-    # the themes of the documentation, in the order of a link (as the API reference,
-    # the gallery and the maturity table), then the reference implementations
-    "Foundations",
-    "Coding and shaping",
-    "Waveforms",
-    "MIMO",
-    "Wireless channels",
-    "Optical",
-    "Hardware impairments",
-    "Receiver DSP",
-    "Metrics and analysis",
-    "Systems and standards",
-    "Simulation and specifications",
-    "Reference implementations",
-]
+# the themes of the documentation, in the order of a link (as the API reference, the
+# gallery and the maturity table), then the reference implementations
+AREAS = [*THEME_TITLES, "Reference implementations"]
 
 
 def check_tests(entries: list[dict]) -> list[str]:
     """The tests named in the file that do not exist."""
-    missing = []
-    for e in entries:
-        for t in e.get("tests", []):
-            path, _, name = t.partition("::")
-            file = ROOT / path
-            if not file.exists():
-                missing.append(f"{e['id']}: no file {path}")
-            elif name and not defines(file, name):
-                missing.append(f"{e['id']}: no {name} in {path}")
-    return missing
+    return [
+        f"{e['id']}: {why}"
+        for e in entries
+        for t in e.get("tests", [])
+        if (why := missing_test(*t.split("::", 1)))
+    ]
 
 
 def cell(text: str) -> str:
@@ -127,22 +108,8 @@ def main() -> int:
         return 1
     missing = check_tests(entries)
     if missing:
-        print(
-            "tests named in validation/literature.yaml that do not exist:",
-            *missing,
-            sep="\n  ",
-            file=sys.stderr,
-        )
-        return 1
-    text = render(entries)
-    if args.check:
-        if OUTPUT.read_text(encoding="utf-8") != text if OUTPUT.exists() else True:
-            print("docs/LITERATURE.md is out of date: run `just literature`", file=sys.stderr)
-            return 1
-        return 0
-    OUTPUT.write_text(text, encoding="utf-8")
-    print(f"written {OUTPUT.relative_to(ROOT)}")
-    return 0
+        return fail("tests named in validation/literature.yaml that do not exist:", missing)
+    return write_or_check(OUTPUT, render(entries), args.check, fix="`just literature`")
 
 
 if __name__ == "__main__":

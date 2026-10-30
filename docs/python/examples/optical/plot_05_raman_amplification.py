@@ -32,31 +32,27 @@ with the power profiles of the spans follow the GN model with the same profiles
 profiles, the noise and the nonlinear interference against GNPy.
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, COBALT, GREY, INK, RUST, SPECS
 
 import comrs
-
-here = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-specs = next(p / "specs" for p in [here, *here.parents] if (p / "specs").is_dir())
 
 # %%
 # The power of one channel along a span of 100 km, by direction of pumping.
 span = comrs.FiberParams(span_km=100)
 cases = [
-    ("no pump", [], "#8a8984", ":"),
+    ("no pump", [], GREY, ":"),
     (
         "co-pump 500 mW",
         [{"wavelength_nm": 1450, "power_mw": 500, "direction": "co"}],
-        "#d95f02",
+        RUST,
         "-",
     ),
     (
         "counter-pump 500 mW",
         [{"wavelength_nm": 1450, "power_mw": 500, "direction": "counter"}],
-        "#2a6fdb",
+        COBALT,
         "-",
     ),
     (
@@ -65,7 +61,7 @@ cases = [
             {"wavelength_nm": 1450, "power_mw": 250, "direction": "co"},
             {"wavelength_nm": 1450, "power_mw": 250, "direction": "counter"},
         ],
-        "#1f1f1d",
+        INK,
         "--",
     ),
 ]
@@ -89,13 +85,13 @@ five = [
     for w, p in [(1420, 209), (1434, 188), (1448, 85), (1462, 90), (1490, 114)]
 ]
 fig, ax = plt.subplots()
-for label, pumps, color in [("one pump, 1450 nm, 500 mW", one, "#d95f02"),
-                            ("five pumps, 1420 to 1490 nm, 686 mW", five, "#2a6fdb")]:  # fmt: skip
+for label, pumps, color in [("one pump, 1450 nm, 500 mW", one, RUST),
+                            ("five pumps, 1420 to 1490 nm, 686 mW", five, COBALT)]:  # fmt: skip
     p = comrs.raman_profile(c_band, rel, -3.0, {"pumps": pumps, "step_km": 0.5})
-    ax.plot(wavelengths, p["on_off_gain_db"], marker="o", markersize=4, markeredgecolor="#fcfcfb",
+    ax.plot(wavelengths, p["on_off_gain_db"], marker="o", markersize=4, markeredgecolor=BACKGROUND,
             color=color, label=f"{label}: {np.ptp(p['on_off_gain_db']):.1f} dB ripple")  # fmt: skip
 p = comrs.raman_profile(c_band, rel, 3.0, {"pumps": []})
-ax.plot(wavelengths, p["on_off_gain_db"], color="#8a8984", linestyle=":",
+ax.plot(wavelengths, p["on_off_gain_db"], color=GREY, linestyle=":",
         label="no pump, ISRS of 40 × 3 dBm")  # fmt: skip
 ax.set(xlabel="wavelength (nm)", ylabel="on-off gain (dB)", ylim=(-2, 20),
        title="Counter-pumped 100 km span, 40 channels at 100 GHz")  # fmt: skip
@@ -105,7 +101,7 @@ fig.tight_layout()
 # %%
 # The SNR of the centre channel of the hybrid link against the launch power, simulated
 # and GN model with the Raman power profiles.
-link = comrs.Chain.from_spec(specs / "raman_wdm.yaml")
+link = comrs.Chain.from_spec(SPECS / "raman_wdm.yaml")
 powers = [-10.0, -6.0, -2.0, 2.0]
 res = link.run(grid={"pump_mw": [0.0, 500.0], "power_dbm": powers}, stop={"max_trials": 4})
 fine = np.linspace(-12, 4, 17)
@@ -114,13 +110,13 @@ fiber = comrs.FiberParams(
     n_spans=3, span_km=100, alpha_db_km=0.2, d_ps_nm_km=16, gamma_w_km=1.3, nf_db=5
 )
 fig, ax = plt.subplots()
-for pump, color, marker, label in [(0.0, "#8a8984", "s", "EDFA only"),
-                                   (500.0, "#2a6fdb", "o", "counter-pump 500 mW + EDFA")]:  # fmt: skip
+for pump, color, marker, label in [(0.0, GREY, "s", "EDFA only"),
+                                   (500.0, COBALT, "o", "counter-pump 500 mW + EDFA")]:  # fmt: skip
     raman = {"pumps": [{"wavelength_nm": 1450, "power_mw": pump, "direction": "counter"}]}
     gn = [comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1, raman=raman)["snr_db"] for p in fine]
     ax.plot(fine, gn, color=color, label=f"{label}, GN model")
     snr = [r["metrics"]["snr_db"]["value"] for r in res if r["condition"]["pump_mw"] == pump]
-    ax.plot(powers, snr, marker=marker, linestyle="none", color=color, markeredgecolor="#fcfcfb",
+    ax.plot(powers, snr, marker=marker, linestyle="none", color=color, markeredgecolor=BACKGROUND,
             label=f"{label}, Manakov")  # fmt: skip
 ax.set(xlabel="launch power per channel (dBm)", ylabel="SNR (dB)", ylim=(10, 30),
        title="5 × 32 GBd DP, 3 × 100 km, Gaussian symbols")  # fmt: skip

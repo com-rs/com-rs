@@ -32,6 +32,7 @@ same values with tolerances (``docs/LITERATURE.md`` lists the gaps that remain).
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import GREY, LABEL, MUTED
 
 import comrs
 
@@ -62,9 +63,7 @@ for i, x in enumerate(xs):
 ax = axes[0]
 image = ax.pcolormesh(xs, xs, snr, cmap="Blues", shading="gouraud")
 fig.colorbar(image, ax=ax, label="SNR with ISI (dB)")
-contours = ax.contour(
-    xs, xs, lux, levels=[400, 600, 800, 1000, 1200], colors="#2b2a28", linewidths=0.8
-)
+contours = ax.contour(xs, xs, lux, levels=[400, 600, 800, 1000, 1200], colors=LABEL, linewidths=0.8)
 ax.clabel(contours, fmt="%d lx", fontsize=7)
 ax.set(xlabel="x (m)", ylabel="y (m)", title="Komine 2004: illuminance and SNR", aspect=1)
 ax.grid(False)
@@ -89,13 +88,13 @@ for k, r in enumerate(h[1:], start=1):
         linewidth=1.4,
         label=f"{k} reflection{'s' if k > 1 else ''}: {r.total_w() * 1e6:.3f} µW",
     )
-ax.axvline(h[0].first_arrival_s() * 1e9, color="#8a8984", linestyle=":", linewidth=1.2)
+ax.axvline(h[0].first_arrival_s() * 1e9, color=GREY, linestyle=":", linewidth=1.2)
 ax.text(
     h[0].first_arrival_s() * 1e9 - 0.6,
     0.5 * ax.get_ylim()[1],
     f"line of sight, {h[0].total_w() * 1e6:.2f} µW",
     fontsize=8,
-    color="#52514e",
+    color=MUTED,
     rotation=90,
     ha="right",
     va="center",

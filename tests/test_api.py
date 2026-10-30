@@ -187,6 +187,38 @@ def test_all_is_sorted_and_complete():
         assert hasattr(comrs, name)
 
 
+def listed_in_the_docstring():
+    """The names of the table *Contents* of the docstring of the package."""
+    table = comrs.__doc__.split("Contents:")[1].split("Example:")[0]
+    return re.findall(r":(?:class|func|mod):`(?:comrs\.)?(\w+)`", table)
+
+
+def listed_in_the_api_reference():
+    """The names of the API reference, ``docs/python/api/index.rst``, one per theme."""
+    page = pathlib.Path(__file__).parents[1] / "docs" / "python" / "api" / "index.rst"
+    return re.findall(r"^   ([A-Za-z_][A-Za-z0-9_]*)$", page.read_text(), flags=re.M)
+
+
+def test_the_lists_of_names_agree():
+    """The Python names are written by hand in four places: the imports from the
+    extension and ``__all__`` (``python/comrs/__init__.py``), the table *Contents* of
+    the docstring of the package and the API reference; the stub ``_comrs.pyi`` is
+    generated from the extension (``tools/gen_stubs.py --check``). Every public name of
+    the extension is exported, by ``comrs`` or by ``comrs.sim``, and the two tables list
+    every exported name once, so that a new binding cannot be left unexported or
+    undocumented."""
+    exported = set(comrs.__all__) - {"__version__"}
+    bound = {n for n in dir(_comrs) if not n.startswith("_")}
+    assert sorted(bound - exported - set(sim.__all__)) == [], "bound but not exported"
+    for listed, where in [
+        (listed_in_the_docstring(), "the docstring of comrs"),
+        (listed_in_the_api_reference(), "docs/python/api/index.rst"),
+    ]:
+        assert sorted(exported - set(listed)) == [], f"exported but not in {where}"
+        assert sorted(set(listed) - exported) == [], f"in {where} but not exported"
+        assert len(listed) == len(set(listed)), f"listed twice in {where}"
+
+
 # ---------------------------------------------------------------- reproducibility
 
 
@@ -404,7 +436,7 @@ def test_python_runner_is_independent_of_the_batch_size():
     conds = sim.grid(p=[0.05, 0.5])
     a = sim.run(bernoulli, conds, name="b", seed=3, batch=7, stop=sim.Stop.max_trials(70))
     b = sim.run(bernoulli, conds, name="b", seed=3, batch=70, stop=sim.Stop.max_trials(70))
-    for x, y in zip(a, b, strict=False):
+    for x, y in zip(a, b, strict=True):
         assert x.metrics["rate"] == y.metrics["rate"]
         assert x.metrics["draw"].value == pytest.approx(y.metrics["draw"].value, abs=1e-12)
 
@@ -524,14 +556,3 @@ def test_conditions_keep_their_python_values():
         trial, [{"obj": marker}, {"obj": marker, "x": 2}], name="o", stop={"max_trials": 1}
     )
     assert res[0].condition["obj"] is marker and res[1].index == 1
-
-
-def test_every_exported_name_is_in_the_api_reference():
-    """The API reference (docs/python/api/index.rst) lists every name of ``comrs.__all__``
-    once, in its theme, so that a new binding cannot be left undocumented."""
-    page = pathlib.Path(__file__).parents[1] / "docs" / "python" / "api" / "index.rst"
-    listed = re.findall(r"^   ([A-Za-z_][A-Za-z0-9_]*)$", page.read_text(), flags=re.M)
-    exported = sorted(set(comrs.__all__) - {"__version__"})
-    assert sorted(set(exported) - set(listed)) == [], "exported but not documented"
-    assert sorted(set(listed) - set(exported)) == [], "documented but not exported"
-    assert len(listed) == len(set(listed)), "listed twice"

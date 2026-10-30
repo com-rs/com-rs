@@ -27,14 +27,13 @@ tail is decoded with zero LLRs.
 """
 
 import json
-from pathlib import Path
 
 import numpy as np
 import pytest
+from oracle import DIR
 
 import comrs
 
-DIR = Path(__file__).parent / "oracle"
 if not (DIR / "sionna_vectors.npz").exists():
     pytest.skip("run tools/record_sionna_vectors.py", allow_module_level=True)
 V = dict(np.load(DIR / "sionna_vectors.npz"))

@@ -26,27 +26,12 @@ collects the time diversity, where the BER of the coded bits only falls as
 :math:`1/\\mathrm{SNR}`.
 """
 
-from math import comb
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, COBALT, GREY, RUST, SPECS, ber_rayleigh_mrc
 
 import comrs
 from comrs import blocks as B
-
-here = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-specs = next(p / "specs" for p in [here, *here.parents] if (p / "specs").is_dir())
-
-
-def mrc(ebn0_db, branches):
-    """BER of BPSK/QPSK with maximal-ratio combining of Rayleigh branches of mean
-    E_b/N_0 ``ebn0_db`` each."""
-    g = 10 ** (np.asarray(ebn0_db) / 10)
-    mu = np.sqrt(g / (1 + g))
-    return ((1 - mu) / 2) ** branches * sum(
-        comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
-    )
 
 
 def rate(results, metric, key=None, value=None):
@@ -63,7 +48,7 @@ def rate(results, metric, key=None, value=None):
 # %%
 # Diversity of two transmit antennas over 2 × 2 Rayleigh fading.
 eb = np.arange(0.0, 17.0, 2.0)
-link = comrs.Chain.from_spec(specs / "mimo_diversity.yaml")
+link = comrs.Chain.from_spec(SPECS / "mimo_diversity.yaml")
 res = link.run(
     grid={"scheme": ["alamouti", "spatial"], "ebn0_db": list(eb)},
     stop={"min_errors": {"ber": 200}, "min_trials": 4, "max_trials": 400},
@@ -75,11 +60,15 @@ for scheme, branches, marker, label in [
     ("spatial", 1, "s", "spatial multiplexing, ZF 2 × 2"),
 ]:
     (line,) = ax.semilogy(
-        eb, rate(res, "ber", "scheme", scheme), marker=marker, markeredgecolor="#fcfcfb",
+        eb, rate(res, "ber", "scheme", scheme), marker=marker, markeredgecolor=BACKGROUND,
         linestyle="none", label=label,
     )  # fmt: skip
-    ax.semilogy(fine, mrc(fine - 3.0103, branches), ":", color=line.get_color())
-ax.semilogy(fine, mrc(fine, 1), color="#8a8984", linewidth=1.2, label="SISO Rayleigh")
+    ax.semilogy(
+        fine, ber_rayleigh_mrc(comrs.db2lin(fine - 3.0103), branches), ":", color=line.get_color()
+    )
+ax.semilogy(
+    fine, ber_rayleigh_mrc(comrs.db2lin(fine), 1), color=GREY, linewidth=1.2, label="SISO Rayleigh"
+)
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", ylim=(1e-6, 0.5), xlim=(0, 16),
     title="QPSK over i.i.d. Rayleigh fading",
@@ -110,11 +99,11 @@ for est, marker, label in [
     ("ls", "D", "LS, linear interpolation"),
 ]:
     ax.semilogy(
-        eb, rate(res, "ber", "estimation", est), marker=marker, markeredgecolor="#fcfcfb",
+        eb, rate(res, "ber", "estimation", est), marker=marker, markeredgecolor=BACKGROUND,
         label=label,
     )  # fmt: skip
-ax.semilogy(fine := np.linspace(0, 25, 101), mrc(fine, 1), ":", color="#8a8984",
-            label="Rayleigh, closed form")  # fmt: skip
+ax.semilogy(fine := np.linspace(0, 25, 101), ber_rayleigh_mrc(comrs.db2lin(fine), 1), ":",
+            color=GREY, label="Rayleigh, closed form")  # fmt: skip
 ax.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", xlim=(0, 25),
     title="QPSK OFDM over EVA, 70 Hz Doppler",
@@ -140,8 +129,8 @@ def bicm(fading):
 
 fig, ax = plt.subplots()
 for fading, eb, color, name in [
-    (False, np.arange(2.0, 5.6, 0.5), "#2a6fdb", "AWGN"),
-    (True, np.arange(5.0, 10.6, 0.5), "#d95f02", "fast Rayleigh"),
+    (False, np.arange(2.0, 5.6, 0.5), COBALT, "AWGN"),
+    (True, np.arange(5.0, 10.6, 0.5), RUST, "fast Rayleigh"),
 ]:
     res = bicm(fading).run(
         grid={"ebn0_db": list(eb)},
@@ -150,7 +139,7 @@ for fading, eb, color, name in [
     )
     ax.semilogy(eb, rate(res, "ber"), "--", color=color, label=f"coded bits, {name}")
     ax.semilogy(
-        eb, rate(res, "coded_ber"), "o-", color=color, markeredgecolor="#fcfcfb",
+        eb, rate(res, "coded_ber"), "o-", color=color, markeredgecolor=BACKGROUND,
         label=f"decoded bits, {name}",
     )  # fmt: skip
 ax.set(

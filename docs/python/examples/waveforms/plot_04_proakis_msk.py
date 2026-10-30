@@ -20,6 +20,7 @@ checks the precoded case in CI within 4 % at 2, 4 and 6 dB.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 
@@ -63,15 +64,15 @@ def bpsk(ebn0_db):
 
 fig, ax = plt.subplots()
 fine = np.linspace(0, 8, 81)
-ax.semilogy(fine, bpsk(fine), color="#52514e", linewidth=1.4, label="BPSK, $Q(\\sqrt{2E_b/N_0})$")
-ax.semilogy(fine, 2 * bpsk(fine) * (1 - bpsk(fine)), ":", color="#52514e", linewidth=1.4,
+ax.semilogy(fine, bpsk(fine), color=MUTED, linewidth=1.4, label="BPSK, $Q(\\sqrt{2E_b/N_0})$")
+ax.semilogy(fine, 2 * bpsk(fine) * (1 - bpsk(fine)), ":", color=MUTED, linewidth=1.4,
             label="differentially decoded BPSK, $2p(1-p)$")  # fmt: skip
 for precode, marker, label in [(True, "o", "MSK, precoded"), (False, "s", "MSK, not precoded")]:
     rows = [r for r in results if r["condition"]["precode"] is precode]
     ber = np.array([r["metrics"]["ber"]["value"] for r in rows])
     lo = np.array([r["metrics"]["ber"]["lo"] for r in rows])
     hi = np.array([r["metrics"]["ber"]["hi"] for r in rows])
-    ax.errorbar(EBN0, ber, yerr=[ber - lo, hi - ber], fmt=marker, markeredgecolor="#fcfcfb",
+    ax.errorbar(EBN0, ber, yerr=[ber - lo, hi - ber], fmt=marker, markeredgecolor=BACKGROUND,
                 capsize=0, label=label)  # fmt: skip
 ax.set(
     xlim=(0, 8),

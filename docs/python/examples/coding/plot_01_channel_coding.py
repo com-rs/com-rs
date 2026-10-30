@@ -20,6 +20,7 @@ closes most of the gap — the reason why 5G NR uses it for its control channels
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
 
@@ -50,7 +51,7 @@ eb = np.linspace(-1, 10, 221)
 ax.semilogy(
     eb,
     [comrs.qfunc(np.sqrt(2 * 10 ** (e / 10))) for e in eb],
-    color="#8a8984",
+    color=GREY,
     linewidth=1.4,
     label="uncoded BPSK",
 )
@@ -72,13 +73,11 @@ codes = {
 for (name, (code, pts, bits)), marker in zip(codes.items(), ["^", "o", "s", "D"], strict=True):
     ber = curve(code, pts, bits)
     keep = ber > 0
-    ax.semilogy(pts[keep], ber[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(pts[keep], ber[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 for rate, label in [(1 / 3, "R = 1/3"), (1 / 2, "R = 1/2")]:
     lim = comrs.shannon_limit_ebn0_db(rate)
-    ax.axvline(lim, color="#8a8984", linestyle=":", linewidth=1.0)
-    ax.text(
-        lim + 0.1, 2e-6, f"Shannon, {label}", rotation=90, fontsize=8, color="#52514e", va="bottom"
-    )
+    ax.axvline(lim, color=GREY, linestyle=":", linewidth=1.0)
+    ax.text(lim + 0.1, 2e-6, f"Shannon, {label}", rotation=90, fontsize=8, color=MUTED, va="bottom")
 ax.set(
     ylim=(1e-6, 0.5),
     xlim=(-1, 10),
@@ -94,7 +93,7 @@ fig.tight_layout()
 pts = np.arange(1.0, 3.6, 0.25)
 fig, ax = plt.subplots()
 na = comrs.normal_approximation(256, 128, np.linspace(0, 4, 81))
-ax.semilogy(np.linspace(0, 4, 81), na, color="#8a8984", linewidth=1.4, label="normal approximation")
+ax.semilogy(np.linspace(0, 4, 81), na, color=GREY, linewidth=1.4, label="normal approximation")
 short = {
     "polar, SC": comrs.PolarCode(256, 128, design_ebn0_db=2.0),
     "polar, CRC6-aided SCL, L = 8": comrs.PolarCode(
@@ -105,7 +104,7 @@ short = {
 for (name, code), marker in zip(short.items(), ["o", "s", "D"], strict=True):
     bler = np.array([simulate(code, e, 1000)[1] for e in pts])
     keep = bler > 0
-    ax.semilogy(pts[keep], bler[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(pts[keep], bler[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     ylim=(1e-4, 1),
     xlim=(0, 4),

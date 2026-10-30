@@ -23,6 +23,7 @@ Every curve below is checked against its closed form by
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -51,9 +52,9 @@ for bits in bits_range:
     measured.append(10 * np.log10(8 / noise))
 
 fig, ax = plt.subplots()
-ax.plot(bits_range, [comrs.theory_sqnr_sine_db(int(b)) for b in bits_range], color="#8a8984",
+ax.plot(bits_range, [comrs.theory_sqnr_sine_db(int(b)) for b in bits_range], color=GREY,
         linewidth=1.2, label="6.02 N + 1.76 dB")  # fmt: skip
-ax.plot(bits_range, measured, "o", markeredgecolor="#fcfcfb", label="comrs.adc, full-scale tones")
+ax.plot(bits_range, measured, "o", markeredgecolor=BACKGROUND, label="comrs.adc, full-scale tones")
 ax.set(xlabel="resolution N (bits)", ylabel="SQNR (dB)", title="Quantisation of a full-scale sine")
 ax.legend()
 fig.tight_layout()
@@ -75,7 +76,7 @@ for bits, marker in zip([3, 5, 8], ["o", "s", "D"], strict=True):
     sim = [
         np.mean(np.abs(comrs.adc(x, bits, full_scale=lam) - x) ** 2) / 2 for lam in loadings[::3]
     ]
-    ax.semilogy(loadings[::3], sim, marker, color=line.get_color(), markeredgecolor="#fcfcfb",
+    ax.semilogy(loadings[::3], sim, marker, color=line.get_color(), markeredgecolor=BACKGROUND,
                 label=f"{bits} bits, comrs.adc")  # fmt: skip
     best = comrs.optimal_loading(bits)
     ax.semilogy([best], [comrs.theory_quantization_mse(bits, best)], "o", markersize=11,
@@ -115,8 +116,8 @@ for jitter, marker in zip([25e-15, 100e-15, 400e-15], ["o", "s", "D"], strict=Tr
         y = comrs.adc(tone, 14, fs=fs, full_scale=1.05, jitter_s=jitter, rng=rng)
         c = np.mean(y * np.conj(tone))
         snr.append(10 * np.log10(abs(c) ** 2 / np.mean(np.abs(y - c * tone) ** 2)))
-    ax.semilogx(freqs, snr, marker, color=line.get_color(), markeredgecolor="#fcfcfb")
-ax.axhline(comrs.theory_sqnr_sine_db(14), color="#8a8984", linestyle=":", linewidth=1.2,
+    ax.semilogx(freqs, snr, marker, color=line.get_color(), markeredgecolor=BACKGROUND)
+ax.axhline(comrs.theory_sqnr_sine_db(14), color=GREY, linestyle=":", linewidth=1.2,
            label="14-bit quantisation")  # fmt: skip
 ax.set(xlabel="input frequency (Hz)", ylabel="SNR (dB)", title="ADC at 64 GS/s: jitter-limited SNR")
 ax.legend(fontsize=8)
@@ -152,7 +153,7 @@ for bits, marker in zip([3, 4, 5, None], ["o", "s", "D", "^"], strict=True):
     ber = np.array(ber)
     label = f"{bits}-bit ADC" if bits else "no ADC"
     keep = ber > 0
-    (line,) = ax.semilogy(snrs[keep], ber[keep], marker, markeredgecolor="#fcfcfb", label=label)
+    (line,) = ax.semilogy(snrs[keep], ber[keep], marker, markeredgecolor=BACKGROUND, label=label)
     fine = np.linspace(10, 40, 61)
     if bits is None:
         total_noise = 1 / comrs.db2lin(fine)
@@ -195,7 +196,7 @@ fig, ax = plt.subplots()
 ax.plot(
     fr, [20 * np.log10(comrs.zero_order_hold_gain(f, 1.0, hold)) for f in fr], label="closed form"
 )
-ax.plot(measured_f, measured_g, "o", markeredgecolor="#fcfcfb", label="comrs.dac")
+ax.plot(measured_f, measured_g, "o", markeredgecolor=BACKGROUND, label="comrs.dac")
 ax.set(
     xlabel="frequency (in units of the DAC rate)",
     ylabel="gain (dB)",

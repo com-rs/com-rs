@@ -22,6 +22,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -57,7 +58,7 @@ g = 10 ** (eb / 10)
 ax.semilogy(
     eb,
     0.5 * (1 - np.sqrt(g / (1 + g))),
-    color="#8a8984",
+    color=GREY,
     linewidth=1.2,
     linestyle=":",
     label="1 Rayleigh branch (theory)",
@@ -65,7 +66,7 @@ ax.semilogy(
 for (name, values), marker in zip(ber.items(), ["o", "s", "D", "^"], strict=True):
     v = np.array(values)
     keep = v > 0  # NaN (too few errors) compares false
-    ax.semilogy(points[keep], v[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(points[keep], v[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     ylim=(1e-6, 0.5),
     xlim=(0, 25),
@@ -149,7 +150,7 @@ per_snr = {name: [time_per_vector(m, c, 4, e, 2000) for e in snrs] for name, m i
 
 fig, ax = plt.subplots()
 for (name, values), marker in zip(per_snr.items(), markers, strict=True):
-    ax.semilogy(snrs, 1e6 * np.array(values), marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(snrs, 1e6 * np.array(values), marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     xlabel="$E_b/N_0$ (dB)",
     ylabel="measured time per vector (µs)",
@@ -179,7 +180,9 @@ for name, m in timed.items():
 
 fig, ax = plt.subplots()
 for (name, (sizes, values)), marker in zip(per_size.items(), markers, strict=True):
-    ax.semilogy(sizes, 1e6 * np.array(values), marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(
+        sizes, 1e6 * np.array(values), marker=marker, markeredgecolor=BACKGROUND, label=name
+    )
 ax.set(
     xlabel="antennas $n_t = n_r$",
     ylabel="measured time per vector (µs)",

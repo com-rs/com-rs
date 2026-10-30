@@ -13,7 +13,9 @@ to (re)record them::
 Re-recording is a deliberate act, named in the commit message with the version of the
 tool. The files are written deterministically (sorted keys, ``repr`` of the floats, a
 fixed timestamp in the archive, the date kept when nothing else changed), so that
-re-recording an unchanged oracle produces no diff.
+re-recording an unchanged oracle produces no diff. ``tools/record_sionna_vectors.py``
+writes its vectors with the same functions (:func:`archive`, :func:`dumps`), and
+``tests/test_cards.py`` reads the expected values of the cards with :func:`recorded`.
 
 The outputs of a program are not covered by its licence: the fixtures are results of
 OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause) and py3gpp (AGPL-3.0), not their code nor their
@@ -33,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pytest
 
 DIR = Path(__file__).parent / "oracle"
 RECORD = os.environ.get("COMRS_RECORD_ORACLE", "") not in ("", "0")
@@ -56,12 +57,19 @@ def oracle(name: str, compute: Callable[[], Any], *, tool: str) -> Any:
     if RECORD:
         _record(name, path, compute(), tool)
     elif not path.exists():
+        import pytest
+
         pytest.skip(
             f"recorded oracle {path.relative_to(DIR.parent.parent)} is missing: "
             f"install {tool} (pip install --group oracle) and record it with "
             "COMRS_RECORD_ORACLE=1 python -m pytest"
         )
     return _load(path)
+
+
+def recorded(name: str) -> Any:
+    """The recorded oracle ``tests/oracle/<name>.json`` (and its ``.npz``)."""
+    return _load(DIR / f"{name}.json")
 
 
 # ------------------------------------------------------------------------- writing
@@ -85,11 +93,11 @@ def _record(name: str, path: Path, value: Any, tool: str) -> None:
         doc["npz"] = npz.name
     doc["recorded"] = _date(path, npz, doc, arrays)
     DIR.mkdir(exist_ok=True)
-    text = _dumps(doc)
+    text = dumps(doc)
     if not path.exists() or path.read_text() != text:
         path.write_text(text)
     if arrays:
-        blob = _npz(arrays)
+        blob = archive(arrays)
         if not npz.exists() or npz.read_bytes() != blob:
             npz.write_bytes(blob)
     elif npz.exists():
@@ -102,14 +110,15 @@ def _date(path: Path, npz: Path, doc: dict, arrays: dict) -> str:
         old = json.loads(path.read_text())
         same = {k: v for k, v in old.items() if k != "recorded"} == doc
         if same and arrays:
-            same = npz.exists() and npz.read_bytes() == _npz(arrays)
+            same = npz.exists() and npz.read_bytes() == archive(arrays)
         if same:
             return old["recorded"]
     return datetime.date.today().isoformat()
 
 
-def _dumps(doc: dict) -> str:
-    """The document indented, except the values of the inline arrays, one line each."""
+def dumps(doc: dict) -> str:
+    """The document as JSON: sorted keys, indented, except the values of the inline
+    arrays, one line each."""
     inline: list[list] = []
     text = json.dumps(_placeholders(doc, inline), sort_keys=True, indent=1) + "\n"
     for i, values in enumerate(inline):
@@ -130,7 +139,9 @@ def _placeholders(value: Any, inline: list[list]) -> Any:
     return value
 
 
-def _npz(arrays: dict[str, np.ndarray]) -> bytes:
+def archive(arrays: dict[str, np.ndarray]) -> bytes:
+    """The ``.npz`` archive of ``arrays``, deterministic: the entries in the order of
+    the keys, each ``<key>.npy``, compressed, with a fixed timestamp."""
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for key in sorted(arrays):

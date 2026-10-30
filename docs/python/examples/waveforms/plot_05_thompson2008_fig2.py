@@ -31,6 +31,7 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 
@@ -72,9 +73,9 @@ for i, two_pi_h in enumerate(TWO_PI_H):
     ber = np.array([r["metrics"]["ber"]["value"] for r in rows])
     keep = np.array([r["metrics"]["ber"]["count"] for r in rows]) >= 20
     (line,) = ax.semilogy(fine, eq15(fine, two_pi_h), linewidth=1.4)
-    ax.semilogy(EBN0[keep], ber[keep], "osD^"[i], color=line.get_color(), markeredgecolor="#fcfcfb",
+    ax.semilogy(EBN0[keep], ber[keep], "osD^"[i], color=line.get_color(), markeredgecolor=BACKGROUND,
                 label=f"$2\\pi h$ = {two_pi_h}")  # fmt: skip
-ax.plot([], [], color="#52514e", linewidth=1.4, label="eq. (15)")
+ax.plot([], [], color=MUTED, linewidth=1.4, label="eq. (15)")
 ax.set(
     xlim=(0, 35),
     ylim=(1e-4, 0.5),

@@ -25,6 +25,7 @@ sample per symbol, with the timing and the carrier recovered.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, LABEL, ORANGE
 
 import comrs
 
@@ -110,8 +111,8 @@ curves = {
 }
 fig, ax = plt.subplots()
 for (name, values), marker in zip(curves.items(), ["o", "s", "D", "^"], strict=True):
-    ax.plot(snrs, values, marker=marker, markeredgecolor="#fcfcfb", label=name)
-ax.axhline(1 / len(CANDS), color="#8a8984", linestyle=":", linewidth=1.0, label="chance")
+    ax.plot(snrs, values, marker=marker, markeredgecolor=BACKGROUND, label=name)
+ax.axhline(1 / len(CANDS), color=GREY, linestyle=":", linewidth=1.0, label="chance")
 ax.set(xlabel="SNR (dB)", ylabel="probability of correct classification", ylim=(0, 1.02),
        title="BPSK, QPSK, 8-PSK, 16-QAM, 64-QAM; 512 symbols")  # fmt: skip
 ax.legend(fontsize=8, loc="lower right")
@@ -132,7 +133,7 @@ for ax, method in zip(axes, ["cumulants", "ml"], strict=True):
     for i in range(5):
         for j in range(5):
             ax.text(j, i, f"{m[i, j]:.2f}", ha="center", va="center", fontsize=8,
-                    color="white" if m[i, j] > 0.6 else "#2b2a28")  # fmt: skip
+                    color="white" if m[i, j] > 0.6 else LABEL)  # fmt: skip
     ax.set(xticks=range(5), yticks=range(5), xticklabels=NAMES, yticklabels=NAMES,
            title="cumulants" if method == "cumulants" else "likelihood")  # fmt: skip
     ax.tick_params(axis="x", labelrotation=45)
@@ -153,7 +154,7 @@ for (name, method, known), marker in zip(
     strict=True,
 ):  # fmt: skip
     ax.semilogx(lengths, [pcc(method, 10.0, n, known) for n in lengths], marker=marker,
-                markeredgecolor="#fcfcfb", label=name)  # fmt: skip
+                markeredgecolor=BACKGROUND, label=name)  # fmt: skip
 ax.set(xlabel="symbols per decision", ylabel="probability of correct classification", ylim=(0, 1.02),
        title="Classification against the observation length")  # fmt: skip
 ax.legend()
@@ -172,7 +173,7 @@ fig.tight_layout()
 
 true_snr = np.arange(0.0, 31.0, 3.0)
 fig, ax = plt.subplots()
-ax.plot(true_snr, true_snr, color="#8a8984", linewidth=1.0, linestyle=":", label="ideal")
+ax.plot(true_snr, true_snr, color=GREY, linewidth=1.0, linestyle=":", label="ideal")
 for c, name, marker in [(CANDS[2], "8-PSK", "o"), (CANDS[3], "16-QAM", "s")]:
     med, lo, hi = [], [], []
     for s in true_snr:
@@ -182,7 +183,7 @@ for c, name, marker in [(CANDS[2], "8-PSK", "o"), (CANDS[3], "16-QAM", "s")]:
         lo.append(np.percentile(est, 10))
         hi.append(np.percentile(est, 90))
     (line,) = ax.plot(
-        true_snr, med, marker=marker, markeredgecolor="#fcfcfb", label=f"{name}, M2M4"
+        true_snr, med, marker=marker, markeredgecolor=BACKGROUND, label=f"{name}, M2M4"
     )
     ax.fill_between(true_snr, lo, hi, color=line.get_color(), alpha=0.15)
 ax.set(
@@ -240,7 +241,7 @@ freqs = np.fft.rfftfreq(seg, d=1 / sps)
 rs = comrs.estimate_symbol_rate(x, sps, 0.3, sps / 2)
 fig, ax = plt.subplots()
 ax.semilogy(freqs[1:], spec[1:], linewidth=0.8)
-ax.axvline(rs, color="#eb6834", linestyle="--", linewidth=1.2, label=f"estimate: {rs:.5f} (true 1)")
+ax.axvline(rs, color=ORANGE, linestyle="--", linewidth=1.2, label=f"estimate: {rs:.5f} (true 1)")
 ax.set(xlim=(0, sps / 2), xlabel="frequency (in units of the symbol rate)", ylabel="averaged spectrum of |x|²",
        title=f"16-QAM, RRC β = {beta}, {sps} samples per symbol")  # fmt: skip
 ax.legend()

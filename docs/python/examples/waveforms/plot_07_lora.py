@@ -30,6 +30,7 @@ LoRa is a trademark of Semtech; this models the published descriptions for resea
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import MUTED
 
 import comrs
 
@@ -75,7 +76,7 @@ ax.legend(loc="lower left", ncol=2, fontsize=8)
 ax = axes[0, 1]
 snr = np.arange(-12, 0, 1.0)
 flat = comrs.css_ber(7, snr)
-ax.semilogy(snr, flat, color="#52514e", label="flat (FSCM = FSK)")
+ax.semilogy(snr, flat, color=MUTED, label="flat (FSCM = FSK)")
 taps = (np.sqrt(0.8), np.sqrt(0.2))
 for waveform, marker in [("vangelista", "s"), ("fsk", "^")]:
     css = comrs.Css(7, waveform=waveform)
@@ -106,7 +107,7 @@ ax.legend()
 # 4. same-SF interference, SF 9, P_I = -3 dB
 ax = axes[1, 1]
 snr = np.arange(-18, -8, 1.0)
-ax.semilogy(snr, comrs.css_ser(9, snr), color="#52514e", linewidth=1.0, label="AWGN only")
+ax.semilogy(snr, comrs.css_ser(9, snr), color=MUTED, linewidth=1.0, label="AWGN only")
 approx = [comrs.css_ser_interference(9, s, -3.0) for s in snr]
 ax.semilogy(snr, approx, label="approximation (63)")
 css = comrs.Css(9)

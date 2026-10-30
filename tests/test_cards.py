@@ -18,14 +18,13 @@ from typing import Any
 
 import numpy as np
 import pytest
-from oracle import _load
+from oracle import recorded
 
 import comrs
 
 yaml = pytest.importorskip("yaml")
 
 CARDS = Path(__file__).resolve().parent.parent / "validation" / "cards"
-ORACLES = Path(__file__).resolve().parent / "oracle"
 
 
 def cards() -> list[dict[str, Any]]:
@@ -47,7 +46,7 @@ def build(value: Any) -> Any:
 
 def expected_value(value: Any) -> Any:
     if isinstance(value, dict) and "oracle" in value:
-        data = _load(ORACLES / f"{value['oracle']}.json")
+        data = recorded(value["oracle"])
         for key in value["path"]:
             data = data[key]
         return data
@@ -137,7 +136,9 @@ def test_the_rule_of_the_cards():
 @pytest.mark.parametrize(("card", "i"), CASES)
 def test_card(card, i):
     case = card["cases"][i]
-    got = resolve(card["run"]["function"])(**{k: build(v) for k, v in case["inputs"].items()})
+    function = resolve(card["run"]["function"])
+    assert getattr(comrs, function.__name__, None) is function, "the runner is not in comrs"
+    got = function(**{k: build(v) for k, v in case["inputs"].items()})
     output = case.get("output", card.get("output"))
     if output is not None:
         got = got[output]
@@ -149,4 +150,3 @@ def test_card(card, i):
         np.testing.assert_array_equal(got, np.asarray(want), err_msg=where)
     else:
         assert accepted(got, want, tol), f"{where}: got {got}, expected {want} ({tol})"
-    assert comrs  # the package under test

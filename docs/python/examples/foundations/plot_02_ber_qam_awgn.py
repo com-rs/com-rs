@@ -18,6 +18,7 @@ errors, and the sweep of a constellation stops once its BER falls below
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 
@@ -56,11 +57,11 @@ for m in [4, 16, 64]:
         yerr=[ber[keep] - lo[keep], hi[keep] - ber[keep]],
         fmt="o",
         color=line.get_color(),
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         capsize=0,
         label=f"{m}-QAM",
     )
-ax.plot([], [], color="#52514e", linewidth=1.4, label="theory")
+ax.plot([], [], color=MUTED, linewidth=1.4, label="theory")
 ax.set(
     ylim=(1e-6, 0.5),
     xlim=(0, 20),

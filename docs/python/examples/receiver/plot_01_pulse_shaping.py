@@ -11,6 +11,7 @@ of the pulse tails and the sensitivity to timing errors — which the eye diagra
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE
 
 import comrs
 
@@ -42,7 +43,7 @@ for ax, beta in zip(axes, [0.1, 0.5], strict=True):
     # two-symbol windows centred on the sampling instants t = 0 and t = 1
     traces = y[40 * SPS - SPS // 2 : 560 * SPS - SPS // 2].real.reshape(-1, 2 * SPS)
     t = np.arange(2 * SPS) / SPS - 0.5
-    ax.plot(t, traces.T, color="#2a78d6", linewidth=0.6, alpha=0.25)
+    ax.plot(t, traces.T, color=BLUE, linewidth=0.6, alpha=0.25)
     ax.set(title=rf"RRC pair, $\beta$ = {beta}", xlabel="time (symbols)", xlim=(-0.5, 1.5))
 axes[0].set_ylabel("in-phase amplitude")
 fig.tight_layout()

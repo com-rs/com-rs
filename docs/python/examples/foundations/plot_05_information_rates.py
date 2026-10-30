@@ -16,14 +16,13 @@ The curves are computed by Gauss–Hermite quadrature (:func:`comrs.theory_mi`,
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, ORANGE
 
 import comrs
 
 snr = np.arange(-5.0, 30.5, 1.0)
 fig, ax = plt.subplots()
-ax.plot(
-    snr, np.log2(1 + 10 ** (snr / 10)), color="#8a8984", linewidth=1.4, label="Shannon capacity"
-)
+ax.plot(snr, np.log2(1 + 10 ** (snr / 10)), color=GREY, linewidth=1.4, label="Shannon capacity")
 for m in [4, 16, 64]:
     mi = [comrs.theory_mi(m, s, "qam") for s in snr]
     gmi = [comrs.theory_gmi(m, s, "qam") for s in snr]
@@ -41,8 +40,8 @@ ax.plot(
     snr[::3],
     [e["mi"] for e in est],
     "o",
-    color="#eb6834",
-    markeredgecolor="#fcfcfb",
+    color=ORANGE,
+    markeredgecolor=BACKGROUND,
     label="16-QAM, MI simulated",
 )
 ax.set(

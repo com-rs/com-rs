@@ -18,6 +18,7 @@ information with puncturing, shortening and repetition.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE, CRIMSON, TEAL
 
 import comrs
 
@@ -60,13 +61,13 @@ def bler(code, ebn0_db, blocks):
 
 
 cases = [
-    ("LDPC, K' = 500, E = 1000", comrs.NrLdpc(500, 1000), np.arange(0.5, 2.01, 0.5), "#2a78d6"),
-    ("LDPC, K' = 500, E = 2000", comrs.NrLdpc(500, 2000), np.arange(-0.5, 1.01, 0.5), "#1b9e77"),
+    ("LDPC, K' = 500, E = 1000", comrs.NrLdpc(500, 1000), np.arange(0.5, 2.01, 0.5), BLUE),
+    ("LDPC, K' = 500, E = 2000", comrs.NrLdpc(500, 2000), np.arange(-0.5, 1.01, 0.5), TEAL),
     (
         "polar uplink, A = 40, E = 128",
         comrs.NrPolar(40, 128, list_size=8),
         np.arange(0.5, 3.51, 0.5),
-        "#c0392b",
+        CRIMSON,
     ),
 ]
 fig, ax = plt.subplots(figsize=(6.4, 4.0))

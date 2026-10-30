@@ -1,7 +1,9 @@
 """Shared helpers of the Python tests.
 
 - ``tests/`` is on the import path, for the recorded oracles (``from oracle import
-  oracle``) and these helpers (``from conftest import qpsk_chain``);
+  oracle``) and these helpers (``from conftest import qpsk_chain``), and so is
+  ``docs/python``, for the closed forms that the gallery shares with the tests until
+  the package binds them (``from _gallery_utils import ber_rayleigh_mrc``);
 - :func:`qpsk_chain` and :func:`qpsk_spec` are the QPSK link over AWGN that many tests
   run, as a chain and as a specification;
 - the ``slow`` marker labels the long tests (a WDM link with the GN model, the Raman
@@ -21,8 +23,9 @@ from comrs import blocks as B
 TESTS = Path(__file__).resolve().parent
 ROOT = TESTS.parent
 SPECS = ROOT / "specs"
-if str(TESTS) not in sys.path:
-    sys.path.insert(0, str(TESTS))
+for folder in (TESTS, ROOT / "docs" / "python"):
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
 
 
 def qpsk_chain(n_symbols: int = 1000, *, snr: str = "ebn0_db", **source: Any) -> comrs.Chain:

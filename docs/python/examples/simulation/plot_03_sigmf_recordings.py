@@ -26,6 +26,7 @@ import tempfile
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE, GREY_WARM
 
 import comrs
 
@@ -80,11 +81,11 @@ seg = y[: y.size // n * n].reshape(-1, n) * np.hanning(n)
 psd = np.fft.fftshift(np.mean(np.abs(np.fft.fft(seg, axis=1)) ** 2, axis=0))
 f = (fc + np.fft.fftshift(np.fft.fftfreq(n, 1 / fs))) / 1e6
 fig, ax = plt.subplots(figsize=(6.4, 3.2))
-ax.plot(f, 10 * np.log10(psd / psd.max()), color="#2a78d6", linewidth=1)
+ax.plot(f, 10 * np.log10(psd / psd.max()), color=BLUE, linewidth=1)
 ax.axvspan(
     ann["core:freq_lower_edge"] / 1e6,
     ann["core:freq_upper_edge"] / 1e6,
-    color="#8a8780",
+    color=GREY_WARM,
     alpha=0.15,
 )
 ax.set(xlabel="frequency (MHz)", ylabel="PSD (dB)", ylim=(-45, 3))
@@ -134,7 +135,7 @@ print(
 )
 
 fig, ax = plt.subplots(figsize=(3.6, 3.6))
-ax.scatter(s.real, s.imag, s=2, color="#2a78d6", alpha=0.3, linewidth=0)
+ax.scatter(s.real, s.imag, s=2, color=BLUE, alpha=0.3, linewidth=0)
 ax.set(aspect="equal", xlim=(-1.6, 1.6), ylim=(-1.6, 1.6), title=f"{names[decided]}, {snr:.1f} dB")
 fig.tight_layout()
 

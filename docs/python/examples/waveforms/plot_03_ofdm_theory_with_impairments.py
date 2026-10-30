@@ -35,6 +35,7 @@ settled by an exact computation or by the paper's own figures:
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 import comrs
 
@@ -66,7 +67,7 @@ def simulate_16qam(ebn0_db, rho, n=150_000):
 
 ebn0 = np.arange(0.0, 51.0, 2.0)
 fig, ax = plt.subplots(figsize=(6.4, 4.0))
-for rho, color in [(1.0, "#2b2a28"), (0.99999, "#1b9e77"), (0.9999, "#2a78d6"), (0.999, "#c0392b")]:
+for rho, color in [(1.0, LABEL), (0.99999, TEAL), (0.9999, BLUE), (0.999, CRIMSON)]:
     ax.semilogy(
         ebn0, comrs.theory_ber_imperfect_csi("16qam", ebn0, rho), color=color, label=f"ρ1 = {rho}"
     )
@@ -74,7 +75,7 @@ for rho, color in [(1.0, "#2b2a28"), (0.99999, "#1b9e77"), (0.9999, "#2a78d6"), 
     ax.semilogy(pts, [simulate_16qam(e, rho) for e in pts], "o", color=color, markersize=4)
 read = {1.0: 5e-6, 0.999999: 9e-6, 0.99999: 4e-5, 0.9999: 3.5e-4, 0.999: 3.5e-3}
 ax.semilogy(
-    [50] * len(read), list(read.values()), "x", color="#8a8780", label="read on Fig. 4 (50 dB)"
+    [50] * len(read), list(read.values()), "x", color=GREY_WARM, label="read on Fig. 4 (50 dB)"
 )
 ax.set(
     xlabel="mean $E_b/N_0$ (dB)",
@@ -95,7 +96,7 @@ fig.tight_layout()
 # :math:`\frac{1}{2}(1 - J_0(2\pi f_D T_s))` for DBPSK (their eq. 40).
 
 fig, ax = plt.subplots(figsize=(6.4, 3.6))
-for fd, color in [(0.0, "#2b2a28"), (0.001, "#1b9e77"), (0.005, "#2a78d6"), (0.01, "#c0392b")]:
+for fd, color in [(0.0, LABEL), (0.001, TEAL), (0.005, BLUE), (0.01, CRIMSON)]:
     ax.semilogy(
         ebn0,
         comrs.theory_ber_dpsk_jakes(2, ebn0, fd),
@@ -130,8 +131,8 @@ bins, occupied = 8192, 1536
 useful, dist = comrs.distortion_spectrum(c, occupied, bins)
 f = np.fft.fftshift(np.fft.fftfreq(bins, 1 / 4.0))
 fig, ax = plt.subplots(figsize=(6.4, 3.4))
-ax.plot(f, 10 * np.log10(np.fft.fftshift(useful + dist) + 1e-30), color="#2a78d6", label="output")
-ax.plot(f, 10 * np.log10(np.fft.fftshift(dist) + 1e-30), color="#c0392b", label="distortion")
+ax.plot(f, 10 * np.log10(np.fft.fftshift(useful + dist) + 1e-30), color=BLUE, label="output")
+ax.plot(f, 10 * np.log10(np.fft.fftshift(dist) + 1e-30), color=CRIMSON, label="distortion")
 ax.set(
     xlabel="frequency (in units of the bandwidth of 2048 subcarriers)",
     ylabel="power per bin (dB)",
@@ -155,8 +156,8 @@ carriers = (np.arange(occupied) - occupied // 2) % bins
 x_app = np.arange(8.0, 16.1, 0.5)
 fig, ax = plt.subplots(figsize=(6.4, 3.8))
 for ibo, color, pts in [
-    (3.0, "#c0392b", [(8, 6e-3), (10, 1.2e-3), (12, 1.25e-4), (14, 1.1e-5), (16, 5e-7)]),
-    (6.0, "#2a78d6", [(8, 3.7e-3), (10, 3.7e-4), (12, 1.3e-5), (13, 1.3e-6)]),
+    (3.0, CRIMSON, [(8, 6e-3), (10, 1.2e-3), (12, 1.25e-4), (14, 1.1e-5), (16, 5e-7)]),
+    (6.0, BLUE, [(8, 3.7e-3), (10, 3.7e-4), (12, 1.3e-5), (13, 1.3e-6)]),
 ]:
     g = 10 ** (ibo / 10)
     a = np.sqrt(g)
@@ -172,7 +173,7 @@ for ibo, color, pts in [
     obo = 10 * np.log10(g / (1 - np.exp(-g)))
     ax.semilogy(x_app, ber, color=color, label=f"IBO {ibo:.0f} dB (OBO {obo:.2f} dB)")
     ax.semilogy(*zip(*pts, strict=True), "x", color=color, markersize=7)
-ax.semilogy(x_app, comrs.theory_ber_dpsk(4, x_app), "--", color="#8a8780", label="linear amplifier")
+ax.semilogy(x_app, comrs.theory_ber_dpsk(4, x_app), "--", color=GREY_WARM, label="linear amplifier")
 ax.set(xlabel="$(E_b/N_0)_{app}$ (dB)", ylabel="BER", ylim=(1e-7, 1e-2))
 ax.grid(alpha=0.3, which="both")
 ax.legend(fontsize=8)

@@ -20,12 +20,10 @@ from __future__ import annotations
 import argparse
 import json
 import keyword
-import shutil
-import subprocess
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from _common import ROOT, extension, ruff_format, write_or_check
+
 OUT = ROOT / "python" / "comrs" / "blocks.py"
 
 PY_TYPES = {
@@ -65,22 +63,6 @@ from typing import Any
 from comrs.block import Native, Var, _check_registry, _native_init
 
 '''
-
-
-def extension():
-    """The built extension ``comrs._comrs``, loaded without the package (whose
-    ``blocks`` module this script writes)."""
-    import importlib.util
-
-    found = sorted((ROOT / "python" / "comrs").glob("_comrs*.so")) + sorted(
-        (ROOT / "python" / "comrs").glob("_comrs*.pyd")
-    )
-    if not found:
-        raise SystemExit("build the extension first: maturin develop")
-    spec = importlib.util.spec_from_file_location("_comrs", found[0])
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _registry() -> dict:
@@ -209,22 +191,7 @@ def generate() -> str:
     parts.append("_init = _native_init\n")
     parts.append(f"__all__ = {sorted(names)!r}\n")
     parts.append("_check_registry(globals())\n")
-    return _format("\n".join(parts))
-
-
-def _format(text: str) -> str:
-    ruff = shutil.which("ruff")
-    if ruff is None:
-        raise SystemExit("gen_blocks.py needs ruff (pip install --group lint)")
-    cfg = ["--config", str(ROOT / "pyproject.toml")]
-    out = subprocess.run(
-        [ruff, "format", *cfg, "--stdin-filename", str(OUT), "-"],
-        input=text,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return out.stdout
+    return ruff_format("\n".join(parts), OUT, "gen_blocks.py")
 
 
 def main() -> int:
@@ -232,15 +199,15 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="fail if the file is out of date")
     args = ap.parse_args()
     text = generate()
-    if args.check:
-        if not OUT.exists() or OUT.read_text() != text:
-            print(f"{OUT.relative_to(ROOT)} is out of date: run python tools/gen_blocks.py")
-            return 1
-        print(f"{OUT.relative_to(ROOT)} is up to date")
-        return 0
-    OUT.write_text(text)
-    print(f"wrote {OUT.relative_to(ROOT)} ({text.count('class ')} blocks)")
-    return 0
+    return write_or_check(
+        OUT,
+        text,
+        args.check,
+        fix="python tools/gen_blocks.py",
+        written=f"wrote {{path}} ({text.count('class ')} blocks)",
+        up_to_date=True,
+        stream=sys.stdout,
+    )
 
 
 if __name__ == "__main__":

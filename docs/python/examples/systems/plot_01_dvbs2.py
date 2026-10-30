@@ -28,6 +28,7 @@ code has an effective rate of 4/9 (Table 5b).
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, COBALT, GREY, INK, PURPLE, RULE, RUST, TEAL
 
 import comrs
 from comrs import blocks as B
@@ -39,15 +40,15 @@ families = [
         "QPSK",
         ["1/4", "1/3", "2/5", "1/2", "3/5", "2/3", "3/4", "4/5", "5/6", "8/9", "9/10"],
         "o",
-        "#2a6fdb",
+        COBALT,
     ),
-    ("8PSK", ["3/5", "2/3", "3/4", "5/6", "8/9", "9/10"], "s", "#d95f02"),
-    ("16APSK", ["2/3", "3/4", "4/5", "5/6", "8/9", "9/10"], "D", "#1b9e77"),
-    ("32APSK", ["3/4", "4/5", "5/6", "8/9", "9/10"], "^", "#7570b3"),
+    ("8PSK", ["3/5", "2/3", "3/4", "5/6", "8/9", "9/10"], "s", RUST),
+    ("16APSK", ["2/3", "3/4", "4/5", "5/6", "8/9", "9/10"], "D", TEAL),
+    ("32APSK", ["3/4", "4/5", "5/6", "8/9", "9/10"], "^", PURPLE),
 ]
 fig, ax = plt.subplots()
 esn0 = np.linspace(-4, 18, 200)
-ax.plot(esn0, np.log2(1 + 10 ** (esn0 / 10)), color="#8a8984", linewidth=1.2, label="AWGN capacity")
+ax.plot(esn0, np.log2(1 + 10 ** (esn0 / 10)), color=GREY, linewidth=1.2, label="AWGN capacity")
 for name, rates, marker, color in families:
     pts = []
     for r in rates:
@@ -56,7 +57,7 @@ for name, rates, marker, color in families:
         pts.append((link.threshold_db, (link.k - 80) / link.plframe_len))
     x, y = zip(*pts, strict=True)
     ax.plot(
-        x, y, marker=marker, linestyle="none", color=color, markeredgecolor="#fcfcfb", label=name
+        x, y, marker=marker, linestyle="none", color=color, markeredgecolor=BACKGROUND, label=name
     )
 ax.set(xlabel="Es/N0 (dB)", ylabel="spectral efficiency (bit/symbol)", xlim=(-4, 18), ylim=(0, 5),
        title="DVB-S2 MODCODs at PER 1e-7 (Table 13)")  # fmt: skip
@@ -70,19 +71,19 @@ for ax, (name, rate) in zip(axes, [("16APSK", "3/4"), ("32APSK", "4/5")], strict
     c = comrs.Dvbs2(name, rate, frame="short").constellation
     p = np.asarray(c.points)
     b = c.bits_per_symbol
-    ax.plot(p.real, p.imag, "o", color="#2a6fdb", markeredgecolor="#fcfcfb")
+    ax.plot(p.real, p.imag, "o", color=COBALT, markeredgecolor=BACKGROUND)
     for label, z in enumerate(p):
         ax.annotate(format(label, f"0{b}b"), (z.real, z.imag), textcoords="offset points", xytext=(0, 6),
-                    ha="center", fontsize=7, color="#1f1f1d")  # fmt: skip
+                    ha="center", fontsize=7, color=INK)  # fmt: skip
     ax.set(aspect="equal", title=f"{name} {rate}", xlim=(-1.45, 1.45), ylim=(-1.45, 1.45))
-    ax.axhline(0, color="#d0cfca", linewidth=0.6)
-    ax.axvline(0, color="#d0cfca", linewidth=0.6)
+    ax.axhline(0, color=RULE, linewidth=0.6)
+    ax.axvline(0, color=RULE, linewidth=0.6)
 fig.tight_layout()
 
 # %%
 # Frame error rate of short frames over AWGN, with the thresholds of Table 13.
-cases = [("QPSK", "1/2", "o", "#2a6fdb"), ("8PSK", "3/5", "s", "#d95f02"),
-         ("16APSK", "3/4", "D", "#1b9e77"), ("32APSK", "4/5", "^", "#7570b3")]  # fmt: skip
+cases = [("QPSK", "1/2", "o", COBALT), ("8PSK", "3/5", "s", RUST),
+         ("16APSK", "3/4", "D", TEAL), ("32APSK", "4/5", "^", PURPLE)]  # fmt: skip
 fig, ax = plt.subplots()
 for name, rate, marker, color in cases:
     thr = comrs.Dvbs2(name, rate).threshold_db
@@ -101,7 +102,7 @@ for name, rate, marker, color in cases:
         y[keep],
         marker=marker,
         color=color,
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         label=f"{name} {rate}",
     )
     ax.axvline(thr, color=color, linestyle=":", linewidth=1.0)

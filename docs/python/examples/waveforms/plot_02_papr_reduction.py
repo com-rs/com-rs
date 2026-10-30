@@ -29,6 +29,7 @@ information or rate:
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -48,7 +49,7 @@ def ccdf_of(reduction):
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 4.0), sharey=True)
 for ax in (ax1, ax2):
-    ax.semilogy(t, original, color="#8a8984", linewidth=1.6, label="OFDM")
+    ax.semilogy(t, original, color=GREY, linewidth=1.6, label="OFDM")
 lossless = {
     "SLM, U = 16": comrs.PaprReduction.slm(16),
     "PTS, V = 4, W = 4": comrs.PaprReduction.pts(4, phases=4),
@@ -120,7 +121,7 @@ eb = np.linspace(0, 16, 161)
 ax.semilogy(
     eb,
     [comrs.theory_ber(16, e, "qam") for e in eb],
-    color="#8a8984",
+    color=GREY,
     linewidth=1.4,
     label="16-QAM, AWGN",
 )
@@ -133,7 +134,7 @@ cases = {
 for (name, r), marker in zip(cases.items(), ["o", "s", "D", "^"], strict=True):
     b = ber_curve(r, ebn0, expand="not expanded" not in name)
     keep = b > 0
-    ax.semilogy(ebn0[keep], b[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(ebn0[keep], b[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     ylim=(1e-5, 0.5),
     xlim=(0, 16),

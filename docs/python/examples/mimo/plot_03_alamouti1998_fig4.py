@@ -20,22 +20,12 @@ on the parallel Rust runner; ``specs/mimo_diversity.yaml`` checks the 2 × 2 cas
 CI. Open Fig. 4 of the paper next to this figure: the five curves are the same.
 """
 
-import math
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED, ber_rayleigh_mrc
 
 import comrs
 from comrs import blocks as B
-
-
-def mrc(gamma, branches):
-    """BER of BPSK with maximal-ratio combining of `branches` Rayleigh branches of
-    mean SNR `gamma` (Proakis & Salehi, eq. 13.4-15)."""
-    mu = np.sqrt(gamma / (1 + gamma))
-    return ((1 - mu) / 2) ** branches * sum(
-        math.comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
-    )
 
 
 def system(n_tx, n_rx):
@@ -64,7 +54,7 @@ eb = np.linspace(0, 50, 251)
 for (name, (nt, nr, order, share, last)), marker in zip(
     systems.items(), ["o", "s", "D", "^", "v"], strict=True
 ):
-    (line,) = ax.semilogy(eb, mrc(share * 10 ** (eb / 10), order), linewidth=1.4)
+    (line,) = ax.semilogy(eb, ber_rayleigh_mrc(share * 10 ** (eb / 10), order), linewidth=1.4)
     res = system(nt, nr).run(
         grid={"ebn0_db": list(range(0, last + 1, 4))},
         metrics={"report": ["ber"], "scale": "none"},
@@ -73,8 +63,8 @@ for (name, (nt, nr, order, share, last)), marker in zip(
     )
     x, ber, lo, hi = res.series("ebn0_db", "ber", interval=True, min_count=20)
     ax.errorbar(x, ber, yerr=[ber - lo, hi - ber], fmt=marker, color=line.get_color(),
-                markeredgecolor="#fcfcfb", capsize=0, label=name)  # fmt: skip
-ax.plot([], [], color="#52514e", linewidth=1.4, label="closed form, MRC of $L$ branches")
+                markeredgecolor=BACKGROUND, capsize=0, label=name)  # fmt: skip
+ax.plot([], [], color=MUTED, linewidth=1.4, label="closed form, MRC of $L$ branches")
 ax.set(
     xlim=(0, 50),
     ylim=(1e-6, 1),
@@ -91,7 +81,7 @@ fig.tight_layout()
 # with half the power per antenna, which is the conclusion of the paper.
 for order in [2, 4]:
     g = 10 ** (np.linspace(10, 30, 201) / 10)
-    ratio = mrc(g, order) / mrc(g / 2, order)
+    ratio = ber_rayleigh_mrc(g, order) / ber_rayleigh_mrc(g / 2, order)
     print(
         f"order {order}: the BER ratio of MRRC to the new scheme tends to {ratio[-1]:.3f} = 2^-{order}"
     )
