@@ -23,6 +23,7 @@
 //! assert!((noise / amp.noise_variance(32e9) - 1.0).abs() < 0.02);
 //! ```
 
+use crate::awgn::add_noise;
 use com_core::rng::Rng;
 use com_core::{Result, ensure};
 use com_math::{C64, PLANCK, db2lin};
@@ -98,8 +99,9 @@ impl Edfa {
     pub fn apply(&self, x: &[C64], fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
         self.check()?;
         let g = db2lin(self.gain_db).sqrt();
-        let s = self.noise_variance(fs).sqrt();
-        Ok(x.iter().map(|&v| v * g + rng.complex_gaussian() * s).collect())
+        let mut y: Vec<C64> = x.iter().map(|&v| v * g).collect();
+        add_noise(&mut y, self.noise_variance(fs), rng);
+        Ok(y)
     }
 
     /// Amplify in place without noise (an ideal, noiseless gain).
@@ -136,5 +138,18 @@ mod tests {
             }
         }
         assert!(worst < 1e-15, "{worst}");
+    }
+
+    /// `apply` adds the noise with `awgn::add_noise`: the samples of the former
+    /// `v √G + w σ`, one complex Gaussian draw per sample, bit for bit.
+    #[test]
+    fn the_noise_is_that_of_the_former_inline_draws() {
+        let amp = Edfa { gain_db: 17.3, nf_db: 5.1, ..Edfa::default() };
+        let x: Vec<C64> = (0..257).map(|k| C64::new((k as f64).sin() * 1e-3, (k as f64 * 0.3).cos() * 1e-3)).collect();
+        let y = amp.apply(&x, 64e9, &mut Rng::new(12)).unwrap();
+        let (g, s) = (db2lin(amp.gain_db).sqrt(), amp.noise_variance(64e9).sqrt());
+        let mut rng = Rng::new(12);
+        let former: Vec<C64> = x.iter().map(|&v| v * g + rng.complex_gaussian() * s).collect();
+        assert_eq!(y, former);
     }
 }
