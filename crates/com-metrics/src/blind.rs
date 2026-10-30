@@ -82,6 +82,7 @@
 //!    classification techniques: classical approaches and new trends," *IET Commun.*,
 //!    1(2), 137–156, 2007.
 
+use crate::posterior::SymbolMetric;
 use com_core::{Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
@@ -221,15 +222,13 @@ pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> R
     let scores = candidates
         .iter()
         .map(|c| {
-            let pts = c.points();
-            let ln_m = (pts.len() as f64).ln();
+            let ln_m = (c.order() as f64).ln();
+            // the priors enter as -ln M after the sum
+            let zeros = vec![0.0; c.order()];
+            let mut metric = SymbolMetric::new(c.points(), &zeros, noise_var);
             let mut total = 0.0;
-            let mut d = vec![0.0; pts.len()];
             for &y in r {
-                for (v, p) in d.iter_mut().zip(pts) {
-                    *v = -(y - p).norm_sqr() / noise_var;
-                }
-                total += com_math::log_sum_exp(&d) - ln_m;
+                total += metric.log_sum(y, 1.0, None) - ln_m;
             }
             total / r.len() as f64
         })

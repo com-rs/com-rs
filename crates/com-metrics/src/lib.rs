@@ -67,6 +67,7 @@
 pub mod blind;
 pub mod errors;
 pub mod information;
+mod posterior;
 pub mod spectrum;
 pub mod stability;
 

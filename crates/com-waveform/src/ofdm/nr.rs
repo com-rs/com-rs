@@ -79,10 +79,10 @@
 //!    47(4), 44–51, 2009.
 //! 3. 3GPP TS 38.211, *NR; Physical channels and modulation*, Sec. 5.3, 7.4.
 
+use super::Ofdm;
 use super::grid::PilotTable;
 use com_core::{Result, ensure};
 use com_math::C64;
-use com_math::fft::ifft;
 use com_math::sequences::{gold_3gpp, lfsr};
 use std::f64::consts::FRAC_1_SQRT_2;
 
@@ -167,8 +167,10 @@ impl Numerology {
 
 /// OFDM-modulate `symbols` OFDM symbols of a grid of `k` subcarriers (`grid[l * k + i]`
 /// for subcarrier `i` of symbol `l`), starting at the symbol `first_symbol` of a
-/// subframe, at the FFT size `n_fft` (see the module). The IFFT is scaled by
-/// $1/\sqrt{K}$: a grid of unit-energy symbols gives a unit mean power.
+/// subframe, at the FFT size `n_fft` (see the module). Every symbol is the block of
+/// [`Ofdm::to_time`] of $K$ subcarriers out of $N_{\mathrm{FFT}}$ without oversampling,
+/// scaled by $1/\sqrt{K}$ (a grid of unit-energy symbols gives a unit mean power), and
+/// takes the prefix of its position in the subframe.
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for an odd or too large `k`, a grid that is not a whole number of
@@ -177,16 +179,11 @@ pub fn modulate(nr: &Numerology, grid: &[C64], k: usize, n_fft: usize, first_sym
     ensure(k > 0 && k % 2 == 0 && k <= n_fft, || format!("the grid needs an even K ≤ N_FFT subcarriers, got {k}"))?;
     ensure(grid.len() % k == 0, || format!("{} values is not a whole number of symbols of {k}", grid.len()))?;
     let cp = nr.cp_lengths(n_fft)?;
-    let scale = (n_fft as f64) / (k as f64).sqrt();
+    let ofdm = Ofdm { oversampling: 1, ..Ofdm::new(n_fft, k)? };
     let mut out = Vec::new();
     for (s, sym) in grid.chunks_exact(k).enumerate() {
-        let mut bins = vec![C64::new(0.0, 0.0); n_fft];
-        for (i, v) in sym.iter().enumerate() {
-            bins[(i + n_fft - k / 2) % n_fft] = *v;
-        }
-        let t: Vec<C64> = ifft(&bins).into_iter().map(|v| v * scale).collect();
         let ncp = cp[(first_symbol + s) % cp.len()];
-        com_dsp::signal::extend_with_prefix(&mut out, &t, ncp)?;
+        com_dsp::signal::extend_with_prefix(&mut out, &ofdm.to_time(sym)?, ncp)?;
     }
     Ok(out)
 }
@@ -495,5 +492,27 @@ mod tests {
         let t2 = PdschDmrs { config_type: 2, ..dmrs }.pilot_table(n_rb).unwrap();
         assert_eq!(t2.len(), 3 * k / 3);
         assert!(PdschDmrs { type_a_position: 3, additional_position: 3, ..dmrs }.symbols().is_err());
+    }
+
+    #[test]
+    fn the_symbols_are_those_of_the_direct_ifft() {
+        // the subcarrier i at the bin (i - K/2) mod N, the IFFT scaled by N/√K, then the
+        // prefix: the samples of Ofdm::to_time to the last bit
+        let nr = Numerology::new(2, false).unwrap();
+        let (k, n_fft, first) = (36, 128, 5);
+        let grid: Vec<C64> = (0..6 * k).map(|i| C64::new(((i * 7) % 13) as f64 - 6.0, ((i * 3) % 5) as f64)).collect();
+        let cp = nr.cp_lengths(n_fft).unwrap();
+        let mut expected = Vec::new();
+        for (s, sym) in grid.chunks_exact(k).enumerate() {
+            let mut bins = vec![C64::new(0.0, 0.0); n_fft];
+            for (i, v) in sym.iter().enumerate() {
+                bins[(i + n_fft - k / 2) % n_fft] = *v;
+            }
+            let scale = (n_fft as f64) / (k as f64).sqrt();
+            let t: Vec<C64> = com_math::fft::ifft(&bins).into_iter().map(|v| v * scale).collect();
+            com_dsp::signal::extend_with_prefix(&mut expected, &t, cp[(first + s) % cp.len()]).unwrap();
+        }
+        assert_eq!(modulate(&nr, &grid, k, n_fft, first).unwrap(), expected);
+        assert!(modulate(&nr, &grid, 35, n_fft, 0).is_err() && modulate(&nr, &grid, 256, n_fft, 0).is_err());
     }
 }
