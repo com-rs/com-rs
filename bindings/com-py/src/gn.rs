@@ -82,19 +82,14 @@ fn gn_model<'py>(
     };
     let model =
         GnModel { fiber: fiber.to_rust(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
-    let spec = WdmSpectrum {
-        freqs: freqs.clone(),
-        powers_w: powers.iter().map(|p| dbm2w(*p)).collect(),
-        symbol_rate,
-        rolloff,
-    };
+    let spec = WdmSpectrum { freqs, powers_w: powers.iter().map(|p| dbm2w(*p)).collect(), symbol_rate, rolloff };
     let (nli, ase, snr, eta, p_opt) = py
         .detach(|| -> comrs::core::Result<_> {
             let nli = model.nli_psd(&spec, spec.freqs.get(ch).copied().unwrap_or(0.0))?;
             let ase = model.ase_psd_channel(&spec, ch)?;
             let snr = model.snr(&spec, ch)?;
-            let eta = model.eta(&freqs, symbol_rate, rolloff, ch)?;
-            let p_opt = model.optimal_power(&freqs, symbol_rate, rolloff, ch)?;
+            let eta = model.eta(&spec, ch)?;
+            let p_opt = model.optimal_power(&spec, ch)?;
             Ok((nli, ase, snr, eta, p_opt))
         })
         .py()?;
