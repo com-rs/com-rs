@@ -7,6 +7,7 @@
 
 use comrs::channel::optical::fiber::{FiberParams, Ssfm};
 use comrs::dsp::filter::{PulseShape, fir_filter, pulse_shape};
+use comrs::math::Jacobian;
 use comrs::prelude::*;
 use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 
@@ -14,13 +15,13 @@ fn mapping(c: &mut Criterion) {
     let qam = Constellation::qam(64).expect("square order").normalized();
     let mut rng = Rng::new(1);
     let bits = source::bits(6 * 4096, &mut rng);
-    let x = qam.modulate(&bits).expect("whole symbols");
+    let x = qam.map_bits(&bits).expect("whole symbols");
     let y = awgn::awgn_ebn0(&x, 12.0, 6.0, 1.0, &mut rng);
     let mut g = c.benchmark_group("mapping");
     g.throughput(Throughput::Elements(x.len() as u64));
     g.bench_function("qam64_decide", |b| b.iter(|| qam.decide(black_box(&y))));
-    g.bench_function("qam64_llr_exact", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, false)));
-    g.bench_function("qam64_llr_maxlog", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, true)));
+    g.bench_function("qam64_llr_exact", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, Jacobian::Exact)));
+    g.bench_function("qam64_llr_maxlog", |b| b.iter(|| qam.llr(black_box(&y), 0.01, None, Jacobian::MaxLog)));
     g.finish();
 }
 
@@ -52,8 +53,19 @@ fn channel(c: &mut Criterion) {
     let mut g = c.benchmark_group("channel");
     g.sample_size(10);
     g.throughput(Throughput::Elements(x.len() as u64));
-    g.bench_function("ssfm_80km_1km_steps", |b| b.iter(|| ssfm.propagate(black_box(&x), 64e9, None)));
-    g.bench_function("ssfm_80km_1km_steps_f32", |b| b.iter(|| ssfm.propagate_f32(black_box(&x), 64e9, None)));
+    g.bench_function("ssfm_80km_1km_steps", |b| {
+        b.iter(|| {
+            // the copy the former propagate made inside
+            let mut y = x.clone();
+            ssfm.propagate(black_box(&mut y), 64e9, None).map(|()| y)
+        });
+    });
+    g.bench_function("ssfm_80km_1km_steps_f32", |b| {
+        b.iter(|| {
+            let mut y = x.clone();
+            ssfm.propagate_f32(black_box(&mut y), 64e9, None).map(|()| y)
+        });
+    });
     g.finish();
 }
 

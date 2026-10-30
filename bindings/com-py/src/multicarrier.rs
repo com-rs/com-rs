@@ -191,7 +191,9 @@ impl PyUfmc {
         filter_len: usize,
         sidelobe_db: f64,
     ) -> PyResult<Self> {
-        Ok(PyUfmc { inner: Ufmc::new(n_fft, n_subbands, subband_size, filter_len, sidelobe_db).py()? })
+        let inner = Ufmc { n_fft, n_subbands, subband_size, filter_len, sidelobe_db, ..Ufmc::default() };
+        inner.check().py()?;
+        Ok(PyUfmc { inner })
     }
 
     /// int: Samples per symbol, `N + L - 1`.

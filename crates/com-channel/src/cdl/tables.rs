@@ -52,6 +52,26 @@ pub struct Spreads {
     pub xpr_db: f64,
 }
 
+/// The clusters of a channel, its specular component and the spreads of its rays: a
+/// profile as data ([`Profile`] gives those of the tables), for [`super::Cdl::custom`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClusterTable {
+    /// The clusters (in the units of the tables, powers in dB of any normalisation).
+    pub clusters: Vec<Cluster>,
+    /// The specular component added to the first cluster, if any.
+    pub los: Option<Cluster>,
+    /// The per-cluster spreads.
+    pub spreads: Spreads,
+}
+
+impl From<Profile> for ClusterTable {
+    /// The table of a profile: [`Profile::table`], [`Profile::los`] and
+    /// [`Profile::spreads`].
+    fn from(p: Profile) -> ClusterTable {
+        ClusterTable { clusters: p.table().to_vec(), los: p.los(), spreads: p.spreads() }
+    }
+}
+
 /// The CDL profiles of TR 38.901 Section 7.7.1.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,7 +280,7 @@ impl Profile {
         self.los().map(|s| s.power_db - self.table()[0].power_db)
     }
 
-    /// The power-delay profile for the desired RMS delay spread `delay_spread` (s):
+    /// The power-delay profile for the desired RMS delay spread `delay_spread_s` (s):
     /// one tap per cluster, `(delay in s, power in dB)`, the powers normalised to a
     /// unit sum and the specular component of CDL-D/E added to its cluster. It is the
     /// tap list [`crate::multipath::Tdl::new`] takes, for a CDL profile with
@@ -274,9 +294,9 @@ impl Profile {
     /// assert_eq!(pdp.len(), 23);
     /// assert!((rms_delay_spread(&pdp) - 100e-9).abs() < 2e-9);
     /// ```
-    pub fn pdp(self, delay_spread: f64) -> Vec<(f64, f64)> {
+    pub fn pdp(self, delay_spread_s: f64) -> Vec<(f64, f64)> {
         let powers = self.cluster_powers();
-        self.table().iter().zip(&powers).map(|(c, &p)| (c.delay * delay_spread, lin2db(p))).collect()
+        self.table().iter().zip(&powers).map(|(c, &p)| (c.delay * delay_spread_s, lin2db(p))).collect()
     }
 
     /// The normalised cluster powers $P_{n}$ (unit sum, the specular component of

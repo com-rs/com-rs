@@ -88,7 +88,7 @@ fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
     for _ in 0..frames {
         let ch = model.draw(&mut rng);
         let bits = source::bits(m * n * 2, &mut rng);
-        let x = c.modulate(&bits).unwrap();
+        let x = c.map_bits(&bits).unwrap();
         let labels: Vec<usize> = if otfs {
             let s = o.modulate(&x).unwrap();
             let taps = ch.taps(s.len());

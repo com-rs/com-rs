@@ -46,9 +46,9 @@
 
 use super::schema::ParamType;
 use super::{Block, Extension, Frame, NameOr, Named};
-use com_channel::cdl::{Array, Cdl, Profile as CdlProfile};
+use com_channel::cdl::{Array, Cdl, CdlParams, Profile as CdlProfile};
 use com_channel::fading::Mimo;
-use com_channel::multipath::{Profile, Taps, Tdl};
+use com_channel::multipath::{Profile, Taps, Tdl, TdlParams};
 use com_channel::spatial::{Kronecker, exponential_correlation};
 use com_core::rng::Rng;
 use com_core::units::Hertz;
@@ -61,7 +61,7 @@ use com_mimo::stbc::Ostbc;
 use com_waveform::ofdm::Ofdm;
 use com_waveform::ofdm::estimation::{FrequencyInterpolation, PowerDelayProfile};
 use com_waveform::ofdm::grid::{PilotPattern, ResourceGrid};
-use com_waveform::ofdm::link::transmit;
+use com_waveform::ofdm::link::{FrameDetection, transmit};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -218,7 +218,7 @@ impl Block for MimoTx {
 block_params! {
     struct RayleighSpec {
         n_rx: usize [1] >= 1, "receive antennas";
-        coherence: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
+        coherence_samples: usize [0] "samples", "samples per channel matrix (0: one matrix per trial, 1: fast fading)";
         k_factor: f64 [0.0] >= 0, "Rician factor K (linear), 0 for Rayleigh fading";
         rx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the receive antennas";
         tx_correlation: f64 [0.0] > -1 < 1, "exponential correlation ρ of the transmit antennas";
@@ -258,7 +258,7 @@ impl Block for Rayleigh {
             } else {
                 None
             };
-            let coh = if self.p.coherence == 0 { n.max(1) } else { self.p.coherence };
+            let coh = if self.p.coherence_samples == 0 { n.max(1) } else { self.p.coherence_samples };
             let model = Mimo { n_rx: nr, n_tx: nt, k_factor: self.p.k_factor, los: None, correlation, coherence: coh };
             let (y, hs) = model.apply(x, rng)?;
             Ok((y, Csi::Flat { h: hs, coherence: coh }))
@@ -304,7 +304,13 @@ impl TdlBlock {
 impl Block for TdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         fade(s, rng, |x, fs, rng| {
-            let tdl = Tdl::new(&self.taps, self.doppler, fs, self.n_rx, x.len())?;
+            let tdl = Tdl::new(&TdlParams {
+                taps: self.taps.clone(),
+                doppler_hz: self.doppler,
+                sample_rate: fs,
+                n_rx: self.n_rx,
+                n_tx: x.len(),
+            })?;
             let taps = tdl.draw(x[0].len(), rng);
             Ok((taps.apply(x)?, Csi::Taps(taps)))
         })
@@ -319,7 +325,7 @@ block_params! {
             "the profile of TR 38.901 Tables 7.7.1-1 to 7.7.1-5 (A, B, C: NLOS; D, E: LOS)";
         delay_spread_s: f64 [100e-9] "s" >= 0, "desired RMS delay spread (TR 38.901 §7.7.3)";
         n_rx: usize [1] >= 1, "receive antennas, a vertical uniform linear array";
-        spacing: f64 [0.5] "wavelengths" > 0, "element spacing of both arrays";
+        spacing_wavelengths: f64 [0.5] "wavelengths" > 0, "element spacing of both arrays";
         velocity_mps: f64 [0.0] "m/s" >= 0, "speed of the receiver along the array axis; 0 for a channel constant over the trial";
         fc_hz: f64 [3.5e9] "Hz" > 0, "carrier frequency (the wavelength of the Doppler shifts)";
     }
@@ -340,7 +346,7 @@ impl CdlBlock {
             profile: p.profile.parse()?,
             delay_spread: p.delay_spread_s,
             n_rx: p.n_rx,
-            spacing: p.spacing,
+            spacing: p.spacing_wavelengths,
             velocity: p.velocity_mps,
             carrier: p.fc_hz,
         })
@@ -351,9 +357,15 @@ impl Block for CdlBlock {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         fade(s, rng, |x, fs, rng| {
             let tx = Array::linear(x.len(), self.spacing);
-            let mut cdl = Cdl::new(self.profile, self.delay_spread, fs, tx, Array::linear(self.n_rx, self.spacing))?;
-            cdl.velocity = [0.0, self.velocity, 0.0];
-            cdl.carrier_frequency = self.carrier;
+            let params = CdlParams {
+                delay_spread_s: self.delay_spread,
+                sample_rate: fs,
+                tx,
+                rx: Array::linear(self.n_rx, self.spacing),
+                velocity_mps: [0.0, self.velocity, 0.0],
+                fc_hz: self.carrier,
+            };
+            let cdl = Cdl::new(self.profile, params)?;
             let taps = cdl.draw(x[0].len(), rng)?;
             Ok((taps.apply(x)?, Csi::Taps(taps)))
         })
@@ -393,9 +405,14 @@ fn pilot_pattern(v: &NameOr<PilotSpec>) -> Result<PilotPattern> {
     match v.get("ofdm_tx pilots")? {
         Named::Name(s) if s.eq_ignore_ascii_case("none") => Ok(PilotPattern::None),
         Named::Name(s) => Err(Error::Config(format!("ofdm_tx: pilots must be none or a mapping, got {s:?}"))),
-        Named::Params(p) => {
-            PilotPattern::from_name(&p.pattern, p.period, p.spacing, p.freq, p.time).map_err(|e| e.context("ofdm_tx"))
+        Named::Params(p) => match p.pattern.to_ascii_lowercase().as_str() {
+            "block" => PilotPattern::block(p.period),
+            "comb" => PilotPattern::comb(p.spacing),
+            "lattice" => PilotPattern::lattice(p.freq, p.time),
+            // `one_of` leaves only `none`
+            _ => Ok(PilotPattern::None),
         }
+        .map_err(|e| e.context("ofdm_tx")),
     }
 }
 
@@ -598,9 +615,7 @@ impl Block for OfdmRx {
                 None => perfect_channel(state, &f, nr, g),
             },
             &receiver,
-            gain,
-            state.layout.alamouti,
-            noise_var,
+            &FrameDetection { gain, alamouti: state.layout.alamouti, noise_var },
         )?;
         s.symbol_rate *= nt as f64;
         finish(s, out)
@@ -705,7 +720,7 @@ mod tests {
             &[
                 json!({"type": "source", "constellation": "16-QAM", "n_symbols": 400}),
                 json!({"type": "mimo_tx", "scheme": "alamouti"}),
-                json!({"type": "rayleigh", "n_rx": 1, "coherence": 2}),
+                json!({"type": "rayleigh", "n_rx": 1, "coherence_samples": 2}),
                 json!({"type": "mimo_rx"}),
             ],
             4,
@@ -719,7 +734,7 @@ mod tests {
             &[
                 json!({"type": "source", "constellation": "QPSK", "n_symbols": 400}),
                 json!({"type": "mimo_tx", "n_tx": 2}),
-                json!({"type": "rayleigh", "n_rx": 2, "coherence": 1}),
+                json!({"type": "rayleigh", "n_rx": 2, "coherence_samples": 1}),
                 json!({"type": "awgn", "snr_db": 40.0, "reference": "unit"}),
                 json!({"type": "mimo_rx", "detector": "ml", "llr": true}),
             ],
@@ -783,7 +798,7 @@ mod tests {
                 &[
                     json!({"type": "source", "constellation": "QPSK", "n_symbols": 640}),
                     json!({"type": "mimo_tx", "n_tx": 16}),
-                    json!({"type": "rayleigh", "n_rx": 32, "coherence": 1}),
+                    json!({"type": "rayleigh", "n_rx": 32, "coherence_samples": 1}),
                     json!({"type": "awgn", "snr_db": 60.0, "reference": "unit"}),
                     json!({"type": "mimo_rx", "detector": detector, "iterations": 20, "llr": true}),
                 ],

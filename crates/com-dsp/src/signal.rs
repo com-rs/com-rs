@@ -39,9 +39,9 @@ pub fn anorm(x: &[C64]) -> Vec<C64> {
 }
 
 /// Frequency shift `x[n] e^{j2πΔf n/fs}`.
-pub fn freq_shift(x: &[C64], delta_f: f64, fs: f64) -> Vec<C64> {
+pub fn freq_shift(x: &[C64], offset_hz: f64, fs: f64) -> Vec<C64> {
     let mut y = x.to_vec();
-    rotate(&mut y, 2.0 * PI * delta_f / fs, 0.0);
+    rotate(&mut y, 2.0 * PI * offset_hz / fs, 0.0);
     y
 }
 
@@ -116,7 +116,7 @@ pub fn map_envelope(x: &mut [C64], g: impl Fn(f64) -> C64) {
     }
 }
 
-/// The centre frequencies of `n` channels spaced by `spacing` (Hz), relative to the
+/// The centre frequencies of `n` channels spaced by `spacing_hz` (Hz), relative to the
 /// carrier, as OptiCommPy's `simpleWDMTx`: $(k - \lfloor N/2 \rfloor) \Delta f$ for
 /// $k = 0, \dots, N - 1$, shifted by $\Delta f / 2$ when $N$ is even (the grid is then
 /// symmetric about the carrier).
@@ -127,9 +127,9 @@ pub fn map_envelope(x: &mut [C64], g: impl Fn(f64) -> C64) {
 /// assert_eq!(wdm_grid(3, 50e9), vec![-50e9, 0.0, 50e9]);
 /// assert_eq!(wdm_grid(2, 50e9), vec![-25e9, 25e9]);
 /// ```
-pub fn wdm_grid(n: usize, spacing: f64) -> Vec<f64> {
-    let shift = if n % 2 == 0 { spacing / 2.0 } else { 0.0 };
-    (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing + shift).collect()
+pub fn wdm_grid(n: usize, spacing_hz: f64) -> Vec<f64> {
+    let shift = if n % 2 == 0 { spacing_hz / 2.0 } else { 0.0 };
+    (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing_hz + shift).collect()
 }
 
 /// The channel of centre frequency `f` (Hz) of a multiplex `x` sampled at `fs`, brought

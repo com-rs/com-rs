@@ -30,7 +30,7 @@
 //! link:
 //!   - {type: fec_encode, code: &code {type: ldpc, n: 1024, k: 512}, blocks: 4, interleave: true}
 //!   - {type: map, constellation: 16-QAM}
-//!   - {type: rayleigh, coherence: 1}
+//!   - {type: rayleigh, coherence_samples: 1}
 //!   - {type: awgn_ebn0, ebn0_db: $ebn0_db}
 //!   - mimo_rx
 //!   - demap
@@ -61,6 +61,7 @@ use com_fec::rs::ReedSolomon;
 use com_fec::turbo::{TurboCode, TurboDecoder};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_math::Jacobian;
 use com_systems::pas::Pas;
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -284,7 +285,7 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
         "turbo" => {
             let TurboSpec { k, iterations, max_log } = TurboSpec::parse(&what, p)?;
             let mut code = TurboCode::lte(k)?;
-            code.decoder = TurboDecoder { iterations, exact: !max_log };
+            code.decoder = TurboDecoder { iterations, jacobian: Jacobian::from_max_log(max_log) };
             Box::new(code)
         }
         "ldpc" => {
@@ -438,9 +439,14 @@ impl Block for Demap {
         let c = p.constellation("demap")?;
         let var = p.symbol_noise("demap")?;
         let llr = if var.windows(2).all(|w| w[0] == w[1]) {
-            c.llr(&p.samples, var.first().copied().unwrap_or(1.0), p.pmf.as_deref(), self.max_log)?
+            c.llr(
+                &p.samples,
+                var.first().copied().unwrap_or(1.0),
+                p.pmf.as_deref(),
+                Jacobian::from_max_log(self.max_log),
+            )?
         } else {
-            c.llr_with_variances(&p.samples, &var, p.pmf.as_deref(), self.max_log)?
+            c.llr_with_variances(&p.samples, &var, p.pmf.as_deref(), Jacobian::from_max_log(self.max_log))?
         };
         drop(pooled);
         s.coding.llr = llr;

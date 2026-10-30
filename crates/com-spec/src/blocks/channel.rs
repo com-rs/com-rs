@@ -158,7 +158,7 @@ impl Block for AwgnEbn0 {
 block_params! {
     struct PhaseNoiseSpec {
         linewidth_hz: Option<f64> [absent] "Hz" >= 0, "laser linewidth, increments of variance 2πΔν/f_s";
-        sigma: Option<f64> [absent] "rad" >= 0, "increment standard deviation per sample, instead of the linewidth";
+        sigma_rad: Option<f64> [absent] "rad" >= 0, "increment standard deviation per sample, instead of the linewidth";
         origin: String ["zero"] one_of ["zero", "step"],
             "zero: φ[0] = 0, the first sample is not rotated (OptiCommPy); step: φ[0] = Δ[0], the first sample is rotated too";
     }
@@ -166,21 +166,23 @@ block_params! {
 
 struct PhaseNoise {
     linewidth_hz: Option<f64>,
-    sigma: Option<f64>,
+    sigma_rad: Option<f64>,
     origin: PhaseOrigin,
 }
 
 impl PhaseNoise {
     fn new(p: &PhaseNoiseSpec) -> Result<PhaseNoise> {
-        ensure(p.linewidth_hz.is_some() != p.sigma.is_some(), || "phase_noise: give linewidth_hz or sigma".into())?;
+        ensure(p.linewidth_hz.is_some() != p.sigma_rad.is_some(), || {
+            "phase_noise: give linewidth_hz or sigma_rad".into()
+        })?;
         let origin = p.origin.parse().map_err(|e: Error| e.context("phase_noise"))?;
-        Ok(PhaseNoise { linewidth_hz: p.linewidth_hz, sigma: p.sigma, origin })
+        Ok(PhaseNoise { linewidth_hz: p.linewidth_hz, sigma_rad: p.sigma_rad, origin })
     }
 }
 
 impl Block for PhaseNoise {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        let sd = match (self.linewidth_hz, self.sigma) {
+        let sd = match (self.linewidth_hz, self.sigma_rad) {
             (Some(lw), _) => increment_sd(lw, s.fs())?,
             (_, Some(sg)) => sg,
             _ => 0.0,
@@ -198,28 +200,28 @@ impl Block for PhaseNoise {
 
 block_params! {
     struct CfoSpec {
-        hz: Option<f64> [absent] "Hz", "offset";
-        omega: Option<f64> [absent] "rad/sample", "offset per sample, instead of hz";
+        offset_hz: Option<f64> [absent] "Hz", "offset";
+        omega_rad: Option<f64> [absent] "rad/sample", "offset per sample, instead of offset_hz";
         centred: bool [false], "phase zero at the middle of the block, e^{jω(n - N/2)}, instead of the first sample";
     }
 }
 
 struct Cfo {
-    hz: Option<f64>,
-    omega: Option<f64>,
+    offset_hz: Option<f64>,
+    omega_rad: Option<f64>,
     centred: bool,
 }
 
 impl Cfo {
     fn new(p: &CfoSpec) -> Result<Cfo> {
-        ensure(p.hz.is_some() != p.omega.is_some(), || "cfo: give hz or omega".into())?;
-        Ok(Cfo { hz: p.hz, omega: p.omega, centred: p.centred })
+        ensure(p.offset_hz.is_some() != p.omega_rad.is_some(), || "cfo: give offset_hz or omega_rad".into())?;
+        Ok(Cfo { offset_hz: p.offset_hz, omega_rad: p.omega_rad, centred: p.centred })
     }
 }
 
 impl Block for Cfo {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
-        let w = self.omega.unwrap_or_else(|| 2.0 * PI * self.hz.unwrap_or(0.0) / s.fs());
+        let w = self.omega_rad.unwrap_or_else(|| 2.0 * PI * self.offset_hz.unwrap_or(0.0) / s.fs());
         for x in s.streams_mut() {
             frequency_offset(x, w, self.centred);
         }

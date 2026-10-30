@@ -11,7 +11,7 @@ use comrs::channel::fading::Mimo;
 use comrs::channel::spatial::{Kronecker, exponential_correlation as exp_corr};
 use comrs::mimo::capacity;
 use comrs::mimo::detection::{Linear, MimoDetector};
-use comrs::mimo::message_passing::{self as mp, AmpVariance, Domain, OampLinear, Prior};
+use comrs::mimo::message_passing::{self as mp, AmpVariance, Domain, MessagePassing, OampLinear, Prior};
 use comrs::mimo::precoding::{Eigenmode, LinearPrecoder};
 use comrs::mimo::receiver::DetectorKind;
 use comrs::mimo::stbc::Ostbc;
@@ -372,16 +372,15 @@ fn message_passing<'py>(
         return Err(PyValueError::new_err("message_passing takes one channel matrix (n_rx, n_tx)"));
     };
     let y = crate::cvec(y)?;
-    let prior = prior(constellation, px)?;
-    let f = domain(real);
+    let config = MessagePassing { prior: prior(constellation, px)?, domain: domain(real), iterations };
     let trace = match method.parse::<DetectorKind>().py()? {
         DetectorKind::Amp(_) => {
             let v: AmpVariance = variance.parse().py()?;
-            py.detach(|| mp::lama(&h.view(), &y, noise_var, &prior, f, iterations, v)).py()?
+            py.detach(|| mp::lama(&h.view(), &y, noise_var, &config, v)).py()?
         }
         DetectorKind::Oamp(_) => {
             let l: OampLinear = linear.parse().py()?;
-            py.detach(|| mp::oamp(&h.view(), &y, noise_var, &prior, f, iterations, l)).py()?
+            py.detach(|| mp::oamp(&h.view(), &y, noise_var, &config, l)).py()?
         }
         _ => return Err(PyValueError::new_err(format!("unknown method {method:?}: amp or oamp"))),
     };
@@ -433,8 +432,8 @@ fn amp_state_evolution<'py>(
     px: Option<&Bound<'py, PyAny>>,
     real: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let p = prior(constellation, px)?;
-    let se = py.detach(|| mp::amp_state_evolution(&p, beta, noise_var, iterations, domain(real)));
+    let config = MessagePassing { prior: prior(constellation, px)?, domain: domain(real), iterations };
+    let se = py.detach(|| mp::amp_state_evolution(&config, beta, noise_var));
     steps(py, &se)
 }
 
@@ -518,10 +517,10 @@ fn oamp_state_evolution<'py>(
     px: Option<&Bound<'py, PyAny>>,
     real: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let p = prior(constellation, px)?;
+    let config = MessagePassing { prior: prior(constellation, px)?, domain: domain(real), iterations };
     let sv = crate::fvec(singular_values)?;
     let l: OampLinear = linear.parse().py()?;
-    let se = py.detach(|| mp::oamp_state_evolution(&p, &sv, n_tx, noise_var, iterations, l, domain(real)));
+    let se = py.detach(|| mp::oamp_state_evolution(&config, &sv, n_tx, noise_var, l));
     steps(py, &se)
 }
 

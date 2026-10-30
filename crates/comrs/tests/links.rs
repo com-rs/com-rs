@@ -7,6 +7,7 @@ use comrs::channel::optical::fiber::{Amplification, Ssfm};
 use comrs::dsp::signal;
 use comrs::hardware::optical::{Iqm, Photodiode, coherent_receiver};
 use comrs::mapping::constellation::gray_code;
+use comrs::math::Jacobian;
 use comrs::math::{cis, power};
 use comrs::prelude::*;
 use comrs::sim::scenario::from_fn;
@@ -19,7 +20,7 @@ fn error_rates() -> impl Scenario {
         let (idx, x) = source::symbols(&c, 2000, None, rng)?;
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, c.bits_per_symbol() as f64, 1.0, rng);
         let bits = comrs::mapping::constellation::indices_to_bits(&idx, c.bits_per_symbol());
-        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits)? as u64, bits.len() as u64);
+        rec.errors("ber", metrics::bit_errors(&c.demap_bits(&y), &bits)? as u64, bits.len() as u64);
         rec.errors("ser", metrics::symbol_errors(&c.decide(&y), &idx)? as u64, idx.len() as u64);
         Ok(())
     })
@@ -78,9 +79,9 @@ fn llr_signs_are_the_hard_decisions() {
         let c = c.normalized();
         let (_, x) = source::symbols(&c, 500, None, &mut rng).unwrap();
         let y = awgn::awgn(&x, 15.0, 1.0, 1.0, &mut rng);
-        let hard = c.demodulate(&y);
+        let hard = c.demap_bits(&y);
         for max_log in [true, false] {
-            let llr = c.llr(&y, 0.05, None, max_log).unwrap();
+            let llr = c.llr(&y, 0.05, None, Jacobian::from_max_log(max_log)).unwrap();
             // LLR = ln p(b = 0) - ln p(b = 1): positive for a 0
             let from_llr: Vec<u8> = comrs::core::signal::hard_decisions(&llr);
             if max_log {
@@ -116,7 +117,8 @@ fn linear_split_step_is_the_linear_channel_with_ideal_gain() {
     let x = rng.complex_noise(1024, 1e-3);
     let fs = 64e9;
     let ssfm = Ssfm { fiber: fiber.clone(), step_km: 5.0, amplification: Amplification::Ideal, raman: None };
-    let y = ssfm.propagate(&x, fs, None).unwrap();
+    let mut y = x.clone();
+    ssfm.propagate(&mut y, fs, None).unwrap();
     let reference = fiber::linear_fiber_channel(&x, &fiber, fiber.total_km(), fs);
     // the ideal gain that restores the whole link
     let gain = Amplification::Ideal.field_gain(&fiber, fiber.total_km());
@@ -131,7 +133,8 @@ fn ase_of_a_chain_of_amplifiers_adds_up() {
     let ssfm = Ssfm::new(fiber.clone(), 10.0);
     let mut rng = Rng::new(17);
     let silence = vec![C64::new(0.0, 0.0); 1 << 16];
-    let y = ssfm.propagate(&silence, fs, Some(&mut rng)).unwrap();
+    let mut y = silence;
+    ssfm.propagate(&mut y, fs, Some(&mut rng)).unwrap();
     // every EDFA compensates the loss of the following span: the noises add up
     let amp = fiber.span_edfa();
     let expected = fiber.n_spans as f64 * amp.noise_variance(fs);
@@ -146,7 +149,8 @@ fn nonlinear_phase_of_a_constant_field_is_gamma_p_leff() {
     let p: f64 = 5e-3;
     let x = vec![C64::new(p.sqrt(), 0.0); 256];
     let ssfm = Ssfm { fiber: fiber.clone(), step_km: 0.1, amplification: Amplification::Ideal, raman: None };
-    let y = ssfm.propagate(&x, 32e9, None).unwrap();
+    let mut y = x;
+    ssfm.propagate(&mut y, 32e9, None).unwrap();
     let phase = y[0].arg();
     let expected = fiber.n_spans as f64 * fiber.gamma_w_km * p * fiber.effective_length_km();
     assert!((phase - expected).abs() < 1e-3 * expected, "{phase} against {expected}");

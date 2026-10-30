@@ -99,33 +99,33 @@ fn pulse_grid(sps: usize, n_taps: usize) -> Vec<f64> {
 }
 
 /// Root-raised-cosine impulse response at the times `t` (symbol period `ts`).
-pub fn rrc_taps(t: &[f64], alpha: f64, ts: f64) -> Vec<f64> {
+pub fn rrc_taps(t: &[f64], rolloff: f64, ts: f64) -> Vec<f64> {
     t.iter()
         .map(|&ti| {
             if ti == 0.0 {
-                (1.0 / ts) * (1.0 + alpha * (4.0 / PI - 1.0))
-            } else if alpha > 0.0 && (ti.abs() - ts / (4.0 * alpha)).abs() < 1e-12 * ts {
-                let a = (1.0 + 2.0 / PI) * (PI / (4.0 * alpha)).sin();
-                let b = (1.0 - 2.0 / PI) * (PI / (4.0 * alpha)).cos();
-                alpha / (ts * 2f64.sqrt()) * (a + b)
+                (1.0 / ts) * (1.0 + rolloff * (4.0 / PI - 1.0))
+            } else if rolloff > 0.0 && (ti.abs() - ts / (4.0 * rolloff)).abs() < 1e-12 * ts {
+                let a = (1.0 + 2.0 / PI) * (PI / (4.0 * rolloff)).sin();
+                let b = (1.0 - 2.0 / PI) * (PI / (4.0 * rolloff)).cos();
+                rolloff / (ts * 2f64.sqrt()) * (a + b)
             } else {
                 let t1 = PI * ti / ts;
-                let t2 = 4.0 * alpha * ti / ts;
-                (1.0 / ts) * ((t1 * (1.0 - alpha)).sin() + t2 * (t1 * (1.0 + alpha)).cos()) / (t1 * (1.0 - t2 * t2))
+                let t2 = 4.0 * rolloff * ti / ts;
+                (1.0 / ts) * ((t1 * (1.0 - rolloff)).sin() + t2 * (t1 * (1.0 + rolloff)).cos()) / (t1 * (1.0 - t2 * t2))
             }
         })
         .collect()
 }
 
 /// Raised-cosine impulse response at the times `t` (symbol period `ts`).
-pub fn rc_taps(t: &[f64], alpha: f64, ts: f64) -> Vec<f64> {
+pub fn rc_taps(t: &[f64], rolloff: f64, ts: f64) -> Vec<f64> {
     t.iter()
         .map(|&ti| {
-            if alpha > 0.0 && (ti.abs() - ts / (2.0 * alpha)).abs() < 1e-12 * ts {
-                PI / (4.0 * ts) * sinc(1.0 / (2.0 * alpha))
+            if rolloff > 0.0 && (ti.abs() - ts / (2.0 * rolloff)).abs() < 1e-12 * ts {
+                PI / (4.0 * ts) * sinc(1.0 / (2.0 * rolloff))
             } else {
-                (1.0 / ts) * sinc(ti / ts) * (PI * alpha * ti / ts).cos()
-                    / (1.0 - 4.0 * alpha * alpha * ti * ti / (ts * ts))
+                (1.0 / ts) * sinc(ti / ts) * (PI * rolloff * ti / ts).cos()
+                    / (1.0 - 4.0 * rolloff * rolloff * ti * ti / (ts * ts))
             }
         })
         .collect()

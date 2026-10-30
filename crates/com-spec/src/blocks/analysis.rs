@@ -212,7 +212,7 @@ impl Block for NoiseEstimate {
         }
         ensure(n > 0, || "noise_estimate: every symbol is excluded".into())?;
         let sigma2 = (e / n as f64).max(f64::MIN_POSITIVE);
-        s.receiver.sigma2 = Some(sigma2);
+        s.receiver.noise_var = Some(sigma2);
         s.record(&self.label, "sigma2", sigma2);
         Ok(())
     }

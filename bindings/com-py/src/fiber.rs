@@ -7,7 +7,7 @@ use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::fiber::{self as channels, Amplification, Precision, Ssfm};
 use comrs::channel::optical::manakov::ManakovSsfm;
-use comrs::channel::optical::pmd::{Manakov, PmdLink};
+use comrs::channel::optical::pmd::{ManakovPmd, PmdLink};
 use comrs::channel::optical::raman::Raman;
 use comrs::core::signal::DualPol;
 use comrs::math::nlse::StepRule;
@@ -249,7 +249,9 @@ wrapper_methods! {
         fs: f64,
         mut rng: PyRefMut<'py, PyRng>,
     ) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.inner.apply(&cvec(x)?, fs, &mut rng.inner).py()?))
+        let mut y = cvec(x)?;
+        self.inner.apply(&mut y, fs, &mut rng.inner).py()?;
+        Ok(carr(py, y))
     }
 
     fn __repr__(&self) -> String {
@@ -406,12 +408,12 @@ impl PySsfm {
         precision: &str,
     ) -> PyResult<CArr<'py>> {
         let precision: Precision = precision.parse().py()?;
-        let x = cvec(x)?;
+        let mut y = cvec(x)?;
         let mut rng = rng;
         let r = rng_of(&mut rng);
         let s = &self.inner;
-        let y = py.detach(|| s.propagate_with(&x, fs, r, precision));
-        Ok(carr(py, y.py()?))
+        py.detach(|| s.propagate_with(&mut y, fs, r, precision)).py()?;
+        Ok(carr(py, y))
     }
 
     /// Digital back-propagation with `steps_per_span` symmetric steps per span (the
@@ -466,7 +468,7 @@ impl PySsfm {
 ///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "Manakov", module = "comrs")]
 pub struct PyManakov {
-    inner: Manakov,
+    inner: ManakovPmd,
 }
 
 #[pymethods]
@@ -489,7 +491,7 @@ impl PyManakov {
             (p, Some(mut r)) => PmdLink::random(&f, p, sections_per_span, &mut r.inner).py()?,
             (_, None) => return Err(PyValueError::new_err("a PMD realisation needs an rng")),
         };
-        Ok(PyManakov { inner: Manakov::new(f, pmd) })
+        Ok(PyManakov { inner: ManakovPmd::new(f, pmd) })
     }
 
     /// float: RMS differential group delay of the PMD realisation (s).

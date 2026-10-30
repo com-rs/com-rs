@@ -80,7 +80,7 @@ impl PyCeOfdm {
     /// int: Data subcarriers `K` per block.
     #[getter]
     fn n_data(&self) -> usize {
-        self.inner.n_data
+        self.inner.n_subcarriers
     }
 
     /// float: The modulation index `h`.
@@ -116,7 +116,7 @@ impl PyCeOfdm {
     /// float: Samples per data symbol, `(N + N_cp)/K`.
     #[getter]
     fn sps(&self) -> f64 {
-        self.inner.samples_per_symbol()
+        self.inner.sps()
     }
 
     /// The noise variance per sample for an `E_s/N_0` per data symbol and a unit
@@ -187,7 +187,7 @@ impl PyCeOfdm {
         receiver: &str,
     ) -> PyResult<CArr<'py>> {
         let r = self::receiver(receiver, unwrap)?;
-        Ok(carr(py, self.inner.demodulate_with(&cvec(samples)?, r).py()?))
+        Ok(carr(py, self.inner.demodulate_with_receiver(&cvec(samples)?, r).py()?))
     }
 
     /// The posterior means of the symbols of every block by the GAMP receiver of López
@@ -272,7 +272,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ser(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ser(&self.inner, k, m, e).py())
+        map_real(esn0_db, |e| theory::ser_esn0(&self.inner, k, m, e).py())
     }
 
     /// The BER of the linear regime, Gray mapping: the exact Gray BER of a square QAM
@@ -292,7 +292,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ber(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ber(&self.inner, k, m, e).py())
+        map_real(esn0_db, |e| theory::ber_esn0(&self.inner, k, m, e).py())
     }
 
     /// The expected periodogram `E|S_k|²/N` of a transmitted block under the Gaussian
@@ -322,7 +322,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (esn0_db, receiver="arctangent"))]
     fn subcarrier_snr<'py>(&self, py: Python<'py>, esn0_db: f64, receiver: &str) -> PyResult<FArr<'py>> {
         let r = self::receiver(receiver, "none")?;
-        Ok(farr(py, theory::subcarrier_snr(&self.inner, r, esn0_db).py()?))
+        Ok(farr(py, theory::subcarrier_snr(&CeOfdm { receiver: r, ..self.inner.clone() }, esn0_db).py()?))
     }
 
     /// The BER of a Gray-mapped constellation with the receiver, averaged over the
@@ -342,7 +342,8 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam", receiver="arctangent"))]
     fn ber_receiver(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str, receiver: &str) -> PyResult<Py<PyAny>> {
         let (k, r) = (self::kind(kind)?, self::receiver(receiver, "none")?);
-        map_real(esn0_db, |e| theory::ber_receiver(&self.inner, r, k, m, e).py())
+        let ce = CeOfdm { receiver: r, ..self.inner.clone() };
+        map_real(esn0_db, |e| theory::ber_receiver(&ce, k, m, e).py())
     }
 
     /// The change of the estimates of the arctangent receiver caused by a cycle slip of
@@ -363,7 +364,7 @@ impl PyCeOfdm {
 
     fn __repr__(&self) -> String {
         let c = &self.inner;
-        format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_data, c.h, c.oversampling, c.n_cp)
+        format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_subcarriers, c.h, c.oversampling, c.n_cp)
     }
 }
 

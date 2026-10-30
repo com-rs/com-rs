@@ -42,11 +42,11 @@
 //! assert_eq!(decode(&c, 4)?, a);
 //! let dqpsk = Dpsk::new(4)?;
 //! let bits = com_mapping::source::bits(200, &mut Rng::new(1));
-//! let x = dqpsk.modulate(&bits)?;
+//! let x = dqpsk.map_bits(&bits)?;
 //! assert_eq!(x.len(), 101);
 //! // a constant phase rotation does not change the decoded bits
 //! let rotated: Vec<_> = x.iter().map(|v| v * com_math::cis(1.234)).collect();
-//! assert_eq!(dqpsk.demodulate(&rotated)?, bits);
+//! assert_eq!(dqpsk.demap_bits(&rotated)?, bits);
 //! assert_eq!(detect(&rotated, 4)?, detect(&x, 4)?);
 //! # Ok::<(), com_core::Error>(())
 //! ```
@@ -227,7 +227,7 @@ impl Dpsk {
     ///
     /// # Errors
     /// [`Error::Shape`] if the number of bits is not a multiple of $\log_{2} M$.
-    pub fn modulate(&self, bits: &[u8]) -> Result<Vec<C64>> {
+    pub fn map_bits(&self, bits: &[u8]) -> Result<Vec<C64>> {
         let c = encode(&self.indices(bits)?, self.m)?;
         Ok(c.into_iter().map(|k| cis(TAU * k as f64 / self.m as f64)).collect())
     }
@@ -237,7 +237,7 @@ impl Dpsk {
     ///
     /// # Errors
     /// [`Error::Shape`] for an empty input.
-    pub fn demodulate(&self, r: &[C64]) -> Result<Vec<u8>> {
+    pub fn demap_bits(&self, r: &[C64]) -> Result<Vec<u8>> {
         self.bits(&detect(r, self.m)?)
     }
 
@@ -274,9 +274,9 @@ mod tests {
             assert_eq!(decode(&c, m).unwrap(), a);
             let d = Dpsk::new(m).unwrap();
             let bits = crate::source::bits(500 * d.bits_per_symbol(), &mut rng);
-            let x = d.modulate(&bits).unwrap();
+            let x = d.map_bits(&bits).unwrap();
             assert!(x.iter().all(|v| (v.norm() - 1.0).abs() < 1e-12));
-            assert_eq!(d.demodulate(&x).unwrap(), bits);
+            assert_eq!(d.demap_bits(&x).unwrap(), bits);
             assert_eq!(d.demodulate_coherent(&x).unwrap(), bits);
             // Gray labelling of the transitions: neighbouring phases differ by one bit
             for k in 0..m {
@@ -289,7 +289,7 @@ mod tests {
         assert!(decode(&[], 4).is_err());
         assert!(detect(&[], 4).is_err());
         assert!(Dpsk::new(6).is_err());
-        assert!(Dpsk::new(4).unwrap().modulate(&[1, 0, 1]).is_err());
+        assert!(Dpsk::new(4).unwrap().map_bits(&[1, 0, 1]).is_err());
     }
 
     #[test]
@@ -298,10 +298,10 @@ mod tests {
         for m in [2usize, 4, 8] {
             let d = Dpsk::new(m).unwrap();
             let bits = crate::source::bits(300 * d.bits_per_symbol(), &mut rng);
-            let x = d.modulate(&bits).unwrap();
+            let x = d.map_bits(&bits).unwrap();
             for phi in [0.1, 1.0, 2.5, -3.0, 4.2] {
                 let r: Vec<C64> = x.iter().map(|v| v * cis(phi)).collect();
-                assert_eq!(d.demodulate(&r).unwrap(), bits, "M = {m}, φ = {phi}");
+                assert_eq!(d.demap_bits(&r).unwrap(), bits, "M = {m}, φ = {phi}");
             }
         }
     }
@@ -338,8 +338,8 @@ mod literature {
         let n = 400_000;
         for ebn0_db in [6.0, 8.0] {
             let bits = crate::source::bits(n, &mut rng);
-            let r = noisy(&d.modulate(&bits).unwrap(), 1, ebn0_db, &mut rng);
-            let got = ber(&d.demodulate(&r).unwrap(), &bits);
+            let r = noisy(&d.map_bits(&bits).unwrap(), 1, ebn0_db, &mut rng);
+            let got = ber(&d.demap_bits(&r).unwrap(), &bits);
             let want = 0.5 * (-db2lin(ebn0_db)).exp();
             assert!((ber_dpsk(2, ebn0_db).unwrap() - want).abs() < 1e-12);
             let tol = 3.0 / (want * n as f64).sqrt();
@@ -359,7 +359,7 @@ mod literature {
         let n = 400_000;
         for ebn0_db in [6.0, 8.0] {
             let bits = crate::source::bits(n, &mut rng);
-            let r = noisy(&d.modulate(&bits).unwrap(), 1, ebn0_db, &mut rng);
+            let r = noisy(&d.map_bits(&bits).unwrap(), 1, ebn0_db, &mut rng);
             let got = ber(&d.demodulate_coherent(&r).unwrap(), &bits);
             let want = ber_dbpsk_coherent(ebn0_db);
             let tol = 3.0 / (want * n as f64).sqrt();
@@ -381,8 +381,8 @@ mod literature {
         for (m, ebn0_db) in [(4usize, 8.0), (8, 11.0)] {
             let d = Dpsk::new(m).unwrap();
             let bits = crate::source::bits(n, &mut rng);
-            let r = noisy(&d.modulate(&bits).unwrap(), d.bits_per_symbol(), ebn0_db, &mut rng);
-            let got = ber(&d.demodulate(&r).unwrap(), &bits);
+            let r = noisy(&d.map_bits(&bits).unwrap(), d.bits_per_symbol(), ebn0_db, &mut rng);
+            let got = ber(&d.demap_bits(&r).unwrap(), &bits);
             let want = ber_dpsk(m, ebn0_db).unwrap();
             let tol = 3.0 / (want * n as f64).sqrt();
             assert!((got / want - 1.0).abs() < tol, "M = {m} at {ebn0_db} dB: {got:e} vs {want:e}");

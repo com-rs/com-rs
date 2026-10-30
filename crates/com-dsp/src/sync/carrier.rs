@@ -95,10 +95,10 @@ pub fn unwrap(phi: &[f64], period: f64) -> Vec<f64> {
 /// with `freq_shift(x, -fo, fs)` ([`crate::signal::freq_shift`]).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty signal, $M = 0$ or a sampling rate that is
-/// not positive and finite.
+/// [`com_core::Error::Shape`] for an empty signal, [`com_core::Error::Config`] for
+/// $M = 0$ or a sampling rate that is not positive and finite.
 pub fn fourth_power_foe(x: &[C64], fs: f64, m: u32) -> Result<f64> {
-    ensure(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
+    ensure_shape(!x.is_empty(), || "fourth_power_foe: the signal is empty".into())?;
     ensure(m >= 1, || "fourth_power_foe: the symmetry M must be at least 1".into())?;
     ensure(fs > 0.0 && fs.is_finite(), || format!("fourth_power_foe: the sampling rate must be positive, got {fs}"))?;
     let n = x.len();
@@ -134,7 +134,7 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<f64> {
 
 /// The Cramér–Rao bound of the variance of an unbiased estimate of the frequency of a
 /// complex tone of unknown phase from $N$ samples at the SNR $\rho = b_{0}^{2}/(2\sigma^{2})$
-/// per sample (`snr`, linear; $\sigma^{2}$ the noise variance of each of the real and
+/// per sample (`snr_lin`, linear; $\sigma^{2}$ the noise variance of each of the real and
 /// imaginary parts), in cycles per sample squared: Rife & Boorstyn (1974), eq. (17),
 /// $12\sigma^{2}/(b_{0}^{2} N (N^{2} - 1))$ rad² per sample², that is
 /// $3/(2\pi^{2} \rho N (N^{2} - 1))$ (multiply by $f_{s}^{2}$ for Hz²).
@@ -142,9 +142,9 @@ pub fn fourth_power_foe_refined(x: &[C64], fs: f64, m: u32) -> Result<f64> {
 /// [`fourth_power_foe_refined`] with $M = 1$ is their maximum-likelihood estimator (the
 /// largest bin of the DFT, then the maximum of $|A(\omega)|$ next to it), which meets the
 /// bound above the threshold.
-pub fn tone_frequency_crb(n: usize, snr: f64) -> f64 {
+pub fn tone_frequency_crb(n: usize, snr_lin: f64) -> f64 {
     let nf = n as f64;
-    3.0 / (2.0 * PI * PI * snr * nf * (nf * nf - 1.0))
+    3.0 / (2.0 * PI * PI * snr_lin * nf * (nf * nf - 1.0))
 }
 
 /// The probability that the largest bin of the $N$-point DFT of a complex tone in noise
@@ -341,7 +341,7 @@ mod tests {
     fn fourth_power_foe_rejects_an_empty_signal_instead_of_panicking() {
         for refined in [false, true] {
             let foe = if refined { fourth_power_foe_refined } else { fourth_power_foe };
-            assert!(matches!(foe(&[], 1.0, 4), Err(com_core::Error::Config(_))));
+            assert!(matches!(foe(&[], 1.0, 4), Err(com_core::Error::Shape(_))));
             assert!(foe(&[C64::new(1.0, 0.0); 8], 1.0, 0).is_err());
             assert!(foe(&[C64::new(1.0, 0.0); 8], 0.0, 4).is_err());
             assert!(foe(&[C64::new(1.0, 0.0); 8], f64::NAN, 4).is_err());

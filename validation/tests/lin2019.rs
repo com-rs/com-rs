@@ -25,7 +25,7 @@ use comrs::waveform::ofdm::nr::{
 fn lin2019_section2_numerology() {
     for mu in 0..=4u32 {
         let nr = Numerology::new(mu, false).unwrap();
-        assert_eq!(nr.subcarrier_spacing(), 15e3 * f64::from(1u32 << mu));
+        assert_eq!(nr.subcarrier_spacing_hz(), 15e3 * f64::from(1u32 << mu));
         assert_eq!((nr.slots_per_subframe(), nr.slots_per_frame(), nr.symbols_per_slot()), (1 << mu, 10 << mu, 14));
         // the prefix scaled by 2^-mu from the 4.7 µs of LTE
         let n_fft = 4096;

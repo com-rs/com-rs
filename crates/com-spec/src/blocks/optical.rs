@@ -87,7 +87,7 @@ use serde_json::Value as Json;
 #[derive(Clone, Debug)]
 pub struct WdmFrame {
     /// The centre frequencies of the channels relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
+    pub freqs_hz: Vec<f64>,
     /// The index of the channel under test.
     pub cut: usize,
 }
@@ -177,7 +177,7 @@ impl WdmTx {
         let cut = p.channel.unwrap_or(p.n_channels / 2);
         ensure(cut < p.n_channels, || format!("wdm_tx: channel {cut} out of the {} channels", p.n_channels))?;
         let tx = WdmTransmitter {
-            freqs: wdm_grid(p.n_channels, p.spacing_hz),
+            freqs_hz: wdm_grid(p.n_channels, p.spacing_hz),
             powers_w: powers_dbm.into_iter().map(dbm2w).collect(),
             taps: p.pulse.taps(p.sps)?,
             sps: p.sps,
@@ -209,7 +209,7 @@ impl Block for WdmTx {
         })?;
         s.set_streams(out);
         s.sps = self.tx.sps as f64;
-        s.in_flight.wdm = Some(WdmFrame { freqs: self.tx.freqs.clone(), cut: self.cut });
+        s.in_flight.wdm = Some(WdmFrame { freqs_hz: self.tx.freqs_hz.clone(), cut: self.cut });
         Ok(())
     }
 }
@@ -219,7 +219,7 @@ impl Block for WdmTx {
 block_params! {
     struct ManakovSpec {
         fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
-        max_nl_phase: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
+        max_nl_phase_rad: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
         tolerance: f64 [1e-5] > 0, "convergence tolerance of the iterations";
@@ -236,7 +236,7 @@ struct ManakovBlock {
 impl ManakovBlock {
     fn new(p: &ManakovSpec, ctx: &BuildContext, label: String) -> Result<ManakovBlock> {
         let fiber = ctx.fiber(fiber_json(p.fiber.as_ref()))?;
-        let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase), StepRule::Fixed);
+        let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase_rad), StepRule::Fixed);
         Ok(ManakovBlock {
             link: ManakovSsfm {
                 fiber,
@@ -303,8 +303,9 @@ impl Block for Pmd {
         let n = if mean_dgd_ps == 0.0 { 1 } else { sections };
         let link = PmdLink::with_mean_dgd(mean_dgd_ps * 1e-12, n, rng);
         let fs = s.fs();
-        let (x, rest) = (&mut s.samples, &mut s.antennas);
-        link.apply(x, &mut rest[0], fs);
+        let mut u = DualPol::new(std::mem::take(&mut s.samples), std::mem::take(&mut s.antennas[0]))?;
+        link.apply(&mut u, fs)?;
+        (s.samples, s.antennas[0]) = (u.x, u.y);
         s.record(&self.label, "rms_dgd_ps", link.rms_dgd_s() * 1e12);
         Ok(())
     }
@@ -364,7 +365,7 @@ impl Block for WdmRx {
             format!("wdm_rx: sps must be between 1 and the {sps_in} samples per symbol of the multiplex")
         })?;
         let fs = s.fs();
-        let f = w.freqs[w.cut];
+        let f = w.freqs_hz[w.cut];
         let n_out = s.samples.len() / sps_in * self.sps;
         for x in s.streams_mut() {
             *x = wdm_demultiplex(x, f, fs, n_out);

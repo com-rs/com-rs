@@ -21,7 +21,7 @@
 //! ```
 //! use com_waveform::ofdm::Ofdm;
 //! use com_waveform::ofdm::grid::{PilotPattern, ResourceGrid};
-//! use com_waveform::ofdm::link::transmit;
+//! use com_waveform::ofdm::link::{FrameDetection, transmit};
 //! use com_mimo::receiver::{DetectorKind, Receiver};
 //! use com_mapping::constellation::Constellation;
 //! use com_core::rng::Rng;
@@ -34,13 +34,13 @@
 //! let (tx, frame) = transmit(&ofdm, &grid, vec![x.clone()], &mut Rng::new(1))?;
 //! let rx = Receiver::new(DetectorKind::Zf, c, false)?;
 //! let eye = |_: usize, _: &[Vec<C64>]| Ok(vec![C64::new(1.0, 0.0); 24 * 4]);
-//! let out = frame.detect(&tx, eye, &rx, 1.0, false, 1e-6)?;
+//! let out = frame.detect(&tx, eye, &rx, &FrameDetection { noise_var: 1e-6, ..FrameDetection::default() })?;
 //! assert!(out.symbols[..90].iter().zip(&x).all(|(a, b)| (a - b).norm() < 1e-12));
 //! # Ok::<(), com_core::Error>(())
 //! ```
 
 use super::Ofdm;
-use super::estimation::{FrequencyInterpolation, estimate_port};
+use super::estimation::{FrequencyInterpolation, PortEstimation, estimate_port};
 use super::grid::ResourceGrid;
 use com_core::rng::Rng;
 use com_core::{Result, ensure, ensure_shape};
@@ -60,7 +60,7 @@ pub struct OfdmFrame {
     /// Transmit antennas (ports).
     pub n_ports: usize,
     /// Data symbols per antenna before the padding of the last grid.
-    pub n_data: usize,
+    pub n_data_symbols: usize,
     /// Amplitude of the time samples, $\sqrt{K/(L N)}$.
     pub scale: f64,
 }
@@ -81,8 +81,8 @@ pub fn transmit(
 ) -> Result<(Vec<Vec<C64>>, OfdmFrame)> {
     let n_ports = streams.len();
     ensure(n_ports >= 1, || "at least one antenna".into())?;
-    let n_data = streams[0].len();
-    ensure_shape(streams.iter().all(|x| x.len() == n_data), || {
+    let n_data_symbols = streams[0].len();
+    ensure_shape(streams.iter().all(|x| x.len() == n_data_symbols), || {
         format!("the antennas carry different lengths: {:?}", streams.iter().map(Vec::len).collect::<Vec<_>>())
     })?;
     ofdm.check()?;
@@ -98,7 +98,7 @@ pub fn transmit(
     grid.check()?;
     let per_grid = grid.n_data();
     ensure(per_grid > 0, || "the grid has no data resource element".into())?;
-    let n_grids = n_data.div_ceil(per_grid).max(1);
+    let n_grids = n_data_symbols.div_ceil(per_grid).max(1);
     let scale = (ofdm.n_active as f64 / ofdm.fft_len() as f64).sqrt();
     // the padding of the last grid: random QPSK at the power of a layer
     let pad_amp = std::f64::consts::FRAC_1_SQRT_2 / (n_ports as f64).sqrt();
@@ -118,8 +118,40 @@ pub fn transmit(
         }
         out.push(time);
     }
-    let frame = OfdmFrame { ofdm: ofdm.clone(), grid: grid.clone(), n_grids, n_ports, n_data, scale };
+    let frame = OfdmFrame { ofdm: ofdm.clone(), grid: grid.clone(), n_grids, n_ports, n_data_symbols, scale };
     Ok((out, frame))
+}
+
+/// The settings of [`OfdmFrame::detect`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameDetection {
+    /// The amplitude of a layer, by which the channel is multiplied.
+    pub gain: f64,
+    /// Whether the pairs of consecutive data resource elements carry the blocks of
+    /// Alamouti's code.
+    pub alamouti: bool,
+    /// The noise variance of the detector.
+    pub noise_var: f64,
+}
+
+impl Default for FrameDetection {
+    /// Unit gain, spatial multiplexing, no noise.
+    fn default() -> FrameDetection {
+        FrameDetection { gain: 1.0, alamouti: false, noise_var: 0.0 }
+    }
+}
+
+impl FrameDetection {
+    /// Check the settings.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a gain or a noise variance that is not finite.
+    pub fn check(&self) -> Result<()> {
+        let (g, v) = (self.gain, self.noise_var);
+        ensure(g.is_finite() && v.is_finite(), || {
+            format!("the gain and the noise variance must be finite, got {g} and {v}")
+        })
+    }
 }
 
 impl OfdmFrame {
@@ -169,9 +201,11 @@ impl OfdmFrame {
     pub fn estimate(&self, rx: &[Vec<C64>], noise_var: f64, method: &FrequencyInterpolation) -> Result<Vec<C64>> {
         let (nr, nt) = (rx.len(), self.n_ports);
         let mut h = vec![C64::new(0.0, 0.0); self.grid.n_subcarriers * self.grid.n_symbols * nr * nt];
+        let mut settings = PortEstimation { method: method.clone(), noise_var, port: 0, n_ports: nt };
         for (r, y) in rx.iter().enumerate() {
             for t in 0..nt {
-                let est = estimate_port(&self.grid, y, noise_var, method, t, nt)?;
+                settings.port = t;
+                let est = estimate_port(&self.grid, y, &settings)?;
                 for (re, v) in est.into_iter().enumerate() {
                     h[(re * nr + r) * nt + t] = v;
                 }
@@ -182,32 +216,32 @@ impl OfdmFrame {
 
     /// Detect every data resource element of the frame received on `streams`: the
     /// channel of grid `g` is `channel(g, rx)` (`[re][rx][tx]` flattened, from the
-    /// received grids `rx`), multiplied by `gain` (the amplitude of a layer); with
-    /// `alamouti`, the pairs of consecutive data resource elements carry the blocks of
-    /// Alamouti's code. The padding of the last grid is left out.
+    /// received grids `rx`), multiplied by the gain of `settings`. The padding of the
+    /// last grid is left out.
     ///
     /// # Errors
-    /// The errors of `channel` and of [`Receiver::detect_uses`] (an odd number of data
-    /// resource elements with Alamouti's code).
+    /// The errors of [`FrameDetection::check`], of `channel` and of
+    /// [`Receiver::detect_uses`] (an odd number of data resource elements with Alamouti's
+    /// code).
     pub fn detect<F>(
         &self,
         streams: &[Vec<C64>],
         mut channel: F,
         receiver: &Receiver,
-        gain: f64,
-        alamouti: bool,
-        noise_var: f64,
+        settings: &FrameDetection,
     ) -> Result<SoftOutput>
     where
         F: FnMut(usize, &[Vec<C64>]) -> Result<Vec<C64>>,
     {
+        settings.check()?;
+        let FrameDetection { gain, alamouti, noise_var } = *settings;
         let (nr, nt) = (streams.len(), self.n_ports);
         let data_res = self.data_res();
         let mut out = SoftOutput::default();
         for g in 0..self.n_grids {
             let rx = self.received_grid(streams, g)?;
             let h = channel(g, &rx)?;
-            let used = self.n_data.saturating_sub(g * data_res.len()).min(data_res.len());
+            let used = self.n_data_symbols.saturating_sub(g * data_res.len()).min(data_res.len());
             receiver
                 .detect_uses(
                     data_res[..used].iter().copied(),

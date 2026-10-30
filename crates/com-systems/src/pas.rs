@@ -64,7 +64,7 @@ use com_fec::block::BlockCode;
 use com_fec::ccdm::Ccdm;
 use com_fec::ldpc::LdpcCode;
 use com_mapping::constellation::Constellation;
-use com_math::{C64, bits_to_index, gray, gray_inverse, index_to_bits};
+use com_math::{C64, Jacobian, bits_to_index, gray, gray_inverse, index_to_bits};
 
 /// A PAS transceiver of one real dimension (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -247,7 +247,7 @@ impl Pas {
     pub fn encode_codeword(&self, bits: &[u8]) -> Result<Vec<u8>> {
         expect_len(bits.len(), self.info_bits(), "bits")?;
         let (dm_bits, extra) = bits.split_at(self.dm.k());
-        let a = self.dm.matched(dm_bits)?;
+        let a = self.dm.match_bits(dm_bits)?;
         let mb = self.m - 1;
         let n_amp = a.len() * mb;
         let mut info = vec![0u8; self.code.k()];
@@ -300,7 +300,7 @@ impl Pas {
         // the complex noise variance of the demapper, kept positive and finite as the
         // demapper requires (a zero variance is the limit of a small one)
         let var: Vec<f64> = noise_var.iter().map(|&v| (2.0 * v.max(1e-300)).min(f64::MAX)).collect();
-        let llr = self.labelled.llr_with_variances(&z, &var, Some(&self.label_priors), false)?;
+        let llr = self.labelled.llr_with_variances(&z, &var, Some(&self.label_priors), Jacobian::Exact)?;
         let mut out = vec![0.0; self.code.n()];
         for (i, l) in llr.chunks_exact(self.m).enumerate() {
             out[self.sign_positions[i]] = l[0];
@@ -419,7 +419,7 @@ mod tests {
         let mut rng = Rng::new(21);
         for pas in [plain.clone(), plain.with_bit_mapper(&[3, 4, 2]).unwrap()] {
             let bits: Vec<u8> = (0..pas.info_bits()).map(|_| rng.bit()).collect();
-            let a = pas.dm.matched(&bits[..pas.dm.k()]).unwrap();
+            let a = pas.dm.match_bits(&bits[..pas.dm.k()]).unwrap();
             let c = pas.encode_codeword(&bits).unwrap();
             let former: Vec<f64> =
                 a.iter().zip(&pas.sign_positions).map(|(&ai, &sp)| pas.level(usize::from(c[sp]), ai)).collect();

@@ -35,7 +35,7 @@ def system(n_tx, n_rx):
     return comrs.Chain(
         tx=B.Source(constellation="BPSK", n_symbols=4096),
         mimo=B.MimoTx(n_tx=n_tx, scheme="alamouti" if n_tx == 2 else "spatial"),
-        fading=B.Rayleigh(n_rx=n_rx, coherence=2 if n_tx == 2 else 1),
+        fading=B.Rayleigh(n_rx=n_rx, coherence_samples=2 if n_tx == 2 else 1),
         noise=B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db")),
         rx=B.MimoRx(detector="zf"),
     )

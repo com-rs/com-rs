@@ -27,6 +27,7 @@
 use super::{Block, Coding, Extension, Frame};
 use com_core::rng::Rng;
 use com_core::{Error, Result, ensure};
+use com_math::Jacobian;
 use com_systems::dvbs2::{Dvbs2, FrameSize, Modcod, PLHEADER_LEN, bbframe, bbframe_data, decode_plheader};
 
 /// The blocks of this module: their documentation and their builders.
@@ -126,7 +127,7 @@ impl Block for Dvbs2Rx {
         let per_symbol = &s.receiver.symbol_noise;
         let var = s
             .receiver
-            .sigma2
+            .noise_var
             .or(s.channel.noise_var)
             .or((!per_symbol.is_empty()).then(|| per_symbol.iter().sum::<f64>() / per_symbol.len() as f64))
             .ok_or_else(|| {
@@ -144,7 +145,7 @@ impl Block for Dvbs2Rx {
             if decode_plheader(&rx[..PLHEADER_LEN])?.modcod != number {
                 header_errors += 1;
             }
-            let bb = l.link.fec().decode(&l.link.llr(rx, var, l.max_log)?)?;
+            let bb = l.link.fec().decode(&l.link.llr(rx, var, Jacobian::from_max_log(l.max_log))?)?;
             let (data, crc_ok) = bbframe_data(&bb)?;
             crc_failures += usize::from(!crc_ok);
             decoded.extend(data);

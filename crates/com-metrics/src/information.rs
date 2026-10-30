@@ -27,9 +27,10 @@
 
 use crate::posterior::SymbolMetric;
 use crate::{preprocess, variance};
-use com_core::{Result, ensure, same_len};
+use com_core::{Result, ensure, ensure_shape, same_len};
 use com_mapping::constellation::{Constellation, log_priors};
 use com_mapping::demapper::LabelHalves;
+use com_math::Jacobian;
 use com_math::{C64, entropy, golden_max, ln_1p_exp};
 
 /// The priors of the points of `c` (uniform if `px` is `None`), checked and normalised
@@ -87,8 +88,8 @@ pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f
     let (cn, p) = shaped(c, px)?;
     let b = cn.bits_per_symbol();
     let h = entropy(&p);
-    let btx = cn.demodulate(&t);
-    let llr = cn.llr(&r, sigma2, Some(&p), false)?;
+    let btx = cn.demap_bits(&t);
+    let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact)?;
     let gmi = gmi_from_llr(&llr, &btx, b, h);
     Ok(Gmi { gmi, ngmi: gmi / h })
 }
@@ -133,8 +134,8 @@ pub struct InformationRates {
 /// 5 dB; `specs/validation/information_rates.yaml`).
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for sequences of different lengths, [`com_core::Error::Config`] for an index
-/// outside the constellation or an empty sequence.
+/// [`com_core::Error::Shape`] for sequences of different lengths or empty ones,
+/// [`com_core::Error::Config`] for an index outside the constellation.
 ///
 /// # Examples
 /// ```
@@ -159,7 +160,7 @@ pub fn information_rates(
     px: Option<&[f64]>,
 ) -> Result<InformationRates> {
     same_len(rx.len(), indices.len(), "received symbols and transmitted indices")?;
-    ensure(!rx.is_empty(), || "empty symbol sequences".into())?;
+    ensure_shape(!rx.is_empty(), || "empty symbol sequences".into())?;
     let (cn, p) = shaped(c, px)?;
     let lp = log_priors(&p);
     let m = cn.order();
@@ -179,7 +180,7 @@ pub fn information_rates(
     let mi = h - acc / rx.len() as f64 / std::f64::consts::LN_2;
     let b = cn.bits_per_symbol();
     let bits = com_mapping::constellation::indices_to_bits(indices, b);
-    let llr = cn.llr(&y, sigma2, Some(&p), false)?;
+    let llr = cn.llr(&y, sigma2, Some(&p), Jacobian::Exact)?;
     let gmi = gmi_from_llr(&llr, &bits, b, h);
     let snr_db = com_math::lin2db(a.norm_sqr() * ex / err.max(f64::MIN_POSITIVE));
     Ok(InformationRates { mi, gmi, ngmi: gmi / h, snr_db, entropy: h })
@@ -245,8 +246,9 @@ fn maximise_scale(f: impl Fn(f64) -> f64) -> (f64, f64) {
 /// receiver loses by its own estimates.
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for sequences of different lengths, [`com_core::Error::Config`] for an index
-/// outside the constellation, an empty sequence or a variance that is not positive.
+/// [`com_core::Error::Shape`] for sequences of different lengths or empty ones,
+/// [`com_core::Error::Config`] for an index outside the constellation or a variance that
+/// is not positive.
 ///
 /// # Examples
 /// ```
@@ -280,7 +282,7 @@ pub fn posterior_rates(
     px: Option<&[f64]>,
 ) -> Result<PosteriorRates> {
     same_len(z.len(), indices.len(), "received symbols and transmitted indices")?;
-    ensure(!z.is_empty(), || "empty symbol sequences".into())?;
+    ensure_shape(!z.is_empty(), || "empty symbol sequences".into())?;
     ensure(noise_var > 0.0 && noise_var.is_finite(), || {
         format!("the receiver's noise variance must be positive, got {noise_var}")
     })?;
@@ -316,7 +318,7 @@ pub fn posterior_rates(
                 let own = bits[k * b + bit] as usize;
                 // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own}), L the log-sums
                 // of the halves of the labels (the kernel of the demapper)
-                let halves = LabelHalves::new(&metric, b - 1 - bit, false);
+                let halves = LabelHalves::new(&metric, b - 1 - bit, Jacobian::Exact);
                 acc += ln_1p_exp(halves.log_sum(1 - own) - halves.log_sum(own));
             }
         }
@@ -439,8 +441,8 @@ mod tests {
             let e: Vec<C64> = r.iter().zip(&t).map(|(a, b)| a - b).collect();
             let sigma2 = variance(&e).max(f64::MIN_POSITIVE);
             let (cn, p) = shaped(&c, None).unwrap();
-            let llr = cn.llr(&r, sigma2, Some(&p), false).unwrap();
-            let former = former_gmi_from_llr(&llr, &cn.demodulate(&t), 4, entropy(&p));
+            let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact).unwrap();
+            let former = former_gmi_from_llr(&llr, &cn.demap_bits(&t), 4, entropy(&p));
             assert!((g.gmi - former).abs() < 1e-12, "{snr} dB: {former} -> {}", g.gmi);
             let rates = information_rates(&y, &idx, &c, None).unwrap();
             assert!(rates.gmi > 0.0 && rates.gmi <= 4.0 + 1e-12);

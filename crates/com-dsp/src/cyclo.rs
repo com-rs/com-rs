@@ -34,7 +34,7 @@
 //! 1. W. A. Gardner, "Exploitation of spectral redundancy in cyclostationary signals,"
 //!    *IEEE Signal Process. Mag.*, 8(2), 14–36, 1991.
 
-use com_core::{Result, ensure};
+use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::fft::fft;
 use std::f64::consts::PI;
@@ -55,10 +55,11 @@ pub fn cyclic_autocorrelation(x: &[C64], alpha: f64, lag: usize, fs: f64) -> C64
 /// the module).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for fewer than 16 samples, a non-positive sampling rate or
-/// a search band outside $(0, f_{s}/2)$ narrower than three bins.
+/// [`com_core::Error::Shape`] for fewer than 16 samples, [`com_core::Error::Config`] for
+/// a non-positive sampling rate or a search band outside $(0, f_{s}/2)$ narrower than
+/// three bins.
 pub fn estimate_symbol_rate(x: &[C64], fs: f64, f_min: f64, f_max: f64) -> Result<f64> {
-    ensure(x.len() >= 16, || format!("the symbol rate needs at least 16 samples, got {}", x.len()))?;
+    ensure_shape(x.len() >= 16, || format!("the symbol rate needs at least 16 samples, got {}", x.len()))?;
     ensure(fs > 0.0, || format!("the sampling rate must be positive, got {fs}"))?;
     let n = x.len();
     let bin = fs / n as f64;

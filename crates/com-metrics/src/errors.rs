@@ -216,9 +216,8 @@ pub struct BerSerSnr {
 /// `c` gives the family and the order; it does not need to be normalised.
 ///
 /// # Errors
-/// [`com_core::Error::Shape`] for sequences of different lengths,
-/// [`com_core::Error::Config`] for empty ones, [`com_core::Error::Numerical`] for a
-/// zero received symbol (phase ambiguity).
+/// [`com_core::Error::Shape`] for sequences of different lengths or empty ones,
+/// [`com_core::Error::Numerical`] for a zero received symbol (phase ambiguity).
 pub fn fast_ber_calc(rx: &[C64], tx: &[C64], c: &Constellation) -> Result<BerSerSnr> {
     let (r, t) = preprocess(rx, tx, c.kind())?;
     let snr_db = snr_db(&r, &t)?;
@@ -246,10 +245,10 @@ pub fn fast_ber_calc(rx: &[C64], tx: &[C64], c: &Constellation) -> Result<BerSer
 /// constellation. Multiply the square root by 100 for the EVM in percent.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for an empty sequence or a zero received symbol,
-/// [`com_core::Error::Shape`] if `tx` has another length.
+/// [`com_core::Error::Shape`] for an empty sequence or a `tx` of another length,
+/// [`com_core::Error::Numerical`] for a zero received symbol (phase ambiguity).
 pub fn evm(symbols: &[C64], c: &Constellation, tx: Option<&[C64]>) -> Result<f64> {
-    ensure(!symbols.is_empty(), || "empty symbol sequence".into())?;
+    com_core::ensure_shape(!symbols.is_empty(), || "empty symbol sequence".into())?;
     let mut y = com_dsp::signal::pnorm(symbols);
     let d = match tx {
         Some(t) => {
@@ -257,7 +256,7 @@ pub fn evm(symbols: &[C64], c: &Constellation, tx: Option<&[C64]>) -> Result<f64
             let d = com_dsp::signal::pnorm(t);
             if crate::rotated(c.kind()) {
                 let rot = crate::qam_psk_rotation(&d, &y)
-                    .ok_or_else(|| com_core::Error::Config("phase ambiguity: a received symbol is zero".into()))?;
+                    .ok_or_else(|| com_core::Error::Numerical("phase ambiguity: a received symbol is zero".into()))?;
                 for v in &mut y {
                     *v *= rot;
                 }

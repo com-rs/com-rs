@@ -110,7 +110,7 @@ impl Scenario for CoherentLink {
 
         // transmitter
         let bits = source::bits(self.n_symbols * c.bits_per_symbol(), rng);
-        let x = c.modulate(&bits)?;
+        let x = c.map_bits(&bits)?;
         let shaped = signal::pnorm(&filter::fir_filter(&link.rrc, &resample::upsample(&x, SPS)));
         let tx_laser = Laser { power_dbm: 0.0, ..Laser::default() };
         let carrier_tx = tx_laser.field(shaped.len(), fs, rng)?;
@@ -140,7 +140,7 @@ impl Scenario for CoherentLink {
         let (a, b) = (PREAMBLE_START + PREAMBLE, self.n_symbols - GUARD);
         let payload: Vec<C64> = (a..b).map(|n| z[(n as isize + delay) as usize] * rotation).collect();
         let k = c.bits_per_symbol();
-        let decided = c.demodulate(&payload);
+        let decided = c.demap_bits(&payload);
         rec.errors("ber", metrics::bit_errors(&decided, &bits[a * k..b * k])? as u64, ((b - a) * k) as u64);
         rec.value("snr_dsp_db", metrics::snr_db(&payload, &x[a..b])?);
         // the LO is above the carrier: the receiver sees an offset of -CFO

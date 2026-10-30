@@ -92,7 +92,7 @@ pub struct ReceiverState {
     /// constellation: with the samples, the receiver's posterior
     /// $q(x \mid z) \propto e^{-\lvert z - x \rvert^{2} / \hat{\sigma}^{2}}$ (declared by `noise_estimate`, or by a learned
     /// receiver).
-    pub sigma2: Option<f64>,
+    pub noise_var: Option<f64>,
     /// Noise variance of every received symbol after equalisation or detection (empty:
     /// unknown).
     pub symbol_noise: Vec<f64>,
@@ -275,7 +275,7 @@ impl Frame {
     }
 
     /// The noise variance of every symbol the receiver sees: `symbol_noise`, else the
-    /// declared posterior `sigma2`, else the channel's `noise_var`.
+    /// declared posterior `noise_var`, else the channel's `noise_var`.
     ///
     /// # Errors
     /// [`Error::Config`] if no block has set the noise variance.
@@ -284,7 +284,7 @@ impl Frame {
         if known.len() == self.samples.len() && !known.is_empty() {
             return Ok(known.clone());
         }
-        let v = self.receiver.sigma2.or(self.channel.noise_var).ok_or_else(|| {
+        let v = self.receiver.noise_var.or(self.channel.noise_var).ok_or_else(|| {
             Error::Config(format!(
                 "block {block:?} needs the noise variance: add a noise block (awgn, awgn_ebn0) or noise_estimate before it"
             ))

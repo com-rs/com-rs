@@ -31,7 +31,7 @@ variable, as ``$name`` does in a specification:
    )
 
 A chain behaves as an ordered mapping: ``link["cpr"]``, ``link.names``, ``len(link)``;
-``link.replace(cpr=B.Ddpll(...))`` and ``link.insert_after("channel", cfo=B.Cfo(hz=1e6))``
+``link.replace(cpr=B.Ddpll(...))`` and ``link.insert_after("channel", cfo=B.Cfo(offset_hz=1e6))``
 return modified copies, so variants of a link stay one line apart. A chain is itself a
 block: ``comrs.Chain(tx=transmitter, channel=..., rx=receiver)`` nests sub-chains,
 whose blocks are named ``rx.cpr`` and so on.

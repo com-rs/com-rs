@@ -139,7 +139,8 @@ impl SplitStep {
 impl Block for SplitStep {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
         let rng = if self.noise { Some(rng) } else { None };
-        s.samples = self.ssfm.propagate_with(&s.samples, s.fs(), rng, self.precision)?;
+        let fs = s.fs();
+        self.ssfm.propagate_with(&mut s.samples, fs, rng, self.precision)?;
         Ok(())
     }
 }
@@ -156,8 +157,8 @@ struct EdfaStage(Edfa);
 
 impl Block for EdfaStage {
     fn apply(&self, s: &mut Frame, rng: &mut Rng) -> Result<()> {
-        s.samples = self.0.apply(&s.samples, s.fs(), rng)?;
-        Ok(())
+        let fs = s.fs();
+        self.0.apply(&mut s.samples, fs, rng)
     }
 }
 

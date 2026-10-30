@@ -18,9 +18,9 @@
 //! use com_core::rng::Rng;
 //! let c = Constellation::qam(16).unwrap().normalized();
 //! let bits = source::bits(400, &mut Rng::new(1));
-//! let x = c.modulate(&bits).unwrap();
+//! let x = c.map_bits(&bits).unwrap();
 //! assert_eq!(x.len(), 100);
-//! assert_eq!(c.demodulate(&x), bits);
+//! assert_eq!(c.demap_bits(&x), bits);
 //! ```
 
 pub mod bicm;

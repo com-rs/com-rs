@@ -63,7 +63,7 @@
 //! ```
 //! use com_waveform::ofdm::nr::{Numerology, pss, detect_cell_id, ssb_grid};
 //! let nr = Numerology::new(1, false)?;                       // 30 kHz
-//! assert_eq!((nr.subcarrier_spacing(), nr.slots_per_frame()), (30e3, 20));
+//! assert_eq!((nr.subcarrier_spacing_hz(), nr.slots_per_frame()), (30e3, 20));
 //! assert_eq!(nr.cp_lengths(4096)?[..2], [352, 288]);         // (144 + 16·2)·2, 144·2
 //! assert_eq!(pss(0)?.len(), 127);
 //! let grid = ssb_grid(417, 0, None)?;                        // 4 × 240, no PBCH data
@@ -122,7 +122,7 @@ impl Numerology {
     }
 
     /// The subcarrier spacing $2^{\mu} \cdot 15$ kHz (Hz).
-    pub fn subcarrier_spacing(&self) -> f64 {
+    pub fn subcarrier_spacing_hz(&self) -> f64 {
         15e3 * f64::from(1u32 << self.mu)
     }
 
@@ -143,7 +143,7 @@ impl Numerology {
 
     /// The sampling rate $N_{\mathrm{FFT}}\Delta f$ (Hz).
     pub fn sample_rate(&self, n_fft: usize) -> f64 {
-        n_fft as f64 * self.subcarrier_spacing()
+        n_fft as f64 * self.subcarrier_spacing_hz()
     }
 
     /// The cyclic prefixes (samples) of the symbols of one subframe at the FFT size
@@ -535,7 +535,7 @@ mod tests {
         // Lin et al. 2019, Sec. II: 2^mu 15 kHz, 2^mu slots of 14 symbols per subframe
         for mu in 0..=4 {
             let nr = Numerology::new(mu, false).unwrap();
-            assert_eq!(nr.subcarrier_spacing(), 15e3 * f64::from(1u32 << mu));
+            assert_eq!(nr.subcarrier_spacing_hz(), 15e3 * f64::from(1u32 << mu));
             assert_eq!((nr.slots_per_subframe(), nr.symbols_per_slot()), (1 << mu, 14));
             // a subframe lasts 1 ms at every FFT size
             for n_fft in [256, 2048, 4096] {

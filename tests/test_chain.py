@@ -262,7 +262,7 @@ def test_misspelt_names_and_mixed_curves_raise():
 def test_compare_gathers_variants():
     base = awgn_link()
     res = comrs.compare(
-        {"awgn": base, "phase noise": base.insert_after("ch", pn=B.PhaseNoise(sigma=0.05))},
+        {"awgn": base, "phase noise": base.insert_after("ch", pn=B.PhaseNoise(sigma_rad=0.05))},
         grid={"snr_db": [10.0]},
         metrics=["ser"],
         stop={"max_trials": 8},
@@ -275,7 +275,7 @@ def test_compare_gathers_variants():
 def test_probes_measure_inside_the_chain_on_both_runners():
     link = (
         awgn_link()
-        .insert_after("ch", rot=B.Cfo(omega=0.0))
+        .insert_after("ch", rot=B.Cfo(omega_rad=0.0))
         .probes({"tx": ["power_dbm"], "ch": ["snr_db", "ser"]}, scale="none")
     )
     kw = {"grid": {"snr_db": [10.0]}, "metrics": ["ser"], "stop": {"max_trials": 16}}

@@ -10,14 +10,14 @@ use crate::rng::PyRng;
 use crate::{BArr, CArr, FArr, IArr, IntoPy, bvec, carr, count, cvec, farr, fvec, iarr, kind, map_real, uvec};
 use comrs::fec::ccdm::Ccdm;
 use comrs::mapping::constellation::Constellation;
-use comrs::mapping::theory::Fading;
+use comrs::mapping::theory::RateChannel;
 use comrs::mapping::{bicm, constellation as modulation, source as sources, theory};
 use comrs::metrics;
 pub(crate) use constellation::PyConstellation;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
 
-fn fading(name: &str) -> PyResult<Fading> {
+fn fading(name: &str) -> PyResult<RateChannel> {
     name.parse().py()
 }
 

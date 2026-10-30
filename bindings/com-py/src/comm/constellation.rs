@@ -1,6 +1,7 @@
 //! Constellations, their mapping and demapping, and the Gray code.
 
 use super::*;
+use comrs::math::Jacobian;
 
 /// A constellation with Gray labels: point `i` carries the bits of `i`, MSB first.
 ///
@@ -194,7 +195,7 @@ impl PyConstellation {
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.inner.modulate(&bvec(bits)?).py()?))
+        Ok(carr(py, self.inner.map_bits(&bvec(bits)?).py()?))
     }
 
     /// Symbols of an index sequence.
@@ -255,7 +256,7 @@ impl PyConstellation {
     /// Raises:
     ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn demodulate<'py>(&self, py: Python<'py>, z: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
-        Ok(self.inner.demodulate(&cvec(z)?).into_pyarray(py))
+        Ok(self.inner.demap_bits(&cvec(z)?).into_pyarray(py))
     }
 
     /// Bit log-likelihood ratios `ln p(b=0|y) - ln p(b=1|y)`, `log2 M` per sample.
@@ -293,7 +294,7 @@ impl PyConstellation {
         let z = cvec(z)?;
         let px = px.map(crate::fvec).transpose()?;
         let c = &self.inner;
-        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), max_log)).py()?;
+        let v = py.detach(|| c.llr(&z, noise_var, px.as_deref(), Jacobian::from_max_log(max_log))).py()?;
         Ok(farr(py, v))
     }
 

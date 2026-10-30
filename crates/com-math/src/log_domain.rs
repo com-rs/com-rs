@@ -1,5 +1,6 @@
 //! The log domain of probabilities and LLRs, without overflow: [`ln_1p_exp`],
-//! [`max_star`], [`log_sum_exp`] and [`log_sum_exp_iter`] (re-exported at the root).
+//! [`max_star`] and its choice [`Jacobian`], [`log_sum_exp`] and [`log_sum_exp_iter`]
+//! (re-exported at the root).
 
 /// `ln(1 + e^x)` (the softplus) without overflow.
 ///
@@ -14,12 +15,59 @@ pub fn ln_1p_exp(x: f64) -> f64 {
     x.max(0.0) + (-x.abs()).exp().ln_1p()
 }
 
-/// The `max*` operation `ln(e^a + e^b)` of the log-MAP algorithms, `max(a, b)` when
-/// `exact` is false (the max-log approximation) or when the maximum is not finite.
+/// The Jacobian logarithm of the log-MAP algorithms and of the soft demappers, exact or
+/// approximated by its maximum:
+///
+/// $$
+/// \ln\left(e^{a} + e^{b}\right) = \max(a, b) + \ln\left(1 + e^{-\lvert a - b \rvert}\right)
+/// \approx \max(a, b).
+/// $$
+///
+/// One choice for [`max_star`], the BCJR and turbo decoders of `com-fec` and the
+/// demappers of `com-mapping`; a specification keeps the boolean key `max_log`
+/// ([`Jacobian::from_max_log`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Jacobian {
+    /// The exact logarithm (log-MAP, log-sum-exp).
+    #[default]
+    Exact,
+    /// The max-log approximation, $\max(a, b)$.
+    MaxLog,
+}
+
+impl Jacobian {
+    /// [`Jacobian::MaxLog`] when `max_log` is true, [`Jacobian::Exact`] otherwise (the
+    /// boolean key `max_log` of the specifications and of the Python API).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_math::Jacobian;
+    /// assert_eq!(Jacobian::from_max_log(true), Jacobian::MaxLog);
+    /// assert_eq!(Jacobian::from_max_log(false), Jacobian::default());
+    /// ```
+    pub fn from_max_log(max_log: bool) -> Jacobian {
+        if max_log { Jacobian::MaxLog } else { Jacobian::Exact }
+    }
+
+    /// Whether the logarithm is exact.
+    pub fn is_exact(self) -> bool {
+        self == Jacobian::Exact
+    }
+}
+
+/// The `max*` operation `ln(e^a + e^b)` of the log-MAP algorithms; `max(a, b)` with
+/// [`Jacobian::MaxLog`] or when the maximum is not finite.
+///
+/// # Examples
+/// ```
+/// use com_math::{Jacobian, max_star};
+/// assert!((max_star(0.0, 0.0, Jacobian::Exact) - 2f64.ln()).abs() < 1e-15);
+/// assert_eq!(max_star(0.0, -1.0, Jacobian::MaxLog), 0.0);
+/// ```
 #[inline]
-pub fn max_star(a: f64, b: f64, exact: bool) -> f64 {
+pub fn max_star(a: f64, b: f64, jacobian: Jacobian) -> f64 {
     let m = a.max(b);
-    if !exact || !m.is_finite() { m } else { m + (-(a - b).abs()).exp().ln_1p() }
+    if !jacobian.is_exact() || !m.is_finite() { m } else { m + (-(a - b).abs()).exp().ln_1p() }
 }
 
 /// `ln Σ_i e^{v_i}` without overflow (the log domain of probabilities and LLRs).

@@ -190,22 +190,22 @@ class PhaseNoise(Native):
 
     Args:
         linewidth_hz (float): laser linewidth, increments of variance 2πΔν/f_s [Hz]; default none
-        sigma (float): increment standard deviation per sample, instead of the linewidth [rad]; default none
+        sigma_rad (float): increment standard deviation per sample, instead of the linewidth [rad]; default none
         origin (str): zero: φ[0] = 0, the first sample is not rotated (OptiCommPy); step: φ[0] = Δ[0], the first sample is rotated too; one of zero, step; default zero
     """
 
     needs = ("samples",)
     gives = ()
-    param_names = ("linewidth_hz", "sigma", "origin")
+    param_names = ("linewidth_hz", "sigma_rad", "origin")
 
     def __init__(
         self,
         *,
         linewidth_hz: float | Var | None = None,
-        sigma: float | Var | None = None,
+        sigma_rad: float | Var | None = None,
         origin: str | Var = "zero",
     ) -> None:
-        _init(self, "phase_noise", linewidth_hz=linewidth_hz, sigma=sigma, origin=origin)
+        _init(self, "phase_noise", linewidth_hz=linewidth_hz, sigma_rad=sigma_rad, origin=origin)
 
 
 class Cfo(Native):
@@ -214,23 +214,23 @@ class Cfo(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        hz (float): offset [Hz]; default none
-        omega (float): offset per sample, instead of hz [rad/sample]; default none
+        offset_hz (float): offset [Hz]; default none
+        omega_rad (float): offset per sample, instead of offset_hz [rad/sample]; default none
         centred (bool): phase zero at the middle of the block, e^{jω(n - N/2)}, instead of the first sample; default false
     """
 
     needs = ("samples",)
     gives = ()
-    param_names = ("hz", "omega", "centred")
+    param_names = ("offset_hz", "omega_rad", "centred")
 
     def __init__(
         self,
         *,
-        hz: float | Var | None = None,
-        omega: float | Var | None = None,
+        offset_hz: float | Var | None = None,
+        omega_rad: float | Var | None = None,
         centred: bool | Var = False,
     ) -> None:
-        _init(self, "cfo", hz=hz, omega=omega, centred=centred)
+        _init(self, "cfo", offset_hz=offset_hz, omega_rad=omega_rad, centred=centred)
 
 
 class Fir(Native):
@@ -725,22 +725,22 @@ class Ddpll(Native):
 
     Args:
         kv (float): VCO gain; default 0.1
-        tau1 (float): loop-filter time constant [s]; default 1/(2π 10 MHz)
-        tau2 (float): loop-filter time constant [s]; default 1/(2π 10 MHz)
+        tau1_s (float): loop-filter time constant [s]; default 1/(2π 10 MHz)
+        tau2_s (float): loop-filter time constant [s]; default 1/(2π 10 MHz)
     """
 
     needs = ("samples", "constellation")
     gives = ()
-    param_names = ("kv", "tau1", "tau2")
+    param_names = ("kv", "tau1_s", "tau2_s")
 
     def __init__(
         self,
         *,
         kv: float | Var = 0.1,
-        tau1: float | Var | None = None,
-        tau2: float | Var | None = None,
+        tau1_s: float | Var | None = None,
+        tau2_s: float | Var | None = None,
     ) -> None:
-        _init(self, "ddpll", kv=kv, tau1=tau1, tau2=tau2)
+        _init(self, "ddpll", kv=kv, tau1_s=tau1_s, tau2_s=tau2_s)
 
 
 class FrameSync(Native):
@@ -1084,7 +1084,7 @@ class Manakov(Native):
 
     Args:
         fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
-        max_nl_phase (float): largest nonlinear phase rotation per step [rad]; default 2e-2
+        max_nl_phase_rad (float): largest nonlinear phase rotation per step [rad]; default 2e-2
         step_km (float): a fixed step instead of the adaptive one [km]; default none
         max_iterations (int): trapezoidal iterations per step at most; default 10
         tolerance (float): convergence tolerance of the iterations; default 1e-5
@@ -1096,7 +1096,7 @@ class Manakov(Native):
     gives = ()
     param_names = (
         "fiber",
-        "max_nl_phase",
+        "max_nl_phase_rad",
         "step_km",
         "max_iterations",
         "tolerance",
@@ -1108,7 +1108,7 @@ class Manakov(Native):
         self,
         *,
         fiber: dict | Var | None = None,
-        max_nl_phase: float | Var = 0.02,
+        max_nl_phase_rad: float | Var = 0.02,
         step_km: float | Var | None = None,
         max_iterations: int | Var = 10,
         tolerance: float | Var = 1e-05,
@@ -1119,7 +1119,7 @@ class Manakov(Native):
             self,
             "manakov",
             fiber=fiber,
-            max_nl_phase=max_nl_phase,
+            max_nl_phase_rad=max_nl_phase_rad,
             step_km=step_km,
             max_iterations=max_iterations,
             tolerance=tolerance,
@@ -1229,7 +1229,7 @@ class Rayleigh(Native):
 
     Args:
         n_rx (int): receive antennas; default 1
-        coherence (int): samples per channel matrix (0: one matrix per trial, 1: fast fading) [samples]; default 0
+        coherence_samples (int): samples per channel matrix (0: one matrix per trial, 1: fast fading) [samples]; default 0
         k_factor (float): Rician factor K (linear), 0 for Rayleigh fading; default 0.0
         rx_correlation (float): exponential correlation ρ of the receive antennas; default 0.0
         tx_correlation (float): exponential correlation ρ of the transmit antennas; default 0.0
@@ -1237,13 +1237,13 @@ class Rayleigh(Native):
 
     needs = ("samples",)
     gives = ("csi",)
-    param_names = ("n_rx", "coherence", "k_factor", "rx_correlation", "tx_correlation")
+    param_names = ("n_rx", "coherence_samples", "k_factor", "rx_correlation", "tx_correlation")
 
     def __init__(
         self,
         *,
         n_rx: int | Var = 1,
-        coherence: int | Var = 0,
+        coherence_samples: int | Var = 0,
         k_factor: float | Var = 0.0,
         rx_correlation: float | Var = 0.0,
         tx_correlation: float | Var = 0.0,
@@ -1252,7 +1252,7 @@ class Rayleigh(Native):
             self,
             "rayleigh",
             n_rx=n_rx,
-            coherence=coherence,
+            coherence_samples=coherence_samples,
             k_factor=k_factor,
             rx_correlation=rx_correlation,
             tx_correlation=tx_correlation,
@@ -1293,14 +1293,21 @@ class Cdl(Native):
         profile (str): the profile of TR 38.901 Tables 7.7.1-1 to 7.7.1-5 (A, B, C: NLOS; D, E: LOS); one of CDL-A, CDL-B, CDL-C, CDL-D, CDL-E; default CDL-A
         delay_spread_s (float): desired RMS delay spread (TR 38.901 §7.7.3) [s]; default 100e-9
         n_rx (int): receive antennas, a vertical uniform linear array; default 1
-        spacing (float): element spacing of both arrays [wavelengths]; default 0.5
+        spacing_wavelengths (float): element spacing of both arrays [wavelengths]; default 0.5
         velocity_mps (float): speed of the receiver along the array axis; 0 for a channel constant over the trial [m/s]; default 0.0
         fc_hz (float): carrier frequency (the wavelength of the Doppler shifts) [Hz]; default 3.5e9
     """
 
     needs = ("samples",)
     gives = ("csi",)
-    param_names = ("profile", "delay_spread_s", "n_rx", "spacing", "velocity_mps", "fc_hz")
+    param_names = (
+        "profile",
+        "delay_spread_s",
+        "n_rx",
+        "spacing_wavelengths",
+        "velocity_mps",
+        "fc_hz",
+    )
 
     def __init__(
         self,
@@ -1308,7 +1315,7 @@ class Cdl(Native):
         profile: str | Var = "CDL-A",
         delay_spread_s: float | Var = 1e-07,
         n_rx: int | Var = 1,
-        spacing: float | Var = 0.5,
+        spacing_wavelengths: float | Var = 0.5,
         velocity_mps: float | Var = 0.0,
         fc_hz: float | Var = 3500000000.0,
     ) -> None:
@@ -1318,7 +1325,7 @@ class Cdl(Native):
             profile=profile,
             delay_spread_s=delay_spread_s,
             n_rx=n_rx,
-            spacing=spacing,
+            spacing_wavelengths=spacing_wavelengths,
             velocity_mps=velocity_mps,
             fc_hz=fc_hz,
         )

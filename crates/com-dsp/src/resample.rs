@@ -83,9 +83,9 @@ pub fn resample_fft(x: &[C64], n_out: usize) -> Vec<C64> {
     ys
 }
 
-/// Delay a periodic block by `delay` seconds at the sampling rate `fs` (fractional
+/// Delay a periodic block by `delay_s` seconds at the sampling rate `fs` (fractional
 /// delays allowed): `Y(f) = X(f) e^{-j2πf·delay}`.
-pub fn delay_fft(x: &[C64], delay: f64, fs: f64) -> Vec<C64> {
+pub fn delay_fft(x: &[C64], delay_s: f64, fs: f64) -> Vec<C64> {
     let f = fft::fftfreq(x.len(), 1.0 / fs);
-    fft::filter(x, f.into_iter().map(|fk| cis(-2.0 * PI * fk * delay)))
+    fft::filter(x, f.into_iter().map(|fk| cis(-2.0 * PI * fk * delay_s)))
 }

@@ -280,7 +280,7 @@ impl Metrics {
                     let c = s.constellation("metrics: ber")?;
                     let b = c.bits_per_symbol();
                     let bits: Vec<u8> = idx.iter().flat_map(|&i| s.bits[i * b..(i + 1) * b].iter().copied()).collect();
-                    rec.errors(name, metrics::bit_errors(&c.demodulate(&z), &bits)? as u64, bits.len() as u64);
+                    rec.errors(name, metrics::bit_errors(&c.demap_bits(&z), &bits)? as u64, bits.len() as u64);
                 }
                 Metric::Ser => {
                     let c = s.constellation("metrics: ser")?;
@@ -384,7 +384,7 @@ impl Metrics {
 
     /// The rates of the receiver's declared posterior, on the samples as they are.
     fn posterior(s: &Frame, name: &str, raw: &[C64], tx: &[usize]) -> Result<metrics::PosteriorRates> {
-        let s2 = s.receiver.sigma2.ok_or_else(|| {
+        let s2 = s.receiver.noise_var.ok_or_else(|| {
             Error::Config(format!(
                 "metric {name:?} needs a block that declares the receiver's posterior \
                  (a learned receiver, or noise_estimate after a classic receiver)"

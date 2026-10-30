@@ -320,7 +320,7 @@ impl Fbmc {
 impl Modulate for Fbmc {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("FBMC modulates one stream, not {}", x.n_streams()))?;
-        let a = oqam_stagger(x.stream_slice(0), self.n_fft)?;
+        let a = oqam_stagger(x.stream(0), self.n_fft)?;
         out.set_stream(&Fbmc::modulate(self, &a)?, self.sample_rate);
         Ok(())
     }
@@ -434,7 +434,7 @@ mod tests {
             .map(|i| C64::new(if i % 3 == 0 { 1.0 } else { -1.0 }, if i % 5 == 0 { -1.0 } else { 1.0 }))
             .collect();
         let x = Modulate::modulate(&f, &Symbols::from_stream(c.clone()).unwrap()).unwrap();
-        assert_eq!((x.n_samples(), x.sample_rate()), (f.n_samples(12), Hertz(1e6)));
+        assert_eq!((x.len(), x.sample_rate()), (f.n_samples(12), Hertz(1e6)));
         assert_eq!(x.stream(0), &f.modulate(&oqam_stagger(&c, 16).unwrap()).unwrap()[..]);
         let mut g = f.clone();
         let back = Demodulate::demodulate(&mut g, &x).unwrap();

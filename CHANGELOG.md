@@ -269,6 +269,43 @@ A review of the whole library before the release settled its conventions
   the README and of the Python documentation are generated from
   `validation/maturity.yaml` (`just maturity`, checked by `just check`).
 
+### Conventions of the API (plan of 30 October 2026)
+
+The rules of `docs/ARCHITECTURE.md` (naming conventions, errors) applied to the
+crates; the Python API keeps its names until its own pass.
+
+- Units in the names: `Cdl::{fc_hz, velocity_mps, delay_spread_s(), max_doppler_hz()}`,
+  `Ray::doppler_hz`, `WdmSpectrum::freqs_hz`, `WdmTransmitter::freqs_hz`,
+  `Numerology::subcarrier_spacing_hz`, `Photodiode::{temperature_k, dark_current_a}`,
+  `SyncRule::Optimum { snr_lin }`, and the parameters `snr_lin`, `es_n0_lin`, `ts_s`,
+  `f_hz`, `spacing_hz`, `offset_hz`, `delay_s`, `bandwidth_hz`, `spacing_s`
+  (`fftfreq`); the keys of the specifications `offset_hz`, `omega_rad` (`cfo`),
+  `sigma_rad` (`phase_noise`), `tau1_s`, `tau2_s` (`ddpll`), `max_nl_phase_rad`
+  (`manakov`), `spacing_wavelengths` (`cdl`) and `coherence_samples` (`rayleigh`).
+- One word per notion: `sps`, `rolloff` (`rrc_taps`, `rc_taps`), `noise_var`,
+  `CeOfdm::n_subcarriers` and `CeOfdm::sps`, `OfdmFrame::n_data_symbols`.
+- `com_math::Jacobian { Exact, MaxLog }` for `max_star`, `bcjr`, `TurboDecoder`,
+  `LabelHalves`, `llr_from_metrics`, `Constellation::llr` and its variants and
+  `Dvbs2::llr`; the specifications keep their key `max_log`.
+- Errors: `Error::Shape` for lengths and empty inputs, `Error::Config` for values, in
+  `lama`, `oamp`, `welch`, the symbol metrics, the blind estimators, the information
+  rates, the frequency and frame synchronisation and the AWGN channel.
+- Parameter structs: `TdlParams`, `CdlParams` and `ClusterTable`, `PortEstimation`
+  (`estimate_port`), `FrameDetection` (`OfdmFrame::detect`), `MessagePassing` (`lama`,
+  `oamp` and their state evolutions); `Ufmc` is built from `Default` by struct update;
+  `PilotPattern::{block, comb, lattice}`; the CE-OFDM closed forms read the receiver of
+  the modem.
+- Containers: `stream`/`stream_mut` are slices on every container, `stream_view` the
+  `ndarray` view; `Signal::len` and `Signal::resize`.
+- Names: `Constellation::{map_bits, demap_bits}` and `Dpsk::{map_bits, demap_bits}`,
+  `Ccdm::match_bits`, `CeOfdm::demodulate_with_receiver`, `pmd::ManakovPmd`,
+  `theory::RateChannel`, `theory::ser_esn0` and `theory::ber_orthogonal_noncoherent`,
+  the CE-OFDM `theory::{ser_esn0, ber_esn0}`; the DVB-S puncturers of rates 2/3, 3/4
+  and 5/6 are aliases of the IEEE 802.11 patterns.
+- The optical propagators work in place and return `Result`: `Ssfm::propagate`
+  (`propagate_f32`, `propagate_with`), `Edfa::apply`, `PmdLink::apply` (on a `DualPol`),
+  as `ManakovSsfm` and `ManakovPmd`.
+
 ### Waveforms and hardware (review of 30 October 2026)
 
 - Verb traits: CE-OFDM (its receiver a field) and FBMC (the OQAM staggering inside)
@@ -305,7 +342,8 @@ A review of the whole library before the release settled its conventions
   n_subcarriers: k, n_fft, first_symbol: first }.modulate(grid)`;
   `Otfs::effective_channel(&tuples, fs)` is `Otfs { sample_rate: Hertz(fs), .. }
   .effective_channel(&paths)?.to_dense()`; a full literal of `Ofdm`, `Ufmc`, `Otfs` or
-  `CeOfdm` adds `sample_rate` (and `receiver` for `CeOfdm`), or starts from `new`; the
+  `CeOfdm` adds `sample_rate` (and `receiver` for `CeOfdm`), or starts from `new` (from
+  `Ufmc::default` for UFMC); the
   fields of `PowerDelayProfile` are getters; `com_hardware::optical::{WdmTransmitter,
   wdm_grid, wdm_demultiplex}` are `com_systems::wdm::WdmTransmitter` and
   `com_dsp::signal::{wdm_grid, wdm_demultiplex}`.

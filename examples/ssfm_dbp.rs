@@ -77,7 +77,8 @@ impl Scenario for LongHaul {
             .into_iter()
             .map(|v| v * amplitude)
             .collect();
-        let y = link.ssfm.propagate(&tx, fs, Some(rng))?;
+        let mut y = tx;
+        link.ssfm.propagate(&mut y, fs, Some(rng))?;
         let fiber = &link.ssfm.fiber;
         for (name, steps) in RECEIVERS {
             let r = if steps == 0 {

@@ -33,7 +33,7 @@
 //! let c = Constellation::qam(16).unwrap();
 //! assert_eq!(c.points()[0], C64::new(-3.0, 3.0));            // label 0000
 //! assert!((c.energy() - 10.0).abs() < 1e-12);                 // 2(M-1)/3
-//! let x = c.modulate(&[0, 0, 0, 1, 1, 0, 1, 1]).unwrap();
+//! let x = c.map_bits(&[0, 0, 0, 1, 1, 0, 1, 1]).unwrap();
 //! assert_eq!(x, vec![c.points()[1], c.points()[11]]);
 //! // Gray mapping: nearest neighbours differ by one bit
 //! for i in 0..16 {
@@ -414,7 +414,7 @@ impl Constellation {
     ///
     /// # Errors
     /// [`Error::Shape`] if the number of bits is not a multiple of `log2 M`.
-    pub fn modulate(&self, bits: &[u8]) -> Result<Vec<C64>> {
+    pub fn map_bits(&self, bits: &[u8]) -> Result<Vec<C64>> {
         Ok(self.indices(bits)?.into_iter().map(|i| self.points[i]).collect())
     }
 
@@ -440,7 +440,7 @@ impl Constellation {
     }
 
     /// Hard-decision bits of every sample (OptiCommPy `demodulateGray`).
-    pub fn demodulate(&self, z: &[C64]) -> Vec<u8> {
+    pub fn demap_bits(&self, z: &[C64]) -> Vec<u8> {
         indices_to_bits(&self.decide(z), self.bits)
     }
 }

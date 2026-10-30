@@ -203,7 +203,7 @@ impl PyDpsk {
     ///     >>> comrs.Dpsk(2).modulate([1, 0]).real.round(12).tolist()
     ///     [1.0, -1.0, -1.0]
     fn modulate<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.inner.modulate(&bvec(bits)?).py()?))
+        Ok(carr(py, self.inner.map_bits(&bvec(bits)?).py()?))
     }
 
     /// Noncoherent demodulation: the transition nearest to `arg(r_k conj(r_{k-1}))`
@@ -224,7 +224,7 @@ impl PyDpsk {
     ///     >>> d.demodulate(d.modulate([1, 0, 1]) * 1j).tolist()
     ///     [1, 0, 1]
     fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
-        Ok(self.inner.demodulate(&cvec(r)?).py()?.into_pyarray(py))
+        Ok(self.inner.demap_bits(&cvec(r)?).py()?.into_pyarray(py))
     }
 
     /// Coherent demodulation with differential decoding: the phase index nearest to

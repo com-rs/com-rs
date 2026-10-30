@@ -36,7 +36,7 @@
 //!    spectra," *IEEE Trans. Audio Electroacoust.*, 15(2), 70–73, 1967.
 
 use crate::window::hann;
-use com_core::{Result, ensure};
+use com_core::{Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::fft;
 
@@ -44,7 +44,8 @@ use com_math::fft;
 /// samples: the frequencies (centred, increasing) and the density (power per Hz).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if `x` is shorter than one segment or `fs` is not
+/// [`com_core::Error::Shape`] if `x` is shorter than one segment,
+/// [`com_core::Error::Config`] for no sample per segment or an `fs` that is not
 /// positive.
 pub fn psd(x: &[C64], fs: f64, nfft: usize) -> Result<(Vec<f64>, Vec<f64>)> {
     welch(x, fs, nfft, Some(&hann(nfft)), nfft / 2)
@@ -66,13 +67,15 @@ pub fn periodogram(x: &[C64], fs: f64, nfft: usize) -> Result<(Vec<f64>, Vec<f64
 /// normalised by the energy of the window (see the module).
 ///
 /// # Errors
-/// [`com_core::Error::Config`] if `x` is shorter than one segment, `fs` is not positive,
-/// `hop` is zero or the window does not have `nfft` taps.
+/// [`com_core::Error::Shape`] if `x` is shorter than one segment or the window does not
+/// have `nfft` taps, [`com_core::Error::Config`] for no sample per segment, an `fs` that
+/// is not positive or a zero `hop`.
 pub fn welch(x: &[C64], fs: f64, nfft: usize, window: Option<&[f64]>, hop: usize) -> Result<(Vec<f64>, Vec<f64>)> {
-    ensure(nfft >= 1 && x.len() >= nfft, || format!("{} samples for segments of {nfft}", x.len()))?;
+    ensure(nfft >= 1, || "the segments need at least one sample".into())?;
+    ensure_shape(x.len() >= nfft, || format!("{} samples for segments of {nfft}", x.len()))?;
     ensure(fs > 0.0, || format!("the sampling rate must be positive, got {fs}"))?;
     ensure(hop >= 1, || "the hop between segments must be at least 1".into())?;
-    ensure(window.is_none_or(|w| w.len() == nfft), || format!("the window needs {nfft} taps"))?;
+    ensure_shape(window.is_none_or(|w| w.len() == nfft), || format!("the window needs {nfft} taps"))?;
     let u: f64 = window.map_or(nfft as f64, |w| w.iter().map(|v| v * v).sum());
     let p = fft::plan(nfft);
     let mut acc = vec![0.0; nfft];

@@ -33,9 +33,9 @@ impl Scenario for QamAwgn {
     fn trial(&self, c: &Constellation, cond: &Condition, rng: &mut Rng, rec: &mut Record) -> Result<()> {
         let k = c.bits_per_symbol();
         let bits = source::bits(self.n_symbols * k, rng);
-        let x = c.modulate(&bits)?;
+        let x = c.map_bits(&bits)?;
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, k as f64, 1.0, rng);
-        let decided = c.demodulate(&y);
+        let decided = c.demap_bits(&y);
         rec.errors("ber", metrics::bit_errors(&decided, &bits)? as u64, bits.len() as u64);
         Ok(())
     }

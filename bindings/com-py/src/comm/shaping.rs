@@ -125,7 +125,7 @@ impl PyCcdm {
     /// Raises:
     ///     ValueError: for an invalid parameter or input (the message names it).
     fn matched<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
-        let s = self.inner.matched(&bvec(bits)?).py()?;
+        let s = self.inner.match_bits(&bvec(bits)?).py()?;
         Ok(iarr(py, s))
     }
 

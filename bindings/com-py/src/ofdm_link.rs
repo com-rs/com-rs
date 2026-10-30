@@ -7,7 +7,7 @@ use crate::{
     CArr, FArr, FMat, IArr, IntoPy, carr, cvec, farr, fvec, iarr, mat, streams_in, streams_out, taps_in, taps_out, uvec,
 };
 use comrs::channel::fading::Fading;
-use comrs::channel::multipath::{Profile, Taps, Tdl, rms_delay_spread};
+use comrs::channel::multipath::{Profile, Taps, Tdl, TdlParams, rms_delay_spread};
 use comrs::core::signal::Signal;
 use comrs::core::units::Hertz;
 use comrs::waveform::ofdm::estimation::{FrequencyInterpolation, PowerDelayProfile, estimate};
@@ -122,7 +122,7 @@ impl PyTdl {
     #[pyo3(signature = (profile, fs, *, doppler_hz=0.0, n_rx=1, n_tx=1))]
     fn new(profile: &Bound<'_, PyAny>, fs: f64, doppler_hz: f64, n_rx: usize, n_tx: usize) -> PyResult<Self> {
         let taps = profile_or_taps(profile)?;
-        Ok(PyTdl { inner: Tdl::new(&taps, doppler_hz, fs, n_rx, n_tx).py()? })
+        Ok(PyTdl { inner: Tdl::new(&TdlParams { taps, doppler_hz, sample_rate: fs, n_rx, n_tx }).py()? })
     }
 
     /// numpy.ndarray: Delays of the taps (samples, int64).
@@ -294,7 +294,14 @@ impl PyGrid {
         time: usize,
         seed: u64,
     ) -> PyResult<Self> {
-        let pattern = PilotPattern::from_name(pattern, period, spacing, freq, time).py()?;
+        let pattern = match pattern.to_ascii_lowercase().as_str() {
+            "block" => PilotPattern::block(period),
+            "comb" => PilotPattern::comb(spacing),
+            "lattice" => PilotPattern::lattice(freq, time),
+            "none" => Ok(PilotPattern::None),
+            _ => Err(comrs::Error::Config(format!("unknown pilot pattern {pattern:?}: block, comb, lattice or none"))),
+        }
+        .py()?;
         Ok(PyGrid { inner: ResourceGrid { n_subcarriers, n_symbols, pattern, seed } })
     }
 

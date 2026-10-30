@@ -3,7 +3,7 @@
 //!
 //! - [`Jones`]: `2×2` complex matrices, uniform SU(2) rotations, differential group delay;
 //! - [`PmdLink`]: the coarse-step PMD of a link (random birefringent sections);
-//! - [`Manakov`]: two polarisations with PMD by split steps, with its exact inverse and
+//! - [`ManakovPmd`]: two polarisations with PMD by split steps, with its exact inverse and
 //!   the lumped PMD equaliser (the upper bounds of a receiver that knows the PMD).
 //!
 //! # References
@@ -151,9 +151,14 @@ impl PmdLink {
         }
     }
 
-    /// Apply the lumped response `J(ω)` to the two polarisations sampled at `fs`
-    /// (periodic blocks, in the frequency domain).
-    pub fn apply(&self, x: &mut Vec<C64>, y: &mut Vec<C64>, fs: f64) {
+    /// Apply the lumped response `J(ω)` to the two polarisations of `u` sampled at `fs`,
+    /// in place (periodic blocks, in the frequency domain).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a sampling rate that is not positive and finite.
+    pub fn apply(&self, u: &mut DualPol, fs: f64) -> Result<()> {
+        ensure(fs > 0.0 && fs.is_finite(), || format!("the sampling rate must be positive, got {fs}"))?;
+        let DualPol { x, y } = u;
         let omega = fft::angular_frequencies(x.len(), fs);
         let j = self.lumped_response(&omega);
         let (mut fx, mut fy) = (fft::fft(x), fft::fft(y));
@@ -162,6 +167,7 @@ impl PmdLink {
         }
         *x = fft::ifft(&fx);
         *y = fft::ifft(&fy);
+        Ok(())
     }
 
     /// RMS DGD of the concatenation `√Σ τ_k²` (s).
@@ -187,9 +193,9 @@ impl PmdLink {
 /// Each PMD section is one asymmetric split step: in the frequency domain the scalar
 /// loss and dispersion and the section `D_k(ω) R_k`, then the nonlinear rotation
 /// `u ← u e^{j(8/9)γ L_eff ‖u‖²}` with `L_eff = (1 - e^{-αL_c})/α`; after every span the
-/// field is amplified by [`Manakov::amplification`] (with the ASE of an EDFA when a
-/// generator is given). [`Manakov::backpropagate_with_pmd`] is the exact inverse (the upper bound of
-/// a receiver that knows the PMD), [`Manakov::equalize_pmd`] the lumped ideal MIMO
+/// field is amplified by [`ManakovPmd::amplification`] (with the ASE of an EDFA when a
+/// generator is given). [`ManakovPmd::backpropagate_with_pmd`] is the exact inverse (the upper bound of
+/// a receiver that knows the PMD), [`ManakovPmd::equalize_pmd`] the lumped ideal MIMO
 /// equaliser `J(ω)⁻¹`.
 ///
 /// The solvers of `com_math::nlse` do not apply here: their linear step is a scalar
@@ -201,19 +207,19 @@ impl PmdLink {
 /// itself is [`com_math::nlse::manakov_rotation`], the step of
 /// `com_math::nlse::SplitStep::run_dual`.
 #[derive(Clone, Debug)]
-pub struct Manakov {
+pub struct ManakovPmd {
     /// The link.
     pub fiber: FiberParams,
     /// Its polarisation-mode dispersion (one split step per section).
     pub pmd: PmdLink,
-    /// The amplifier after every span (the EDFA of [`Manakov::new`]).
+    /// The amplifier after every span (the EDFA of [`ManakovPmd::new`]).
     pub amplification: Amplification,
 }
 
-impl Manakov {
+impl ManakovPmd {
     /// The link `fiber` with the PMD `pmd` and an EDFA after every span.
-    pub fn new(fiber: FiberParams, pmd: PmdLink) -> Manakov {
-        Manakov { fiber, pmd, amplification: Amplification::Edfa }
+    pub fn new(fiber: FiberParams, pmd: PmdLink) -> ManakovPmd {
+        ManakovPmd { fiber, pmd, amplification: Amplification::Edfa }
     }
 
     fn linear(&self, x: &mut [C64], y: &mut [C64], omega: &[f64], s: &PmdSection, inverse: bool) {
@@ -281,7 +287,7 @@ impl Manakov {
         Ok(())
     }
 
-    /// The exact inverse of [`Manakov::propagate`] without noise.
+    /// The exact inverse of [`ManakovPmd::propagate`] without noise.
     pub fn backpropagate_with_pmd(&self, u: &mut DualPol, fs: f64) {
         let n = u.len();
         let p = fft::plan(n);
@@ -330,7 +336,7 @@ mod tests {
         let fiber = FiberParams { n_spans: 2, span_km: 20.0, ..FiberParams::default() };
         let mut r = Rng::new(4);
         let pmd = PmdLink::random(&fiber, 0.5, 10, &mut r).unwrap();
-        let m = Manakov::new(fiber.clone(), pmd);
+        let m = ManakovPmd::new(fiber.clone(), pmd);
         let u0 = DualPol::new(signal(128, 2, 1e-3), signal(128, 3, 1e-3)).unwrap();
         let mut u = u0.clone();
         m.propagate(&mut u, 64e9, None).unwrap();
@@ -338,7 +344,7 @@ mod tests {
         assert!(u.x.iter().zip(&u0.x).all(|(a, b)| (a - b).norm() < 1e-9));
         // linear lossless link: dispersion compensation + J⁻¹ is exact
         let lin = FiberParams { gamma_w_km: 0.0, alpha_db_km: 0.0, ..fiber };
-        let m = Manakov::new(lin.clone(), PmdLink::random(&lin, 0.5, 10, &mut r).unwrap());
+        let m = ManakovPmd::new(lin.clone(), PmdLink::random(&lin, 0.5, 10, &mut r).unwrap());
         let mut u = u0.clone();
         m.propagate(&mut u, 64e9, None).unwrap();
         let mut v = DualPol::new(
@@ -360,8 +366,8 @@ mod tests {
         assert!(v.x.iter().zip(&u0.x).all(|(a, b)| (a - b).norm() < 1e-9));
     }
 
-    /// `Manakov::propagate` before the span driver: the EDFA after every span.
-    fn former(m: &Manakov, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) {
+    /// `ManakovPmd::propagate` before the span driver: the EDFA after every span.
+    fn former(m: &ManakovPmd, u: &mut DualPol, fs: f64, mut rng: Option<&mut Rng>) {
         let n = u.len();
         let p = fft::plan(n);
         let omega = fft::angular_frequencies(n, fs);
@@ -386,7 +392,7 @@ mod tests {
     fn the_span_driver_is_the_former_span_loop_and_the_amplifier_is_chosen() {
         let fiber = FiberParams { n_spans: 3, span_km: 20.0, ..FiberParams::default() };
         let pmd = PmdLink::random(&fiber, 0.5, 4, &mut Rng::new(6)).unwrap();
-        let m = Manakov::new(fiber.clone(), pmd);
+        let m = ManakovPmd::new(fiber.clone(), pmd);
         let u0 = DualPol::new(signal(128, 4, 1e-3), signal(128, 5, 1e-3)).unwrap();
         for seed in [None, Some(2)] {
             let (mut a, mut b) = (u0.clone(), u0.clone());
@@ -396,11 +402,12 @@ mod tests {
             assert_eq!(a, b);
         }
         let linear = FiberParams { gamma_w_km: 0.0, ..fiber };
-        let ideal = Manakov { amplification: Amplification::Ideal, ..Manakov::new(linear.clone(), m.pmd.clone()) };
+        let ideal =
+            ManakovPmd { amplification: Amplification::Ideal, ..ManakovPmd::new(linear.clone(), m.pmd.clone()) };
         let mut u = u0.clone();
         ideal.propagate(&mut u, 64e9, None).unwrap();
         assert!((u.power() / u0.power() - 1.0).abs() < 1e-9);
-        let none = Manakov { amplification: Amplification::None, ..ideal.clone() };
+        let none = ManakovPmd { amplification: Amplification::None, ..ideal.clone() };
         let mut v = u0.clone();
         none.propagate(&mut v, 64e9, None).unwrap();
         assert!((v.power() / u0.power() / (-linear.alpha_np_km() * linear.total_km()).exp() - 1.0).abs() < 1e-9);
@@ -413,9 +420,10 @@ mod tests {
         let mut rng = Rng::new(4);
         let x0: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
         let y0: Vec<C64> = (0..256).map(|_| rng.complex_gaussian()).collect();
-        let (mut x, mut y) = (x0.clone(), y0.clone());
+        let mut u = DualPol::new(x0.clone(), y0.clone()).unwrap();
         let link = PmdLink::with_mean_dgd(20e-12, 30, &mut rng);
-        link.apply(&mut x, &mut y, 64e9);
+        link.apply(&mut u, 64e9).unwrap();
+        let DualPol { x, y } = u;
         let e = |a: &[C64], b: &[C64]| a.iter().chain(b).map(C64::norm_sqr).sum::<f64>();
         assert!((e(&x, &y) / e(&x0, &y0) - 1.0).abs() < 1e-12);
         let (r, back) = (Jones::rotation(0.7), Jones::rotation(-0.7));

@@ -327,7 +327,7 @@ impl EffectiveChannel {
 impl Modulate for Otfs {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("OTFS modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&Otfs::modulate(self, x.stream_slice(0))?, self.sample_rate);
+        out.set_stream(&Otfs::modulate(self, x.stream(0))?, self.sample_rate);
         Ok(())
     }
 }

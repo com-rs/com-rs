@@ -2,6 +2,7 @@
 
 use crate::comm::PyConstellation;
 use crate::{BArr, CArr, FArr, IntoPy, bvec, carr, cvec, farr};
+use comrs::math::Jacobian;
 use comrs::systems::dvbs2::{self, Dvbs2, FrameSize, Modcod};
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
@@ -137,7 +138,7 @@ impl PyDvbs2 {
     #[pyo3(signature = (rx, noise_var, *, max_log = false))]
     fn llr<'py>(&self, py: Python<'py>, rx: &Bound<'py, PyAny>, noise_var: f64, max_log: bool) -> PyResult<FArr<'py>> {
         let y = cvec(rx)?;
-        let l = py.detach(|| self.inner.llr(&y, noise_var, max_log)).py()?;
+        let l = py.detach(|| self.inner.llr(&y, noise_var, Jacobian::from_max_log(max_log))).py()?;
         Ok(farr(py, l))
     }
 

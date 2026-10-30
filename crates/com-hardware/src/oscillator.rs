@@ -37,16 +37,16 @@ use com_core::prelude::*;
 use com_math::cis;
 use std::f64::consts::PI;
 
-/// Wiener phase noise of linewidth `linewidth_hz` over `n` samples spaced by `ts`
+/// Wiener phase noise of linewidth `linewidth_hz` over `n` samples spaced by `ts_s`
 /// seconds (radians, `φ[0] = 0`): [`wiener_phase`] with the increments of
 /// [`increment_sd`] at $f_{s} = 1/T_{s}$.
 ///
 /// # Errors
 /// [`Error::Config`] for a negative or non-finite linewidth, or a sample spacing that is
 /// not positive and finite.
-pub fn phase_noise(linewidth_hz: f64, n: usize, ts: f64, rng: &mut Rng) -> Result<Vec<f64>> {
-    ensure(ts > 0.0 && ts.is_finite(), || format!("the sample spacing must be positive, got {ts} s"))?;
-    let sd = increment_sd(linewidth_hz, 1.0 / ts)?;
+pub fn phase_noise(linewidth_hz: f64, n: usize, ts_s: f64, rng: &mut Rng) -> Result<Vec<f64>> {
+    ensure(ts_s > 0.0 && ts_s.is_finite(), || format!("the sample spacing must be positive, got {ts_s} s"))?;
+    let sd = increment_sd(linewidth_hz, 1.0 / ts_s)?;
     Ok(wiener_phase(sd, n, PhaseOrigin::Zero, rng))
 }
 

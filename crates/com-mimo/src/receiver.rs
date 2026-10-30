@@ -36,6 +36,7 @@ use crate::stbc::Ostbc;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_math::Jacobian;
 use com_math::linalg::CMat;
 use ndarray::{Array2, ArrayView2};
 
@@ -264,7 +265,13 @@ impl Receiver {
     fn append_llr(&self, e: &Estimates, out: &mut SoftOutput) -> Result<()> {
         let start = out.llr.len();
         out.llr.resize(start + e.symbols.len() * self.constellation().bits_per_symbol(), 0.0);
-        self.constellation().llr_with_variances_into(&e.symbols, &e.noise_var, None, false, &mut out.llr[start..])
+        self.constellation().llr_with_variances_into(
+            &e.symbols,
+            &e.noise_var,
+            None,
+            Jacobian::Exact,
+            &mut out.llr[start..],
+        )
     }
 
     /// Detect the layers of one channel use $y = H x + w$ and append them to `out`.
@@ -425,6 +432,6 @@ mod tests {
         rx.decode_alamouti(&h.view(), &y.view(), 0.01, &mut out).unwrap();
         let e = Ostbc::alamouti().decode_blocks(&[h], &y.view(), 0.01).unwrap();
         assert_eq!((out.symbols.clone(), out.noise_var.clone()), (e.symbols.clone(), e.noise_var.clone()));
-        assert_eq!(out.llr, c.llr_with_variances(&e.symbols, &e.noise_var, None, false).unwrap());
+        assert_eq!(out.llr, c.llr_with_variances(&e.symbols, &e.noise_var, None, Jacobian::Exact).unwrap());
     }
 }

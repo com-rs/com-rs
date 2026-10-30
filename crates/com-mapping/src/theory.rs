@@ -8,7 +8,7 @@
 //! - [`mi`] and [`gmi`] give the symbol-wise and bit-wise mutual information by
 //!   Gauss–Hermite quadrature (OptiCommPy `theoryMI`, `theoryGMI`), and
 //!   [`constellation_mi`], [`constellation_gmi`] the same for any constellation and
-//!   labelling, over AWGN or Rayleigh fading ([`Fading`]): the capacities of coded
+//!   labelling, over AWGN or Rayleigh fading ([`RateChannel`]): the capacities of coded
 //!   modulation and BICM;
 //! - [`ber_dpsk`], [`ber_dbpsk_coherent`] and [`differential_phase_tail`] give the error
 //!   rates of differential PSK ([`crate::differential`]);
@@ -16,8 +16,13 @@
 //!   Gray-mapped PAM, square and rectangular QAM (Cho and Yoon 2002), [`ber_exact`] the
 //!   exact BER of a family where it exists, and [`phase_pdf`]
 //!   the density of the phase of a carrier in Gaussian noise;
-//! - [`ser_orthogonal_noncoherent`] gives the SER of $M$ orthogonal signals detected
-//!   noncoherently (M-FSK, chirp spread spectrum).
+//! - [`ser_orthogonal_noncoherent`] and [`ber_orthogonal_noncoherent`] give the SER and
+//!   the BER of $M$ orthogonal signals detected noncoherently (M-FSK, chirp spread
+//!   spectrum).
+//!
+//! The closed forms are functions of $E_{b}/N_{0}$ (`ebn0_db`) unless their name or
+//! their argument says otherwise: [`ser_esn0`] and the orthogonal signals take
+//! $E_{s}/N_{0}$ (`esn0_db`).
 //!
 //! They are properties of a constellation and its labelling, so they live with the
 //! constellations; `com-metrics` re-exports them as `theory_ber`, `theory_ser`,
@@ -49,7 +54,7 @@
 use crate::constellation::{Constellation, ConstellationKind, log_priors, qam_side};
 use crate::demapper::LabelHalves;
 use com_core::{Error, Result, ensure};
-use com_math::{C64, bessel_i0e, bisect, db2lin, entropy, log_sum_exp, qfunc};
+use com_math::{C64, Jacobian, bessel_i0e, bisect, db2lin, entropy, log_sum_exp, qfunc};
 
 /// The orders of the closed forms of [`ber`] and [`ser`]: a power of two of at least 2,
 /// a square for QAM.
@@ -99,8 +104,31 @@ pub fn ber(kind: ConstellationKind, m: usize, ebn0_db: f64) -> Result<f64> {
 /// As [`ber`].
 pub fn ser(kind: ConstellationKind, m: usize, ebn0_db: f64) -> Result<f64> {
     ensure_order(kind, m)?;
+    ser_at(kind, m, db2lin(ebn0_db) * (m as f64).log2())
+}
+
+/// [`ser`] as a function of $E_{s}/N_{0}$ (dB), the SNR per symbol: the entry point of
+/// the closed forms whose SNR is per symbol (CE-OFDM, a symbol per subcarrier).
+///
+/// # Errors
+/// As [`ber`].
+///
+/// # Examples
+/// ```
+/// use com_mapping::{constellation::ConstellationKind, theory};
+/// // QPSK carries 2 bits: Es/N0 = Eb/N0 + 3.01 dB
+/// let (a, b) = (theory::ser_esn0(ConstellationKind::Qam, 4, 10.0 + 10.0 * 2f64.log10())?, theory::ser(ConstellationKind::Qam, 4, 10.0)?);
+/// assert!((a / b - 1.0).abs() < 1e-12);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn ser_esn0(kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
+    ensure_order(kind, m)?;
+    ser_at(kind, m, db2lin(esn0_db))
+}
+
+/// The SER of [`ser`] at the linear $E_{s}/N_{0}$ `es`.
+fn ser_at(kind: ConstellationKind, m: usize, es: f64) -> Result<f64> {
     let mf = m as f64;
-    let es = db2lin(ebn0_db) * mf.log2();
     match kind {
         ConstellationKind::Qam => {
             let l = mf.sqrt();
@@ -228,7 +256,7 @@ pub(crate) fn setup(c: &Constellation, px: Option<&[f64]>, snr_db: f64, points: 
 /// The channel of [`constellation_mi`], [`constellation_gmi`] and of the cutoff rates of
 /// [`crate::bicm`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fading {
+pub enum RateChannel {
     /// No fading: $g = 1$.
     Awgn,
     /// Flat Rayleigh fading, $g \sim \mathcal{CN}(0, 1)$ independent from symbol to
@@ -236,14 +264,14 @@ pub enum Fading {
     Rayleigh,
 }
 
-impl std::str::FromStr for Fading {
+impl std::str::FromStr for RateChannel {
     type Err = Error;
 
     /// `"awgn"` or `"rayleigh"`.
-    fn from_str(name: &str) -> Result<Fading> {
+    fn from_str(name: &str) -> Result<RateChannel> {
         match name.to_ascii_lowercase().as_str() {
-            "awgn" => Ok(Fading::Awgn),
-            "rayleigh" => Ok(Fading::Rayleigh),
+            "awgn" => Ok(RateChannel::Awgn),
+            "rayleigh" => Ok(RateChannel::Rayleigh),
             other => Err(Error::Config(format!("unknown fading {other:?}: awgn, rayleigh"))),
         }
     }
@@ -253,8 +281,8 @@ impl std::str::FromStr for Fading {
 /// $\mathbb{E}\, f(\mathrm{snr} + 10 \log_{10} |g|^{2})$ over Rayleigh fading, the
 /// integral over $u = \ln |g|^{2}$, of density $e^{u - e^{u}}$, by Simpson's rule with a
 /// step of 1/8.
-pub(crate) fn over_fading(f: impl Fn(f64) -> Result<f64>, snr_db: f64, fading: Fading) -> Result<f64> {
-    if fading == Fading::Awgn {
+pub(crate) fn over_fading(f: impl Fn(f64) -> Result<f64>, snr_db: f64, fading: RateChannel) -> Result<f64> {
+    if fading == RateChannel::Awgn {
         return f(snr_db);
     }
     // below e^{lo} the integrand is f(0) to first order, with the mass 1 - e^{-e^{lo}}
@@ -282,7 +310,7 @@ pub fn constellation_mi(
     c: &Constellation,
     snr_db: f64,
     px: Option<&[f64]>,
-    fading: Fading,
+    fading: RateChannel,
     points: usize,
 ) -> Result<f64> {
     over_fading(|s| Ok(mi_of(&setup(c, px, s, points)?)), snr_db, fading)
@@ -300,7 +328,7 @@ pub fn constellation_gmi(
     c: &Constellation,
     snr_db: f64,
     px: Option<&[f64]>,
-    fading: Fading,
+    fading: RateChannel,
     points: usize,
 ) -> Result<f64> {
     over_fading(|s| Ok(gmi_of(&setup(c, px, s, points)?)), snr_db, fading)
@@ -330,7 +358,7 @@ pub fn constellation_gmi(
 /// assert!((hi - 4.0).abs() < 1e-6);
 /// ```
 pub fn mi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, points: usize) -> Result<f64> {
-    constellation_mi(&Constellation::new(kind, m)?, snr_db, px, Fading::Awgn, points)
+    constellation_mi(&Constellation::new(kind, m)?, snr_db, px, RateChannel::Awgn, points)
 }
 
 /// The kernel of [`mi`].
@@ -372,7 +400,7 @@ pub(crate) fn mi_of(s: &TheorySetup) -> f64 {
 /// # Errors
 /// [`Error::Config`] for an invalid constellation or probabilities.
 pub fn gmi(kind: ConstellationKind, m: usize, snr_db: f64, px: Option<&[f64]>, points: usize) -> Result<f64> {
-    constellation_gmi(&Constellation::new(kind, m)?, snr_db, px, Fading::Awgn, points)
+    constellation_gmi(&Constellation::new(kind, m)?, snr_db, px, RateChannel::Awgn, points)
 }
 
 /// The kernel of [`gmi`].
@@ -411,7 +439,7 @@ pub(crate) fn bit_expectations(s: &TheorySetup, f: impl Fn(&[f64], f64) -> f64) 
             for (k, ek) in e.iter_mut().enumerate() {
                 let shift = b - 1 - k;
                 let bi = (i >> shift) & 1;
-                let same = LabelHalves::new(&all, shift, false).log_sum(bi);
+                let same = LabelHalves::new(&all, shift, Jacobian::Exact).log_sum(bi);
                 *ek += a * f(&all, same);
             }
         }
@@ -765,6 +793,17 @@ pub fn ser_orthogonal_noncoherent(m: usize, esn0_db: f64) -> Result<f64> {
     Ok(com_math::simpson(|y| rice(y) * one_minus_power(y, others), lo, hi, 4800).clamp(0.0, 1.0))
 }
 
+/// Bit error rate of $M$ orthogonal signals detected noncoherently over AWGN, as a
+/// function of $E_{s}/N_{0}$ (dB): $P_{b} = P_{s} M / (2(M - 1))$, every wrong symbol
+/// being equally likely ([`ser_orthogonal_noncoherent`]; Proakis & Salehi, §4.5).
+///
+/// # Errors
+/// As [`ser_orthogonal_noncoherent`].
+pub fn ber_orthogonal_noncoherent(m: usize, esn0_db: f64) -> Result<f64> {
+    let mf = m as f64;
+    Ok(ser_orthogonal_noncoherent(m, esn0_db)? * mf / (2.0 * (mf - 1.0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -820,7 +859,7 @@ mod tests {
     #[test]
     fn the_default_quadrature_has_converged() {
         let c = Constellation::qam(16).unwrap();
-        for fading in [Fading::Awgn, Fading::Rayleigh] {
+        for fading in [RateChannel::Awgn, RateChannel::Rayleigh] {
             let at = |n| constellation_mi(&c, 10.0, None, fading, n).unwrap();
             assert!((at(DEFAULT_QUADRATURE_POINTS) - at(80)).abs() < 1e-6, "{fading:?}");
         }

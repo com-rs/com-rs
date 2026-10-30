@@ -221,9 +221,9 @@ impl Rng {
         }
     }
 
-    /// `n` circular complex Gaussian samples of variance `sigma2` (`E|z|² = σ²`).
-    pub fn complex_noise(&mut self, n: usize, sigma2: f64) -> Vec<C64> {
-        let s = sigma2.max(0.0).sqrt();
+    /// `n` circular complex Gaussian samples of variance `noise_var` (`E|z|² = σ²`).
+    pub fn complex_noise(&mut self, n: usize, noise_var: f64) -> Vec<C64> {
+        let s = noise_var.max(0.0).sqrt();
         (0..n).map(|_| self.complex_gaussian() * s).collect()
     }
 }

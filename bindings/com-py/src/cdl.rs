@@ -3,7 +3,7 @@
 use crate::ofdm_link::PyTaps;
 use crate::rng::PyRng;
 use crate::{FArr, FMat, IArr, IntoPy, count, farr, iarr, streams_in, streams_out, taps_out};
-use comrs::channel::cdl::{Array, Cdl, Profile};
+use comrs::channel::cdl::{Array, Cdl, CdlParams, Profile};
 use comrs::channel::fading::Fading;
 use comrs::core::signal::Signal;
 use comrs::core::units::Hertz;
@@ -137,13 +137,15 @@ impl PyCdl {
             return Err(PyValueError::new_err(format!("the element spacing must be positive, got {spacing}")));
         }
         let array = |n: usize| if dual_polarized { Array::linear_dual(n, spacing) } else { Array::linear(n, spacing) };
-        let mut inner = Cdl::new(self::profile(profile)?, delay_spread_s, fs, array(n_tx), array(n_rx)).py()?;
-        inner.velocity = [0.0, velocity_mps, 0.0];
-        inner.carrier_frequency = fc_hz;
-        if velocity_mps != 0.0 && fc_hz <= 0.0 {
-            return Err(PyValueError::new_err("the carrier frequency must be positive for a moving receiver"));
-        }
-        Ok(PyCdl { inner })
+        let params = CdlParams {
+            delay_spread_s,
+            sample_rate: fs,
+            tx: array(n_tx),
+            rx: array(n_rx),
+            velocity_mps: [0.0, velocity_mps, 0.0],
+            fc_hz,
+        };
+        Ok(PyCdl { inner: Cdl::new(self::profile(profile)?, params).py()? })
     }
 
     /// numpy.ndarray: Delays of the clusters on the sampling grid (samples, int64), one
@@ -175,7 +177,7 @@ impl PyCdl {
     /// float: The maximum Doppler shift `|v| f_c / c` (Hz).
     #[getter]
     fn max_doppler_hz(&self) -> f64 {
-        self.inner.max_doppler()
+        self.inner.max_doppler_hz()
     }
 
     /// Apply the channel to transmitted streams whose samples before the signal are
@@ -227,7 +229,7 @@ impl PyCdl {
             self.inner.delays().len(),
             self.inner.n_rx(),
             self.inner.n_tx(),
-            self.inner.max_doppler()
+            self.inner.max_doppler_hz()
         )
     }
 }

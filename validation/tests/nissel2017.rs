@@ -19,7 +19,7 @@
 //!   for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 use comrs::channel::awgn::add_noise;
-use comrs::channel::multipath::{Profile, Taps, Tdl, max_doppler_hz};
+use comrs::channel::multipath::{Profile, Taps, Tdl, TdlParams, max_doppler_hz};
 use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
@@ -62,7 +62,13 @@ fn through(taps: &Taps, start: usize, g: &[C64], q_start: usize, q: &[C64]) -> C
 /// exact diagonal of Q^H H G (Nissel & Rupp, eq. (8)), on the middle symbols.
 fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
     let c = Constellation::qam(64).unwrap().normalized();
-    let tdl = Tdl::new(&Profile::VehicularA.taps(), doppler(kmh), FS, 1, 1).unwrap();
+    let tdl = Tdl::new(&TdlParams {
+        taps: Profile::VehicularA.taps(),
+        doppler_hz: doppler(kmh),
+        sample_rate: FS,
+        ..TdlParams::default()
+    })
+    .unwrap();
     let mut rng = Rng::new(seed);
     let (mut errors, mut total) = (0usize, 0usize);
     let n_cp = if scheme == Scheme::CpOfdm { 14 } else { 0 };
@@ -71,7 +77,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
     let k_c = 6; // complex symbols per subcarrier
     for _ in 0..realisations {
         let bits: Vec<u8> = (0..M * k_c * 6).map(|_| rng.below(2) as u8).collect();
-        let x = c.modulate(&bits).unwrap();
+        let x = c.map_bits(&bits).unwrap();
         let s = match scheme {
             Scheme::Fbmc => fbmc.modulate(&oqam_stagger(&x, M).unwrap()).unwrap(),
             _ => ofdm.modulate(&x).unwrap(),
@@ -115,7 +121,7 @@ fn ber(scheme: Scheme, kmh: f64, realisations: usize, seed: u64) -> f64 {
                 z
             }
         };
-        let rx = c.demodulate(&z[keep.start * M..keep.end * M]);
+        let rx = c.demap_bits(&z[keep.start * M..keep.end * M]);
         let tx = &bits[keep.start * M * 6..keep.end * M * 6];
         errors += bit_errors(&rx, tx).unwrap();
         total += tx.len();
@@ -149,14 +155,14 @@ fn nissel_2017_fig_2_fbmc_in_doubly_flat_fading() {
         let (mut errors, mut total) = (0usize, 0usize);
         for _ in 0..3000 {
             let bits = source::bits(64 * 4 * 4, &mut rng);
-            let x = c.modulate(&bits).unwrap();
+            let x = c.map_bits(&bits).unwrap();
             let h = rng.complex_gaussian();
             let mut r: Vec<C64> =
                 fbmc.modulate(&oqam_stagger(&x, 64).unwrap()).unwrap().iter().map(|v| v * h).collect();
             add_noise(&mut r, sigma2, &mut rng);
             let y = fbmc.demodulate(&r).unwrap();
             let est: Vec<f64> = y.iter().map(|v| (v / h).re).collect();
-            let rx = c.demodulate(&oqam_destagger(&est, 64).unwrap());
+            let rx = c.demap_bits(&oqam_destagger(&est, 64).unwrap());
             errors += bit_errors(&rx, &bits).unwrap();
             total += bits.len();
         }

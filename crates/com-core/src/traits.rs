@@ -26,7 +26,7 @@
 //!
 //! impl Impair for Gain {
 //!     fn impair_into(&mut self, x: &Signal, _: &mut SimRng, out: &mut Signal) -> Result<()> {
-//!         out.reshape(x.n_streams(), x.n_samples(), x.sample_rate());
+//!         out.resize(x.n_streams(), x.len(), x.sample_rate());
 //!         out.as_array_mut().assign(&(x.as_array() * self.0));
 //!         Ok(())
 //!     }

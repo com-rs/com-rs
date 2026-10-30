@@ -71,7 +71,7 @@ mod posterior;
 pub mod spectrum;
 pub mod stability;
 
-use com_core::{Error, Result, ensure, same_len};
+use com_core::{Error, Result, ensure_shape, same_len};
 use com_dsp::signal::pnorm;
 use com_mapping::constellation::ConstellationKind;
 use com_math::C64;
@@ -89,7 +89,7 @@ pub use information::{
 /// Rotate (QAM, PSK) and normalise as OptiCommPy does before its estimates.
 fn preprocess(rx: &[C64], tx: &[C64], kind: ConstellationKind) -> Result<(Vec<C64>, Vec<C64>)> {
     same_len(rx.len(), tx.len(), "received and transmitted symbols")?;
-    ensure(!rx.is_empty(), || "empty symbol sequences".into())?;
+    ensure_shape(!rx.is_empty(), || "empty symbol sequences".into())?;
     let mut r = rx.to_vec();
     if rotated(kind) {
         let rot = qam_psk_rotation(tx, rx)

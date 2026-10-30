@@ -586,7 +586,7 @@ fn trapezoid(p0: &[f64], p1: &[f64], k: f64, phi: &mut [f64]) {
 ///
 /// with $k = \frac{8}{9} \gamma h_{\mathrm{NL}}$ (negated to undo it). The step of
 /// [`SplitStep::run_dual`] and of the Manakov-PMD equation of
-/// `com_channel::optical::pmd::Manakov`.
+/// `com_channel::optical::pmd::ManakovPmd`.
 ///
 /// # Panics
 /// If the polarisations have different lengths.

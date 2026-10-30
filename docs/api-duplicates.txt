@@ -16,11 +16,12 @@ bind
 bit_map
 bits
 bits_per_symbol
+block  # Interleaver::block (the row-column interleaver) / PilotPattern::block (the pilot pattern of whole symbols)
 block_len
 bussgang
 check
-coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 code
+coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 conditions
 config
 constellation
@@ -28,8 +29,8 @@ dbp
 decode
 decoder_mut
 delays
+demap_bits
 demodulate
-demodulate_with
 describe
 detect
 draw
@@ -55,6 +56,8 @@ list
 llr
 load
 m
+map_bits
+max_doppler_hz  # Cdl::max_doppler_hz calls the kernel com_channel::multipath::max_doppler_hz
 mean
 merge
 modulate
@@ -94,6 +97,7 @@ run
 run_dual
 sample_rate
 ser
+ser_esn0  # com_mapping::theory (a constellation) / ce_ofdm::theory (the waveform at the SNR of its linear regime, on the former)
 set_streams
 snr
 stream
@@ -113,7 +117,6 @@ with_list
 # Python classes apart from the Rust types they wrap). Different things under a
 # generic name, not copies; candidates for a clearer name in the breaking batch
 # (section 5 of the review):
-Fading     # com_channel::fading (the trait of the fading channels) / com_mapping::theory (the channel of the information-rate closed forms: AWGN or Rayleigh)
 Estimate   # com_sim::stats (the estimate of a metric) / com_waveform::ofdm::sync (a timing and frequency estimate)
 Profile    # com_channel::multipath (the TDL power-delay profiles) / com_channel::cdl::tables (the CDL cluster tables)
 Receiver   # com_mimo::receiver (a MIMO detector applied channel use after channel use) / com_waveform::ce_ofdm (the choice of CE-OFDM phase demodulator)

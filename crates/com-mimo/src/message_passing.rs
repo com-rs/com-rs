@@ -87,8 +87,9 @@
 //!    (arXiv:1602.06509).
 
 use crate::detection::{Estimates, FLOOR, MimoDetector, check_shape};
-use com_core::{Error, Result, ensure};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_mapping::constellation::Constellation;
+use com_math::Jacobian;
 use com_math::linalg::svd;
 use com_math::{C64, golden_max};
 use ndarray::ArrayView2;
@@ -266,14 +267,14 @@ impl Prior {
     /// The MSE function $\Psi(\sigma^{2}, \gamma^{2})$ and the variance function
     /// $\Phi(\sigma^{2}, \gamma^{2})$ of the denoiser applied with the variance
     /// $\gamma^{2}$ to $S + \sigma Z$ (see the module), by Gauss–Hermite quadrature.
-    pub fn mse(&self, sigma2: f64, gamma2: f64, domain: Domain) -> (f64, f64) {
+    pub fn mse(&self, noise_var: f64, gamma2: f64, domain: Domain) -> (f64, f64) {
         if domain == Domain::Complex {
             if let Some(pam) = self.separable() {
-                let (psi, phi) = pam.mse(0.5 * sigma2, 0.5 * gamma2, Domain::Real);
+                let (psi, phi) = pam.mse(0.5 * noise_var, 0.5 * gamma2, Domain::Real);
                 return (2.0 * psi, 2.0 * phi);
             }
         }
-        let sigma = sigma2.max(0.0).sqrt();
+        let sigma = noise_var.max(0.0).sqrt();
         let nodes = Quadrature::new(domain);
         match self {
             Prior::Discrete { points, probs } => {
@@ -295,7 +296,7 @@ impl Prior {
                 // R = S + σZ is a mixture of zero-mean Gaussians of variances σ² and
                 // 1/ρ + σ²; given R, E|F(R, γ²) - S|² = |F(R, γ²) - F(R, σ²)|² + G(R, σ²)
                 let (mut psi, mut phi) = (0.0, 0.0);
-                for (weight, var) in [(1.0 - rho, sigma2), (*rho, 1.0 / rho + sigma2)] {
+                for (weight, var) in [(1.0 - rho, noise_var), (*rho, 1.0 / rho + noise_var)] {
                     if weight <= 0.0 {
                         continue;
                     }
@@ -303,7 +304,7 @@ impl Prior {
                     nodes.for_each(|z, w| {
                         let r = z * sd;
                         let (f, g) = self.denoise(r, gamma2, domain);
-                        let (f0, g0) = self.denoise(r, sigma2, domain);
+                        let (f0, g0) = self.denoise(r, noise_var, domain);
                         psi += weight * w * ((f - f0).norm_sqr() + g0);
                         phi += weight * w * g;
                     });
@@ -344,15 +345,12 @@ pub struct StateEvolutionStep {
 
 /// The state evolution of LAMA without noise mismatch (Jeon et al., Corollary 2):
 /// $\sigma^{2}_{1} = \sigma^{2} + \beta \mathrm{Var}\[S\]$,
-/// $\sigma^{2}_{t+1} = \sigma^{2} + \beta \Psi(\sigma^{2}_{t}, \sigma^{2}_{t})$, for `iterations`
-/// iterations, with $\beta = N/M$ and the columns of $H$ of unit norm.
-pub fn amp_state_evolution(
-    prior: &Prior,
-    beta: f64,
-    noise_var: f64,
-    iterations: usize,
-    domain: Domain,
-) -> Vec<StateEvolutionStep> {
+/// $\sigma^{2}_{t+1} = \sigma^{2} + \beta \Psi(\sigma^{2}_{t}, \sigma^{2}_{t})$, for the
+/// iterations, prior and domain of `config`, with $\beta = N/M$ and the columns of $H$ of
+/// unit norm.
+pub fn amp_state_evolution(config: &MessagePassing, beta: f64, noise_var: f64) -> Vec<StateEvolutionStep> {
+    let MessagePassing { prior, domain, iterations } = config;
+    let (domain, iterations) = (*domain, *iterations);
     let mut s2 = noise_var + beta * prior.variance();
     let mut out = Vec::with_capacity(iterations);
     for _ in 0..iterations {
@@ -474,9 +472,62 @@ impl Trace {
     }
 }
 
+/// The configuration shared by [`lama`], [`oamp`] and their state evolutions: the prior
+/// of every entry of $x$, the domain of the model and the number of iterations.
+///
+/// # Examples
+/// ```
+/// use com_mimo::message_passing::{Domain, MessagePassing, Prior, amp_state_evolution};
+/// use com_mapping::constellation::Constellation;
+/// let qpsk = Prior::uniform(&Constellation::qam(4)?.normalized());
+/// let config = MessagePassing { prior: qpsk, iterations: 30, ..MessagePassing::default() };
+/// config.check()?;
+/// let se = amp_state_evolution(&config, 0.5, 0.05);
+/// assert_eq!(se.len(), 30);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct MessagePassing {
+    /// The prior of every entry of $x$.
+    pub prior: Prior,
+    /// The domain of the symbols, the channel and the noise.
+    pub domain: Domain,
+    /// Iterations (at least 1 for the detectors).
+    pub iterations: usize,
+}
+
+impl Default for MessagePassing {
+    /// A Gaussian prior of unit variance ([`Prior::BernoulliGaussian`] with $\rho = 1$),
+    /// complex, 10 iterations.
+    fn default() -> MessagePassing {
+        MessagePassing { prior: Prior::BernoulliGaussian { rho: 1.0 }, domain: Domain::Complex, iterations: 10 }
+    }
+}
+
+impl MessagePassing {
+    /// Check the configuration.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for zero iterations or a sparsity outside $(0, 1]$;
+    /// [`Error::Shape`] for a discrete prior without points or with one probability per
+    /// point missing.
+    pub fn check(&self) -> Result<()> {
+        ensure(self.iterations >= 1, || "at least one iteration is needed".into())?;
+        match &self.prior {
+            Prior::Discrete { points, probs } => {
+                ensure_shape(!points.is_empty(), || "a discrete prior needs at least one point".into())?;
+                com_core::same_len(points.len(), probs.len(), "points and probabilities of the prior")
+            }
+            Prior::BernoulliGaussian { rho } => Prior::bernoulli_gaussian(*rho).map(drop),
+        }
+    }
+}
+
 fn check(h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64, iterations: usize) -> Result<()> {
-    ensure(h.nrows() == y.len(), || format!("the channel has {} rows for {} received samples", h.nrows(), y.len()))?;
-    ensure(h.ncols() >= 1 && h.nrows() >= 1, || "the channel must not be empty".into())?;
+    ensure_shape(h.nrows() == y.len(), || {
+        format!("the channel has {} rows for {} received samples", h.nrows(), y.len())
+    })?;
+    ensure_shape(h.ncols() >= 1 && h.nrows() >= 1, || "the channel must not be empty".into())?;
     ensure(noise_var >= 0.0 && noise_var.is_finite(), || {
         format!("the noise variance must be finite and non-negative, got {noise_var}")
     })?;
@@ -492,21 +543,23 @@ fn adjoint(h: &ArrayView2<'_, C64>, r: &[C64]) -> Vec<C64> {
 }
 
 /// LAMA (Jeon et al., Algorithm 2) on $y = H x + w$, $w$ of variance `noise_var` per
-/// entry: the columns of $H$ are first scaled to a unit mean norm (with $y$ and the
+/// entry, with the prior, domain and iterations of `config` and the variance estimate
+/// `variance`: the columns of $H$ are first scaled to a unit mean norm (with $y$ and the
 /// noise variance), which leaves the problem unchanged.
 ///
 /// # Errors
-/// [`com_core::Error::Config`] for a channel whose shape does not match $y$, a negative noise
-/// variance, zero iterations or a zero channel.
+/// [`com_core::Error::Shape`] for an empty channel or one whose rows do not match $y$;
+/// [`com_core::Error::Config`] for a negative noise variance, zero iterations or a zero
+/// channel.
 pub fn lama(
     h: &ArrayView2<'_, C64>,
     y: &[C64],
     noise_var: f64,
-    prior: &Prior,
-    domain: Domain,
-    iterations: usize,
+    config: &MessagePassing,
     variance: AmpVariance,
 ) -> Result<Trace> {
+    let MessagePassing { prior, domain, iterations } = config;
+    let (domain, iterations) = (*domain, *iterations);
     check(h, y, noise_var, iterations)?;
     let (m, n) = h.dim();
     let c = h.iter().map(C64::norm_sqr).sum::<f64>() / n as f64;
@@ -616,8 +669,8 @@ fn decorrelated(lambda: &[f64], ghat: &[f64], n: usize, v2: f64, noise_var: f64)
 }
 
 /// OAMP (Ma & Ping, eqs. 19, 25 and 38, Lemma 1) on $y = H x + w$, $w$ of variance
-/// `noise_var` per entry, with the linear estimator `linear` and the optimal
-/// divergence-free denoiser.
+/// `noise_var` per entry, with the prior, domain and iterations of `config`, the linear
+/// estimator `linear` and the optimal divergence-free denoiser.
 ///
 /// # Errors
 /// As [`lama`].
@@ -625,11 +678,11 @@ pub fn oamp(
     h: &ArrayView2<'_, C64>,
     y: &[C64],
     noise_var: f64,
-    prior: &Prior,
-    domain: Domain,
-    iterations: usize,
+    config: &MessagePassing,
     linear: OampLinear,
 ) -> Result<Trace> {
+    let MessagePassing { prior, domain, iterations } = config;
+    let (domain, iterations) = (*domain, *iterations);
     check(h, y, noise_var, iterations)?;
     let (m, n) = h.dim();
     // H = U Λ V^H (thin: k = min(m, n) singular values)
@@ -668,16 +721,17 @@ pub fn oamp(
 /// The empirical state evolution of OAMP with the optimal denoiser (Ma & Ping, eqs. 32
 /// and 39): for the `singular_values` of $H$ ($N$ columns), from $v^{2}_{0} = \mathrm{Var}\[S\]$,
 /// $\tau^{2}_{t} = \Phi_{t}(v^{2}_{t})$ (eq. 32), the MSE of $F$ is
-/// $\mathrm{mmse}_{B}(\tau^{2}_{t})$ and $v^{2}_{t+1} = (1/\mathrm{mmse}_{B} - 1/\tau^{2}_{t})^{-1}$.
+/// $\mathrm{mmse}_{B}(\tau^{2}_{t})$ and $v^{2}_{t+1} = (1/\mathrm{mmse}_{B} - 1/\tau^{2}_{t})^{-1}$,
+/// for the prior, domain and iterations of `config` and the linear estimator `linear`.
 pub fn oamp_state_evolution(
-    prior: &Prior,
+    config: &MessagePassing,
     singular_values: &[f64],
     n: usize,
     noise_var: f64,
-    iterations: usize,
     linear: OampLinear,
-    domain: Domain,
 ) -> Vec<StateEvolutionStep> {
+    let MessagePassing { prior, domain, iterations } = config;
+    let (domain, iterations) = (*domain, *iterations);
     let lambda: Vec<f64> = singular_values.iter().copied().take(n).collect();
     let mut v2 = prior.variance();
     let mut out = Vec::with_capacity(iterations);
@@ -719,8 +773,12 @@ impl Amp {
 
     fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
         check_shape(h, y)?;
-        let prior = Prior::uniform(&self.constellation);
-        lama(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.variance)
+        let config = MessagePassing {
+            prior: Prior::uniform(&self.constellation),
+            domain: Domain::Complex,
+            iterations: self.iterations,
+        };
+        lama(h, y, noise_var, &config, self.variance)
     }
 }
 
@@ -752,8 +810,12 @@ impl Oamp {
 
     fn trace(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Trace> {
         check_shape(h, y)?;
-        let prior = Prior::uniform(&self.constellation);
-        oamp(h, y, noise_var, &prior, Domain::Complex, self.iterations, self.linear)
+        let config = MessagePassing {
+            prior: Prior::uniform(&self.constellation),
+            domain: Domain::Complex,
+            iterations: self.iterations,
+        };
+        oamp(h, y, noise_var, &config, self.linear)
     }
 }
 
@@ -788,12 +850,15 @@ macro_rules! decoupled_detector {
 
             fn llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<Vec<f64>> {
                 let t = self.trace(h, y, noise_var)?;
-                self.constellation.llr(&t.z, decoupled_var(&t), None, false)
+                self.constellation.llr(&t.z, decoupled_var(&t), None, Jacobian::Exact)
             }
 
             fn detect_llr(&self, h: &ArrayView2<'_, C64>, y: &[C64], noise_var: f64) -> Result<(Vec<usize>, Vec<f64>)> {
                 let t = self.trace(h, y, noise_var)?;
-                Ok((self.constellation.decide(&t.z), self.constellation.llr(&t.z, decoupled_var(&t), None, false)?))
+                Ok((
+                    self.constellation.decide(&t.z),
+                    self.constellation.llr(&t.z, decoupled_var(&t), None, Jacobian::Exact)?,
+                ))
             }
         }
     };
@@ -866,15 +931,15 @@ mod tests {
             let e = d.soft_estimate(&h.view(), &y, 1e-6).unwrap().unwrap();
             let (labels, llr) = d.detect_llr(&h.view(), &y, 1e-6).unwrap();
             assert_eq!(c.decide(&e.symbols), labels);
-            let from = c.llr_with_variances(&e.symbols, &e.noise_var, None, false).unwrap();
+            let from = c.llr_with_variances(&e.symbols, &e.noise_var, None, Jacobian::Exact).unwrap();
             assert!(from.iter().zip(&llr).all(|(a, b)| a.to_bits() == b.to_bits()));
         }
     }
 
     #[test]
     fn the_state_evolution_of_lama_decreases_to_its_fixed_point() {
-        let p = Prior::uniform(&qpsk());
-        let se = amp_state_evolution(&p, 0.5, 0.05, 30, Domain::Complex);
+        let config = MessagePassing { prior: Prior::uniform(&qpsk()), domain: Domain::Complex, iterations: 30 };
+        let se = amp_state_evolution(&config, 0.5, 0.05);
         assert!(se.windows(2).all(|w| w[1].noise_var <= w[0].noise_var + 1e-15));
         let last = se[se.len() - 1];
         assert!((last.noise_var - (0.05 + 0.5 * last.mse)).abs() < 1e-9);

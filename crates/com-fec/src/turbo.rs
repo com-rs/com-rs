@@ -38,6 +38,7 @@ use crate::conv::{BcjrWorkspace, Trellis, bcjr_into};
 use crate::interleaving::Interleaver;
 use com_core::signal::hard_decisions;
 use com_core::{Result, ensure};
+use com_math::Jacobian;
 
 /// The seed of the random interleaver of [`TurboCode::lte`] for a block size outside
 /// the table of LTE.
@@ -48,14 +49,14 @@ pub const RANDOM_INTERLEAVER_SEED: u64 = 7;
 pub struct TurboDecoder {
     /// Decoding iterations (0: the a posteriori LLRs are the systematic channel LLRs).
     pub iterations: usize,
-    /// log-MAP (true) or max-log-MAP decoding.
-    pub exact: bool,
+    /// log-MAP ([`Jacobian::Exact`]) or max-log-MAP ([`Jacobian::MaxLog`]) decoding.
+    pub jacobian: Jacobian,
 }
 
 impl Default for TurboDecoder {
     /// 8 iterations of log-MAP.
     fn default() -> TurboDecoder {
-        TurboDecoder { iterations: 8, exact: true }
+        TurboDecoder { iterations: 8, jacobian: Jacobian::Exact }
     }
 }
 
@@ -229,7 +230,7 @@ impl SoftDecode for TurboCode {
                 &with_prior
             }
         };
-        let TurboDecoder { iterations, exact } = self.decoder;
+        let TurboDecoder { iterations, jacobian } = self.decoder;
         let sys = &llr[..k];
         if iterations == 0 {
             out.copy_from_slice(sys);
@@ -245,11 +246,11 @@ impl SoftDecode for TurboCode {
         let (mut app1, mut app2) = (Vec::with_capacity(k + m), Vec::with_capacity(k + m));
         let mut ws = BcjrWorkspace::default();
         for _ in 0..iterations {
-            bcjr_into(&self.trellis, &a, &la1, true, exact, &mut ws, &mut app1)?;
+            bcjr_into(&self.trellis, &a, &la1, true, jacobian, &mut ws, &mut app1)?;
             for (i, &p) in perm.iter().enumerate() {
                 la2[i] = app1[p] - la1[p] - sys[p];
             }
-            bcjr_into(&self.trellis, &b, &la2, true, exact, &mut ws, &mut app2)?;
+            bcjr_into(&self.trellis, &b, &la2, true, jacobian, &mut ws, &mut app2)?;
             for (i, &p) in perm.iter().enumerate() {
                 la1[p] = app2[i] - la2[i] - sys2[i];
             }
@@ -294,11 +295,11 @@ mod tests {
         let (mut app1, mut app2) = (Vec::new(), Vec::new());
         let mut ws = BcjrWorkspace::default();
         for _ in 0..code.decoder.iterations.max(1) {
-            bcjr_into(&code.trellis, &a, &la1, true, code.decoder.exact, &mut ws, &mut app1).unwrap();
+            bcjr_into(&code.trellis, &a, &la1, true, code.decoder.jacobian, &mut ws, &mut app1).unwrap();
             for (i, &p) in perm.iter().enumerate() {
                 la2[i] = app1[p] - la1[p] - sys[p];
             }
-            bcjr_into(&code.trellis, &b, &la2, true, code.decoder.exact, &mut ws, &mut app2).unwrap();
+            bcjr_into(&code.trellis, &b, &la2, true, code.decoder.jacobian, &mut ws, &mut app2).unwrap();
             for (i, &p) in perm.iter().enumerate() {
                 la1[p] = app2[i] - la2[i] - sys2[i];
             }
@@ -313,9 +314,9 @@ mod tests {
     #[test]
     fn the_soft_output_gives_the_decisions_of_the_former_decoder() {
         let mut r = Rng::new(4);
-        for exact in [true, false] {
+        for jacobian in [Jacobian::Exact, Jacobian::MaxLog] {
             let mut code = TurboCode::lte(104).unwrap();
-            code.decoder.exact = exact;
+            code.decoder.jacobian = jacobian;
             for _ in 0..10 {
                 let info: Vec<u8> = (0..104).map(|_| r.bit()).collect();
                 let s2 = bpsk_noise_variance(0.5, code.code_rate());
@@ -332,7 +333,7 @@ mod tests {
         let (with, moved) = (code.app(&y, Some(&la)).unwrap(), code.app(&shifted, None).unwrap());
         assert!(with.iter().zip(&moved).all(|(a, b)| a.to_bits() == b.to_bits()));
         // no iteration: the systematic LLRs
-        let none = TurboCode { decoder: TurboDecoder { iterations: 0, exact: true }, ..code.clone() };
+        let none = TurboCode { decoder: TurboDecoder { iterations: 0, jacobian: Jacobian::Exact }, ..code.clone() };
         assert_eq!(none.app(&y, None).unwrap(), y[..40]);
         assert!(TurboCode::lte(0).is_err() && code.app(&y[1..], None).is_err());
     }

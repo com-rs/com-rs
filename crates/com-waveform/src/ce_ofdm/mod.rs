@@ -48,7 +48,7 @@
 //! $$\mathrm{SNR} = (2\pi h)^{2}\,\frac{E_{s}}{N_{0}}\,\frac{N}{N + N_{\mathrm{cp}}}\,:$$
 //!
 //! the error rates are those of the constellation over AWGN with the SNR multiplied by
-//! $(2\pi h)^{2}$ ([`theory::snr`], [`theory::ser`], [`theory::ber`]). For $M$-PAM data
+//! $(2\pi h)^{2}$ ([`theory::snr`], [`theory::ser_esn0`], [`theory::ber_esn0`]). For $M$-PAM data
 //! on every real subcarrier this is eq. (15) of the paper, which keeps the
 //! nearest-neighbour term of the Gray BER; the library uses the exact Gray BER of the
 //! square QAM whose real and imaginary parts are the two PAM symbols (checked against
@@ -57,7 +57,7 @@
 //!
 //! # Receivers
 //!
-//! [`CeOfdm::demodulate_with`] takes a [`Receiver`]: the arctangent phase demodulator
+//! [`CeOfdm::demodulate_with_receiver`] takes a [`Receiver`]: the arctangent phase demodulator
 //! above, or the low-complexity receivers of Ahmed and Zeidler (2015), which replace
 //! $\arg r$ by $\operatorname{Im} r$ (basic linear receiver) or by
 //! $\operatorname{Im} r \\, (2 - \operatorname{Re} r)$ (enhanced receiver) and avoid the
@@ -69,7 +69,7 @@
 //!
 //! # Examples
 //! ```
-//! use com_waveform::ce_ofdm::{CeOfdm, Unwrap};
+//! use com_waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap};
 //! use com_mapping::constellation::Constellation;
 //! use com_core::rng::Rng;
 //! let ce = CeOfdm::new(16, 2, 0.1).unwrap();
@@ -78,7 +78,7 @@
 //! let s = ce.modulate(&d).unwrap();
 //! assert_eq!(s.len(), 4 * ce.n_fft());
 //! assert!(s.iter().all(|v| (v.norm() - 1.0).abs() < 1e-12));          // constant envelope
-//! let e = ce.demodulate(&s, Unwrap::None).unwrap();
+//! let e = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::None)).unwrap();
 //! assert!(e.iter().zip(&d).all(|(a, b)| (a - b).norm() < 1e-9));
 //! ```
 
@@ -169,7 +169,7 @@ impl std::str::FromStr for Receiver {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CeOfdm {
     /// Data subcarriers `K` per block.
-    pub n_data: usize,
+    pub n_subcarriers: usize,
     /// Oversampling factor `J`: the DFT has `N = 2J(K + 1)` points.
     pub oversampling: usize,
     /// Modulation index `h` (phase standard deviation `2πh`).
@@ -177,7 +177,7 @@ pub struct CeOfdm {
     /// Cyclic prefix, in samples of the DFT of $N$ points (the oversampling is already in
     /// $N$, unlike [`crate::ofdm::Ofdm::n_cp`], which counts Nyquist-rate samples).
     pub n_cp: usize,
-    /// The receiver of [`Demodulate`] ([`CeOfdm::demodulate_with`]); the arctangent
+    /// The receiver of [`Demodulate`] ([`CeOfdm::demodulate_with_receiver`]); the arctangent
     /// demodulator of the principal phase by default.
     pub receiver: Receiver,
     /// The rate of the samples (one per point of the DFT of $N$): the rate of the
@@ -189,7 +189,7 @@ pub struct CeOfdm {
 impl CeOfdm {
     /// The DFT size `N = 2J(K + 1)`.
     pub fn n_fft(&self) -> usize {
-        2 * self.oversampling * (self.n_data + 1)
+        2 * self.oversampling * (self.n_subcarriers + 1)
     }
 
     /// Samples per block, `N + N_cp`.
@@ -198,14 +198,14 @@ impl CeOfdm {
     }
 
     /// Samples per data symbol, `(N + N_cp)/K`.
-    pub fn samples_per_symbol(&self) -> f64 {
-        self.block_len() as f64 / self.n_data as f64
+    pub fn sps(&self) -> f64 {
+        self.block_len() as f64 / self.n_subcarriers as f64
     }
 
     /// Noise variance per sample for an `E_s/N_0` (dB) per data symbol and a unit
     /// envelope: `σ² = (N + N_cp)/(K E_s/N_0)`.
     pub fn noise_variance(&self, esn0_db: f64) -> f64 {
-        self.samples_per_symbol() / db2lin(esn0_db)
+        self.sps() / db2lin(esn0_db)
     }
 
     /// `K` data subcarriers, oversampling `J`, modulation index `h`, no prefix, the default
@@ -221,8 +221,9 @@ impl CeOfdm {
     /// assert_eq!(ce.block_len(), 2 * 2 * 17 + 8);
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub fn new(n_data: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
-        let ce = CeOfdm { n_data, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
+    pub fn new(n_subcarriers: usize, oversampling: usize, h: f64) -> Result<CeOfdm> {
+        let ce =
+            CeOfdm { n_subcarriers, oversampling, h, n_cp: 0, receiver: Receiver::default(), sample_rate: Hertz(1.0) };
         ce.check()?;
         Ok(ce)
     }
@@ -233,7 +234,7 @@ impl CeOfdm {
     /// [`com_core::Error::Config`] unless `K ≥ 1`, `J ≥ 1`, `h > 0`, the prefix is at
     /// most one block of `N` samples and the sample rate is positive and finite.
     pub fn check(&self) -> Result<()> {
-        ensure(self.n_data >= 1 && self.oversampling >= 1, || "CE-OFDM needs K ≥ 1 and J ≥ 1".into())?;
+        ensure(self.n_subcarriers >= 1 && self.oversampling >= 1, || "CE-OFDM needs K ≥ 1 and J ≥ 1".into())?;
         ensure(self.h > 0.0 && self.h.is_finite(), || {
             format!("the modulation index must be positive, got {}", self.h)
         })?;
@@ -250,7 +251,7 @@ impl CeOfdm {
     /// a number of symbols that is not a multiple of `K`.
     pub fn ofdm_signal(&self, d: &[C64]) -> Result<Vec<f64>> {
         self.check()?;
-        let (k, n) = (self.n_data, self.n_fft());
+        let (k, n) = (self.n_subcarriers, self.n_fft());
         ensure_shape(d.len() % k == 0, || format!("{} symbols is not a multiple of K = {k}", d.len()))?;
         let mut out = Vec::with_capacity(d.len() / k * n);
         for block in d.chunks(k) {
@@ -261,7 +262,7 @@ impl CeOfdm {
 
     /// The real OFDM signal `x = (F d + F* d*)/√(2K)` of one block of `K` symbols.
     fn synthesize(&self, d: &[C64]) -> Vec<f64> {
-        let (k, n) = (self.n_data, self.n_fft());
+        let (k, n) = (self.n_subcarriers, self.n_fft());
         let mut spec = vec![C64::new(0.0, 0.0); n];
         for (i, &v) in d.iter().enumerate() {
             spec[i + 1] = v;
@@ -276,7 +277,7 @@ impl CeOfdm {
     /// subcarriers.
     fn data_bins(&self, x: &[f64]) -> Vec<C64> {
         let spec = fft::fft(&x.iter().map(|&v| C64::new(v, 0.0)).collect::<Vec<_>>());
-        spec[1..=self.n_data].to_vec()
+        spec[1..=self.n_subcarriers].to_vec()
     }
 
     /// The transmitted samples `exp(j2πh x)`, with the cyclic prefix of every block.
@@ -295,23 +296,15 @@ impl CeOfdm {
         Ok(out)
     }
 
-    /// The symbol estimates `d̂ = G ψ/(2πh)` of every block, by the arctangent
-    /// demodulator with the unwrapping `unwrap` ([`CeOfdm::demodulate_with`]).
+    /// The symbol estimates of every block with the receiver: the projection of its proxy
+    /// of the phase on the data bins, divided by $2\pi h$ and by Bussgang's gain of the
+    /// receiver ([`theory::receiver_gain`]), so that the estimates are unbiased. With
+    /// [`Receiver::Arctangent`], the estimates `d̂ = G ψ/(2πh)` of the arctangent
+    /// demodulator with its unwrapping.
     ///
     /// # Errors
     /// [`com_core::Error::Config`] for invalid parameters, [`com_core::Error::Shape`] for
     /// a number of samples that is not a multiple of `N + N_cp`.
-    pub fn demodulate(&self, r: &[C64], unwrap: Unwrap) -> Result<Vec<C64>> {
-        self.demodulate_with(r, Receiver::Arctangent(unwrap))
-    }
-
-    /// The symbol estimates of every block with the receiver: the projection of its proxy
-    /// of the phase on the data bins, divided by $2\pi h$ and by Bussgang's gain of the
-    /// receiver ([`theory::receiver_gain`]), so that the estimates are unbiased. With
-    /// [`Receiver::Arctangent`] it is [`CeOfdm::demodulate`].
-    ///
-    /// # Errors
-    /// As [`CeOfdm::demodulate`].
     ///
     /// # Examples
     /// ```
@@ -322,10 +315,10 @@ impl CeOfdm {
     /// let c = Constellation::qam(16).unwrap().normalized();
     /// let (_, d) = com_mapping::source::symbols(&c, 64, None, &mut Rng::new(1)).unwrap();
     /// // without noise the linear receivers err only by their distortion, small at a small h
-    /// let e = ce.demodulate_with(&ce.modulate(&d).unwrap(), Receiver::Enhanced).unwrap();
+    /// let e = ce.demodulate_with_receiver(&ce.modulate(&d).unwrap(), Receiver::Enhanced).unwrap();
     /// assert_eq!(c.decide(&e), c.decide(&d));
     /// ```
-    pub fn demodulate_with(&self, r: &[C64], receiver: Receiver) -> Result<Vec<C64>> {
+    pub fn demodulate_with_receiver(&self, r: &[C64], receiver: Receiver) -> Result<Vec<C64>> {
         self.check_block(r.len())?;
         let (proxy, gain): (Vec<f64>, f64) = match receiver {
             Receiver::Arctangent(unwrap) => (self.received_phase(r, unwrap), 1.0),
@@ -353,7 +346,7 @@ impl CeOfdm {
 
     /// [`CeOfdm::project`] of a configuration and a length already checked.
     fn project_checked(&self, psi: &[f64], gain: f64) -> Result<Vec<C64>> {
-        let (k, n, l) = (self.n_data, self.n_fft(), self.block_len());
+        let (k, n, l) = (self.n_subcarriers, self.n_fft(), self.block_len());
         let scale = (2.0 * k as f64).sqrt() / (n as f64 * TAU * self.h * gain);
         let mut out = Vec::with_capacity(psi.len() / l * k);
         for block in psi.chunks(l) {
@@ -378,7 +371,7 @@ impl CeOfdm {
 impl Modulate for CeOfdm {
     fn modulate_into(&self, x: &Symbols, out: &mut Signal) -> Result<()> {
         ensure(x.n_streams() == 1, || format!("CE-OFDM modulates one stream, not {}", x.n_streams()))?;
-        out.set_stream(&CeOfdm::modulate(self, x.stream_slice(0))?, self.sample_rate);
+        out.set_stream(&CeOfdm::modulate(self, x.stream(0))?, self.sample_rate);
         Ok(())
     }
 }
@@ -388,10 +381,10 @@ impl Modulate for CeOfdm {
 impl Demodulate for CeOfdm {
     /// # Errors
     /// [`com_core::Error::Config`] for several streams or a signal at another sample rate,
-    /// and the errors of [`CeOfdm::demodulate_with`].
+    /// and the errors of [`CeOfdm::demodulate_with_receiver`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         check_input(y, self.sample_rate, "CE-OFDM")?;
-        out.set_stream(&self.demodulate_with(y.stream(0), self.receiver)?);
+        out.set_stream(&self.demodulate_with_receiver(y.stream(0), self.receiver)?);
         Ok(())
     }
 }
@@ -418,14 +411,9 @@ mod tests {
         let x = Modulate::modulate(&ce, &Symbols::from_stream(d.clone()).unwrap()).unwrap();
         assert_eq!((x.stream(0), x.sample_rate()), (&ce.modulate(&d).unwrap()[..], Hertz(2e6)));
         let back = Demodulate::demodulate(&mut ce, &x).unwrap();
-        assert_eq!(back.as_slice(), &ce.demodulate_with(x.stream(0), Receiver::Enhanced).unwrap()[..]);
+        assert_eq!(back.as_slice(), &ce.demodulate_with_receiver(x.stream(0), Receiver::Enhanced).unwrap()[..]);
         let slow = Signal::from_stream(x.stream(0).to_vec(), Hertz(1e6)).unwrap();
         assert!(Demodulate::demodulate(&mut ce, &slow).is_err());
-        // demodulate is the arctangent receiver of demodulate_with
-        assert_eq!(
-            ce.demodulate(x.stream(0), Unwrap::Stream).unwrap(),
-            ce.demodulate_with(x.stream(0), Receiver::Arctangent(Unwrap::Stream)).unwrap()
-        );
     }
 
     #[test]
@@ -444,9 +432,9 @@ mod tests {
         assert!((s[0] - s[ce.n_fft()]).norm() < 1e-12);
         // without noise, the unwrapped receiver recovers the symbols despite the wraps,
         // which the wrapped receiver does not
-        let e = ce.demodulate(&s, Unwrap::Stream).unwrap();
+        let e = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::Stream)).unwrap();
         assert!(e.iter().zip(&d).all(|(a, b)| (a - b).norm() < 1e-8));
-        let w = ce.demodulate(&s, Unwrap::None).unwrap();
+        let w = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::None)).unwrap();
         assert!(w.iter().zip(&d).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max) > 0.1);
     }
 
@@ -456,7 +444,7 @@ mod tests {
         let g = (TAU * 0.05).powi(2) * 100.0;
         let s = theory::snr(&ce, 20.0).unwrap();
         assert!((s - g).abs() < 1e-9 * g);
-        let ser_ce = theory::ser(&ce, ConstellationKind::Qam, 16, 20.0).unwrap();
+        let ser_ce = theory::ser_esn0(&ce, ConstellationKind::Qam, 16, 20.0).unwrap();
         let proakis = com_mapping::theory::ser(ConstellationKind::Qam, 16, com_math::lin2db(g / 4.0)).unwrap();
         assert!((ser_ce - proakis).abs() < 1e-12);
         // the cyclic prefix costs its share of the energy
@@ -472,10 +460,10 @@ mod tests {
         let esn0_db = 20.0;
         let sigma = ce.noise_variance(esn0_db).sqrt();
         let r: Vec<C64> = ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
-        let e = ce.demodulate(&r, Unwrap::None).unwrap();
+        let e = ce.demodulate_with_receiver(&r, Receiver::Arctangent(Unwrap::None)).unwrap();
         let errors = c.decide(&e).iter().zip(c.decide(&d)).filter(|(a, b)| *a != b).count();
         let ser = errors as f64 / d.len() as f64;
-        let want = theory::ser(&ce, ConstellationKind::Qam, 16, esn0_db).unwrap();
+        let want = theory::ser_esn0(&ce, ConstellationKind::Qam, 16, esn0_db).unwrap();
         assert!((ser / want - 1.0).abs() < 0.15, "{ser} vs {want}");
     }
 
@@ -485,7 +473,7 @@ mod tests {
         let c = Constellation::qam(4).unwrap().normalized();
         let (_, d) = com_mapping::source::symbols(&c, 31, None, &mut Rng::new(4)).unwrap();
         let s = ce.modulate(&d).unwrap();
-        let clean = ce.demodulate(&s, Unwrap::Stream).unwrap();
+        let clean = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::Stream)).unwrap();
         for start in [0usize, 1, 40, 127] {
             // the phase gains 2π from `start`: the unwrapped phase of the samples rotated by a
             // full turn in small steps over one sample would do the same; add it to the phase
@@ -515,11 +503,12 @@ mod tests {
             let r: Vec<C64> =
                 ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
             for receiver in [Receiver::Linear, Receiver::Enhanced] {
-                let e = ce.demodulate_with(&r, receiver).unwrap();
+                let e = ce.demodulate_with_receiver(&r, receiver).unwrap();
                 let bits: usize =
                     c.decide(&e).iter().zip(c.decide(&d)).map(|(a, b)| (a ^ b).count_ones() as usize).sum();
                 let ber = bits as f64 / (2.0 * d.len() as f64);
-                let want = theory::ber_receiver(&ce, receiver, ConstellationKind::Qam, 4, esn0_db).unwrap();
+                let want = theory::ber_receiver(&CeOfdm { receiver, ..ce.clone() }, ConstellationKind::Qam, 4, esn0_db)
+                    .unwrap();
                 // BER about 1e-2, 2000 errors: a 10 % band for the sampling error and the
                 // Gaussian model of the distortion (simulation and theory agree to 4 %)
                 assert!((ber / want - 1.0).abs() < 0.1, "2πh = {two_pi_h}, {receiver:?}: {ber:e} vs {want:e}");
@@ -527,7 +516,7 @@ mod tests {
         }
         // at a small index the linear receiver is the arctangent one (eq. (20) of the paper)
         let ce = CeOfdm::new(32, 2, 0.01 / TAU).unwrap();
-        let lin = theory::subcarrier_snr(&ce, Receiver::Linear, 30.0).unwrap();
+        let lin = theory::subcarrier_snr(&CeOfdm { receiver: Receiver::Linear, ..ce.clone() }, 30.0).unwrap();
         let flat = theory::snr(&ce, 30.0).unwrap();
         assert!(lin.iter().all(|s| (s / flat - 1.0).abs() < 1e-3), "{lin:?} vs {flat}");
     }
@@ -554,7 +543,7 @@ mod literature {
                 for ebn0_db in [6.0, 10.0, 14.0] {
                     let ce = CeOfdm::new(64, 4, h).unwrap();
                     let esn0_db = ebn0_db + com_math::lin2db(2.0 * log2m);
-                    let lib = theory::ber(&ce, ConstellationKind::Qam, m_qam, esn0_db).unwrap();
+                    let lib = theory::ber_esn0(&ce, ConstellationKind::Qam, m_qam, esn0_db).unwrap();
                     let arg = std::f64::consts::TAU
                         * h
                         * (6.0 * log2m / ((m_pam * m_pam - 1) as f64) * db2lin(ebn0_db)).sqrt();

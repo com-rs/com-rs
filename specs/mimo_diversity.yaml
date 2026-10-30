@@ -14,7 +14,7 @@ grid:
 link:
   - {type: source, constellation: QPSK, n_symbols: 8192}
   - {type: mimo_tx, n_tx: 2, scheme: $scheme}
-  - {type: rayleigh, n_rx: 2, coherence: 2}
+  - {type: rayleigh, n_rx: 2, coherence_samples: 2}
   - {type: awgn_ebn0, ebn0_db: $ebn0_db}
   - {type: mimo_rx, detector: zf}
 metrics: {report: [ber], scale: none}

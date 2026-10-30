@@ -21,6 +21,7 @@ use comrs::fec::polar::PolarCode;
 use comrs::fec::puncture::{Punctured, PuncturedTurbo, Puncturer};
 use comrs::fec::scrambling::Scrambler;
 use comrs::fec::turbo::{TurboCode, TurboDecoder};
+use comrs::math::Jacobian;
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

@@ -88,9 +88,10 @@
 //! # Examples
 //! ```
 //! use com_core::prelude::*;
-//! use com_channel::cdl::{Array, Cdl, Profile};
+//! use com_channel::cdl::{Array, Cdl, CdlParams, Profile};
 //! use com_channel::fading::Fading;
-//! let ch = Cdl::new(Profile::C, 300e-9, 30.72e6, Array::linear(2, 0.5), Array::linear(4, 0.5))?;
+//! let p = CdlParams { delay_spread_s: 300e-9, tx: Array::linear(2, 0.5), rx: Array::linear(4, 0.5), ..CdlParams::default() };
+//! let ch = Cdl::new(Profile::C, p)?;
 //! let x = Signal::zeros(2, 256, Hertz(30.72e6));
 //! let (y, taps) = ch.fade(&x, &mut batch_rng(1, 0))?;
 //! assert_eq!(y.n_streams(), 4);
@@ -109,7 +110,7 @@ mod array;
 mod tables;
 
 pub use array::{Array, Pattern};
-pub use tables::{Cluster, Profile, RAY_OFFSETS, RAYS_PER_CLUSTER, Spreads};
+pub use tables::{Cluster, ClusterTable, Profile, RAY_OFFSETS, RAYS_PER_CLUSTER, Spreads};
 
 use crate::fading::Fading;
 use crate::multipath::{Taps, max_doppler_hz};
@@ -119,11 +120,71 @@ use com_math::geometry::{dot, from_spherical, norm};
 use com_math::{SPEED_OF_LIGHT, cis, db2lin};
 use std::f64::consts::PI;
 
+/// The parameters of a [`Cdl`] channel: delay spread, sampling rate, arrays and motion.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CdlParams {
+    /// Desired RMS delay spread $\mathrm{DS}$ (s).
+    pub delay_spread_s: f64,
+    /// Sampling rate of the delays and of the time variation (Hz).
+    pub sample_rate: f64,
+    /// Transmit array.
+    pub tx: Array,
+    /// Receive array.
+    pub rx: Array,
+    /// Velocity $\bar{v}$ of the receiver (m/s, global coordinates); zero for a channel
+    /// constant in time.
+    pub velocity_mps: [f64; 3],
+    /// Carrier frequency (Hz), which sets the wavelength of the Doppler shifts.
+    pub fc_hz: f64,
+}
+
+impl Default for CdlParams {
+    /// The nominal delay spread of 100 ns of TR 38.901 Table 7.7.3-1, 30.72 MHz (NR,
+    /// 30 kHz on a 1024-point FFT), one vertical isotropic element on each side, at rest,
+    /// at 3.5 GHz.
+    fn default() -> CdlParams {
+        CdlParams {
+            delay_spread_s: 100e-9,
+            sample_rate: 30.72e6,
+            tx: Array::linear(1, 0.5),
+            rx: Array::linear(1, 0.5),
+            velocity_mps: [0.0; 3],
+            fc_hz: 3.5e9,
+        }
+    }
+}
+
+impl CdlParams {
+    /// Check the parameters.
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a negative delay spread, a non-positive rate, an array
+    /// without element, or a non-positive carrier frequency with a non-zero velocity;
+    /// [`Error::Shape`] for an array with a slant per element missing.
+    pub fn check(&self) -> Result<()> {
+        let (ds, fs) = (self.delay_spread_s, self.sample_rate);
+        ensure(ds >= 0.0, || format!("negative delay spread {ds}"))?;
+        ensure(fs > 0.0, || format!("the sampling rate must be positive, got {fs}"))?;
+        for (name, a) in [("transmit", &self.tx), ("receive", &self.rx)] {
+            ensure(a.n_elements() >= 1, || format!("the {name} array needs at least one element"))?;
+            same_len(a.slants.len(), a.positions.len(), "slants and positions of the array")?;
+        }
+        check_motion(self.velocity_mps, self.fc_hz)
+    }
+}
+
+/// [`Error::Config`] for a non-positive carrier frequency with a non-zero velocity.
+fn check_motion(velocity_mps: [f64; 3], fc_hz: f64) -> Result<()> {
+    ensure(fc_hz > 0.0 || velocity_mps == [0.0; 3], || {
+        format!("the carrier frequency must be positive for a moving receiver, got {fc_hz}")
+    })
+}
+
 /// A CDL channel between two arrays (see the module).
 ///
 /// Its delays are put on the sampling grid of the delay spread and rate given at
-/// construction ([`Cdl::delay_spread`], [`Cdl::sample_rate`]): the channel applies only
-/// to signals of that rate.
+/// construction ([`Cdl::delay_spread_s`], [`Cdl::sample_rate`]): the channel applies only
+/// to signals of that rate. The arrays and the motion stay fields.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cdl {
     clusters: Vec<Cluster>,
@@ -131,7 +192,7 @@ pub struct Cdl {
     spreads: Spreads,
     powers: Vec<f64>,
     delays: Vec<usize>,
-    delay_spread: f64,
+    delay_spread_s: f64,
     sample_rate: f64,
     /// Transmit array.
     pub tx: Array,
@@ -139,80 +200,68 @@ pub struct Cdl {
     pub rx: Array,
     /// Velocity $\bar{v}$ of the receiver (m/s, global coordinates); zero for a channel
     /// constant in time.
-    pub velocity: [f64; 3],
+    pub velocity_mps: [f64; 3],
     /// Carrier frequency (Hz), which sets the wavelength of the Doppler shifts.
-    pub carrier_frequency: f64,
+    pub fc_hz: f64,
 }
 
 impl Cdl {
-    /// The channel of `profile` with the desired RMS delay spread `delay_spread` (s),
-    /// sampled at `sample_rate` (Hz), between the arrays `tx` and `rx`, without motion
-    /// (set [`Cdl::velocity`] and [`Cdl::carrier_frequency`] for Doppler).
+    /// The channel of `profile` with the parameters `params`.
     ///
     /// # Errors
-    /// [`Error::Config`] for a negative delay spread, a non-positive rate, an array
-    /// without element or with a slant per element missing.
+    /// As [`CdlParams::check`].
     ///
     /// # Examples
     /// ```
-    /// use com_channel::cdl::{Array, Cdl, Profile};
-    /// let mut ch = Cdl::new(Profile::D, 30e-9, 61.44e6, Array::linear(1, 0.5), Array::linear_dual(2, 0.5))?;
-    /// ch.velocity = [10.0, 0.0, 0.0];
-    /// ch.carrier_frequency = 3.5e9;
-    /// assert!((ch.max_doppler() - 116.74).abs() < 0.01);     // 10 m/s at 3.5 GHz
+    /// use com_channel::cdl::{Array, Cdl, CdlParams, Profile};
+    /// let p = CdlParams {
+    ///     delay_spread_s: 30e-9,
+    ///     sample_rate: 61.44e6,
+    ///     rx: Array::linear_dual(2, 0.5),
+    ///     velocity_mps: [10.0, 0.0, 0.0],
+    ///     ..CdlParams::default()
+    /// };
+    /// let ch = Cdl::new(Profile::D, p)?;
+    /// assert!((ch.max_doppler_hz() - 116.74).abs() < 0.01);     // 10 m/s at 3.5 GHz
     /// assert_eq!(ch.delays().last(), Some(&23));             // 12.525 × 30 ns at 16.3 ns per sample
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub fn new(profile: Profile, delay_spread: f64, sample_rate: f64, tx: Array, rx: Array) -> Result<Cdl> {
-        Cdl::custom(profile.table().to_vec(), profile.los(), profile.spreads(), delay_spread, sample_rate, tx, rx)
+    pub fn new(profile: Profile, params: CdlParams) -> Result<Cdl> {
+        Cdl::custom(profile.into(), params)
     }
 
-    /// A channel of arbitrary clusters (in the units of the tables, powers in dB of any
-    /// normalisation), an optional specular component `los` added to the first
-    /// cluster, and per-cluster spreads.
+    /// A channel of arbitrary clusters, specular component and spreads `table`.
     ///
     /// # Errors
-    /// [`Error::Config`] for no cluster, a negative delay, a negative spread, a
-    /// negative delay spread, a non-positive rate, an array without element or with a
-    /// slant per element missing.
-    pub fn custom(
-        clusters: Vec<Cluster>,
-        los: Option<Cluster>,
-        spreads: Spreads,
-        delay_spread: f64,
-        sample_rate: f64,
-        tx: Array,
-        rx: Array,
-    ) -> Result<Cdl> {
+    /// [`Error::Config`] for no cluster, a negative delay or a negative spread, and as
+    /// [`CdlParams::check`].
+    pub fn custom(table: ClusterTable, params: CdlParams) -> Result<Cdl> {
+        let ClusterTable { clusters, los, spreads } = table;
         ensure(!clusters.is_empty(), || "a CDL channel needs at least one cluster".into())?;
         ensure(clusters.iter().all(|c| c.delay >= 0.0), || "negative cluster delay".into())?;
         ensure(spreads.asd >= 0.0 && spreads.asa >= 0.0 && spreads.zsd >= 0.0 && spreads.zsa >= 0.0, || {
             "negative angular spread".into()
         })?;
-        ensure(delay_spread >= 0.0, || format!("negative delay spread {delay_spread}"))?;
-        ensure(sample_rate > 0.0, || format!("the sampling rate must be positive, got {sample_rate}"))?;
-        for (name, a) in [("transmit", &tx), ("receive", &rx)] {
-            ensure(a.n_elements() >= 1, || format!("the {name} array needs at least one element"))?;
-            same_len(a.slants.len(), a.positions.len(), "slants and positions of the array")?;
-        }
+        params.check()?;
+        let CdlParams { delay_spread_s, sample_rate, tx, rx, velocity_mps, fc_hz } = params;
         let mut powers: Vec<f64> = clusters.iter().map(|c| db2lin(c.power_db)).collect();
         if let Some(s) = los {
             powers[0] += db2lin(s.power_db);
         }
         let tot: f64 = powers.iter().sum();
-        let delays = clusters.iter().map(|c| (c.delay * delay_spread * sample_rate).round() as usize).collect();
+        let delays = clusters.iter().map(|c| (c.delay * delay_spread_s * sample_rate).round() as usize).collect();
         Ok(Cdl {
             clusters,
             los,
             spreads,
             powers: powers.iter().map(|p| p / tot).collect(),
             delays,
-            delay_spread,
+            delay_spread_s,
             sample_rate,
             tx,
             rx,
-            velocity: [0.0; 3],
-            carrier_frequency: 3.5e9,
+            velocity_mps,
+            fc_hz,
         })
     }
 
@@ -227,8 +276,8 @@ impl Cdl {
     }
 
     /// Desired RMS delay spread $\mathrm{DS}$ (s).
-    pub fn delay_spread(&self) -> f64 {
-        self.delay_spread
+    pub fn delay_spread_s(&self) -> f64 {
+        self.delay_spread_s
     }
 
     /// Sampling rate of the delays and of the time variation (Hz).
@@ -254,8 +303,8 @@ impl Cdl {
 
     /// The maximum Doppler shift $|\bar{v}| / \lambda$ (Hz,
     /// [`crate::multipath::max_doppler_hz`] of the speed).
-    pub fn max_doppler(&self) -> f64 {
-        max_doppler_hz(norm(self.velocity), self.carrier_frequency)
+    pub fn max_doppler_hz(&self) -> f64 {
+        max_doppler_hz(norm(self.velocity_mps), self.fc_hz)
     }
 
     /// Draw a realisation: the ray coupling and initial phases of every cluster, from
@@ -264,11 +313,9 @@ impl Cdl {
     /// # Errors
     /// [`Error::Config`] for a non-positive carrier frequency with a non-zero velocity.
     pub fn draw_rays(&self, rng: &mut SimRng) -> Result<Rays> {
-        let moving = self.velocity != [0.0; 3];
-        ensure(self.carrier_frequency > 0.0 || !moving, || {
-            format!("the carrier frequency must be positive for a moving receiver, got {}", self.carrier_frequency)
-        })?;
-        let inv_lambda = if moving { self.carrier_frequency / SPEED_OF_LIGHT } else { 0.0 };
+        check_motion(self.velocity_mps, self.fc_hz)?;
+        let moving = self.velocity_mps != [0.0; 3];
+        let inv_lambda = if moving { self.fc_hz / SPEED_OF_LIGHT } else { 0.0 };
         let kappa_inv_sqrt = db2lin(-self.spreads.xpr_db).sqrt();
         let (n_rx, n_tx) = (self.n_rx(), self.n_tx());
         let total = self.clusters.iter().map(|c| db2lin(c.power_db)).sum::<f64>()
@@ -335,7 +382,7 @@ impl Cdl {
                 amplitude.push(pol * e_tx * e_rx * amp);
             }
         }
-        Ray { aod, aoa, zod, zoa, doppler: dot(r_rx, self.velocity) * inv_lambda, amplitude }
+        Ray { aod, aoa, zod, zoa, doppler_hz: dot(r_rx, self.velocity_mps) * inv_lambda, amplitude }
     }
 
     /// Draw the taps for `n_samples` samples from time 0 (a realisation applied by
@@ -392,7 +439,7 @@ pub struct Ray {
     /// Zenith of arrival (degrees).
     pub zoa: f64,
     /// Doppler shift $\nu = \hat{r}_{\mathrm{rx}}^{T} \bar{v} / \lambda$ (Hz).
-    pub doppler: f64,
+    pub doppler_hz: f64,
     /// Amplitude of the ray on every link, `[rx][tx]` flattened: everything of
     /// (7.5-22) but the Doppler term.
     pub amplitude: Vec<C64>,
@@ -437,9 +484,9 @@ impl Rays {
     /// # Examples
     /// ```
     /// use com_core::prelude::*;
-    /// use com_channel::cdl::{Array, Cdl, Profile};
-    /// let mut ch = Cdl::new(Profile::A, 100e-9, 1e6, Array::linear(1, 0.5), Array::linear(2, 0.5))?;
-    /// ch.velocity = [30.0, 0.0, 0.0];
+    /// use com_channel::cdl::{Array, Cdl, CdlParams, Profile};
+    /// let mut ch = Cdl::new(Profile::A, CdlParams { sample_rate: 1e6, rx: Array::linear(2, 0.5), ..CdlParams::default() })?;
+    /// ch.velocity_mps = [30.0, 0.0, 0.0];
     /// let rays = ch.draw_rays(&mut batch_rng(5, 0))?;
     /// let whole = rays.taps(0, 64);
     /// let second_half = rays.taps(32, 32);
@@ -453,7 +500,7 @@ impl Rays {
         let links = self.n_rx * self.n_tx;
         // a zero shift gives the phase factor 1 at every time: the coefficients of the
         // first sample are those of every sample, bit for bit
-        let invariant = self.clusters.iter().flatten().all(|ray| ray.doppler == 0.0);
+        let invariant = self.clusters.iter().flatten().all(|ray| ray.doppler_hz == 0.0);
         let stored = if invariant { n_samples.min(1) } else { n_samples };
         let coeffs = self
             .clusters
@@ -463,7 +510,7 @@ impl Rays {
                 for k in 0..stored {
                     let t = (start + k) as f64 / self.sample_rate;
                     for ray in rays {
-                        let e = cis(2.0 * PI * ray.doppler * t);
+                        let e = cis(2.0 * PI * ray.doppler_hz * t);
                         for (out, a) in c[k * links..(k + 1) * links].iter_mut().zip(&ray.amplitude) {
                             *out += a * e;
                         }
@@ -491,31 +538,46 @@ mod tests {
     use crate::multipath::rms_delay_spread;
 
     fn vertical(profile: Profile, n_rx: usize) -> Cdl {
-        Cdl::new(profile, 100e-9, 1e6, Array::linear(1, 0.5), Array::linear(n_rx, 0.5)).unwrap()
+        Cdl::new(profile, CdlParams { sample_rate: 1e6, rx: Array::linear(n_rx, 0.5), ..CdlParams::default() }).unwrap()
     }
 
     #[test]
     fn errors_on_invalid_configurations() {
-        assert!(Cdl::new(Profile::A, -1.0, 1e6, Array::linear(1, 0.5), Array::linear(1, 0.5)).is_err());
-        assert!(Cdl::new(Profile::A, 1e-7, 0.0, Array::linear(1, 0.5), Array::linear(1, 0.5)).is_err());
-        assert!(Cdl::new(Profile::A, 1e-7, 1e6, Array::linear(0, 0.5), Array::linear(1, 0.5)).is_err());
+        assert!(
+            Cdl::new(Profile::A, CdlParams { delay_spread_s: -1.0, sample_rate: 1e6, ..CdlParams::default() }).is_err()
+        );
+        assert!(
+            Cdl::new(Profile::A, CdlParams { delay_spread_s: 1e-7, sample_rate: 0.0, ..CdlParams::default() }).is_err()
+        );
+        assert!(
+            Cdl::new(
+                Profile::A,
+                CdlParams { delay_spread_s: 1e-7, sample_rate: 1e6, tx: Array::linear(0, 0.5), ..CdlParams::default() }
+            )
+            .is_err()
+        );
         let bad = Array { slants: vec![0.0], ..Array::linear(2, 0.5) };
-        assert!(Cdl::new(Profile::A, 1e-7, 1e6, Array::linear(1, 0.5), bad).is_err());
+        assert!(
+            Cdl::new(Profile::A, CdlParams { delay_spread_s: 1e-7, sample_rate: 1e6, rx: bad, ..CdlParams::default() })
+                .is_err()
+        );
+        let moving = CdlParams { velocity_mps: [1.0, 0.0, 0.0], fc_hz: 0.0, ..CdlParams::default() };
+        assert!(Cdl::new(Profile::A, moving).is_err());
         let mut ch = vertical(Profile::A, 1);
-        ch.velocity = [1.0, 0.0, 0.0];
-        ch.carrier_frequency = 0.0;
+        ch.velocity_mps = [1.0, 0.0, 0.0];
+        ch.fc_hz = 0.0;
         assert!(ch.draw_rays(&mut Rng::new(0)).is_err());
         let ch = vertical(Profile::A, 1);
         assert!(ch.fade(&Signal::zeros(2, 8, Hertz(1e6)), &mut Rng::new(0)).is_err());
         assert!("CDL-X".parse::<Profile>().is_err());
-        assert_eq!((ch.delay_spread(), ch.sample_rate()), (100e-9, 1e6));
+        assert_eq!((ch.delay_spread_s(), ch.sample_rate()), (100e-9, 1e6));
         assert_eq!("b".parse::<Profile>().unwrap(), Profile::B);
     }
 
     #[test]
     fn a_cdl_rejects_a_signal_of_another_sample_rate() {
         let mut ch = vertical(Profile::C, 2);
-        ch.velocity = [0.0, 15.0, 0.0];
+        ch.velocity_mps = [0.0, 15.0, 0.0];
         assert!(ch.fade(&Signal::zeros(1, 64, Hertz(1e6)), &mut Rng::new(0)).is_ok());
         // four times oversampled: the delays and the Doppler phase per sample would be wrong
         let x = Signal::zeros(1, 64, Hertz(4e6));
@@ -534,7 +596,8 @@ mod tests {
             let ds = rms_delay_spread(&pdp);
             // the tables are normalised to a unit spread within the rounding of their entries (< 2 %)
             assert!((ds / 300e-9 - 1.0).abs() < 0.02, "{p:?}: {ds:e}");
-            let ch = Cdl::new(p, 300e-9, 1e9, Array::linear(1, 0.5), Array::linear(1, 0.5)).unwrap();
+            let ch =
+                Cdl::new(p, CdlParams { delay_spread_s: 300e-9, sample_rate: 1e9, ..CdlParams::default() }).unwrap();
             for (a, b) in ch.powers().iter().zip(p.cluster_powers()) {
                 assert!((a - b).abs() < 1e-15);
             }
@@ -565,14 +628,14 @@ mod tests {
 
     #[test]
     fn doppler_of_every_ray_is_bounded_and_the_tap_spectrum_too() {
-        let mut ch = Cdl::new(Profile::B, 100e-9, 4000.0, Array::linear(1, 0.5), Array::linear(1, 0.5)).unwrap();
-        ch.velocity = [20.0, -10.0, 3.0];
-        ch.carrier_frequency = 2e9;
-        let f_max = ch.max_doppler(); // 150 Hz
+        let mut ch = Cdl::new(Profile::B, CdlParams { sample_rate: 4000.0, ..CdlParams::default() }).unwrap();
+        ch.velocity_mps = [20.0, -10.0, 3.0];
+        ch.fc_hz = 2e9;
+        let f_max = ch.max_doppler_hz(); // 150 Hz
         let rays = ch.draw_rays(&mut Rng::new(3)).unwrap();
         for n in 0..rays.n_clusters() {
             for r in rays.cluster(n) {
-                assert!(r.doppler.abs() <= f_max * (1.0 + 1e-12), "{} > {f_max}", r.doppler);
+                assert!(r.doppler_hz.abs() <= f_max * (1.0 + 1e-12), "{} > {f_max}", r.doppler_hz);
             }
         }
         // spectrum of tap 5 over 4096 samples (bin 0.98 Hz) with a Hann window: the
@@ -598,7 +661,7 @@ mod tests {
     #[test]
     fn same_seed_same_channel_and_chunks_join() {
         let mut ch = vertical(Profile::C, 2);
-        ch.velocity = [0.0, 15.0, 0.0];
+        ch.velocity_mps = [0.0, 15.0, 0.0];
         let x = Signal::from_streams(&[(0..100).map(|i| C64::new(i as f64, 1.0)).collect()], Hertz(1e6)).unwrap();
         let (y1, t1) = ch.fade(&x, &mut batch_rng(9, 2)).unwrap();
         let (y2, t2) = ch.fade(&x, &mut batch_rng(9, 2)).unwrap();
@@ -624,9 +687,11 @@ mod tests {
         for aoa in [0.0, 30.0, -70.0, 120.0] {
             let cluster = cl(0.0, 0.0, 10.0, aoa, 95.0, 90.0);
             let spreads = Spreads { asd: 0.0, asa: 0.0, zsd: 0.0, zsa: 0.0, xpr_db: 300.0 };
-            let ch =
-                Cdl::custom(vec![cluster], None, spreads, 100e-9, 1e6, Array::linear(1, 0.5), Array::linear(3, 0.5))
-                    .unwrap();
+            let ch = Cdl::custom(
+                ClusterTable { clusters: vec![cluster], los: None, spreads },
+                CdlParams { sample_rate: 1e6, rx: Array::linear(3, 0.5), ..CdlParams::default() },
+            )
+            .unwrap();
             let t = ch.draw(1, &mut Rng::new(4)).unwrap();
             let (h0, h1, h2) = (t.coefficient(0, 0, 0, 0), t.coefficient(0, 0, 1, 0), t.coefficient(0, 0, 2, 0));
             let want = cis(PI * aoa.to_radians().sin());
@@ -648,7 +713,17 @@ mod tests {
         assert!(fp < 0.0);
         // a dual-polarised link at XPR κ: E|h|² = P (1 + 1/κ) / 2 (co-polar: Φ^θθ and Φ^φφ
         // of weight ½, cross terms ½ κ⁻¹); 3000 draws → 1.8 % standard error, 6 % ≈ 3σ
-        let ch = Cdl::new(Profile::E, 30e-9, 1e6, Array::linear_dual(1, 0.5), Array::linear_dual(1, 0.5)).unwrap();
+        let ch = Cdl::new(
+            Profile::E,
+            CdlParams {
+                delay_spread_s: 30e-9,
+                sample_rate: 1e6,
+                tx: Array::linear_dual(1, 0.5),
+                rx: Array::linear_dual(1, 0.5),
+                ..CdlParams::default()
+            },
+        )
+        .unwrap();
         let mut rng = Rng::new(8);
         let mut p = 0.0;
         for _ in 0..3000 {
@@ -660,7 +735,11 @@ mod tests {
 
     #[test]
     fn a_static_channel_is_a_convolution_of_the_streams() {
-        let ch = Cdl::new(Profile::D, 1e-6, 1e6, Array::linear(2, 0.5), Array::linear(1, 0.5)).unwrap();
+        let ch = Cdl::new(
+            Profile::D,
+            CdlParams { delay_spread_s: 1e-6, sample_rate: 1e6, tx: Array::linear(2, 0.5), ..CdlParams::default() },
+        )
+        .unwrap();
         let mut rng = Rng::new(5);
         let x: Vec<Vec<C64>> = (0..2).map(|_| (0..40).map(|_| rng.complex_gaussian()).collect()).collect();
         let sig = Signal::from_streams(&x, Hertz(1e6)).unwrap();
@@ -761,7 +840,7 @@ mod literature {
         assert!((Profile::E.k_factor_db().unwrap_or(0.0) - 22.0).abs() < 1e-12);
         assert_eq!(Profile::A.k_factor_db(), None);
         for (p, want) in [(Profile::D, 13.3), (Profile::E, 22.0)] {
-            let ch = Cdl::new(p, 100e-9, 1e6, Array::linear(1, 0.5), Array::linear(1, 0.5)).unwrap();
+            let ch = Cdl::new(p, CdlParams { sample_rate: 1e6, ..CdlParams::default() }).unwrap();
             let mut rng = Rng::new(21);
             let trials = 10_000;
             let draws: Vec<C64> = (0..trials).map(|_| ch.draw(1, &mut rng).unwrap().coefficient(0, 0, 0, 0)).collect();
