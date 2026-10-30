@@ -31,10 +31,22 @@ use comrs::waveform::ofdm::Ofdm;
 
 const M: usize = 64;
 
-/// BER of OFDM or FBMC/OQAM (`fbmc`) with `order`-QAM through the TWTA ($A_{\mathrm{sat}} = 1$, $\phi_{0}$)
-/// at the input back-off `ibo` (dB), AWGN at `ebn0_db` ($E_{b}$ of the useful output), with or
-/// without the correction by Bussgang's gain.
-fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: bool, blocks: usize, seed: u64) -> f64 {
+/// A link of the figures: OFDM or FBMC/OQAM, `order`-QAM, the TWTA ($A_{\mathrm{sat}} = 1$,
+/// $\phi_{0}$) at the input back-off `ibo` (dB), with or without the correction by
+/// Bussgang's gain.
+#[derive(Clone, Copy, Debug)]
+struct Link {
+    fbmc: bool,
+    order: usize,
+    phi0: f64,
+    ibo: f64,
+    correct: bool,
+}
+
+/// BER of `link` with AWGN at `ebn0_db` ($E_{b}$ of the useful output), over `blocks`
+/// blocks drawn from `seed`.
+fn ber(link: Link, ebn0_db: f64, blocks: usize, seed: u64) -> f64 {
+    let Link { fbmc, order, phi0, ibo, correct } = link;
     let c = Constellation::qam(order).unwrap().normalized();
     let bits_per = order.trailing_zeros() as usize;
     let twta = Saleh { alpha_a: 1.0, beta_a: 1.0, alpha_p: phi0, beta_p: 1.0 };
@@ -94,7 +106,7 @@ fn bouhadda_2014_figs_10_11_corrected_gain() {
         for e in [10.0, 20.0, 30.0] {
             let t = theory(16, phi0, ibo, e);
             for fbmc in [false, true] {
-                let b = ber(fbmc, 16, phi0, ibo, e, true, 300, 1 + u64::from(fbmc));
+                let b = ber(Link { fbmc, order: 16, phi0, ibo, correct: true }, e, 300, 1 + u64::from(fbmc));
                 assert!((b / t - 1.0).abs() < 0.25, "φ0 {phi0} IBO {ibo} {e} dB FBMC {fbmc}: {b} against {t}");
             }
         }
@@ -107,15 +119,15 @@ fn bouhadda_2014_figs_10_11_corrected_gain() {
 #[ignore = "statistical validation: run with --ignored"]
 fn bouhadda_2014_fig_7_phase_rotation() {
     let p3 = std::f64::consts::FRAC_PI_3;
-    let ofdm = ber(false, 4, p3, 8.0, 30.0, false, 12_000, 3);
-    let fbmc = ber(true, 4, p3, 8.0, 30.0, false, 2000, 4);
+    let ofdm = ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 12_000, 3);
+    let fbmc = ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 2000, 4);
     assert!((ofdm / 1.2e-5).ln().abs() < 1.5f64.ln(), "OFDM floor {ofdm}");
     assert!((fbmc / 1.6e-4).ln().abs() < 1.5f64.ln(), "FBMC floor {fbmc}");
     // at 4 dB of back-off the floor of OFDM is far above the curve labelled so
-    assert!(ber(false, 4, p3, 4.0, 30.0, false, 300, 5) > 1e-2);
+    assert!(ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 4.0, correct: false }, 30.0, 300, 5) > 1e-2);
     let gap = |target: f64| {
-        ebn0_at(|e| ber(true, 4, p3, 8.0, e, false, 3000, 6), target)
-            - ebn0_at(|e| ber(false, 4, p3, 8.0, e, false, 3000, 7), target)
+        ebn0_at(|e| ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 6), target)
+            - ebn0_at(|e| ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 7), target)
     };
     let (g3, g4) = (gap(5e-3), gap(5e-4));
     assert!(g3.abs() < 0.6, "gap at 5e-3: {g3} dB");

@@ -47,9 +47,20 @@ enum Correction {
     Optimum,
 }
 
-/// BER of the OFDM QPSK of Cimini with `n` subchannels, the pilot envelope
-/// $Z_{p} = \rho^{*} Z_{d} + \sqrt{1 - |\rho|^{2}} Z_{x}$ (eq. (24); `rho` = 1: ideal).
-fn ber(n: usize, fd: f64, sir_db: f64, corr: Correction, rho: C64, blocks: usize, seed: u64) -> f64 {
+/// The OFDM QPSK link of Cimini: `n` subchannels, the maximum Doppler shift `fd` (Hz),
+/// the correction, and the pilot envelope $Z_{p} = \rho^{*} Z_{d} + \sqrt{1 - |\rho|^{2}}
+/// Z_{x}$ (eq. (24); `rho` = 1: ideal).
+#[derive(Clone, Copy, Debug)]
+struct Link {
+    n: usize,
+    fd: f64,
+    corr: Correction,
+    rho: C64,
+}
+
+/// BER of `link` at the SIR `sir_db`, over `blocks` blocks drawn from `seed`.
+fn ber(link: Link, sir_db: f64, blocks: usize, seed: u64) -> f64 {
+    let Link { n, fd, corr, rho } = link;
     let tdl = Tdl::new(&[(0.0, 0.0)], fd, FS, 1, 1).unwrap();
     let mut rng = Rng::new(seed);
     let g = comrs::math::db2lin(-sir_db);
@@ -95,11 +106,18 @@ fn sir_at_1e2(n: usize, mph: f64, optimum: bool, rho: C64) -> f64 {
     let blocks = 400_000 / n;
     let at = |s: f64, seed: u64| {
         if optimum {
-            ber(n, doppler(mph), s, Correction::Optimum, rho, blocks, seed)
+            ber(Link { n, fd: doppler(mph), corr: Correction::Optimum, rho }, s, blocks, seed)
         } else {
             LIMITS_DB
                 .iter()
-                .map(|e| ber(n, doppler(mph), s, Correction::Limited(comrs::math::db2amp(*e)), rho, blocks, seed))
+                .map(|e| {
+                    ber(
+                        Link { n, fd: doppler(mph), corr: Correction::Limited(comrs::math::db2amp(*e)), rho },
+                        s,
+                        blocks,
+                        seed,
+                    )
+                })
                 .fold(1.0, f64::min)
         }
     };
@@ -149,7 +167,10 @@ fn cimini_1985_fig_6_gain_limit() {
     for (sir, ber_read, at_read) in [(15.0, 2.5e-3, -7.5), (17.0, 7.5e-4, -9.0), (20.0, 8e-5, -10.3)] {
         let curve: Vec<f64> = limits
             .iter()
-            .map(|e| ber(512, doppler(60.0), sir, Correction::Limited(comrs::math::db2amp(*e)), flat(), 4000, 9))
+            .map(|e| {
+                let corr = Correction::Limited(comrs::math::db2amp(*e));
+                ber(Link { n: 512, fd: doppler(60.0), corr, rho: flat() }, sir, 4000, 9)
+            })
             .collect();
         let (k, min) = curve.iter().enumerate().fold((0, 1.0), |a, (k, &b)| if b < a.1 { (k, b) } else { a });
         assert!((min / ber_read).ln().abs() < 1.5f64.ln(), "SIR {sir}: {min} against {ber_read}");
