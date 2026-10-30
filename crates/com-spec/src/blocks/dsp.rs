@@ -106,17 +106,28 @@ pub(super) fn build(k: &str, label: &str, p: &Json, _ctx: &BuildContext) -> Opti
 }
 
 block_params! {
-    struct PulseSpec {
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "transmit pulse";
-        sps: usize [2] >= 1, "samples per symbol";
+    /// A pulse: the parameters shared by `pulse_shape`, `matched_filter` and `wdm_tx`.
+    #[derive(Clone, Debug)]
+    pub(super) struct PulseSettings {
+        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "the pulse: rect, nrz, rc or rrc";
         rolloff: f64 [0.1] >= 0 <= 1, "roll-off of rc and rrc";
         n_taps: usize [1025] >= 1, "taps of rc and rrc (odd: on the sampling instants)";
     }
 }
 
-pub(super) fn pulse(kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> Result<Vec<f64>> {
-    ensure(sps >= 1 && n_taps >= 1, || "sps and n_taps must be positive".into())?;
-    Ok(filter::pulse_shape(PulseShape::from_name(kind, rolloff)?, sps, n_taps))
+impl PulseSettings {
+    /// The taps of the pulse at `sps` samples per symbol.
+    pub(super) fn taps(&self, sps: usize) -> Result<Vec<f64>> {
+        ensure(sps >= 1, || "sps must be positive".into())?;
+        Ok(filter::pulse_shape(PulseShape::from_name(&self.kind, self.rolloff)?, sps, self.n_taps))
+    }
+}
+
+block_params! {
+    struct PulseSpec {
+        pulse: PulseSettings [flatten], "the transmit pulse";
+        sps: usize [2] >= 1, "samples per symbol";
+    }
 }
 
 struct PulseShaping {
@@ -126,7 +137,7 @@ struct PulseShaping {
 
 impl PulseShaping {
     fn new(p: &PulseSpec) -> Result<PulseShaping> {
-        Ok(PulseShaping { taps: pulse(&p.kind, p.sps, p.n_taps, p.rolloff)?, sps: p.sps })
+        Ok(PulseShaping { taps: p.pulse.taps(p.sps)?, sps: p.sps })
     }
 }
 
@@ -162,29 +173,24 @@ impl Block for Normalize {
 
 block_params! {
     struct MatchedSpec {
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "receive pulse";
-        rolloff: f64 [0.1] >= 0 <= 1, "roll-off";
-        n_taps: usize [1025] >= 1, "taps";
+        pulse: PulseSettings [flatten], "the receive pulse";
     }
 }
 
-struct MatchedFilter {
-    kind: String,
-    rolloff: f64,
-    n_taps: usize,
-}
+/// The matched filter: its taps at the samples per symbol of the signal.
+struct MatchedFilter(PulseSettings);
 
 impl MatchedFilter {
     fn new(p: MatchedSpec) -> Result<MatchedFilter> {
-        pulse(&p.kind, 2, p.n_taps, p.rolloff)?;
-        Ok(MatchedFilter { kind: p.kind, rolloff: p.rolloff, n_taps: p.n_taps })
+        p.pulse.taps(2)?;
+        Ok(MatchedFilter(p.pulse))
     }
 }
 
 impl Block for MatchedFilter {
     fn apply(&self, s: &mut Frame, _: &mut Rng) -> Result<()> {
         let sps = s.int_sps("matched_filter")?;
-        let h = pulse(&self.kind, sps, self.n_taps, self.rolloff)?;
+        let h = self.0.taps(sps)?;
         s.samples = filter::fir_filter(&h, &s.samples);
         Ok(())
     }

@@ -117,11 +117,11 @@ pub(super) fn infos() -> Vec<BlockInfo> {
 pub(super) fn build(kind: &str, _label: &str, p: &Json, _ctx: &BuildContext) -> Option<Result<Box<dyn Block>>> {
     let p = p.clone();
     let b: Result<Box<dyn Block>> = match kind {
-        "fec_encode" => {
-            EncodeSpec::parse(kind, p).and_then(|q| Coder::new(&q)).map(|c| Box::new(Encode(c)) as Box<dyn Block>)
-        }
+        "fec_encode" => EncodeSpec::parse(kind, p)
+            .and_then(|q| Coder::new(&q.code, q.blocks, q.interleaver))
+            .map(|c| Box::new(Encode(c)) as Box<dyn Block>),
         "fec_decode" => DecodeSpec::parse(kind, p)
-            .and_then(|q| Coder::new(&EncodeSpec { code: q.code, blocks: 1, interleave: q.interleave, seed: q.seed }))
+            .and_then(|q| Coder::new(&q.code, 1, q.interleaver))
             .map(|c| Box::new(Decode(c)) as _),
         "map" => MapSpec::parse(kind, p).and_then(|q| Map::new(&q)).map(|b| Box::new(b) as _),
         "pas_encode" => PasSpec::parse(kind, p).and_then(|q| PasLink::new(&q)).map(|b| Box::new(PasEncode(b)) as _),
@@ -177,11 +177,34 @@ block_params! {
     }
 }
 
+/// The regular LDPC code of length `n` with `k` information bits and variable-node
+/// degree `var_degree` built by progressive edge growth from `seed`, built once:
+/// `fec_encode` and `fec_decode` (and `pas_encode` and `pas_decode`) build the same
+/// code from one mapping, and the construction is deterministic.
+fn peg(n: usize, k: usize, var_degree: usize, seed: u64) -> Result<LdpcCode> {
+    /// The codes built, the last ones kept.
+    static BUILT: std::sync::Mutex<Vec<((usize, usize, usize, u64), LdpcCode)>> = std::sync::Mutex::new(Vec::new());
+    const KEPT: usize = 8;
+    let key = (n, k, var_degree, seed);
+    let found = BUILT.lock().ok().and_then(|b| b.iter().find(|(k, _)| *k == key).map(|(_, c)| c.clone()));
+    if let Some(c) = found {
+        return Ok(c);
+    }
+    let c = LdpcCode::peg(n, k, var_degree, seed)?;
+    if let Ok(mut b) = BUILT.lock() {
+        if b.len() == KEPT {
+            b.remove(0);
+        }
+        b.push((key, c.clone()));
+    }
+    Ok(c)
+}
+
 impl LdpcSettings {
     /// The regular LDPC code of length `n` with `k` information bits built by
     /// progressive edge growth, with these decoder settings.
     fn code(&self, n: usize, k: usize) -> Result<LdpcCode> {
-        let mut c = LdpcCode::peg(n, k, self.var_degree, self.seed)?;
+        let mut c = peg(n, k, self.var_degree, self.seed)?;
         c.rule = CheckRule::from_name(&self.rule, self.alpha)?;
         c.layered = self.layered;
         c.max_iterations = self.iterations;
@@ -290,19 +313,27 @@ pub fn build_code(v: &Json) -> Result<Box<dyn BlockCode + Send + Sync>> {
 }
 
 block_params! {
+    /// The bit interleaver of a coded link: the parameters shared by `fec_encode` and
+    /// `fec_decode`, which must give the same.
+    #[derive(Clone, Copy)]
+    struct InterleaverSettings {
+        interleave: bool [false], "random bit interleaver over the coded bits of the trial (BICM), the same in fec_encode and fec_decode";
+        seed: u64 [0], "seed of the interleaver";
+    }
+}
+
+block_params! {
     struct EncodeSpec {
         code: Code [required], "the code: {type: conv|rs|turbo|ldpc|polar, …} and its parameters";
         blocks: usize [1] >= 1, "codewords per trial";
-        interleave: bool [false], "random bit interleaver over the coded bits of the trial (BICM)";
-        seed: u64 [0], "seed of the interleaver";
+        interleaver: InterleaverSettings [flatten], "the bit interleaver";
     }
 }
 
 block_params! {
     struct DecodeSpec {
         code: Code [required], "the code of fec_encode, with the decoder settings";
-        interleave: bool [false], "as fec_encode";
-        seed: u64 [0], "as fec_encode";
+        interleaver: InterleaverSettings [flatten], "the bit interleaver of fec_encode";
     }
 }
 
@@ -310,17 +341,16 @@ block_params! {
 struct Coder {
     code: Box<dyn BlockCode + Send + Sync>,
     blocks: usize,
-    interleave: bool,
-    seed: u64,
+    interleaver: InterleaverSettings,
 }
 
 impl Coder {
-    fn new(p: &EncodeSpec) -> Result<Coder> {
-        Ok(Coder { code: build_code(&p.code.0)?, blocks: p.blocks, interleave: p.interleave, seed: p.seed })
+    fn new(code: &Code, blocks: usize, interleaver: InterleaverSettings) -> Result<Coder> {
+        Ok(Coder { code: build_code(&code.0)?, blocks, interleaver })
     }
 
     fn interleaver(&self, len: usize) -> Option<Interleaver> {
-        self.interleave.then(|| Interleaver::random(len, self.seed))
+        self.interleaver.interleave.then(|| Interleaver::random(len, self.interleaver.seed))
     }
 }
 

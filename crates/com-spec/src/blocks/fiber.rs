@@ -4,7 +4,7 @@ use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping
 use com_channel::optical::edfa::Edfa;
 use com_channel::optical::fiber::FiberParams;
 use com_channel::optical::fiber::linear_fiber_channel;
-use com_channel::optical::fiber::{Precision, Ssfm};
+use com_channel::optical::fiber::{Amplification, Precision, Ssfm};
 use com_core::Error;
 use com_core::Result;
 use com_core::ensure;
@@ -49,14 +49,14 @@ pub(super) fn build(k: &str, _label: &str, p: &Json, ctx: &BuildContext) -> Opti
                 let ssfm = Ssfm {
                     fiber,
                     step_km: q.step_km,
-                    amplification: q.amplification.parse()?,
+                    amplification: q.amplifiers.amplification()?,
                     raman: ctx.raman(fiber_json(q.fiber.as_ref()))?,
                 };
                 let precision: Precision = q.precision.parse().map_err(|e: Error| e.context("ssfm"))?;
                 ensure(!(precision == Precision::F32 && ssfm.raman.is_some()), || {
                     "ssfm: the Raman amplification is simulated in double precision only".into()
                 })?;
-                Box::new(SplitStep { ssfm, noise: q.noise, precision })
+                Box::new(SplitStep { ssfm, noise: q.amplifiers.noise(), precision })
             }
             "edfa" => {
                 let q = EdfaBlock::parse(k, p)?;
@@ -116,12 +116,31 @@ impl Block for LinearFiber {
 }
 
 block_params! {
-    struct SsfmBlock {
-        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
-        step_km: f64 [1.0] "km" > 0, "step";
+    /// The amplifiers after every span: the parameters shared by `ssfm` and `manakov`.
+    pub(super) struct AmplifierSettings {
         amplification: String ["edfa"] one_of ["edfa", "ideal", "none"],
             "edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency";
         noise: bool [true], "draw the ASE of the EDFAs and the spontaneous Raman noise";
+    }
+}
+
+impl AmplifierSettings {
+    /// The amplification after every span.
+    pub(super) fn amplification(&self) -> Result<Amplification> {
+        self.amplification.parse()
+    }
+
+    /// Whether the amplifiers and the Raman pumps add their noise.
+    pub(super) fn noise(&self) -> bool {
+        self.noise
+    }
+}
+
+block_params! {
+    struct SsfmBlock {
+        fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
+        step_km: f64 [1.0] "km" > 0, "step";
+        amplifiers: AmplifierSettings [flatten], "the amplifiers after every span";
         precision: String ["f64"] one_of ["f64", "f32"],
             "f64, or f32 (about twice as fast, relative error about 1e-6 √steps; not with Raman)";
     }

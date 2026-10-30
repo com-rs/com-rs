@@ -68,7 +68,8 @@
 //!    systems," *J. Lightw. Technol.*, 30(24), 3857–3879, 2012 (the reference of the
 //!    WDM campaigns, see `com_channel::optical::gn`).
 
-use super::dsp::pulse;
+use super::dsp::PulseSettings;
+use super::fiber::AmplifierSettings;
 use super::fiber::fiber_json;
 use super::{Block, BlockInfo, BuildContext, FIBER_DOC, FiberSpec, Frame, Mapping, NumberOrList, Params};
 use com_channel::optical::manakov::ManakovSsfm;
@@ -155,9 +156,7 @@ block_params! {
         spacing_hz: f64 [50e9] "Hz" > 0, "grid spacing Δf";
         sps: usize [8] >= 1, "samples per symbol of the multiplex (the sampling rate must cover the band)";
         power_dbm: NumberOrList [0.0] "dBm", "launch power per channel, both polarisations; a list gives one per channel";
-        kind: String ["rrc"] one_of ["rect", "nrz", "rc", "rrc"], "pulse";
-        rolloff: f64 [0.1] >= 0 <= 1, "roll-off of the pulse";
-        n_taps: usize [1025] >= 1, "taps of the pulse";
+        pulse: PulseSettings [flatten], "the pulse of every channel";
         linewidth_hz: f64 [0.0] "Hz" >= 0, "linewidth of the transmit lasers";
         channel: Option<usize> [absent "centre"], "index of the channel under test (⌊N/2⌋ by default)";
         mzm_scale: Option<f64> [absent],
@@ -190,7 +189,7 @@ impl WdmTx {
         let tx = WdmTransmitter {
             freqs: wdm_grid(p.n_channels, p.spacing_hz),
             powers_w: powers_dbm.into_iter().map(dbm2w).collect(),
-            taps: pulse(&p.kind, p.sps, p.n_taps, p.rolloff)?,
+            taps: p.pulse.taps(p.sps)?,
             sps: p.sps,
             linewidth_hz: p.linewidth_hz,
             mzm_scale: p.mzm_scale,
@@ -234,9 +233,7 @@ block_params! {
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
         tolerance: f64 [1e-5] > 0, "convergence tolerance of the iterations";
-        amplification: String ["edfa"] one_of ["edfa", "ideal", "none"],
-            "edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency";
-        noise: bool [true], "draw the ASE of the EDFAs and the spontaneous Raman noise";
+        amplifiers: AmplifierSettings [flatten], "the amplifiers after every span";
     }
 }
 
@@ -256,10 +253,10 @@ impl ManakovBlock {
                 rule,
                 max_iterations: p.max_iterations,
                 tolerance: p.tolerance,
-                amplification: p.amplification.parse()?,
+                amplification: p.amplifiers.amplification()?,
                 raman: ctx.raman(fiber_json(p.fiber.as_ref()))?,
             },
-            noise: p.noise,
+            noise: p.amplifiers.noise(),
             label,
         })
     }
