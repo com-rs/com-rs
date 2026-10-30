@@ -35,7 +35,7 @@ fn causal(taps: &[f64], x: &[C64]) -> Vec<C64> {
 /// The channel of Fig. 2: transmit filter, TWT, receive filter.
 fn channel(z: &[C64]) -> Vec<C64> {
     let twt = Saleh { alpha_a: 2.0, beta_a: 1.0, alpha_p: PI / 3.0, beta_p: 1.0 };
-    causal(&[0.9, 0.2, 0.1], &twt.amplify(&causal(&[0.8, 0.1], z)))
+    causal(&[0.9, 0.2, 0.1], &twt.amplify(&causal(&[0.8, 0.1], z)).unwrap())
 }
 
 /// `n` random symbols of `c` scaled to the peak amplitude [`PEAK`].

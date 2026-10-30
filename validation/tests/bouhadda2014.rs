@@ -52,7 +52,9 @@ fn ber(fbmc: bool, order: usize, phi0: f64, ibo: f64, ebn0_db: f64, correct: boo
         let scale = power.sqrt();
         let y: Vec<C64> = s
             .iter()
-            .map(|v| twta.amplify(&[v * scale])[0] / scale + rng.complex_gaussian() * (sigma_w2 / power).sqrt())
+            .map(|v| {
+                twta.amplify(&[v * scale]).unwrap()[0] / scale + rng.complex_gaussian() * (sigma_w2 / power).sqrt()
+            })
             .collect();
         let gain = if correct { k } else { C64::new(1.0, 0.0) };
         let z: Vec<C64> = if fbmc {

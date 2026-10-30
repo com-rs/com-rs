@@ -32,11 +32,11 @@ fn main() -> Result<()> {
     let rrc = filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.2 }, sps_sim, 4097);
     let mut x = signal::pnorm(&filter::fir_filter(&rrc, &resample::upsample(&c.symbols(&idx), sps_sim)));
     let fiber = FiberParams::default();
-    let phi = comrs::hardware::oscillator::phase_noise(100e3, x.len(), 1.0 / fs_sim, &mut rng);
+    let phi = comrs::hardware::oscillator::phase_noise(100e3, x.len(), 1.0 / fs_sim, &mut rng)?;
     x.iter_mut().zip(&phi).for_each(|(v, p)| *v *= comrs::math::cis(*p));
     let x = signal::pnorm(&fiber::linear_fiber_channel(&x, &fiber, 200.0, fs_sim));
     let x = awgn::awgn(&x, 18.0, fs_sim, rs, &mut rng);
-    let lo = comrs::hardware::oscillator::phase_noise(100e3, x.len(), 1.0 / fs_sim, &mut rng);
+    let lo = comrs::hardware::oscillator::phase_noise(100e3, x.len(), 1.0 / fs_sim, &mut rng)?;
     let x: Vec<C64> = x
         .iter()
         .enumerate()

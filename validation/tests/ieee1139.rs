@@ -21,7 +21,7 @@ use std::f64::consts::PI;
 fn ieee_1139_2022_table_b2_white_frequency_noise() {
     let (linewidth, fs) = (1e5, 1e9);
     let ts = 1.0 / fs;
-    let phi = phase_noise(linewidth, 1 << 20, ts, &mut Rng::new(1139));
+    let phi = phase_noise(linewidth, 1 << 20, ts, &mut Rng::new(1139)).unwrap();
     let h0 = linewidth / PI;
     for m in [10usize, 100, 1000] {
         let tau = m as f64 * ts;

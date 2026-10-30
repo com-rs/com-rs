@@ -113,7 +113,7 @@ impl Scenario for CoherentLink {
         let x = c.modulate(&bits)?;
         let shaped = signal::pnorm(&filter::fir_filter(&link.rrc, &resample::upsample(&x, SPS)));
         let tx_laser = Laser { power_dbm: 0.0, ..Laser::default() };
-        let carrier_tx = tx_laser.field(shaped.len(), fs, rng);
+        let carrier_tx = tx_laser.field(shaped.len(), fs, rng)?;
         let tx: Vec<C64> = shaped.iter().zip(&carrier_tx).map(|(s, l)| s * l).collect();
 
         // channel: fibre, ideal loss compensation, ASE in the signal bandwidth
@@ -121,7 +121,7 @@ impl Scenario for CoherentLink {
         let y = awgn::awgn(&signal::pnorm(&y), cond.f64("snr_db")?, fs, RS, rng);
 
         // coherent front end
-        let lo = Laser { power_dbm: 10.0, freq_shift_hz: CFO, ..Laser::default() }.field(y.len(), fs, rng);
+        let lo = Laser { power_dbm: 10.0, freq_shift_hz: CFO, ..Laser::default() }.field(y.len(), fs, rng)?;
         let r = coherent_receiver(&y, &lo, &Photodiode::ideal(), fs, rng)?;
 
         // DSP
