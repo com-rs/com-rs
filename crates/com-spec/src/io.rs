@@ -399,15 +399,15 @@ fn untar(bytes: &[u8]) -> Result<Vec<(String, &[u8])>> {
         let (prefix, name) = (text(&h[345..500]), text(&h[..100]));
         let name = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
         let start = at + 512;
-        let end = start + size;
-        if end > bytes.len() {
+        // a corrupt size field may be anything: no arithmetic that can overflow
+        let Some(end) = start.checked_add(size).filter(|&e| e <= bytes.len()) else {
             return Err(Error::Config(format!("tar: {name} ends after the archive")));
-        }
+        };
         // regular files only ('0' or NUL)
         if matches!(h[156], b'0' | 0) {
             files.push((name, &bytes[start..end]));
         }
-        at = start + size.div_ceil(512) * 512;
+        at = end.div_ceil(512).saturating_mul(512);
     }
     Ok(files)
 }
@@ -475,12 +475,13 @@ fn parse_sigmf(meta: Json, data: &[u8], name: &str) -> Result<SigMF> {
     // drop the header bytes in front of every capture
     let frame = datatype.sample_bytes() * num_channels;
     let mut body = Vec::with_capacity(data.len());
-    let mut at = 0;
+    let mut at = 0usize;
     for (i, (c, header)) in captures.iter().enumerate() {
-        let skip_to = at + header;
+        let skip_to = at.saturating_add(*header);
         ensure_le(skip_to, data.len(), name)?;
-        let samples = captures.get(i + 1).map(|(n, _)| (n.sample_start - c.sample_start) * frame);
-        let end = samples.map_or(data.len(), |b| (skip_to + b).min(data.len()));
+        // corrupt sample starts may be anything: saturate rather than overflow
+        let samples = captures.get(i + 1).map(|(n, _)| (n.sample_start - c.sample_start).saturating_mul(frame));
+        let end = samples.map_or(data.len(), |b| skip_to.saturating_add(b).min(data.len()));
         body.extend_from_slice(&data[skip_to..end]);
         at = end;
     }
@@ -644,9 +645,11 @@ pub fn read_npy(path: impl AsRef<Path>) -> Result<Npy> {
     if fortran && shape.iter().filter(|&&d| d > 1).count() > 1 {
         return Err(bad("Fortran-ordered arrays of more than one dimension are not supported"));
     }
-    let n: usize = shape.iter().product();
+    let n = shape.iter().try_fold(1usize, |n, &d| n.checked_mul(d)).ok_or_else(|| bad("invalid shape"))?;
     let data = &b[start + hlen..];
-    let need = |k: usize| -> Result<&[u8]> { data.get(..n * k).ok_or_else(|| bad("truncated data")) };
+    let need = |k: usize| -> Result<&[u8]> {
+        n.checked_mul(k).and_then(|len| data.get(..len)).ok_or_else(|| bad("truncated data"))
+    };
     let le = |d: &str| d.starts_with('<') || d.starts_with('|') || d.starts_with('=');
     if !le(descr) {
         return Err(bad(&format!("big-endian or unknown dtype {descr:?}")));
@@ -855,6 +858,52 @@ mod tests {
         write_npy_i64(&p, &[3, -1, 7]).unwrap();
         assert_eq!(read_npy(&p).unwrap().data, NpyData::Int(vec![3, -1, 7]));
         std::fs::write(&p, b"not numpy").unwrap();
+        assert!(read_npy(&p).is_err());
+        std::fs::remove_file(p).ok();
+    }
+
+    #[test]
+    fn corrupt_archives_and_arrays_are_errors_not_panics() {
+        // a tar header whose size field is out of range, or not a number
+        for size in [&b"77777777777\0"[..], b"zz\0"] {
+            let mut tar = vec![0u8; 1024];
+            tar[..14].copy_from_slice(b"rec.sigmf-meta");
+            tar[124..124 + size.len()].copy_from_slice(size);
+            assert!(untar(&tar).is_err());
+            let p = tmp("corrupt.sigmf");
+            std::fs::write(&p, &tar).unwrap();
+            assert!(read_sigmf(&p).is_err());
+            std::fs::remove_file(p).ok();
+        }
+        // captures whose header bytes or sample starts overflow
+        for (start, header) in [(0u64, u64::MAX), (u64::MAX, 0)] {
+            let meta = json!({"global": {"core:datatype": "cf32_le"},
+                "captures": [{"core:sample_start": 0, "core:header_bytes": header},
+                             {"core:sample_start": start, "core:header_bytes": 0}]});
+            let r = parse_sigmf(meta, &[0u8; 64], "corrupt");
+            assert!(r.is_err() || r.is_ok_and(|s| s.samples.len() == 8), "{start} {header}");
+        }
+        // an NPY array whose shape overflows, or whose header is cut
+        let npy = |header: &str| {
+            let mut b = b"\x93NUMPY\x01\x00".to_vec();
+            b.extend((header.len() as u16).to_le_bytes());
+            b.extend(header.as_bytes());
+            b.extend([0u8; 16]);
+            b
+        };
+        let p = tmp("corrupt.npy");
+        for header in [
+            "{'descr': '<f8', 'fortran_order': False, 'shape': (4294967296, 4294967296, 4294967296), }",
+            "{'descr': '<c16', 'fortran_order': False, 'shape': (1152921504606846976,), }",
+            "{'descr': '<f8', 'fortran_order': False, 'shape': (-1,), }",
+            "{'descr': '",
+        ] {
+            std::fs::write(&p, npy(header)).unwrap();
+            assert!(read_npy(&p).is_err(), "{header}");
+        }
+        let mut cut = npy("{'descr': '<f8', 'fortran_order': False, 'shape': (2,), }");
+        cut[8] = 0xff;
+        std::fs::write(&p, cut).unwrap();
         assert!(read_npy(&p).is_err());
         std::fs::remove_file(p).ok();
     }

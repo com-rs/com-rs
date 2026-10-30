@@ -57,6 +57,11 @@
 //! `interval` is required. `min_count` skips the conditions whose estimate counts fewer errors (or
 //! values), and `measured_range: [lo, hi]` those whose measured value is outside the range
 //! (the domain of validity of an approximation, or the values precise enough).
+//!
+//! An expectation that checks no condition is an error, not a pass: a `where` that
+//! matches no condition (a misspelt variable or value), a curve outside the grid, or
+//! conditions all skipped by `min_count` or `measured_range` verify nothing, and the
+//! message names the expectation and the step that left no condition.
 
 use crate::params::{parse, substitute};
 use com_channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
@@ -338,14 +343,35 @@ impl Expectation {
         }))
     }
 
+    /// The name of the expectation in a message: its name, or its metric.
+    fn label(&self) -> String {
+        if self.spec.name.is_empty() { format!("on {}", self.spec.metric) } else { format!("{:?}", self.spec.name) }
+    }
+
+    /// The error of an expectation that checked no condition: `funnel` counts the
+    /// conditions left after each step, with the step's name.
+    fn checked_nothing(&self, funnel: &[(&str, usize)]) -> Error {
+        let steps: Vec<String> = funnel.iter().map(|(what, n)| format!("{n} {what}")).collect();
+        let filter = if self.spec.filter.is_empty() {
+            String::new()
+        } else {
+            format!(" (where: {})", Json::Object(self.spec.filter.clone()))
+        };
+        Error::Config(format!("expectation {} checks no condition{filter}: {}", self.label(), steps.join(", ")))
+    }
+
     /// Check the expectation on the results of a run.
     ///
     /// # Errors
-    /// [`Error::Config`] for a missing metric or variable.
+    /// [`Error::Config`] for a missing metric or variable, or an expectation that checks
+    /// no condition (see the module documentation).
     pub fn check(&self, results: &[ConditionResult], confidence: f64) -> Result<Vec<Check>> {
         let s = &self.spec;
         let mut out = Vec::new();
+        let run = results.iter().filter(|r| r.trials > 0).count();
+        let (mut matched, mut expected, mut counted) = (0, 0, 0);
         for r in results.iter().filter(|r| r.trials > 0 && self.applies(&r.condition)) {
+            matched += 1;
             let e = match &s.reference {
                 Some(m) => Some(
                     r.metric(m)
@@ -361,6 +387,7 @@ impl Expectation {
                 None => self.expected(&r.condition)?,
             };
             let Some(e) = e else { continue };
+            expected += 1;
             let est = r.metric(&s.metric).ok_or_else(|| {
                 Error::Config(format!(
                     "expectation {:?}: no metric {:?} in ({})",
@@ -372,6 +399,7 @@ impl Expectation {
             if est.count() < s.min_count {
                 continue;
             }
+            counted += 1;
             let v = est.value();
             if s.measured_range.is_some_and(|[a, b]| !(a <= v && v <= b)) {
                 continue;
@@ -394,6 +422,17 @@ impl Expectation {
                 passed: by_tol || by_interval || by_factor,
             });
         }
+        if out.is_empty() {
+            let mut funnel =
+                vec![("conditions run", run), ("match `where`", matched), ("have an expected value", expected)];
+            if s.min_count > 0 {
+                funnel.push(("reach min_count", counted));
+            }
+            if s.measured_range.is_some() {
+                funnel.push(("are within measured_range", 0));
+            }
+            return Err(self.checked_nothing(&funnel));
+        }
         Ok(out)
     }
 }
@@ -404,11 +443,14 @@ impl Expectation {
     /// `interval`) inside the confidence interval of the search widened by `atol`.
     ///
     /// # Errors
-    /// [`Error::Config`] if the expectation is not about the searched variable.
+    /// [`Error::Config`] if the expectation is not about the searched variable, or checks
+    /// no operating point.
     pub fn check_search(&self, results: &[crate::search::SearchResult]) -> Result<Vec<Check>> {
         let s = &self.spec;
         let mut out = Vec::new();
+        let mut matched = 0;
         for r in results.iter().filter(|r| self.applies(&r.condition)) {
+            matched += 1;
             ensure(s.metric == r.along, || {
                 format!("expectation {:?}: a search checks its variable {:?}, not {:?}", s.name, r.along, s.metric)
             })?;
@@ -428,6 +470,13 @@ impl Expectation {
                 passed: by_tol || by_interval || by_factor,
             });
         }
+        if out.is_empty() {
+            return Err(self.checked_nothing(&[
+                ("operating points", results.len()),
+                ("match `where`", matched),
+                ("have an expected value", 0),
+            ]));
+        }
         Ok(out)
     }
 }
@@ -435,9 +484,10 @@ impl Expectation {
 /// Check every expectation of a list on the operating points of a search.
 ///
 /// # Errors
-/// [`Error::Config`] for an invalid expectation or one that is not about the searched
-/// variable.
+/// [`Error::Config`] for an empty list, an invalid expectation, one that is not about
+/// the searched variable or one that checks no operating point.
 pub fn verify_search(expect: &[Json], results: &[crate::search::SearchResult]) -> Result<Vec<Check>> {
+    ensure(!expect.is_empty(), || "no expectation to verify".to_string())?;
     let mut out = Vec::new();
     for e in expect {
         out.extend(Expectation::from_json(e)?.check_search(results)?);
@@ -448,8 +498,11 @@ pub fn verify_search(expect: &[Json], results: &[crate::search::SearchResult]) -
 /// Check every expectation of a list on the results of a run.
 ///
 /// # Errors
-/// [`Error::Config`] for an invalid expectation, a missing metric or variable.
+/// [`Error::Config`] for an empty list, an invalid expectation, a missing metric or
+/// variable, or an expectation that checks no condition: a verification never passes
+/// with nothing checked.
 pub fn verify(expect: &[Json], results: &[ConditionResult], confidence: f64) -> Result<Vec<Check>> {
+    ensure(!expect.is_empty(), || "no expectation to verify".to_string())?;
     let mut out = Vec::new();
     for e in expect {
         out.extend(Expectation::from_json(e)?.check(results, confidence)?);
@@ -497,6 +550,34 @@ mod tests {
         assert_eq!((c.len(), c[0].passed), (1, true));
         let few = json!({"metric": "ber", "value": 1e-4, "rtol": 0.1, "min_count": 1000});
         assert_eq!(verify(&[few], &r, 0.95).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn an_expectation_that_checks_no_condition_is_an_error() {
+        let r = vec![
+            result(Condition::new().with("m", 4usize).with("ebn0_db", 6.0), 2388, 1_000_000),
+            result(Condition::new().with("m", 4usize).with("ebn0_db", 7.0), 100, 1_000_000),
+        ];
+        // a misspelt variable, a value that is not in the grid
+        for filter in [json!({"M": 4}), json!({"m": 16})] {
+            let e = json!({"name": "typo", "where": filter, "metric": "ber", "value": 1e-3, "factor": 2});
+            let msg = verify(&[e], &r, 0.95).unwrap_err().to_string();
+            assert!(msg.contains("\"typo\" checks no condition") && msg.contains("0 match `where`"), "{msg}");
+        }
+        // a curve outside the grid
+        let e = json!({"metric": "snr", "curve": {"along": "ebn0_db", "x": [10.0, 12.0], "y": [1.0, 2.0]}, "atol": 1});
+        let msg = verify(&[e], &r, 0.95).unwrap_err().to_string();
+        assert!(msg.contains("on snr checks no condition") && msg.contains("0 have an expected value"), "{msg}");
+        // every condition skipped
+        let e = json!({"metric": "ber", "value": 1e-3, "factor": 2, "min_count": 1_000_000});
+        let msg = verify(&[e], &r, 0.95).unwrap_err().to_string();
+        assert!(msg.contains("0 reach min_count"), "{msg}");
+        // one empty expectation fails the whole verification, and so does an empty list
+        let good = json!({"metric": "ber", "value": 1e-3, "factor": 10});
+        let bad = json!({"where": {"m": 64}, "metric": "ber", "value": 1e-3, "factor": 10});
+        assert_eq!(verify(std::slice::from_ref(&good), &r, 0.95).unwrap().len(), 2);
+        assert!(verify(&[good, bad], &r, 0.95).is_err());
+        assert!(verify(&[], &r, 0.95).is_err());
     }
 
     #[test]

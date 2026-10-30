@@ -57,7 +57,13 @@
 //!   and `${name}` inside a longer string is replaced by its text.
 //! - The stopping rule is `(all targets and min_trials) or max_trials or max_time_s`;
 //!   without any field it is `max_trials: 100`, and a rule with targets but no cap is
-//!   rejected (it could run forever).
+//!   rejected (it could run forever). A target on a metric that the link does not
+//!   record, or `min_errors` on a mean (`snr_db`: use `precision`), is an error at the
+//!   first batch (`comrs check` reports it); `max_time_s` is a finite number of seconds
+//!   at least 0, a `precision` a positive number. A run of `max_trials` runs exactly
+//!   that many trials, whatever the batch.
+//! - The accepted values of a parameter (`reference: signal`, `kind: rrc`) are compared
+//!   without case, and the block receives the declared spelling.
 //! - The blocks are listed with their parameters by [`blocks::registry`] (and
 //!   `comrs blocks`); the metrics are those of [`metrics`].
 //! - `search` replaces the sweep by the search of the value of a variable at which a

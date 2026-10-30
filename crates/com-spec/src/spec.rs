@@ -113,7 +113,12 @@ struct StopSpec {
 }
 
 impl StopSpec {
-    fn rule(&self) -> Stop {
+    fn rule(&self) -> Result<Stop> {
+        for (m, r) in &self.precision {
+            if !(r.is_finite() && *r > 0.0) {
+                return Err(Error::Config(format!("stop: precision of {m:?} must be a positive number, got {r}")));
+            }
+        }
         let mut targets: Vec<Stop> = self.min_errors.iter().map(|(m, k)| Stop::min_errors(m, *k)).collect();
         targets.extend(self.precision.iter().map(|(m, r)| Stop::precision(m, *r)));
         let mut caps: Vec<Stop> = Vec::new();
@@ -121,7 +126,10 @@ impl StopSpec {
             caps.push(Stop::max_trials(n));
         }
         if let Some(t) = self.max_time_s {
-            caps.push(Stop::max_time(Duration::from_secs_f64(t.max(0.0))));
+            let d = Duration::try_from_secs_f64(t).ok().filter(|_| t.is_finite()).ok_or_else(|| {
+                Error::Config(format!("stop: max_time_s must be a finite number of seconds >= 0, got {t}"))
+            })?;
+            caps.push(Stop::max_time(d));
         }
         if targets.is_empty() && caps.is_empty() {
             caps.push(Stop::max_trials(self.min_trials.unwrap_or(100).max(1)));
@@ -134,7 +142,7 @@ impl StopSpec {
             any.push(if targets.len() == 1 { targets.remove(0) } else { Stop::All(targets) });
         }
         any.extend(caps);
-        if any.len() == 1 { any.remove(0) } else { Stop::Any(any) }
+        Ok(if any.len() == 1 { any.remove(0) } else { Stop::Any(any) })
     }
 }
 
@@ -216,6 +224,12 @@ impl Spec {
     /// [`Error::Config`] for a missing or unknown key, an invalid grid or rule.
     pub fn from_json(v: Json) -> Result<Spec> {
         let source = v.clone();
+        // a non-finite number of YAML or TOML (`.inf`, `nan`) becomes a JSON null, which
+        // an optional field would take for an absent one
+        if let Some((k, _)) = v.get("stop").and_then(Json::as_object).and_then(|m| m.iter().find(|(_, x)| x.is_null()))
+        {
+            return Err(Error::Config(format!("stop: {k} must be a finite number, got null or a non-finite value")));
+        }
         let raw: RawSpec = serde_json::from_value(v).map_err(|e| Error::Config(format!("specification: {e}")))?;
         let mut grid = if raw.cases.is_empty() {
             Grid::new()
@@ -251,7 +265,7 @@ impl Spec {
             fiber: raw.fiber,
             link: raw.link,
             metrics: raw.metrics,
-            stop: raw.stop.rule(),
+            stop: raw.stop.rule()?,
             progress: raw.callbacks.progress,
             skip_below: raw.callbacks.skip_below.map(|s| (s.metric, s.threshold, s.along)),
             profile: raw.profile,
@@ -329,6 +343,21 @@ mod tests {
             s("{min_errors: {ber: 10}, precision: {snr_db: 0.1}, min_trials: 2, max_trials: 5}"),
             "((errors(ber) ≥ 10 and precision(snr_db) ≤ 0.1 at 0.95 and trials ≥ 2) or trials ≥ 5)"
         );
+    }
+
+    #[test]
+    fn non_finite_or_negative_stopping_values_are_errors() {
+        let s = |y: &str| Spec::from_yaml(&format!("name: t\nlink: [source]\nstop: {y}"));
+        for bad in ["{max_time_s: .inf}", "{max_time_s: -1}", "{max_time_s: .nan}", "{max_time_s: 1e300}"] {
+            let e = s(bad).unwrap_err().to_string();
+            assert!(e.contains("max_time_s"), "{bad}: {e}");
+        }
+        for bad in ["{precision: {snr_db: 0}, max_trials: 5}", "{precision: {snr_db: -0.1}, max_trials: 5}"] {
+            let e = s(bad).unwrap_err().to_string();
+            assert!(e.contains("precision of \"snr_db\""), "{bad}: {e}");
+        }
+        assert!(s("{precision: {snr_db: .inf}, max_trials: 5}").is_err());
+        assert_eq!(s("{max_time_s: 0.5}").unwrap().stop.to_string(), "time ≥ 0.5 s");
     }
 
     #[test]

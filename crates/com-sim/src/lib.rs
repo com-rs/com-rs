@@ -80,8 +80,11 @@
 /// Version of the library, recorded in every run.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Commit of the library at build time (`<hash>-dirty` with uncommitted changes,
-/// `unknown` outside a Git checkout), recorded in every run.
+/// Commit of the library at build time, recorded in every run: `<hash>-dirty` when the
+/// tracked sources of the library (`crates/`, `bindings/`, `Cargo.toml`, `Cargo.lock`)
+/// have uncommitted changes, staged or not, `unknown` outside a Git checkout. The build
+/// script reruns when `HEAD`, the branch it points to, the index or one of these sources
+/// changes, so that the value is never stale.
 pub const COMMIT: &str = env!("COM_GIT_COMMIT");
 
 pub mod callbacks;
@@ -106,4 +109,17 @@ pub mod prelude {
     };
     pub use com_core::rng::{Rng, stream};
     pub use com_core::{Error, Result};
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_commit_is_a_hash_possibly_dirty_or_unknown() {
+        let hash = super::COMMIT.strip_suffix("-dirty").unwrap_or(super::COMMIT);
+        assert!(
+            hash == "unknown" || (hash.len() >= 40 && hash.chars().all(|c| c.is_ascii_hexdigit())),
+            "{}",
+            super::COMMIT
+        );
+    }
 }

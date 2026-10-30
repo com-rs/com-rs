@@ -274,16 +274,30 @@ impl ParamInfo {
     }
 
     /// Check a given value against the accepted values and the bounds.
+    #[cfg(test)]
     pub(crate) fn check(&self, kind: &str, v: &Json) -> Result<()> {
+        self.accept(kind, v.clone()).map(drop)
+    }
+
+    /// Check a given value against the accepted values and the bounds, and return it
+    /// with every string among the accepted values in its declared spelling: the
+    /// accepted values are compared without case ([`choice`]), and the parser of the
+    /// block then sees the spelling it declared.
+    pub(crate) fn accept(&self, kind: &str, mut v: Json) -> Result<Json> {
         if !self.choices.is_empty() {
-            let ok = |x: &Json| match x {
-                Json::String(s) => self.choices.iter().any(|c| c.eq_ignore_ascii_case(s)),
-                _ => true,
+            let mut all = true;
+            let mut canonical = |x: &mut Json| {
+                if let Json::String(s) = x {
+                    match choice(self.choices, s) {
+                        Some(c) => *s = c.to_string(),
+                        None => all = false,
+                    }
+                }
             };
-            let all = match v {
-                Json::Array(a) => a.iter().all(ok),
-                x => ok(x),
-            };
+            match &mut v {
+                Json::Array(a) => a.iter_mut().for_each(&mut canonical),
+                x => canonical(x),
+            }
             if !all {
                 return Err(Error::Config(format!(
                     "block {kind:?}: {} must be one of {:?}, got {v}",
@@ -291,7 +305,7 @@ impl ParamInfo {
                 )));
             }
         }
-        let numbers: Vec<f64> = match v {
+        let numbers: Vec<f64> = match &v {
             Json::Number(n) => n.as_f64().into_iter().collect(),
             Json::Array(a) => a.iter().filter_map(Json::as_f64).collect(),
             _ => Vec::new(),
@@ -317,8 +331,21 @@ impl ParamInfo {
                 )));
             }
         }
-        Ok(())
+        Ok(v)
     }
+}
+
+/// The accepted value that `s` names, compared without ASCII case: the one rule of the
+/// accepted values of the blocks, for the check of a parameter and its parsing alike.
+///
+/// # Examples
+/// ```
+/// use com_spec::blocks::schema::choice;
+/// assert_eq!(choice(&["signal", "unit"], "Unit"), Some("unit"));
+/// assert_eq!(choice(&["signal", "unit"], "peak"), None);
+/// ```
+pub fn choice(choices: &[&'static str], s: &str) -> Option<&'static str> {
+    choices.iter().copied().find(|c| c.eq_ignore_ascii_case(s))
 }
 
 /// The JSON Schema of the type of a parameter.
@@ -459,10 +486,7 @@ pub fn take<T: DeserializeOwned>(kind: &str, m: &mut Map<String, Json>, params: 
         return Err(Error::Config(format!("block {kind:?}: undeclared parameter {name}")));
     };
     let v = match m.remove(name) {
-        Some(v) => {
-            p.check(kind, &v)?;
-            v
-        }
+        Some(v) => p.accept(kind, v)?,
         None => match &p.default {
             ParamDefault::Required => return Err(Error::Config(format!("block {kind:?}: missing field `{name}`"))),
             ParamDefault::Absent(_) => Json::Null,

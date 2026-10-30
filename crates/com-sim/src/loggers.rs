@@ -11,7 +11,10 @@
 //!   first condition that ran.
 //! - [`JsonLogger`] writes the full report at the end of the run: the run information
 //!   (scenario, seed, batch, threads, stopping rule, confidence, library version and
-//!   commit, configuration, start time, wall time) and every condition with its metrics.
+//!   commit, configuration, start time, wall time) and every condition with its metrics
+//!   and, under `dropped`, the number of values each metric dropped (non-finite or of
+//!   the other kind, see [`Record::dropped`](crate::scenario::Record::dropped); an
+//!   empty mapping when none was).
 //!
 //! # Examples
 //! ```
@@ -260,6 +263,8 @@ impl Logger for JsonLogger {
                     r.condition.entries().iter().map(|(k, v)| (k.as_str(), value_json(v))).collect();
                 let metrics: Vec<(&str, String)> =
                     r.record.iter().map(|(k, e)| (k.as_str(), estimate_json(e, i.confidence))).collect();
+                let dropped: Vec<(&str, String)> =
+                    r.record.dropped_iter().map(|(k, n)| (k.as_str(), n.to_string())).collect();
                 json::object(&[
                     ("index", r.index.to_string()),
                     ("condition", json::object(&cond)),
@@ -267,6 +272,7 @@ impl Logger for JsonLogger {
                     ("trials", r.trials.to_string()),
                     ("wall_s", json::number(r.wall_s)),
                     ("metrics", json::object(&metrics)),
+                    ("dropped", json::object(&dropped)),
                 ])
             })
             .collect();
@@ -291,5 +297,27 @@ impl Logger for JsonLogger {
         }
         std::fs::write(&self.path, doc + "\n")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+    use crate::scenario::from_fn;
+
+    #[test]
+    fn the_json_report_lists_the_dropped_values() {
+        let dir = std::env::temp_dir().join(format!("comrs-dropped-{}", std::process::id()));
+        let path = dir.join("r.json");
+        let s = from_fn("drops", |_, _, rec| {
+            rec.value("snr_db", f64::INFINITY);
+            rec.value("evm", 0.1);
+            Ok(())
+        });
+        Runner::new().batch(4).stop(Stop::max_trials(6)).logger(JsonLogger::new(&path)).run(&s, &Grid::new()).unwrap();
+        let json = std::fs::read_to_string(&path).unwrap();
+        assert!(json.contains("\"dropped\": {\"snr_db\": 6}"), "{json}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

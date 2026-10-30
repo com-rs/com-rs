@@ -6,7 +6,8 @@
 //! - [`Stop::max_trials`]: a fixed budget of trials (the default is 100);
 //! - [`Stop::min_errors`]: at least `k` errors of an error rate, the classical rule of
 //!   BER simulations (with `k = 100` the relative standard deviation of the estimate is
-//!   about 10 %);
+//!   about 10 %); it needs an error rate (a mean has no errors: use
+//!   [`Stop::precision`]);
 //! - [`Stop::precision`]: the half-width of the confidence interval of a metric below a
 //!   fraction of its value;
 //! - [`Stop::min_trials`]: a lower bound on the trials, to combine with the others;
@@ -17,6 +18,12 @@
 //! Rules combine with [`Stop::or`] (any of them) and [`Stop::and`] (all of them): a
 //! typical BER rule is `min_errors("ber", 200).or(max_trials(10⁵))`, which stops at 200
 //! errors or after 10⁵ trials when the BER is too low to reach them.
+//!
+//! The runner checks the rule against the metrics of the first batch of every
+//! condition ([`Stop::check_metrics`]): a target on a metric that the scenario does not
+//! record, or `min_errors` on a mean, would never be met and is an error. It also ends
+//! the last batch at the bound of the rule on the trials ([`Stop::trial_limit`]), so
+//! that `max_trials(1000)` runs 1000 trials whatever the batch size.
 //!
 //! # Examples
 //! ```
@@ -34,6 +41,8 @@
 //! ```
 
 use crate::scenario::Record;
+use crate::stats::Estimate;
+use com_core::{Error, Result};
 use std::fmt;
 use std::time::Duration;
 
@@ -57,7 +66,7 @@ pub enum Stop {
     MaxTrials(u64),
     /// Never before this many trials (use with [`Stop::and`]).
     MinTrials(u64),
-    /// At least `errors` errors of the error rate `metric`.
+    /// At least `errors` errors of the error rate `metric` (never met by a mean).
     MinErrors {
         /// The error-rate metric.
         metric: String,
@@ -121,7 +130,9 @@ impl Stop {
     pub fn is_met(&self, p: &Progress<'_>) -> bool {
         match self {
             Stop::MaxTrials(n) | Stop::MinTrials(n) => p.trials >= *n,
-            Stop::MinErrors { metric, errors } => p.record.get(metric).is_some_and(|e| e.count() >= *errors),
+            Stop::MinErrors { metric, errors } => {
+                matches!(p.record.get(metric), Some(Estimate::Rate(r)) if r.errors >= *errors)
+            }
             Stop::Precision { metric, relative, confidence } => {
                 p.record.get(metric).is_some_and(|e| e.relative_precision(*confidence) <= *relative)
             }
@@ -141,6 +152,76 @@ impl Stop {
             Stop::All(v) => v.iter().all(Stop::is_bounded),
         }
     }
+
+    /// The number of trials at which the rule is met whatever the metrics and the
+    /// time, if there is one: `n` for [`Stop::max_trials`] and [`Stop::min_trials`], the
+    /// smallest bound of an [`Stop::or`], the largest of an [`Stop::and`] whose rules
+    /// all have one. The runner ends its last batch there.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::stopping::Stop;
+    /// assert_eq!(Stop::min_errors("ber", 100).or(Stop::max_trials(1000)).trial_limit(), Some(1000));
+    /// assert_eq!(Stop::max_trials(1000).and(Stop::min_trials(10)).trial_limit(), Some(1000));
+    /// assert_eq!(Stop::min_errors("ber", 100).and(Stop::max_trials(1000)).trial_limit(), None);
+    /// ```
+    pub fn trial_limit(&self) -> Option<u64> {
+        match self {
+            Stop::MaxTrials(n) | Stop::MinTrials(n) => Some(*n),
+            Stop::MinErrors { .. } | Stop::Precision { .. } | Stop::MaxTime(_) => None,
+            Stop::Any(v) => v.iter().filter_map(Stop::trial_limit).min(),
+            Stop::All(v) => v.iter().map(Stop::trial_limit).collect::<Option<Vec<u64>>>()?.into_iter().max(),
+        }
+    }
+
+    /// The metrics the rule targets, with whether the target needs an error rate.
+    fn targets<'a>(&'a self, out: &mut Vec<(&'a str, bool)>) {
+        match self {
+            Stop::MinErrors { metric, .. } => out.push((metric, true)),
+            Stop::Precision { metric, .. } => out.push((metric, false)),
+            Stop::MaxTrials(_) | Stop::MinTrials(_) | Stop::MaxTime(_) => {}
+            Stop::Any(v) | Stop::All(v) => v.iter().for_each(|s| s.targets(out)),
+        }
+    }
+
+    /// Check that every target of the rule can be met by the metrics of `record` (the
+    /// record of a first batch of trials).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a target on a metric that `record` does not hold (the
+    /// message names the recorded ones), or [`Stop::min_errors`] on a mean.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_sim::stopping::Stop;
+    /// use com_sim::scenario::Record;
+    /// let mut rec = Record::new();
+    /// rec.errors("ber", 3, 1000);
+    /// rec.value("snr_db", 9.5);
+    /// assert!(Stop::min_errors("ber", 100).or(Stop::max_trials(10)).check_metrics(&rec).is_ok());
+    /// let e = Stop::min_errors("bler", 100).or(Stop::max_trials(10)).check_metrics(&rec).unwrap_err();
+    /// assert!(e.to_string().contains("bler") && e.to_string().contains("ber, snr_db"));
+    /// assert!(Stop::min_errors("snr_db", 100).or(Stop::max_trials(10)).check_metrics(&rec).is_err());
+    /// ```
+    pub fn check_metrics(&self, record: &Record) -> Result<()> {
+        let mut targets = Vec::new();
+        self.targets(&mut targets);
+        for (metric, needs_rate) in targets {
+            if !record.knows(metric) {
+                let names: Vec<&str> = record.iter().map(|(k, _)| k.as_str()).collect();
+                return Err(Error::Config(format!(
+                    "the stopping rule `{self}` targets the metric `{metric}`, which is not recorded (recorded: {}): it would never be met",
+                    if names.is_empty() { "none".to_string() } else { names.join(", ") }
+                )));
+            }
+            if needs_rate && matches!(record.get(metric), Some(Estimate::Mean(_))) {
+                return Err(Error::Config(format!(
+                    "the stopping rule `{self}`: min_errors needs an error rate, and `{metric}` is a mean (use precision)"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Display for Stop {
@@ -159,5 +240,46 @@ impl fmt::Display for Stop {
                 write!(f, "({})", v.iter().map(std::string::ToString::to_string).collect::<Vec<_>>().join(" and "))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_target_on_a_metric_not_recorded_is_an_error() {
+        let mut rec = Record::new();
+        rec.errors("ber", 1, 100);
+        rec.value("snr_db", f64::INFINITY); // dropped, but recorded
+        let rule = Stop::min_errors("ber", 10).or(Stop::max_trials(5));
+        assert!(rule.check_metrics(&rec).is_ok());
+        assert!(Stop::precision("snr_db", 0.1).or(Stop::max_trials(5)).check_metrics(&rec).is_ok());
+        let e = Stop::precision("evm", 0.1).or(Stop::max_trials(5)).check_metrics(&rec).unwrap_err().to_string();
+        assert!(e.contains("`evm`") && e.contains("recorded: ber"), "{e}");
+        let e = Stop::min_errors("ber", 1).or(Stop::max_trials(5)).check_metrics(&Record::new()).unwrap_err();
+        assert!(e.to_string().contains("recorded: none"), "{e}");
+        assert!(Stop::max_trials(5).check_metrics(&Record::new()).is_ok());
+    }
+
+    #[test]
+    fn min_errors_on_a_mean_is_an_error_and_never_met() {
+        let mut rec = Record::new();
+        rec.values("snr_db", [1.0; 50]);
+        let rule = Stop::min_errors("snr_db", 10);
+        let e = rule.check_metrics(&rec).unwrap_err().to_string();
+        assert!(e.contains("is a mean"), "{e}");
+        let p = Progress { condition: 0, trials: 50, record: &rec, elapsed: Duration::ZERO };
+        assert!(!rule.is_met(&p));
+    }
+
+    #[test]
+    fn the_trial_limit_of_combined_rules() {
+        assert_eq!(Stop::max_trials(7).trial_limit(), Some(7));
+        assert_eq!(Stop::max_time(Duration::from_secs(1)).trial_limit(), None);
+        assert_eq!(Stop::max_trials(7).or(Stop::max_trials(3)).trial_limit(), Some(3));
+        assert_eq!(Stop::max_time(Duration::from_secs(1)).or(Stop::max_trials(3)).trial_limit(), Some(3));
+        assert_eq!(Stop::precision("x", 0.1).and(Stop::min_trials(4)).or(Stop::max_trials(9)).trial_limit(), Some(9));
+        assert_eq!(Stop::max_time(Duration::from_secs(1)).and(Stop::max_trials(3)).trial_limit(), None);
     }
 }
