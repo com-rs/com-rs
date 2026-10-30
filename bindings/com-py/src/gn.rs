@@ -120,14 +120,14 @@ fn powers_dbm(power_dbm: &Bound<'_, PyAny>, n: usize) -> PyResult<Vec<f64>> {
 /// ``"gaussian"``, with the probabilities ``px`` of a shaped source.
 fn format_moments_of(py: Python<'_>, f: &Bound<'_, PyAny>, px: Option<&[f64]>) -> PyResult<FormatMoments> {
     if let Ok(c) = f.extract::<PyRef<'_, crate::comm::PyConstellation>>() {
-        return Ok(FormatMoments::of(c.inner.points(), px));
+        return FormatMoments::of(c.inner.points(), px).py();
     }
     let j = json(py, f)?;
     if j.as_str().is_some_and(|s| s.eq_ignore_ascii_case("gaussian")) {
         return Ok(FormatMoments::GAUSSIAN);
     }
     let c = comrs::spec::blocks::parse_constellation(&j).py()?.normalized();
-    Ok(FormatMoments::of(c.points(), px))
+    FormatMoments::of(c.points(), px).py()
 }
 
 /// The moments of a modulation format that the EGN model needs: ``Φ = E|a|⁴/E²|a|² − 2``

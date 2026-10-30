@@ -142,6 +142,30 @@ impl WdmSpectrum {
         }
     }
 
+    /// Check the spectrum before an integration on its band: at least one channel, one
+    /// power per channel, finite frequencies and powers, a positive finite symbol rate
+    /// and a roll-off in $[0, 1]$.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] for no channel or another number of powers than of
+    /// channels, [`com_core::Error::Config`] for the rest.
+    fn check(&self) -> Result<()> {
+        ensure_shape(!self.freqs.is_empty() && self.freqs.len() == self.powers_w.len(), || {
+            format!(
+                "the spectrum needs one power per channel, got {} channels and {} powers",
+                self.freqs.len(),
+                self.powers_w.len()
+            )
+        })?;
+        let rs = self.symbol_rate;
+        ensure(rs.is_finite() && rs > 0.0, || format!("the symbol rate must be positive and finite, got {rs}"))?;
+        let b = self.rolloff;
+        ensure((0.0..=1.0).contains(&b), || format!("the roll-off must lie in [0, 1], got {b}"))?;
+        ensure(self.freqs.iter().chain(&self.powers_w).all(|v| v.is_finite()), || {
+            "the frequencies and powers of the channels must be finite".into()
+        })
+    }
+
     /// The band occupied by the channels (Hz).
     fn band(&self) -> (f64, f64) {
         let half = (1.0 + self.rolloff) * self.symbol_rate / 2.0;
@@ -176,8 +200,20 @@ impl FormatMoments {
 
     /// The moments of the constellation `points` with the probabilities
     /// `probabilities` (uniform if `None`), for example of a shaped source.
-    pub fn of(points: &[C64], probabilities: Option<&[f64]>) -> FormatMoments {
-        let n = points.len().max(1) as f64;
+    ///
+    /// # Errors
+    /// [`com_core::Error::Shape`] for another number of probabilities than of points,
+    /// [`com_core::Error::Config`] for no point, a negative or non-finite probability,
+    /// probabilities of zero sum, or a constellation of zero energy.
+    pub fn of(points: &[C64], probabilities: Option<&[f64]>) -> Result<FormatMoments> {
+        ensure(!points.is_empty(), || "the moments of a format need at least one point".into())?;
+        if let Some(q) = probabilities {
+            com_core::same_len(q.len(), points.len(), "the probabilities and the points")?;
+            ensure(q.iter().all(|p| p.is_finite() && *p >= 0.0), || {
+                "the probabilities must be finite and non-negative".into()
+            })?;
+        }
+        let n = points.len() as f64;
         let (mut m2, mut m4, mut m6, mut total) = (0.0, 0.0, 0.0, 0.0);
         for (k, x) in points.iter().enumerate() {
             let p = probabilities.map_or(1.0 / n, |q| q[k]);
@@ -187,9 +223,13 @@ impl FormatMoments {
             m6 += p * r * r * r;
             total += p;
         }
+        ensure(total > 0.0, || "the probabilities of the points sum to zero".into())?;
         let (m2, m4, m6) = (m2 / total, m4 / total, m6 / total);
+        ensure(m2 > 0.0 && m6.is_finite(), || {
+            format!("the constellation must have a finite non-zero energy, got {m2}")
+        })?;
         let k4 = m4 / (m2 * m2);
-        FormatMoments { phi: k4 - 2.0, psi: m6 / (m2 * m2 * m2) - 9.0 * k4 + 12.0 }
+        Ok(FormatMoments { phi: k4 - 2.0, psi: m6 / (m2 * m2 * m2) - 9.0 * k4 + 12.0 })
     }
 }
 
@@ -269,6 +309,7 @@ impl GnModel {
     /// As [`Raman::solve`].
     pub fn profile(&self, spectrum: &WdmSpectrum) -> Result<Option<RamanProfile>> {
         let Some(raman) = &self.raman else { return Ok(None) };
+        spectrum.check()?;
         let signals: Vec<(f64, f64)> =
             spectrum.freqs.iter().zip(&spectrum.powers_w).map(|(f, p)| (self.fiber.fc_hz + f, *p)).collect();
         raman.solve(&self.fiber, &signals).map(Some)
@@ -278,21 +319,17 @@ impl GnModel {
     ///
     /// # Errors
     /// [`com_core::Error::Shape`] for an empty spectrum or another number of powers than
-    /// of channels, [`com_core::Error::Config`] for a non-positive resolution, and as
-    /// [`Raman::solve`].
+    /// of channels, [`com_core::Error::Config`] for a non-positive resolution, a
+    /// non-positive or non-finite symbol rate, a roll-off outside $[0, 1]$, a non-finite
+    /// frequency or power, and as [`Raman::solve`].
     pub fn nli_psd(&self, spectrum: &WdmSpectrum, f: f64) -> Result<f64> {
-        ensure_shape(!spectrum.freqs.is_empty() && spectrum.freqs.len() == spectrum.powers_w.len(), || {
-            format!(
-                "the spectrum needs one power per channel, got {} channels and {} powers",
-                spectrum.freqs.len(),
-                spectrum.powers_w.len()
-            )
-        })?;
         let profile = self.profile(spectrum)?;
         self.nli_with(spectrum, f, profile.as_ref())
     }
 
     fn nli_with(&self, spectrum: &WdmSpectrum, f: f64, profile: Option<&RamanProfile>) -> Result<f64> {
+        spectrum.check()?;
+        ensure(f.is_finite(), || format!("the frequency must be finite, got {f}"))?;
         let fib = &self.fiber;
         let a = fib.alpha_np_km();
         let b2 = fib.beta2_s2_km();
@@ -315,7 +352,7 @@ impl GnModel {
             let band = a / (4.0 * PI * PI * b2.abs() * far);
             if band.is_finite() && band > 0.0 { base.min(band) } else { base }
         });
-        ensure(df > 0.0, || format!("the resolution must be positive, got {df}"))?;
+        ensure(df > 0.0 && df.is_finite(), || format!("the resolution must be positive, got {df}"))?;
         // a grid with f on a node: f1 + f2 - f is then a node too
         let k_lo = ((lo - f) / df).floor() as i64;
         let k_hi = ((hi - f) / df).ceil() as i64;
@@ -710,9 +747,37 @@ mod tests {
             (0..m as i64).map(|k| C64::new((2 * (k % l) - l + 1) as f64, (2 * (k / l) - l + 1) as f64)).collect()
         };
         for (m, phi, psi) in [(4, -1.0, 4.0), (16, -17.0 / 25.0, 52.0 / 25.0), (64, -13.0 / 21.0, 1161.0 / 646.0)] {
-            let f = FormatMoments::of(&qam(m), None);
+            let f = FormatMoments::of(&qam(m), None).unwrap();
             assert!((f.phi - phi).abs() < 1e-12 && (f.psi - psi).abs() < 1e-3, "{m}: {f:?}");
         }
+    }
+
+    #[test]
+    fn format_moments_of_invalid_inputs_are_errors_not_panics() {
+        let qpsk = [C64::new(1.0, 1.0), C64::new(-1.0, 1.0), C64::new(-1.0, -1.0), C64::new(1.0, -1.0)];
+        let uniform = FormatMoments::of(&qpsk, Some(&[0.25; 4])).unwrap();
+        assert!((uniform.phi + 1.0).abs() < 1e-12 && (uniform.psi - 4.0).abs() < 1e-12);
+        assert!(matches!(FormatMoments::of(&qpsk, Some(&[0.5, 0.5])), Err(com_core::Error::Shape(_))));
+        assert!(FormatMoments::of(&[], None).is_err());
+        assert!(FormatMoments::of(&qpsk, Some(&[0.0; 4])).is_err());
+        assert!(FormatMoments::of(&qpsk, Some(&[-0.5, 0.5, 0.5, 0.5])).is_err());
+        assert!(FormatMoments::of(&[C64::new(0.0, 0.0)], None).is_err());
+    }
+
+    #[test]
+    fn a_spectrum_of_invalid_rate_or_rolloff_is_an_error_not_an_abort() {
+        let gn = GnModel::new(FiberParams::default());
+        for (rs, b) in [(-32e9, 0.1), (0.0, 0.1), (f64::NAN, 0.1), (f64::INFINITY, 0.1), (32e9, -0.1), (32e9, 1.5)] {
+            let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, rs, b);
+            assert!(matches!(gn.nli_psd(&s, 0.0), Err(com_core::Error::Config(_))), "{rs} {b}");
+            assert!(gn.snr(&s, 1).is_err());
+            assert!(gn.eta(&s.freqs, rs, b, 1).is_err());
+        }
+        let s = WdmSpectrum::uniform(vec![0.0, f64::NAN], 1e-3, 32e9, 0.1);
+        assert!(gn.nli_psd(&s, 0.0).is_err());
+        let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, 32e9, 0.1);
+        assert!(gn.nli_psd(&s, f64::NAN).is_err());
+        assert!(gn.nli_psd(&s, 0.0).unwrap() > 0.0);
     }
 
     #[test]

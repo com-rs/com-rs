@@ -49,8 +49,8 @@
 
 use crate::spatial::Kronecker;
 use com_core::ensure;
-use com_core::ensure_shape;
 use com_core::prelude::*;
+use com_core::{ensure_shape, same_len};
 use com_math::linalg::CMat;
 use ndarray::Array2;
 
@@ -171,12 +171,15 @@ impl Mimo {
     /// block.
     ///
     /// # Errors
-    /// As [`Mimo::draw`], [`Error::Shape`] if `x` does not have `n_tx` streams, and
-    /// [`Error::Config`] for a zero coherence.
+    /// As [`Mimo::draw`], [`Error::Shape`] if `x` does not have `n_tx` streams or has
+    /// streams of different lengths, and [`Error::Config`] for a zero coherence.
     pub fn apply(&self, x: &[Vec<C64>], rng: &mut SimRng) -> Result<(Vec<Vec<C64>>, Vec<CMat>)> {
         ensure(self.coherence >= 1, || "the coherence must be at least one sample".into())?;
         ensure_shape(x.len() == self.n_tx, || format!("{} streams for {} transmit antennas", x.len(), self.n_tx))?;
         let n = x.first().map_or(0, Vec::len);
+        for xs in x {
+            same_len(xs.len(), n, "the transmitted streams")?;
+        }
         let coh = self.coherence;
         let hs: Vec<CMat> = (0..n.div_ceil(coh).max(1)).map(|_| self.draw(rng)).collect::<Result<_>>()?;
         let y = (0..self.n_rx)
@@ -245,5 +248,15 @@ mod tests {
         let mean: C64 = (0..20_000).map(|_| ch.draw(&mut rng).unwrap()[[1, 0]]).sum::<C64>() / 20_000.0;
         assert!((mean - C64::new((0.75f64).sqrt(), 0.0)).norm() < 0.02);
         assert!(ch.fade(&Signal::zeros(3, 4, Hertz(1.0)), &mut Rng::new(0)).is_err());
+    }
+
+    #[test]
+    fn mimo_rejects_streams_of_unequal_lengths() {
+        let ch = Mimo::rayleigh(2, 2);
+        let z = C64::new(1.0, 0.0);
+        assert!(ch.apply(&[vec![z; 8], vec![z; 8]], &mut Rng::new(0)).is_ok());
+        for x in [vec![vec![z; 8], vec![z; 5]], vec![vec![z; 5], vec![z; 8]]] {
+            assert!(matches!(ch.apply(&x, &mut Rng::new(0)), Err(Error::Shape(_))));
+        }
     }
 }

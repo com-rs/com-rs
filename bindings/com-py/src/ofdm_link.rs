@@ -154,7 +154,7 @@ impl PyTdl {
         mut rng: PyRefMut<'_, PyRng>,
     ) -> PyResult<(Py<PyAny>, PyTaps)> {
         let (rows, one_d) = streams_in(x)?;
-        let s = Signal::from_streams(&rows, Hertz(self.inner.sample_rate)).py()?;
+        let s = Signal::from_streams(&rows, Hertz(self.inner.sample_rate())).py()?;
         let (y, taps) = self.inner.fade(&s, &mut rng.inner).py()?;
         Ok((streams_out(py, &y, one_d), PyTaps::new(taps, self.inner.n_rx, self.inner.n_tx)))
     }
