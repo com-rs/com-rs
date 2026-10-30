@@ -91,16 +91,30 @@ fn preprocess(rx: &[C64], tx: &[C64], kind: ConstellationKind) -> Result<(Vec<C6
     same_len(rx.len(), tx.len(), "received and transmitted symbols")?;
     ensure(!rx.is_empty(), || "empty symbol sequences".into())?;
     let mut r = rx.to_vec();
-    if matches!(kind, ConstellationKind::Qam | ConstellationKind::Psk) {
-        let rot = tx.iter().zip(rx).map(|(t, x)| t / x).sum::<C64>() / rx.len() as f64;
-        if !rot.is_finite() {
-            return Err(Error::Numerical("phase ambiguity: a received symbol is zero".into()));
-        }
+    if rotated(kind) {
+        let rot = qam_psk_rotation(tx, rx)
+            .ok_or_else(|| Error::Numerical("phase ambiguity: a received symbol is zero".into()))?;
         for v in &mut r {
             *v *= rot;
         }
     }
     Ok((pnorm(&r), pnorm(tx)))
+}
+
+/// Whether OptiCommPy rotates the received symbols of this family before its estimates
+/// (QAM and PSK).
+fn rotated(kind: ConstellationKind) -> bool {
+    matches!(kind, ConstellationKind::Qam | ConstellationKind::Psk)
+}
+
+/// The rotation of OptiCommPy for QAM and PSK, $\operatorname{mean}(t / y)$ of the
+/// targets `t` over the received `y` (`None` when it is not finite, a received symbol
+/// being zero). `fastBERcalc` rotates the raw symbols before normalising them
+/// ([`preprocess`]), `calcEVM` normalises first ([`errors::evm`]): the callers keep that
+/// order, which changes the value through the gain of the rotation.
+fn qam_psk_rotation(t: &[C64], y: &[C64]) -> Option<C64> {
+    let rot = t.iter().zip(y).map(|(a, b)| a / b).sum::<C64>() / y.len() as f64;
+    rot.is_finite().then_some(rot)
 }
 
 /// Variance $\operatorname{mean} |x - \operatorname{mean} x|^{2}$ of a complex sequence (`numpy.var`).

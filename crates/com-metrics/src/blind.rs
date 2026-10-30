@@ -86,6 +86,7 @@ use crate::posterior::SymbolMetric;
 use com_core::{Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
+use com_math::stats::Moments;
 
 /// The cumulants of order two and four of a zero-mean complex signal (see the module).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -109,19 +110,7 @@ impl Cumulants {
     /// [`com_core::Error::Config`] for an empty signal.
     pub fn estimate(r: &[C64]) -> Result<Cumulants> {
         ensure(!r.is_empty(), || "the cumulants need at least one sample".into())?;
-        let n = r.len() as f64;
-        let (mut m20, mut m21, mut m40, mut m41, mut m42) =
-            (C64::new(0.0, 0.0), 0.0, C64::new(0.0, 0.0), C64::new(0.0, 0.0), 0.0);
-        for &x in r {
-            let p = x.norm_sqr();
-            let x2 = x * x;
-            m20 += x2;
-            m21 += p;
-            m40 += x2 * x2;
-            m41 += x2 * p;
-            m42 += p * p;
-        }
-        Ok(Cumulants::from_moments(m20 / n, m21 / n, m40 / n, m41 / n, m42 / n))
+        Ok(Cumulants::from_moments(Moments::sample(r)))
     }
 
     /// The cumulants of the points of `c` with the probabilities `px` (uniform if
@@ -131,21 +120,13 @@ impl Cumulants {
     /// Those of [`Constellation::priors`].
     pub fn of_constellation(c: &Constellation, px: Option<&[f64]>) -> Result<Cumulants> {
         let p = c.priors(px)?;
-        let (mut m20, mut m21, mut m40, mut m41, mut m42) =
-            (C64::new(0.0, 0.0), 0.0, C64::new(0.0, 0.0), C64::new(0.0, 0.0), 0.0);
-        for (&x, &w) in c.points().iter().zip(&p) {
-            let a = x.norm_sqr();
-            let x2 = x * x;
-            m20 += x2 * w;
-            m21 += a * w;
-            m40 += x2 * x2 * w;
-            m41 += x2 * a * w;
-            m42 += a * a * w;
-        }
-        Ok(Cumulants::from_moments(m20, m21, m40, m41, m42))
+        Ok(Cumulants::from_moments(Moments::of_distribution(c.points(), &p)))
     }
 
-    fn from_moments(m20: C64, m21: f64, m40: C64, m41: C64, m42: f64) -> Cumulants {
+    /// The cumulants of the moments (`com_math::stats::Moments`, the one accumulation
+    /// of the sample, of the alphabet and of [`m2m4`]).
+    fn from_moments(m: Moments) -> Cumulants {
+        let Moments { m20, m21, m40, m41, m42 } = m;
         Cumulants {
             c20: m20,
             c21: m21,
@@ -243,14 +224,10 @@ pub fn classify_ml(r: &[C64], candidates: &[Constellation], noise_var: f64) -> R
 /// As [`snr_m2m4`].
 pub fn m2m4(r: &[C64], c: &Constellation) -> Result<(f64, f64)> {
     ensure(!r.is_empty(), || "the estimator needs at least one sample".into())?;
-    let p = c.priors(None)?;
-    let e2: f64 = c.points().iter().zip(&p).map(|(a, w)| w * a.norm_sqr()).sum();
-    let e4: f64 = c.points().iter().zip(&p).map(|(a, w)| w * a.norm_sqr().powi(2)).sum();
-    let ka = e4 / (e2 * e2);
+    let alphabet = Moments::of_distribution(c.points(), &c.priors(None)?);
+    let ka = alphabet.m42 / (alphabet.m21 * alphabet.m21);
     ensure(ka < 2.0, || format!("M2M4 needs an alphabet of kurtosis below 2, got {ka}"))?;
-    let n = r.len() as f64;
-    let m2 = r.iter().map(C64::norm_sqr).sum::<f64>() / n;
-    let m4 = r.iter().map(|x| x.norm_sqr().powi(2)).sum::<f64>() / n;
+    let Moments { m21: m2, m42: m4, .. } = Moments::sample(r);
     let s = ((2.0 * m2 * m2 - m4) / (2.0 - ka)).max(0.0).sqrt();
     Ok((s, m2 - s))
 }
