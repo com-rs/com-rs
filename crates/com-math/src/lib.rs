@@ -9,6 +9,7 @@
 //! | Module | Content |
 //! |---|---|
 //! | [`fft`] | cached FFT plans with the NumPy conventions, `fftfreq` |
+//! | [`geometry`] | vectors of the three-dimensional space: scalar product, norm, direction |
 //! | [`linalg`] | QR, Cholesky, Hermitian systems and the SVD of small complex matrices |
 //! | [`nearest`] | [`nearest::Slicer`], the nearest point of a finite set |
 //! | [`nlse`] | the symmetric split-step Fourier solvers of the scalar NLSE and of the Manakov equation |
@@ -55,6 +56,7 @@
 pub mod bigint;
 pub mod bits;
 pub mod fft;
+pub mod geometry;
 pub mod gf2;
 pub mod gf2m;
 pub mod linalg;

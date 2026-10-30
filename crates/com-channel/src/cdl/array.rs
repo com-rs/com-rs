@@ -108,8 +108,3 @@ pub(super) fn unit_vector(zenith: f64, azimuth: f64) -> [f64; 3] {
     let (sp, cp) = azimuth.to_radians().sin_cos();
     [st * cp, st * sp, ct]
 }
-
-/// The scalar product of two vectors.
-pub(super) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}

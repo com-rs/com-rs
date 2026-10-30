@@ -67,28 +67,13 @@
 //! 2. T. Komine and M. Nakagawa, "Fundamental analysis for visible-light communication
 //!    system using LED lights," *IEEE Trans. Consum. Electron.*, 50(1), 100–107, 2004.
 
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
+use com_math::geometry::{self, Vec3, dot, norm, sub};
 use com_math::{C64, SPEED_OF_LIGHT, cis};
 use std::f64::consts::{FRAC_PI_2, PI};
 
-type Vec3 = [f64; 3];
-
-fn sub(a: Vec3, b: Vec3) -> Vec3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn dot(a: Vec3, b: Vec3) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn norm(a: Vec3) -> f64 {
-    dot(a, a).sqrt()
-}
-
 fn unit(a: Vec3) -> Result<Vec3> {
-    let n = norm(a);
-    ensure(n > 0.0 && n.is_finite(), || "a direction must be a non-zero vector".into())?;
-    Ok([a[0] / n, a[1] / n, a[2] / n])
+    geometry::unit(a).ok_or_else(|| Error::Config("a direction must be a non-zero vector".into()))
 }
 
 /// The Lambertian mode $n = -\ln 2 / \ln\cos\Phi_{1/2}$ of a source of semi-angle at half
