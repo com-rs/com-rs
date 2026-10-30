@@ -1,4 +1,6 @@
-//! Digital predistortion (DPD) with memory polynomials and indirect learning.
+//! Digital predistortion (DPD) with memory polynomials and indirect learning, and the
+//! static predistorter of a memoryless amplifier whose AM/AM conversion is known
+//! ([`static_predistort`]).
 //!
 //! The predistorter $z = P(x)$ is placed before the amplifier $y = F(z)$ so that the
 //! cascade is linear, $F(P(x)) \approx G x$. It is a memory polynomial,
@@ -104,6 +106,37 @@ pub fn memory_polynomial<'a>(x: &[C64], terms: impl IntoIterator<Item = (u32, &'
         }
     }
     y
+}
+
+/// The static predistorter of a memoryless amplifier from the inverse $A^{-1}$ of its
+/// AM/AM conversion: every sample keeps its phase and takes the envelope
+///
+/// $$
+/// |z| = A^{-1}\left(\min(G |x|, A_{\max})\right),
+/// $$
+///
+/// so that the cascade of the predistorter and the amplifier is the envelope limiter
+/// $\min(G |x|, A_{\max})$ of gain `gain` $G$ and maximum output `max_output`
+/// $A_{\max}$, which must lie where $A$ is invertible (below the saturation of the
+/// model). The amplifier models of `com-hardware` give their inverses
+/// (`Rapp::inverse_am_am`, used by `Rapp::predistort`).
+///
+/// # Examples
+/// ```
+/// use com_dsp::compensation::dpd::static_predistort;
+/// use com_math::C64;
+/// // a cubic compression A(r) = r - r³/3 on [0, 1], inverted by bisection
+/// let am_am = |r: f64| r - r * r * r / 3.0;
+/// let inv = |y: f64| com_math::bisect(|r| am_am(r) < y, 0.0, 1.0, 60);
+/// let x = [C64::new(0.3, 0.4), C64::new(0.0, 2.0)];
+/// let z = static_predistort(&x, inv, 1.0, 0.6);
+/// assert!((am_am(z[0].norm()) - 0.5).abs() < 1e-12);           // linear below the cap
+/// assert!((am_am(z[1].norm()) - 0.6).abs() < 1e-12 && z[1].re == 0.0);
+/// ```
+pub fn static_predistort(x: &[C64], inverse_am_am: impl Fn(f64) -> f64, gain: f64, max_output: f64) -> Vec<C64> {
+    let mut z = x.to_vec();
+    crate::signal::map_envelope(&mut z, |r| C64::new(inverse_am_am((gain * r).min(max_output)) / r, 0.0));
+    z
 }
 
 /// A memory-polynomial predistorter.
