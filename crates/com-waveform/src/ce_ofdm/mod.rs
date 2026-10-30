@@ -471,12 +471,7 @@ mod tests {
         let ce = CeOfdm::new(32, 2, 0.1).unwrap();
         let esn0_db = 20.0;
         let sigma = ce.noise_variance(esn0_db).sqrt();
-        let r: Vec<C64> = ce
-            .modulate(&d)
-            .unwrap()
-            .into_iter()
-            .map(|v| v + C64::new(rng.gaussian(), rng.gaussian()) * sigma / 2f64.sqrt())
-            .collect();
+        let r: Vec<C64> = ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
         let e = ce.demodulate(&r, Unwrap::None).unwrap();
         let errors = c.decide(&e).iter().zip(c.decide(&d)).filter(|(a, b)| *a != b).count();
         let ser = errors as f64 / d.len() as f64;
