@@ -102,6 +102,22 @@ pub enum Wave {
     Spherical,
 }
 
+impl std::str::FromStr for Wave {
+    type Err = Error;
+
+    /// `plane` or `spherical` (case-insensitive).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<Wave> {
+        match s.to_ascii_lowercase().as_str() {
+            "plane" => Ok(Wave::Plane),
+            "spherical" => Ok(Wave::Spherical),
+            _ => Err(Error::Config(format!("the wave must be plane or spherical, got {s:?}"))),
+        }
+    }
+}
+
 /// The gamma–gamma distribution of the intensity, of unit mean (see the module).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GammaGamma {
@@ -112,6 +128,16 @@ pub struct GammaGamma {
 }
 
 impl GammaGamma {
+    /// The distribution of the parameters $\alpha$ and $\beta$.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] unless both are positive.
+    pub fn new(alpha: f64, beta: f64) -> Result<GammaGamma> {
+        let g = GammaGamma { alpha, beta };
+        g.check()?;
+        Ok(g)
+    }
+
     /// The parameters predicted by the Rytov variance `rytov` $\sigma_{1}^{2}$ for a
     /// negligible inner scale (Al-Habash, Andrews & Phillips 2001, eqs. (14), (18)–(19)
     /// and (21), (25)–(26), with the exponent $5/6$, see the module).
@@ -179,6 +205,34 @@ pub enum Turbulence {
 }
 
 impl Turbulence {
+    /// The turbulence of a name: `none`, `lognormal` (with the scintillation index
+    /// `scintillation_index`) or `negative-exponential` (case-insensitive; the gamma–gamma
+    /// model takes its parameters, [`Turbulence::GammaGamma`]).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for another name, a log-normal model without a
+    /// positive scintillation index, or an index given to another model.
+    pub fn from_name(name: &str, scintillation_index: Option<f64>) -> Result<Turbulence> {
+        let t = match (name.to_ascii_lowercase().as_str(), scintillation_index) {
+            ("lognormal" | "log-normal", Some(s)) => Turbulence::LogNormal { scintillation_index: s },
+            ("lognormal" | "log-normal", None) => {
+                return Err(Error::Config("the log-normal turbulence needs its scintillation index".into()));
+            }
+            ("none", None) => Turbulence::None,
+            ("negative-exponential", None) => Turbulence::NegativeExponential,
+            ("none" | "negative-exponential", Some(_)) => {
+                return Err(Error::Config(format!("the turbulence {name:?} takes no scintillation index")));
+            }
+            _ => {
+                return Err(Error::Config(format!(
+                    "unknown turbulence {name:?}: none, lognormal or negative-exponential"
+                )));
+            }
+        };
+        t.check()?;
+        Ok(t)
+    }
+
     /// The scintillation index $\sigma_{I}^{2}$.
     pub fn scintillation_index(&self) -> f64 {
         match self {
@@ -240,6 +294,18 @@ pub struct PointingError {
 }
 
 impl PointingError {
+    /// The misalignment of a beam of radius `beam_radius_m` on an aperture of radius
+    /// `aperture_radius_m`, with a displacement of standard deviation `jitter_m` per
+    /// direction.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] unless the three are positive.
+    pub fn new(beam_radius_m: f64, aperture_radius_m: f64, jitter_m: f64) -> Result<PointingError> {
+        let p = PointingError { beam_radius_m, aperture_radius_m, jitter_m };
+        p.check()?;
+        Ok(p)
+    }
+
     fn v(&self) -> f64 {
         PI.sqrt() * self.aperture_radius_m / (std::f64::consts::SQRT_2 * self.beam_radius_m)
     }
@@ -356,6 +422,25 @@ impl Propagate for Fso {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_models_are_checked_when_built_and_read_by_name() {
+        assert_eq!(GammaGamma::new(2.0, 1.5).unwrap(), GammaGamma { alpha: 2.0, beta: 1.5 });
+        assert!(GammaGamma::new(0.0, 1.0).is_err());
+        assert!(PointingError::new(1.0, 0.1, 0.2).is_ok() && PointingError::new(1.0, -0.1, 0.2).is_err());
+        assert_eq!("Spherical".parse::<Wave>().unwrap(), Wave::Spherical);
+        assert!("cylindrical".parse::<Wave>().is_err());
+        assert_eq!(
+            Turbulence::from_name("lognormal", Some(0.2)).unwrap(),
+            Turbulence::LogNormal { scintillation_index: 0.2 }
+        );
+        assert_eq!(Turbulence::from_name("negative-exponential", None).unwrap(), Turbulence::NegativeExponential);
+        assert_eq!(Turbulence::from_name("none", None).unwrap(), Turbulence::None);
+        assert!(Turbulence::from_name("lognormal", None).is_err());
+        assert!(Turbulence::from_name("lognormal", Some(-1.0)).is_err());
+        assert!(Turbulence::from_name("none", Some(0.2)).is_err());
+        assert!(Turbulence::from_name("kolmogorov", None).is_err());
+    }
 
     #[test]
     fn the_gamma_gamma_draws_follow_their_moments_and_the_density_integrates_to_one() {
