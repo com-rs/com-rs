@@ -1,13 +1,13 @@
 //! Algebraic codes and puncturing: Reed–Solomon and BCH codes, the puncturing patterns
 //! of the convolutional and turbo codes, the free distance of a punctured code.
 
-use crate::{BArr, IArr, IntoPy, bvec, fvec, iarr, map_real, uvec};
+use crate::{BArr, IArr, IntoPy, bvec, extract_error, fvec, iarr, map_real, uvec};
 use comrs::fec::bch::Bch;
 use comrs::fec::block::BlockCode;
 use comrs::fec::conv::Trellis;
 use comrs::fec::puncture::{self, Puncturer};
 use comrs::fec::rs::{self, ReedSolomon};
-use comrs::math::gf2m::primitive_polynomial;
+use comrs::math::gf2m::{Field, primitive_polynomial};
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -20,9 +20,9 @@ pub(crate) fn puncturer(pattern: &Bound<'_, PyAny>) -> PyResult<Puncturer> {
     if let Ok(name) = pattern.extract::<String>() {
         return Puncturer::from_name(&name).py();
     }
-    let rows: Vec<Vec<u8>> = pattern
-        .extract()
-        .map_err(|_| PyValueError::new_err("the puncturing pattern is a name or a list of rows of 0 and 1"))?;
+    let rows: Vec<Vec<u8>> = pattern.extract().map_err(|e| {
+        extract_error(pattern.py(), &e, "the puncturing pattern is a name or a list of rows of 0 and 1")
+    })?;
     let refs: Vec<&[u8]> = rows.iter().map(Vec::as_slice).collect();
     Puncturer::new(&refs).py()
 }
@@ -40,6 +40,16 @@ fn symbols(x: &Bound<'_, PyAny>) -> PyResult<Vec<u16>> {
         .collect()
 }
 
+/// The primitive polynomial of a field of degree `m` (`poly`, or the conventional one of
+/// [`primitive_polynomial`]) and the order `2^m - 1` of the field, the default length
+/// of the RS and BCH codes.
+fn field_of(m: u32, poly: Option<u32>) -> PyResult<(u32, usize)> {
+    let poly = poly.or_else(|| primitive_polynomial(m)).ok_or_else(|| {
+        PyValueError::new_err(format!("no conventional primitive polynomial of degree {m} (2 to 16)"))
+    })?;
+    Ok((poly, Field::new(m, poly).py()?.order()))
+}
+
 fn symbols_out(py: Python<'_>, v: Vec<u16>) -> IArr<'_> {
     iarr(py, v.into_iter().map(usize::from).collect())
 }
@@ -51,24 +61,30 @@ fn symbols_out(py: Python<'_>, v: Vec<u16>) -> IArr<'_> {
 /// The generator polynomial has the roots ``β^b, …, β^(b+2t-1)`` with ``β = α^c`` for
 /// the primitive element ``α`` of the field of the primitive polynomial ``poly``:
 /// ``first_root`` is ``b`` (1 in the textbooks, 0 in DVB, 112 in CCSDS) and
-/// ``root_step`` is ``c`` (11 in CCSDS). The code of length ``2^m - 1`` is shortened to
-/// ``n`` symbols; a word carries ``k = n - 2t`` information symbols.
+/// ``root_step`` is ``c`` (11 in CCSDS). The code of length ``2^m - 1`` symbols is
+/// shortened to ``n_symbols``; a word carries ``k_symbols = n_symbols - 2t``
+/// information symbols.
 ///
 /// The code works on symbols (``encode_symbols``, ``decode_symbols``) and on bits,
-/// ``m`` per symbol, the most significant first: ``encode`` and ``decode`` take whole
-/// blocks of ``k m`` bits and ``n m`` LLRs like the other codes (hard decisions),
-/// ``decode_bits`` one block of ``n m`` hard bits with the number of corrections.
+/// ``m`` per symbol, the most significant first. As for every code of the package,
+/// ``n`` and ``k`` count bits (``n = m n_symbols``, ``k = m k_symbols``):
+/// ``encode`` and ``decode`` take whole blocks of ``k`` bits and ``n`` LLRs (hard
+/// decisions), ``decode_bits`` one block of ``n`` hard bits with the number of
+/// corrections.
 ///
 /// Args:
 ///     m (int): bits per symbol, 2 to 16.
 ///     t (int): symbol errors corrected per word.
-///     n (int | None): word length in symbols (``2^m - 1`` by default, less for a
-///         shortened code).
+///     n (int | None): word length in symbols, ``n_symbols`` (``2^m - 1`` by default,
+///         less for a shortened code).
 ///     first_root (int): exponent ``b`` of the first root of the generator.
 ///     root_step (int): exponent ``c`` of ``β = α^c``, coprime with ``2^m - 1``.
 ///     poly (int | None): the primitive polynomial of the field, bit ``i`` the
 ///         coefficient of ``x^i`` (the conventional one of Lin & Costello, Table 2.7,
 ///         by default: ``0x11D`` for ``m = 8``).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     The RS(204, 188) outer code of DVB-T and DVB-S (ETSI EN 300 744 V1.6.1,
@@ -77,8 +93,8 @@ fn symbols_out(py: Python<'_>, v: Vec<u16>) -> IArr<'_> {
 ///
 ///     >>> import comrs, numpy as np
 ///     >>> dvb = comrs.ReedSolomonCode(8, 8, n=204, first_root=0)
-///     >>> (dvb.n, dvb.k, dvb.t)
-///     (204, 188, 8)
+///     >>> (dvb.n_symbols, dvb.k_symbols, dvb.t, dvb.n, dvb.k)
+///     (204, 188, 8, 1632, 1504)
 ///     >>> msg = np.arange(188) % 256
 ///     >>> c = dvb.encode_symbols(msg)
 ///     >>> c[[3, 50, 200]] ^= 0x5A
@@ -90,7 +106,7 @@ fn symbols_out(py: Python<'_>, v: Vec<u16>) -> IArr<'_> {
 ///     ``x^8 + x^7 + x^2 + x + 1`` with the roots ``α^(11 j)``, ``j = 112, …, 143``:
 ///
 ///     >>> ccsds = comrs.ReedSolomonCode(8, 16, poly=0x187, first_root=112, root_step=11)
-///     >>> (ccsds.n, ccsds.k, round(ccsds.rate, 4))
+///     >>> (ccsds.n_symbols, ccsds.k_symbols, round(ccsds.rate, 4))
 ///     (255, 223, 0.8745)
 ///     >>> g = ccsds.generator
 ///     >>> bool(np.array_equal(g, g[::-1]))  # self-reciprocal
@@ -113,24 +129,32 @@ impl PyReedSolomon {
         root_step: usize,
         poly: Option<u32>,
     ) -> PyResult<Self> {
-        let poly = match poly {
-            Some(p) => p,
-            None => primitive_polynomial(m)
-                .ok_or_else(|| PyValueError::new_err(format!("the symbol size must be 2 to 16 bits, got {m}")))?,
-        };
-        let n = n.unwrap_or((1usize << m.min(16)) - 1);
+        let (poly, order) = field_of(m, poly)?;
+        let n = n.unwrap_or(order);
         Ok(PyReedSolomon { inner: ReedSolomon::with_field(m, poly, first_root, root_step, t, n).py()?, poly })
+    }
+
+    /// int: Coded bits per word, ``m`` per symbol (``m n_symbols``), as for every code.
+    #[getter]
+    fn n(&self) -> usize {
+        self.inner.n()
+    }
+
+    /// int: Information bits per word, ``m k_symbols``, as for every code.
+    #[getter]
+    fn k(&self) -> usize {
+        self.inner.k()
     }
 
     /// int: Word length in symbols.
     #[getter]
-    fn n(&self) -> usize {
+    fn n_symbols(&self) -> usize {
         self.inner.n_symbols()
     }
 
-    /// int: Information symbols per word, ``n - 2t``.
+    /// int: Information symbols per word, ``n_symbols - 2t``.
     #[getter]
-    fn k(&self) -> usize {
+    fn k_symbols(&self) -> usize {
         self.inner.k_symbols()
     }
 
@@ -180,10 +204,13 @@ impl PyReedSolomon {
     /// The word of a message of symbols: the message, then the ``2t`` parity symbols.
     ///
     /// Args:
-    ///     msg (array_like): ``k`` message symbols, below ``2^m``.
+    ///     msg (array_like): ``k_symbols`` message symbols, below ``2^m``.
     ///
     /// Returns:
-    ///     numpy.ndarray: the ``n`` symbols of the word (int64).
+    ///     numpy.ndarray: the ``n_symbols`` symbols of the word (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn encode_symbols<'py>(&self, py: Python<'py>, msg: &Bound<'py, PyAny>) -> PyResult<IArr<'py>> {
         Ok(symbols_out(py, self.inner.encode_symbols(&symbols(msg)?).py()?))
     }
@@ -192,13 +219,17 @@ impl PyReedSolomon {
     /// decoder corrects ``e`` errors and ``s`` erasures whenever ``2e + s <= 2t``.
     ///
     /// Args:
-    ///     received (array_like): the ``n`` received symbols.
-    ///     erasures (array_like, optional): the erased positions (0 to ``n - 1``).
+    ///     received (array_like): the ``n_symbols`` received symbols.
+    ///     erasures (array_like, optional): the erased positions (0 to
+    ///         ``n_symbols - 1``).
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, int | None]: the ``k`` message symbols and the number of
+    ///     tuple[numpy.ndarray, int | None]: the ``k_symbols`` message symbols and the number of
     ///     corrected symbols (erasures included), ``None`` for a detected decoding
     ///     failure (the message symbols are then returned as received).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (received, *, erasures=None))]
     fn decode_symbols<'py>(
         &self,
@@ -217,11 +248,14 @@ impl PyReedSolomon {
     /// Decode one block of hard bits.
     ///
     /// Args:
-    ///     bits (array_like): ``n m`` received bits.
+    ///     bits (array_like): ``n`` received bits.
     ///
     /// Returns:
-    ///     tuple[numpy.ndarray, int | None]: the ``k m`` message bits and the number of
+    ///     tuple[numpy.ndarray, int | None]: the ``k`` message bits and the number of
     ///     corrected symbols (``None`` for a detected decoding failure).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<(BArr<'py>, Option<usize>)> {
         let (msg, corrected) = self.inner.decode(&bvec(bits)?).py()?;
         Ok((msg.into_pyarray(py), corrected))
@@ -230,15 +264,18 @@ impl PyReedSolomon {
     /// Encode whole blocks of bits (``m`` per symbol, most significant first).
     ///
     /// Args:
-    ///     bits (array_like): a multiple of ``k m`` bits.
+    ///     bits (array_like): a multiple of ``k`` bits.
     ///
     /// Returns:
-    ///     numpy.ndarray: ``n m`` coded bits per block (uint8).
+    ///     numpy.ndarray: ``n`` coded bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> code = comrs.ReedSolomonCode(4, 2)
-    ///     >>> code.encode(comrs.bits(2 * code.k * code.m, comrs.Rng(1))).size
+    ///     >>> code.encode(comrs.bits(2 * code.k, comrs.Rng(1))).size
     ///     120
     fn encode<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<BArr<'py>> {
         let b = bvec(bits)?;
@@ -249,15 +286,18 @@ impl PyReedSolomon {
     /// decoding fails keeps its message bits as received.
     ///
     /// Args:
-    ///     llr (array_like): a multiple of ``n m`` LLRs (positive for a 0).
+    ///     llr (array_like): a multiple of ``n`` LLRs (positive for a 0).
     ///
     /// Returns:
-    ///     numpy.ndarray: ``k m`` bits per block (uint8).
+    ///     numpy.ndarray: ``k`` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
     ///     >>> code = comrs.ReedSolomonCode(4, 2)
-    ///     >>> b = comrs.bits(code.k * code.m, comrs.Rng(1))
+    ///     >>> b = comrs.bits(code.k, comrs.Rng(1))
     ///     >>> c = code.encode(b)
     ///     >>> c[[0, 9]] ^= 1  # two wrong bits, in two symbols
     ///     >>> bool(np.array_equal(code.decode(1.0 - 2.0 * c), b))
@@ -269,7 +309,7 @@ impl PyReedSolomon {
 
     fn __repr__(&self) -> String {
         format!(
-            "ReedSolomonCode(n={}, k={}, t={}, m={})",
+            "ReedSolomonCode(n_symbols={}, k_symbols={}, t={}, m={})",
             self.inner.n_symbols(),
             self.inner.k_symbols(),
             self.inner.t(),
@@ -286,6 +326,9 @@ impl PyReedSolomon {
 ///
 /// Returns:
 ///     numpy.ndarray: the symbols (int64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -304,6 +347,9 @@ fn pack_symbols<'py>(py: Python<'py>, bits: &Bound<'py, PyAny>, m: u32) -> PyRes
 ///
 /// Returns:
 ///     numpy.ndarray: ``m`` bits per symbol (uint8).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -327,6 +373,9 @@ fn unpack_symbols<'py>(py: Python<'py>, symbols: &Bound<'py, PyAny>, m: u32) -> 
 /// Returns:
 ///     float | numpy.ndarray: the word error probability at every ``p_s``.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> pw = comrs.theory_rs_wer(255, 16, [1e-3, 1e-2])
@@ -349,6 +398,9 @@ fn theory_rs_wer(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 /// Returns:
 ///     float | numpy.ndarray: the decoded symbol error probability at every ``p_s``.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> bool(comrs.theory_rs_ser(255, 16, 1e-2) < comrs.theory_rs_wer(255, 16, 1e-2))
@@ -369,6 +421,9 @@ fn theory_rs_ser(n: usize, t: usize, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAn
 ///
 /// Returns:
 ///     float | numpy.ndarray: the decoded bit error probability at every ``p_s``.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(p_s, |p| Ok(rs::bit_error_probability(n, t, m, p)))
@@ -392,6 +447,9 @@ fn theory_rs_ber(n: usize, t: usize, m: u32, p_s: &Bound<'_, PyAny>) -> PyResult
 ///     n (int | None): word length in bits (``2^m - 1`` by default).
 ///     poly (int | None): the primitive polynomial of the field, bit ``i`` the
 ///         coefficient of ``x^i`` (the conventional one by default).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     The (15, 7) code correcting two errors, ``g(x) = 1 + x^4 + x^6 + x^7 + x^8``
@@ -417,12 +475,8 @@ impl PyBch {
     #[new]
     #[pyo3(signature = (m, t, *, n=None, poly=None))]
     fn new(m: u32, t: usize, n: Option<usize>, poly: Option<u32>) -> PyResult<Self> {
-        let poly = match poly {
-            Some(p) => p,
-            None => primitive_polynomial(m)
-                .ok_or_else(|| PyValueError::new_err(format!("the field degree must be 2 to 16, got {m}")))?,
-        };
-        let n = n.unwrap_or((1usize << m.min(16)) - 1);
+        let (poly, order) = field_of(m, poly)?;
+        let n = n.unwrap_or(order);
         Ok(PyBch { inner: Bch::new(m, poly, t, n).py()? })
     }
 
@@ -447,7 +501,7 @@ impl PyBch {
     /// float: Code rate ``k / n``.
     #[getter]
     fn rate(&self) -> f64 {
-        self.inner.k() as f64 / self.inner.n() as f64
+        self.inner.code_rate()
     }
 
     /// numpy.ndarray: The generator polynomial ``g(x)``, lowest degree first (uint8).
@@ -463,6 +517,9 @@ impl PyBch {
     ///
     /// Returns:
     ///     numpy.ndarray: ``n`` coded bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -481,6 +538,9 @@ impl PyBch {
     ///
     /// Returns:
     ///     numpy.ndarray: ``k`` bits per block (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs, numpy as np
@@ -504,6 +564,9 @@ impl PyBch {
     ///     tuple[numpy.ndarray, int | None]: the ``k`` message bits and the number of
     ///     corrected errors (``None`` for a detected decoding failure, the message bits
     ///     then returned as received).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn decode_bits<'py>(&self, py: Python<'py>, bits: &Bound<'py, PyAny>) -> PyResult<(BArr<'py>, Option<usize>)> {
         let (msg, corrected) = self.inner.decode(&bvec(bits)?).py()?;
         Ok((msg.into_pyarray(py), corrected))
@@ -527,6 +590,9 @@ impl PyBch {
 /// Returns:
 ///     int: the free distance.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.free_distance()
@@ -536,9 +602,6 @@ impl PyBch {
 #[pyfunction]
 #[pyo3(signature = (generators=vec![0o133, 0o171], constraint=7, *, puncture=None))]
 fn free_distance(generators: Vec<u32>, constraint: u32, puncture: Option<&Bound<'_, PyAny>>) -> PyResult<u32> {
-    if !(2..=16).contains(&constraint) || generators.is_empty() {
-        return Err(PyValueError::new_err("constraint length 2 to 16 and at least one generator"));
-    }
     let trellis = Trellis::feedforward(constraint, &generators).py()?;
     let p = match puncture {
         Some(p) => puncturer(p)?,

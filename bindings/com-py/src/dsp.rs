@@ -1,9 +1,9 @@
 //! Digital signal processing: filters, resampling, dispersion compensation, adaptive
-//! equalisation, carrier and clock recovery.
+//! equalisation, carrier and clock recovery, windows.
 
 use crate::comm::PyConstellation;
 use crate::fiber::PyFiber;
-use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, cmat, cvec, farr, fvec, mat, uvec};
+use crate::{CArr, CMat, FArr, FMat, IntoPy, carr, count, cvec, farr, fvec, mat, streams_in, uvec};
 use comrs::dsp::compensation::cd;
 use comrs::dsp::equalizer::{AdaptiveEqualizer, Algorithm, Singularity};
 use comrs::dsp::filter::{LowPass, PulseShape};
@@ -37,6 +37,9 @@ use pyo3::types::PyString;
 /// Returns:
 ///     numpy.ndarray: the taps (float64), summing to one.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> h = comrs.pulse_shape("rrc", 4)
@@ -46,10 +49,7 @@ use pyo3::types::PyString;
 #[pyo3(signature = (kind, sps, *, n_taps = 1025, rolloff = 0.1))]
 fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, rolloff: f64) -> PyResult<FArr<'py>> {
     let shape = PulseShape::from_name(kind, rolloff).py()?;
-    if sps == 0 || n_taps == 0 {
-        return Err(PyValueError::new_err("sps and n_taps must be positive"));
-    }
-    Ok(farr(py, filter::pulse_shape(shape, sps, n_taps)))
+    Ok(farr(py, filter::pulse_shape(shape, sps, n_taps).py()?))
 }
 
 /// Root of the raised-cosine spectrum on the `n_symbols·sps` bins of a periodic block
@@ -62,9 +62,64 @@ fn pulse_shape<'py>(py: Python<'py>, kind: &str, sps: usize, n_taps: usize, roll
 ///
 /// Returns:
 ///     numpy.ndarray: `n_symbols·sps` gains in FFT order (float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
-fn rrc_spectrum(py: Python<'_>, n_symbols: usize, sps: usize, rolloff: f64) -> FArr<'_> {
-    farr(py, filter::rrc_spectrum(n_symbols, sps, rolloff))
+fn rrc_spectrum(py: Python<'_>, n_symbols: i64, sps: usize, rolloff: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, filter::rrc_spectrum(count(n_symbols, "n_symbols")?, sps, rolloff)))
+}
+
+/// The root-raised-cosine pulse at the times `t` (continuous time, symbol period `ts`):
+/// `(sin(πt'(1-β)) + 4βt' cos(πt'(1+β))) / (πt'(1 - (4βt')²))` with `t' = t/ts`,
+/// divided by `ts`, and its limits at `t = 0` and `|t| = ts/(4β)` (Proakis & Salehi,
+/// *Digital Communications*, 5th ed., Sec. 9.2-1).
+///
+/// Args:
+///     t (array_like): the times (in units of `ts`'s time base).
+///     rolloff (float): the roll-off `β`.
+///     ts (float): the symbol period.
+///
+/// Returns:
+///     numpy.ndarray: the pulse at every time (float64); `∫ h² dt = 1` for `ts = 1`.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> h = comrs.rrc_taps([0.0, 1.0], 0.3)
+///     >>> round(float(h[0]), 12) == round(1 - 0.3 + 4 * 0.3 / math.pi, 12)
+///     True
+#[pyfunction]
+#[pyo3(signature = (t, rolloff, *, ts = 1.0))]
+fn rrc_taps<'py>(py: Python<'py>, t: &Bound<'py, PyAny>, rolloff: f64, ts: f64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, filter::rrc_taps(&fvec(t)?, rolloff, ts)))
+}
+
+/// The raised-cosine pulse at the times `t` (continuous time, symbol period `ts`):
+/// `sinc(t/ts) cos(πβt/ts) / (1 - (2βt/ts)²)` divided by `ts`, Nyquist (zero at the
+/// other symbol instants).
+///
+/// Args:
+///     t (array_like): the times.
+///     rolloff (float): the roll-off `β`.
+///     ts (float): the symbol period.
+///
+/// Returns:
+///     numpy.ndarray: the pulse at every time (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> [abs(round(float(v), 12)) for v in comrs.rc_taps([0.0, 1.0, 2.0], 0.5)]
+///     [1.0, 0.0, 0.0]
+#[pyfunction]
+#[pyo3(signature = (t, rolloff, *, ts = 1.0))]
+fn rc_taps<'py>(py: Python<'py>, t: &Bound<'py, PyAny>, rolloff: f64, ts: f64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, filter::rc_taps(&fvec(t)?, rolloff, ts)))
 }
 
 /// FIR filtering with the `same` alignment (OptiCommPy `firFilter`); the taps may be
@@ -76,6 +131,9 @@ fn rrc_spectrum(py: Python<'_>, n_symbols: usize, sps: usize, rolloff: f64) -> F
 ///
 /// Returns:
 ///     numpy.ndarray: the filtered signal, of the length of `x` (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn fir_filter<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     let (h, x) = (cvec(h)?, cvec(x)?);
@@ -90,6 +148,9 @@ fn fir_filter<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>
 ///
 /// Returns:
 ///     numpy.ndarray: `len(h) + len(x) - 1` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn convolve<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     let (h, x) = (cvec(h)?, cvec(x)?);
@@ -104,6 +165,9 @@ fn convolve<'py>(py: Python<'py>, h: &Bound<'py, PyAny>, x: &Bound<'py, PyAny>) 
 ///
 /// Returns:
 ///     numpy.ndarray: `factor·len(x)` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn upsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::upsample(&cvec(x)?, factor)))
@@ -118,6 +182,9 @@ fn upsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize) -> PyRes
 ///
 /// Returns:
 ///     numpy.ndarray: the kept samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, factor, *, offset = 0))]
 fn downsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize, offset: usize) -> PyResult<CArr<'py>> {
@@ -134,6 +201,9 @@ fn downsample<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, factor: usize, offset
 ///
 /// Returns:
 ///     numpy.ndarray: the signal at `sps_out` samples per symbol (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn decimate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, sps_in: usize, sps_out: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::decimate(&cvec(x)?, sps_in, sps_out).py()?))
@@ -147,9 +217,12 @@ fn decimate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, sps_in: usize, sps_out:
 ///
 /// Returns:
 ///     numpy.ndarray: `n_out` samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
-fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: usize) -> PyResult<CArr<'py>> {
-    Ok(carr(py, resample::resample_fft(&cvec(x)?, n_out)))
+fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, resample::resample_fft(&cvec(x)?, count(n_out, "n_out")?)))
 }
 
 /// Low-pass FIR of cut-off `fc` at the sampling rate `fs`, unit DC gain (OptiCommPy
@@ -163,11 +236,14 @@ fn resample_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n_out: usize) -> Py
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fc, fs, n_taps, *, kind = "rect"))]
-fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: usize, kind: &str) -> PyResult<FArr<'py>> {
+fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: i64, kind: &str) -> PyResult<FArr<'py>> {
     let k: LowPass = kind.parse().py()?;
-    Ok(farr(py, filter::low_pass_fir(fc, fs, n_taps, k)))
+    Ok(farr(py, filter::low_pass_fir(fc, fs, count(n_taps, "n_taps")?, k)))
 }
 
 /// Scale to unit mean power.
@@ -177,6 +253,9 @@ fn low_pass_fir<'py>(py: Python<'py>, fc: f64, fs: f64, n_taps: usize, kind: &st
 ///
 /// Returns:
 ///     numpy.ndarray: the scaled signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn pnorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::pnorm(&cvec(x)?)))
@@ -189,6 +268,9 @@ fn pnorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 ///
 /// Returns:
 ///     numpy.ndarray: the scaled signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::anorm(&cvec(x)?)))
@@ -203,6 +285,9 @@ fn anorm<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
 ///
 /// Returns:
 ///     numpy.ndarray: the shifted signal (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64) -> PyResult<CArr<'py>> {
     Ok(carr(py, signal::freq_shift(&cvec(x)?, delta_f, fs)))
@@ -217,9 +302,12 @@ fn freq_shift<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delta_f: f64, fs: f64
 ///
 /// Returns:
 ///     numpy.ndarray: the averaged signal, of the length of `x` (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
-fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize) -> PyResult<CArr<'py>> {
-    Ok(carr(py, filter::moving_average(&cvec(x)?, n)))
+fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, filter::moving_average(&cvec(x)?, count(n, "n")?)))
 }
 
 /// Delay a periodic block by `delay` seconds (FFT phase ramp).
@@ -231,6 +319,9 @@ fn moving_average<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize) -> PyRe
 ///
 /// Returns:
 ///     numpy.ndarray: the delayed block (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -> PyResult<CArr<'py>> {
     Ok(carr(py, resample::delay_fft(&cvec(x)?, delay, fs)))
@@ -247,9 +338,12 @@ fn delay_fft<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, delay: f64, fs: f64) -
 ///
 /// Returns:
 ///     numpy.ndarray: the compensated field (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn cdc<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fiber: &PyFiber, length_km: f64, fs: f64) -> PyResult<CArr<'py>> {
-    let (x, f) = (cvec(x)?, fiber.to_rust());
+    let (x, f) = (cvec(x)?, fiber.inner.clone());
     Ok(carr(py, py.detach(|| cd::cdc(&x, f.beta2_s2_km(), length_km, fs))))
 }
 
@@ -266,7 +360,7 @@ fn cdc<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fiber: &PyFiber, length_km: 
 ///     int: the number of taps.
 #[pyfunction]
 fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) -> usize {
-    cd::cd_taps_needed(fiber.to_rust().beta2_s2_km(), length_km, symbol_rate, fs)
+    cd::cd_taps_needed(fiber.inner.beta2_s2_km(), length_km, symbol_rate, fs)
 }
 
 /// Centred taps of the dispersion compensation of `length_km` (frequency sampling).
@@ -279,9 +373,12 @@ fn cd_taps_needed(fiber: &PyFiber, length_km: f64, symbol_rate: f64, fs: f64) ->
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for a negative count.
 #[pyfunction]
-fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: usize) -> CArr<'py> {
-    carr(py, cd::cd_fir_taps(fiber.to_rust().beta2_s2_km(), length_km, fs, n_taps))
+fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n_taps: i64) -> PyResult<CArr<'py>> {
+    Ok(carr(py, cd::cd_fir_taps(fiber.inner.beta2_s2_km(), length_km, fs, count(n_taps, "n_taps")?)))
 }
 
 /// The dispersion factor `K = -β₂ L fs²/2` of the digital compensation `e^{jKω²}`
@@ -296,7 +393,7 @@ fn cd_fir_taps<'py>(py: Python<'py>, fiber: &PyFiber, length_km: f64, fs: f64, n
 ///     float: K.
 #[pyfunction]
 fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
-    cd::cd_dispersion_factor(fiber.to_rust().beta2_s2_km(), length_km, fs)
+    cd::cd_dispersion_factor(fiber.inner.beta2_s2_km(), length_km, fs)
 }
 
 /// Centred taps of Savory's dispersion-compensating FIR, `√(j/(4Kπ)) e^{-jn²/(4K)}`.
@@ -311,6 +408,9 @@ fn cd_dispersion_factor(fiber: &PyFiber, length_km: f64, fs: f64) -> f64 {
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, length_km, fs, n_taps = None))]
 fn cd_savory_taps<'py>(
@@ -320,7 +420,7 @@ fn cd_savory_taps<'py>(
     fs: f64,
     n_taps: Option<usize>,
 ) -> PyResult<CArr<'py>> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     let n = n_taps.unwrap_or_else(|| cd::cd_savory_length(b2, length_km, fs));
     Ok(carr(py, cd::cd_savory_taps(b2, length_km, fs, n).py()?))
 }
@@ -345,6 +445,9 @@ fn cd_savory_taps<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the taps (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, length_km, fs, n_taps, *, band_hz = None, epsilon = 0.0))]
 fn cd_ls_taps<'py>(
@@ -356,7 +459,7 @@ fn cd_ls_taps<'py>(
     band_hz: Option<f64>,
     epsilon: f64,
 ) -> PyResult<CArr<'py>> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     Ok(carr(py, cd::cd_ls_taps(b2, length_km, fs, n_taps, band_hz.unwrap_or(fs / 2.0), epsilon).py()?))
 }
 
@@ -373,6 +476,9 @@ fn cd_ls_taps<'py>(
 ///
 /// Returns:
 ///     float: E.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (taps, fiber, length_km, fs, *, band_hz = None))]
 fn cd_ls_error(
@@ -382,7 +488,7 @@ fn cd_ls_error(
     fs: f64,
     band_hz: Option<f64>,
 ) -> PyResult<f64> {
-    let b2 = fiber.to_rust().beta2_s2_km();
+    let b2 = fiber.inner.beta2_s2_km();
     cd::cd_ls_error(&cvec(taps)?, b2, length_km, fs, band_hz.unwrap_or(fs / 2.0)).py()
 }
 
@@ -414,9 +520,23 @@ fn cd_ls_error(
 ///     tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]: the symbols `(modes,
 ///     symbols)`, the final taps `(modes², n_taps)` with row `m + N·modes` the filter
 ///     from input `N` to output `m`, and the squared errors `(modes, symbols)`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (x, constellation, *, algorithm = None, n_taps = 15, sps = 2, mu = None, passes = 1, reference = None, kikuchi = None))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    x,
+    constellation,
+    *,
+    algorithm = None,
+    n_taps = AdaptiveEqualizer::new(Algorithm::Cma).n_taps,
+    sps = AdaptiveEqualizer::new(Algorithm::Cma).sps,
+    mu = None,
+    passes = AdaptiveEqualizer::new(Algorithm::Cma).passes,
+    reference = None,
+    kikuchi = None,
+))]
+#[allow(clippy::too_many_arguments, reason = "the settings of the equaliser, by keyword")]
 fn adaptive_equalizer<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -429,8 +549,7 @@ fn adaptive_equalizer<'py>(
     reference: Option<&Bound<'py, PyAny>>,
     kikuchi: Option<usize>,
 ) -> PyResult<(CMat<'py>, CMat<'py>, FMat<'py>)> {
-    let modes =
-        if x.getattr("ndim").and_then(|n| n.extract::<usize>()).unwrap_or(2) == 1 { vec![cvec(x)?] } else { cmat(x)? };
+    let (modes, _) = streams_in(x)?;
     let schedule = match algorithm {
         None => vec![(Algorithm::Cma, usize::MAX)],
         Some(a) if a.is_instance_of::<PyString>() => vec![(a.extract::<String>()?.parse().py()?, usize::MAX)],
@@ -439,14 +558,10 @@ fn adaptive_equalizer<'py>(
             steps.into_iter().map(|(s, n)| Ok((s.parse::<Algorithm>().py()?, n))).collect::<PyResult<_>>()?
         }
     };
-    let reference = match reference {
-        None => None,
-        Some(r) if r.getattr("ndim").and_then(|n| n.extract::<usize>()).unwrap_or(2) == 1 => Some(vec![cvec(r)?]),
-        Some(r) => Some(cmat(r)?),
-    };
+    let reference = reference.map(streams_in).transpose()?.map(|(r, _)| r);
     let singularity = kikuchi.map_or(Singularity::None, Singularity::Kikuchi);
     let stage_mu: Vec<f64> = match mu {
-        None => vec![1e-3],
+        None => vec![AdaptiveEqualizer::new(Algorithm::Cma).mu],
         Some(m) => m.extract::<Vec<f64>>().or_else(|_| m.extract::<f64>().map(|v| vec![v]))?,
     };
     if stage_mu.is_empty() {
@@ -468,6 +583,9 @@ fn adaptive_equalizer<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: the rotated signal (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, theta, *, sign = 1.0))]
 fn derotate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, theta: &Bound<'py, PyAny>, sign: f64) -> PyResult<CArr<'py>> {
@@ -483,6 +601,9 @@ fn derotate<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, theta: &Bound<'py, PyAn
 ///
 /// Returns:
 ///     numpy.ndarray: the unwrapped phases (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (phi, *, period = std::f64::consts::TAU))]
 fn unwrap<'py>(py: Python<'py>, phi: &Bound<'py, PyAny>, period: f64) -> PyResult<FArr<'py>> {
@@ -502,6 +623,9 @@ fn unwrap<'py>(py: Python<'py>, phi: &Bound<'py, PyAny>, period: f64) -> PyResul
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, float]: the corrected signal and the offset (Hz).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, fs, *, m = 4, refined = true))]
 fn fourth_power_foe<'py>(
@@ -535,10 +659,13 @@ fn fourth_power_foe<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, *, n = 35, m = 4))]
-fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize, m: u32) -> PyResult<FArr<'py>> {
-    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, n, m).py()?))
+fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: i64, m: u32) -> PyResult<FArr<'py>> {
+    Ok(farr(py, carrier::viterbi_viterbi(&cvec(x)?, count(n, "n")?, m).py()?))
 }
 
 /// Blind phase search (Pfau, Hoffmann and Noé 2009; OptiCommPy `bps`).
@@ -557,19 +684,31 @@ fn viterbi_viterbi<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, n: usize, m: u32
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad, in `[0, π/2)`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, constellation, *, n = 35, b = 64))]
 fn bps<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
     constellation: &PyConstellation,
-    n: usize,
+    n: i64,
     b: usize,
 ) -> PyResult<FArr<'py>> {
-    let x = cvec(x)?;
+    let (x, n) = (cvec(x)?, count(n, "n")?);
     let pts = constellation.inner.normalized().points().to_vec();
     Ok(farr(py, py.detach(|| carrier::bps(&x, n, &pts, b)).py()?))
 }
+
+/// The symbol rate of OptiCommPy's `ddpll` (its `Ts = 1/32e9`), the default of [`ddpll`].
+const OPTICOMMPY_DDPLL_FS: f64 = 32e9;
+
+/// The VCO gain of OptiCommPy's `ddpll`.
+const OPTICOMMPY_DDPLL_KV: f64 = 0.1;
+
+/// The time constants of the loop filter of OptiCommPy's `ddpll`, `1/(2π 10 MHz)`.
+const OPTICOMMPY_DDPLL_TAU: f64 = 1.0 / (2.0 * std::f64::consts::PI * 10e6);
 
 /// Decision-directed phase-locked loop (OptiCommPy `ddpll`): the phase correction to
 /// apply with `derotate(x, θ)`.
@@ -587,9 +726,22 @@ fn bps<'py>(
 ///
 /// Returns:
 ///     numpy.ndarray: one phase per symbol (rad).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (x, constellation, *, fs = 32e9, kv = 0.1, tau1 = 1.0 / (2.0 * std::f64::consts::PI * 10e6), tau2 = 1.0 / (2.0 * std::f64::consts::PI * 10e6), pilot_indices = None, pilot_symbols = None))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    x,
+    constellation,
+    *,
+    fs = OPTICOMMPY_DDPLL_FS,
+    kv = OPTICOMMPY_DDPLL_KV,
+    tau1 = OPTICOMMPY_DDPLL_TAU,
+    tau2 = OPTICOMMPY_DDPLL_TAU,
+    pilot_indices = None,
+    pilot_symbols = None,
+))]
+#[allow(clippy::too_many_arguments, reason = "the loop parameters of OptiCommPy, by keyword")]
 fn ddpll<'py>(
     py: Python<'py>,
     x: &Bound<'py, PyAny>,
@@ -634,6 +786,9 @@ fn array<const N: usize>(x: &Bound<'_, PyAny>) -> PyResult<[C64; N]> {
 ///
 /// Returns:
 ///     float: the timing error.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gardner_ted(x: &Bound<'_, PyAny>) -> PyResult<f64> {
     Ok(clock::gardner_ted(&array::<3>(x)?))
@@ -646,6 +801,9 @@ fn gardner_ted(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns:
 ///     float: the timing error.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
     Ok(clock::gardner_ted_nyquist(&array::<3>(x)?))
@@ -660,6 +818,9 @@ fn gardner_ted_nyquist(x: &Bound<'_, PyAny>) -> PyResult<f64> {
 ///
 /// Returns:
 ///     complex: the interpolated sample.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
     Ok(comrs::dsp::interpolation::lagrange_cubic(&array::<4>(x)?, mu))
@@ -677,6 +838,9 @@ fn interpolate_cubic(x: &Bound<'_, PyAny>, mu: f64) -> PyResult<C64> {
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the resampled signal (2 sps) and the
 ///     fractional sampling instant of every output sample.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 #[pyo3(signature = (x, *, kp = 1e-3, ki = 1e-6, nyquist = true, max_ppm = 500.0))]
 fn gardner_clock_recovery<'py>(
@@ -692,43 +856,58 @@ fn gardner_clock_recovery<'py>(
     Ok((carr(py, out.signal), farr(py, out.timing)))
 }
 
-/// Register the DSP functions.
+/// The Dolph–Chebyshev window (as `scipy.signal.windows.chebwin`).
+///
+/// Args:
+///     n (int): length.
+///     attenuation_db (float): level of the sidelobes below the main lobe (dB).
+///
+/// Returns:
+///     numpy.ndarray: the window, maximum 1 (float64).
+///
+/// Raises:
+///     ValueError: for a negative count.
+#[pyfunction]
+fn chebyshev_window(py: Python<'_>, n: i64, attenuation_db: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, comrs::dsp::window::chebyshev(count(n, "n")?, attenuation_db)))
+}
+
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    for f in [
-        wrap_pyfunction!(pulse_shape, m)?,
-        wrap_pyfunction!(rrc_spectrum, m)?,
-        wrap_pyfunction!(fir_filter, m)?,
-        wrap_pyfunction!(convolve, m)?,
-        wrap_pyfunction!(upsample, m)?,
-        wrap_pyfunction!(downsample, m)?,
-        wrap_pyfunction!(decimate, m)?,
-        wrap_pyfunction!(resample_fft, m)?,
-        wrap_pyfunction!(low_pass_fir, m)?,
-        wrap_pyfunction!(pnorm, m)?,
-        wrap_pyfunction!(anorm, m)?,
-        wrap_pyfunction!(freq_shift, m)?,
-        wrap_pyfunction!(moving_average, m)?,
-        wrap_pyfunction!(delay_fft, m)?,
-        wrap_pyfunction!(cdc, m)?,
-        wrap_pyfunction!(cd_taps_needed, m)?,
-        wrap_pyfunction!(cd_fir_taps, m)?,
-        wrap_pyfunction!(cd_dispersion_factor, m)?,
-        wrap_pyfunction!(cd_savory_taps, m)?,
-        wrap_pyfunction!(cd_ls_taps, m)?,
-        wrap_pyfunction!(cd_ls_error, m)?,
-        wrap_pyfunction!(adaptive_equalizer, m)?,
-        wrap_pyfunction!(derotate, m)?,
-        wrap_pyfunction!(unwrap, m)?,
-        wrap_pyfunction!(fourth_power_foe, m)?,
-        wrap_pyfunction!(viterbi_viterbi, m)?,
-        wrap_pyfunction!(bps, m)?,
-        wrap_pyfunction!(ddpll, m)?,
-        wrap_pyfunction!(gardner_ted, m)?,
-        wrap_pyfunction!(gardner_ted_nyquist, m)?,
-        wrap_pyfunction!(interpolate_cubic, m)?,
-        wrap_pyfunction!(gardner_clock_recovery, m)?,
-    ] {
-        m.add_function(f)?;
-    }
+    m.add_function(wrap_pyfunction!(pulse_shape, m)?)?;
+    m.add_function(wrap_pyfunction!(rrc_spectrum, m)?)?;
+    m.add_function(wrap_pyfunction!(rrc_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(rc_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(fir_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(convolve, m)?)?;
+    m.add_function(wrap_pyfunction!(upsample, m)?)?;
+    m.add_function(wrap_pyfunction!(downsample, m)?)?;
+    m.add_function(wrap_pyfunction!(decimate, m)?)?;
+    m.add_function(wrap_pyfunction!(resample_fft, m)?)?;
+    m.add_function(wrap_pyfunction!(low_pass_fir, m)?)?;
+    m.add_function(wrap_pyfunction!(pnorm, m)?)?;
+    m.add_function(wrap_pyfunction!(anorm, m)?)?;
+    m.add_function(wrap_pyfunction!(freq_shift, m)?)?;
+    m.add_function(wrap_pyfunction!(moving_average, m)?)?;
+    m.add_function(wrap_pyfunction!(delay_fft, m)?)?;
+    m.add_function(wrap_pyfunction!(cdc, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_taps_needed, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_fir_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_dispersion_factor, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_savory_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_ls_taps, m)?)?;
+    m.add_function(wrap_pyfunction!(cd_ls_error, m)?)?;
+    m.add_function(wrap_pyfunction!(adaptive_equalizer, m)?)?;
+    m.add_function(wrap_pyfunction!(derotate, m)?)?;
+    m.add_function(wrap_pyfunction!(unwrap, m)?)?;
+    m.add_function(wrap_pyfunction!(fourth_power_foe, m)?)?;
+    m.add_function(wrap_pyfunction!(viterbi_viterbi, m)?)?;
+    m.add_function(wrap_pyfunction!(bps, m)?)?;
+    m.add_function(wrap_pyfunction!(ddpll, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_ted, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_ted_nyquist, m)?)?;
+    m.add_function(wrap_pyfunction!(interpolate_cubic, m)?)?;
+    m.add_function(wrap_pyfunction!(gardner_clock_recovery, m)?)?;
+    m.add_function(wrap_pyfunction!(chebyshev_window, m)?)?;
     Ok(())
 }

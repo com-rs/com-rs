@@ -1,15 +1,14 @@
 //! Orthogonal time frequency space and the delay–Doppler channel it is designed for.
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec, taps_in};
-use comrs::channel::multipath::{DelayDopplerModel, Profile};
+use crate::{CArr, IntoPy, carr, cvec};
+use comrs::channel::multipath::DelayDopplerModel;
 use comrs::core::channel::Path;
 use comrs::core::units::Hertz;
 use comrs::waveform::otfs::Otfs;
 use num_complex::Complex64 as C64;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
-use pyo3::types::PyString;
 
 /// Orthogonal time frequency space (Raviteja et al. 2019) with rectangular pulses: the
 /// symbols of the `n_fft × n_symbols` delay–Doppler grid (`x[n * M + m]`, delay `m`,
@@ -20,6 +19,9 @@ use pyo3::types::PyString;
 ///     n_fft (int): delay bins `M` (subcarriers).
 ///     n_symbols (int): Doppler bins `N` (symbols of a frame).
 ///     n_cp (int): the cyclic prefix of a frame (samples).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -74,6 +76,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples, prefixes included (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&cvec(x)?).py()?))
     }
@@ -85,6 +90,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: the delay–Doppler samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(r)?).py()?))
     }
@@ -100,6 +108,9 @@ impl PyOtfs {
     ///
     /// Returns:
     ///     numpy.ndarray: `(MN, MN)` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn effective_channel<'py>(
         &self,
         py: Python<'py>,
@@ -131,6 +142,9 @@ impl PyOtfs {
 /// Returns:
 ///     list[tuple[complex, int, float]]: `(gain, delay in samples, Doppler in Hz)` per
 ///     path.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn delay_doppler_paths(
     profile: &Bound<'_, PyAny>,
@@ -138,11 +152,7 @@ fn delay_doppler_paths(
     fs: f64,
     mut rng: PyRefMut<'_, PyRng>,
 ) -> PyResult<Vec<(C64, usize, f64)>> {
-    let taps = if profile.is_instance_of::<PyString>() {
-        profile.extract::<String>()?.parse::<Profile>().py()?.taps()
-    } else {
-        taps_in(profile)?
-    };
+    let taps = crate::ofdm_link::profile_or_taps(profile)?;
     let model = DelayDopplerModel::new(&taps, max_doppler_hz, fs).py()?;
     Ok(model.draw(&mut rng.inner).paths().iter().map(|p| (p.gain, p.delay, p.doppler_hz)).collect())
 }

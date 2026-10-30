@@ -47,7 +47,7 @@
 use com_core::ensure;
 use com_core::prelude::*;
 use com_dsp::compensation::dpd::{memory_polynomial, static_predistort};
-use com_dsp::nonlinear::{Bussgang, bussgang};
+use com_dsp::nonlinear::{Bussgang, Envelope, bussgang_of};
 use com_dsp::signal::map_envelope;
 use com_math::cis;
 
@@ -64,6 +64,32 @@ fn positive(v: f64, what: &str) -> Result<()> {
 /// `Ok` if `v` is non-negative and finite.
 fn non_negative(v: f64, what: &str) -> Result<()> {
     ensure(v >= 0.0 && v.is_finite(), || format!("the {what} must be non-negative and finite, got {v}"))
+}
+
+/// The memoryless amplifier models, by name.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Model {
+    /// [`Rapp`].
+    Rapp,
+    /// [`Saleh`].
+    Saleh,
+}
+
+impl std::str::FromStr for Model {
+    type Err = Error;
+
+    /// `rapp` or `saleh` (case-insensitive).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<Model> {
+        match s.to_ascii_lowercase().as_str() {
+            "rapp" => Ok(Model::Rapp),
+            "saleh" => Ok(Model::Saleh),
+            _ => Err(Error::Config(format!("unknown amplifier {s:?}: rapp, saleh"))),
+        }
+    }
 }
 
 /// Rapp's model of a solid-state amplifier: a smooth envelope limiter.
@@ -155,13 +181,20 @@ impl Rapp {
     }
 
     /// The Bussgang decomposition of the amplifier driven by a circular Gaussian input of
-    /// power `power` (`com_dsp::nonlinear::bussgang`).
+    /// power `power` ([`bussgang_of`] of its [`Envelope`]).
     ///
     /// # Errors
     /// The errors of [`Rapp::check`].
     pub fn bussgang(&self, power: f64) -> Result<Bussgang> {
         self.check()?;
-        Ok(bussgang(|r| C64::new(self.am_am(r), 0.0), power))
+        Ok(bussgang_of(self, power))
+    }
+}
+
+impl Envelope for Rapp {
+    /// $A(r)$, no AM/PM.
+    fn response(&self, r: f64) -> C64 {
+        C64::new(self.am_am(r), 0.0)
     }
 }
 
@@ -236,13 +269,20 @@ impl Saleh {
     }
 
     /// The Bussgang decomposition of the amplifier driven by a circular Gaussian input of
-    /// power `power` (`com_dsp::nonlinear::bussgang`).
+    /// power `power` ([`bussgang_of`] of its [`Envelope`]).
     ///
     /// # Errors
     /// The errors of [`Saleh::check`].
     pub fn bussgang(&self, power: f64) -> Result<Bussgang> {
         self.check()?;
-        Ok(bussgang(|r| C64::from_polar(self.am_am(r), self.am_pm(r)), power))
+        Ok(bussgang_of(self, power))
+    }
+}
+
+impl Envelope for Saleh {
+    /// $A(r) e^{j\Phi(r)}$.
+    fn response(&self, r: f64) -> C64 {
+        C64::from_polar(self.am_am(r), self.am_pm(r))
     }
 }
 
@@ -354,6 +394,13 @@ mod tests {
     }
 
     #[test]
+    fn the_models_are_parsed_by_name() {
+        assert_eq!("Rapp".parse::<Model>().unwrap(), Model::Rapp);
+        assert_eq!("saleh".parse::<Model>().unwrap(), Model::Saleh);
+        assert!("twta".parse::<Model>().is_err());
+    }
+
+    #[test]
     fn saleh_peaks_at_its_saturation_input() {
         let pa = Saleh::default();
         let r0 = pa.saturation_input();
@@ -396,6 +443,7 @@ mod tests {
 #[cfg(test)]
 mod literature {
     use super::{Rapp, Saleh};
+    use com_dsp::nonlinear::{bussgang, bussgang_of};
     use com_math::C64;
 
     /// H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi and R. Bouallegue,
@@ -425,7 +473,17 @@ mod literature {
         for (model, ibo, phi0, k_table, d_table) in rows {
             // IBO = A_sat² / σ² with A_sat = 1 (eq. (14))
             let power = com_math::db2lin(-ibo);
-            let b = if model == "SSPA" { sspa.bussgang(power) } else { twta(phi0).bussgang(power) }.unwrap();
+            let b = if model == "SSPA" {
+                bussgang(|r| C64::new(sspa.am_am(r), 0.0), power)
+            } else {
+                let t = twta(phi0);
+                bussgang(|r| C64::from_polar(t.am_am(r), t.am_pm(r)), power)
+            };
+            // the models as envelopes give the same decomposition
+            let of_model = if model == "SSPA" { bussgang_of(&sspa, power) } else { bussgang_of(&twta(phi0), power) };
+            assert_eq!(of_model, b);
+            let method = if model == "SSPA" { sspa.bussgang(power) } else { twta(phi0).bussgang(power) }.unwrap();
+            assert_eq!(method, b);
             let (k, d) = (b.gain, b.distortion);
             assert!((k - k_table).norm() < 2e-3, "{model} {ibo} dB: K = {k}");
             assert!((d / d_table - 1.0).abs() < 0.015, "{model} {ibo} dB: σ_d² = {d}");

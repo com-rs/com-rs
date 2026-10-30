@@ -3,8 +3,9 @@
 //! fading, and the distortion of a nonlinear amplifier driven by an OFDM signal
 //! (Banelli & Cacopardi 2000).
 
-use crate::{FArr, cvec, farr, fvec, map_real};
+use crate::{FArr, IntoPy, count, cvec, farr, fvec, map_real};
 use comrs::dsp::nonlinear;
+use comrs::mapping::constellation::Constellation;
 use comrs::mapping::imperfect_csi as csi;
 use num_complex::Complex64 as C64;
 use pyo3::exceptions::PyValueError;
@@ -18,7 +19,8 @@ use pyo3::prelude::*;
 /// the perfect channel.
 ///
 /// Args:
-///     modulation (str): ``"bpsk"``, ``"qpsk"`` (Gray) or ``"16qam"`` (Gray).
+///     modulation (str): ``"bpsk"``, ``"qpsk"`` (Gray) or ``"16qam"`` (Gray), any name of
+///         a constellation (``"16-QAM"``, ``"QPSK"``).
 ///     ebn0_db (float | array_like): the mean `Eb/N0` (dB).
 ///     rho1 (float): the real correlation coefficient.
 ///     rho2 (float): the imaginary correlation coefficient.
@@ -26,6 +28,9 @@ use pyo3::prelude::*;
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `Eb/N0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -41,13 +46,8 @@ fn theory_ber_imperfect_csi(
     rho2: f64,
     sigma_ratio: f64,
 ) -> PyResult<Py<PyAny>> {
-    let g = |e: f64| comrs::math::db2lin(e);
-    match modulation {
-        "bpsk" => map_real(ebn0_db, |e| Ok(csi::ber_bpsk_imperfect_csi(g(e), rho1, rho2))),
-        "qpsk" => map_real(ebn0_db, |e| Ok(csi::ber_qpsk_imperfect_csi(g(e), rho1, rho2))),
-        "16qam" => map_real(ebn0_db, |e| Ok(csi::ber_16qam_imperfect_csi(g(e), rho1, rho2, sigma_ratio))),
-        other => Err(PyValueError::new_err(format!("modulation is bpsk, qpsk or 16qam, got {other:?}"))),
-    }
+    let c = Constellation::from_name(modulation).py()?;
+    map_real(ebn0_db, |e| csi::ber_imperfect_csi(&c, comrs::math::db2lin(e), rho1, rho2, sigma_ratio).py())
 }
 
 /// The bit error rate of DBPSK (`m = 2`) or Gray DQPSK (`m = 4`) over Jakes' Rayleigh
@@ -61,6 +61,9 @@ fn theory_ber_imperfect_csi(
 ///
 /// Returns:
 ///     float | numpy.ndarray: the bit error probability at every `Eb/N0`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> PyResult<Py<PyAny>> {
     let g = |e: f64| comrs::math::db2lin(e);
@@ -69,18 +72,6 @@ fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> Py
         4 => map_real(ebn0_db, |e| Ok(csi::ber_dqpsk_jakes(g(e), fd_ts))),
         _ => Err(PyValueError::new_err(format!("m is 2 or 4, got {m}"))),
     }
-}
-
-/// The Bessel function `J0(x)` of the first kind and order zero.
-///
-/// Args:
-///     x (float | array_like): the argument.
-///
-/// Returns:
-///     float | numpy.ndarray: `J0(x)`.
-#[pyfunction]
-fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    map_real(x, |v| Ok(comrs::math::bessel_j0(v)))
 }
 
 /// The coefficients `c_n` of the output autocorrelation of a memoryless envelope
@@ -97,6 +88,9 @@ fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Returns:
 ///     numpy.ndarray: `c_0, …, c_{n_terms - 1}`.
 ///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> c = comrs.envelope_series(lambda r: np.minimum(r, np.sqrt(2.0)), 60)  # 3 dB IBO
@@ -104,7 +98,8 @@ fn bessel_j0(x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 ///     (0.8647, 0.8647)
 #[pyfunction]
 #[pyo3(signature = (f, n_terms = 60))]
-fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: usize) -> PyResult<FArr<'py>> {
+fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: i64) -> PyResult<FArr<'py>> {
+    let n_terms = count(n_terms, "n_terms")?;
     let r = farr(py, nonlinear::series_grid());
     let values: Vec<C64> = cvec(&f.call1((r,))?)?;
     Ok(farr(py, nonlinear::output_series_sampled(&values, n_terms)))
@@ -122,6 +117,9 @@ fn envelope_series<'py>(py: Python<'py>, f: &Bound<'py, PyAny>, n_terms: usize) 
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the useful and the distortion power per bin.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn distortion_spectrum<'py>(
     py: Python<'py>,
@@ -129,18 +127,14 @@ fn distortion_spectrum<'py>(
     occupied: usize,
     bins: usize,
 ) -> PyResult<(FArr<'py>, FArr<'py>)> {
-    if occupied == 0 || occupied > bins {
-        return Err(PyValueError::new_err(format!("need 0 < occupied ≤ bins, got {occupied} and {bins}")));
-    }
-    let (u, d) = nonlinear::distortion_spectrum(&fvec(c)?, occupied, bins);
+    let (u, d) = nonlinear::distortion_spectrum(&fvec(c)?, occupied, bins).py()?;
     Ok((farr(py, u), farr(py, d)))
 }
 
-/// Register the functions.
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(theory_ber_imperfect_csi, m)?)?;
     m.add_function(wrap_pyfunction!(theory_ber_dpsk_jakes, m)?)?;
-    m.add_function(wrap_pyfunction!(bessel_j0, m)?)?;
     m.add_function(wrap_pyfunction!(envelope_series, m)?)?;
     m.add_function(wrap_pyfunction!(distortion_spectrum, m)?)?;
     Ok(())

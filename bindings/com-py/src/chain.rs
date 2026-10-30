@@ -173,6 +173,14 @@ impl PyFrame {
         self.clone()
     }
 
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "Frame({} samples, sps = {}, {} symbols)",
@@ -196,6 +204,9 @@ impl PyFrame {
 ///     base_dir (str | os.PathLike, optional): the directory the relative paths of the
 ///         block are resolved against (the directory of its specification file).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> f = comrs.Frame()
@@ -205,10 +216,16 @@ impl PyFrame {
 #[pyclass(name = "LinkBlock", module = "comrs")]
 pub struct PyLinkBlock {
     inner: Box<dyn Block>,
+    /// The type of the block (the `type` key of its mapping), for the `repr`.
+    kind: String,
 }
 
 #[pymethods]
 impl PyLinkBlock {
+    fn __repr__(&self) -> String {
+        format!("LinkBlock(type='{}')", self.kind)
+    }
+
     #[new]
     #[pyo3(signature = (spec, *, fiber=None, name=None, condition=None, base_dir=None))]
     fn new(
@@ -225,7 +242,8 @@ impl PyLinkBlock {
             _ => None,
         };
         let ctx = BuildContext { fiber: fiber.map(|f| json(py, f)).transpose()?, base_dir, name, condition };
-        Ok(PyLinkBlock { inner: blocks::build(&v, &ctx).py()? })
+        let kind = v.get("type").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+        Ok(PyLinkBlock { inner: blocks::build(&v, &ctx).py()?, kind })
     }
 
     /// Apply the block to a frame in place.
@@ -233,6 +251,9 @@ impl PyLinkBlock {
     /// Args:
     ///     frame (Frame): the frame, modified.
     ///     rng (Rng): the generator of the block.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn apply(&self, frame: &mut PyFrame, mut rng: PyRefMut<'_, PyRng>) -> PyResult<()> {
         self.inner.apply(&mut frame.inner, &mut rng.inner).py()
     }
@@ -249,6 +270,9 @@ impl PyLinkBlock {
 /// Returns:
 ///     dict: ``{name: {value, lo, hi, kind, count, total}}``, ``kind`` being ``rate``
 ///     (``count`` errors among ``total`` events) or ``mean`` (of ``count`` values).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -278,6 +302,9 @@ fn frame_metrics<'py>(
 ///
 /// Returns:
 ///     str: the same document as JSON.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 #[pyo3(name = "_yaml_to_json")]
 fn yaml_to_json(text: &str) -> PyResult<String> {
@@ -294,6 +321,9 @@ fn yaml_to_json(text: &str) -> PyResult<String> {
 ///
 /// Returns:
 ///     list[str]: one label per block.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(name = "_link_labels")]
 fn link_labels(py: Python<'_>, link: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {

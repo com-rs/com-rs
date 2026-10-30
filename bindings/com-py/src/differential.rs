@@ -2,10 +2,9 @@
 //! forms of its error rates.
 
 use crate::{BArr, CArr, IArr, IntoPy, bvec, carr, cvec, iarr, map_real, uvec};
-use comrs::mapping::differential::{self, Dpsk};
+use comrs::mapping::differential::{self, Detection, Dpsk};
 use comrs::mapping::theory;
 use numpy::IntoPyArray;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Differential M-PSK (DBPSK, DQPSK, D8PSK, …) with Gray-labelled phase transitions.
@@ -29,6 +28,9 @@ use pyo3::prelude::*;
 ///
 /// Args:
 ///     m (int): the order, a power of two (2 for DBPSK, 4 for DQPSK).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -92,6 +94,9 @@ impl PyDpsk {
     /// Returns:
     ///     numpy.ndarray: `log2 M` bits per index (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.Dpsk(4).bits([0, 1, 2, 3]).tolist()
@@ -109,6 +114,9 @@ impl PyDpsk {
     /// Returns:
     ///     numpy.ndarray: the `n + 1` absolute phase indices (int64).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs
     ///     >>> comrs.Dpsk(4).encode([0, 1, 3, 2, 1]).tolist()
@@ -125,6 +133,9 @@ impl PyDpsk {
     ///
     /// Returns:
     ///     numpy.ndarray: the `n` differential phase indices (int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -144,6 +155,9 @@ impl PyDpsk {
     /// Returns:
     ///     numpy.ndarray: the `n` differential phase indices (int64).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs, numpy as np
     ///     >>> r = np.exp(1j * (0.3 + np.array([0.0, np.pi / 2, 0.0])))
@@ -162,6 +176,9 @@ impl PyDpsk {
     /// Returns:
     ///     numpy.ndarray: one absolute phase index per symbol (int64).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs, numpy as np
     ///     >>> comrs.Dpsk(4).detect_coherent(np.exp(1j * np.pi / 2 * np.array([0, 1, 1, 2]))).tolist()
@@ -177,6 +194,9 @@ impl PyDpsk {
     ///
     /// Returns:
     ///     numpy.ndarray: the `n / log2 M + 1` symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -195,6 +215,9 @@ impl PyDpsk {
     /// Returns:
     ///     numpy.ndarray: the `n log2 M` bits (uint8).
     ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
+    ///
     /// Examples:
     ///     >>> import comrs, numpy as np
     ///     >>> d = comrs.Dpsk(2)
@@ -212,6 +235,9 @@ impl PyDpsk {
     ///
     /// Returns:
     ///     numpy.ndarray: the `n log2 M` bits (uint8).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -265,14 +291,8 @@ impl PyDpsk {
 #[pyfunction]
 #[pyo3(signature = (m, ebn0_db, *, detection = "noncoherent"))]
 fn theory_ber_dpsk(m: usize, ebn0_db: &Bound<'_, PyAny>, detection: &str) -> PyResult<Py<PyAny>> {
-    match detection {
-        "noncoherent" => map_real(ebn0_db, |e| theory::ber_dpsk(m, e).py()),
-        "coherent" if m == 2 => map_real(ebn0_db, |e| Ok(theory::ber_dbpsk_coherent(e))),
-        "coherent" => Err(PyValueError::new_err(format!(
-            "coherent detection with differential decoding is defined for m = 2, got m = {m}"
-        ))),
-        other => Err(PyValueError::new_err(format!("detection must be noncoherent or coherent, got {other:?}"))),
-    }
+    let detection: Detection = detection.parse().py()?;
+    map_real(ebn0_db, |e| theory::ber_differential(m, e, detection).py())
 }
 
 /// The probability that the phase angle between two vectors of the same SNR perturbed
@@ -288,6 +308,9 @@ fn theory_ber_dpsk(m: usize, ebn0_db: &Bound<'_, PyAny>, detection: &str) -> PyR
 ///
 /// Returns:
 ///     float | numpy.ndarray: `P(|dθ| > psi)` at every `Es/N0`.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 ///
 /// Examples:
 ///     >>> import comrs, math

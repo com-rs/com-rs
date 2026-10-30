@@ -118,7 +118,7 @@ impl PulseSettings {
     /// The taps of the pulse at `sps` samples per symbol.
     pub(super) fn taps(&self, sps: usize) -> Result<Vec<f64>> {
         ensure(sps >= 1, || "sps must be positive".into())?;
-        Ok(filter::pulse_shape(PulseShape::from_name(&self.kind, self.rolloff)?, sps, self.n_taps))
+        filter::pulse_shape(PulseShape::from_name(&self.kind, self.rolloff)?, sps, self.n_taps)
     }
 }
 

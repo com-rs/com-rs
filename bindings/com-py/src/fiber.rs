@@ -2,7 +2,7 @@
 //! Fourier method (one polarisation) and the Manakov equation (two polarisations).
 
 use crate::rng::PyRng;
-use crate::{CArr, IntoPy, carr, cvec, json, rng_of};
+use crate::{CArr, IntoPy, carr, cvec, json, py_bool, rng_of};
 use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::fiber::{self as channels, Amplification, Precision, Ssfm};
@@ -14,6 +14,7 @@ use comrs::math::nlse::StepRule;
 use comrs::spec::blocks::BuildContext;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 /// The parameters of a fibre link of identical spans, each followed by an amplifier.
 ///
@@ -38,56 +39,41 @@ use pyo3::prelude::*;
 ///     800.0
 ///     >>> round(f.beta2_ps2_km, 2)
 ///     -21.75
-#[pyclass(name = "FiberParams", module = "comrs", get_all, set_all)]
+#[pyclass(name = "FiberParams", module = "comrs")]
 #[derive(Clone)]
 pub struct PyFiber {
-    /// float: Attenuation (dB/km) (read and write).
-    pub alpha_db_km: f64,
-    /// float: Dispersion parameter `D` (ps/(nm·km)) (read and write).
-    pub d_ps_nm_km: f64,
-    /// float: Nonlinear coefficient `γ` (1/(W·km)) (read and write).
-    pub gamma_w_km: f64,
-    /// float: Span length (km) (read and write).
-    pub span_km: f64,
-    /// int: Number of spans (read and write).
-    pub n_spans: usize,
-    /// float: Carrier frequency (Hz) (read and write).
-    pub fc_hz: f64,
-    /// float: Noise figure of the amplifiers (dB) (read and write).
-    pub nf_db: f64,
+    pub(crate) inner: FiberParams,
 }
 
-impl PyFiber {
-    /// The Rust parameters.
-    pub fn to_rust(&self) -> FiberParams {
-        FiberParams {
-            alpha_db_km: self.alpha_db_km,
-            d_ps_nm_km: self.d_ps_nm_km,
-            gamma_w_km: self.gamma_w_km,
-            span_km: self.span_km,
-            n_spans: self.n_spans,
-            fc_hz: self.fc_hz,
-            nf_db: self.nf_db,
-        }
+wrapper_methods! {
+    PyFiber {
+        /// float: Attenuation (dB/km) (read and write).
+        alpha_db_km / set_alpha_db_km: f64,
+        /// float: Dispersion parameter `D` (ps/(nm·km)) (read and write).
+        d_ps_nm_km / set_d_ps_nm_km: f64,
+        /// float: Nonlinear coefficient `γ` (1/(W·km)) (read and write).
+        gamma_w_km / set_gamma_w_km: f64,
+        /// float: Span length (km) (read and write).
+        span_km / set_span_km: f64,
+        /// int: Number of spans (read and write).
+        n_spans / set_n_spans: usize,
+        /// float: Carrier frequency (Hz) (read and write).
+        fc_hz / set_fc_hz: f64,
+        /// float: Noise figure of the amplifiers (dB) (read and write).
+        nf_db / set_nf_db: f64,
     }
 
-    fn from_rust(f: &FiberParams) -> PyFiber {
-        PyFiber {
-            alpha_db_km: f.alpha_db_km,
-            d_ps_nm_km: f.d_ps_nm_km,
-            gamma_w_km: f.gamma_w_km,
-            span_km: f.span_km,
-            n_spans: f.n_spans,
-            fc_hz: f.fc_hz,
-            nf_db: f.nf_db,
-        }
-    }
-}
-
-#[pymethods]
-impl PyFiber {
     #[new]
-    #[pyo3(signature = (*, alpha_db_km = 0.2, d_ps_nm_km = 17.0, gamma_w_km = 1.3, span_km = 80.0, n_spans = 1, fc_hz = 193.1e12, nf_db = 4.5))]
+    #[pyo3(signature = (
+        *,
+        alpha_db_km = FiberParams::default().alpha_db_km,
+        d_ps_nm_km = FiberParams::default().d_ps_nm_km,
+        gamma_w_km = FiberParams::default().gamma_w_km,
+        span_km = FiberParams::default().span_km,
+        n_spans = FiberParams::default().n_spans,
+        fc_hz = FiberParams::default().fc_hz,
+        nf_db = FiberParams::default().nf_db,
+    ))]
     fn new(
         alpha_db_km: f64,
         d_ps_nm_km: f64,
@@ -97,61 +83,61 @@ impl PyFiber {
         fc_hz: f64,
         nf_db: f64,
     ) -> Self {
-        PyFiber { alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db }
+        PyFiber { inner: FiberParams { alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db } }
     }
 
     /// float: Total length (km).
     #[getter]
     fn total_km(&self) -> f64 {
-        self.to_rust().total_km()
+        self.inner.total_km()
     }
 
     /// float: Power attenuation `α` (neper/km).
     #[getter]
     fn alpha_np_km(&self) -> f64 {
-        self.to_rust().alpha_np_km()
+        self.inner.alpha_np_km()
     }
 
     /// float: Wavelength `c/f_c` (m).
     #[getter]
     fn wavelength_m(&self) -> f64 {
-        self.to_rust().wavelength_m()
+        self.inner.wavelength_m()
     }
 
     /// float: Group-velocity dispersion `β₂ = -Dλ²/(2πc)` (s²/km).
     #[getter]
     fn beta2_s2_km(&self) -> f64 {
-        self.to_rust().beta2_s2_km()
+        self.inner.beta2_s2_km()
     }
 
     /// float: Group-velocity dispersion `β₂` (ps²/km).
     #[getter]
     fn beta2_ps2_km(&self) -> f64 {
-        self.to_rust().beta2_ps2_km()
+        self.inner.beta2_ps2_km()
     }
 
     /// float: Linear power gain `e^{αL}` that compensates the loss of one span.
     #[getter]
     fn span_gain(&self) -> f64 {
-        self.to_rust().span_gain()
+        self.inner.span_gain()
     }
 
     /// float: Span gain (dB).
     #[getter]
     fn span_gain_db(&self) -> f64 {
-        self.to_rust().span_gain_db()
+        self.inner.span_gain_db()
     }
 
     /// float: Effective length of a span `(1 - e^{-αL})/α` (km).
     #[getter]
     fn effective_length_km(&self) -> f64 {
-        self.to_rust().effective_length_km()
+        self.inner.effective_length_km()
     }
 
     /// float: Accumulated dispersion `D·L_total` (ps/nm).
     #[getter]
     fn accumulated_dispersion_ps_nm(&self) -> f64 {
-        self.to_rust().accumulated_dispersion_ps_nm()
+        self.inner.accumulated_dispersion_ps_nm()
     }
 
     /// Dispersion memory of the link for a signal of bandwidth `bandwidth_hz`,
@@ -164,14 +150,28 @@ impl PyFiber {
     /// Returns:
     ///     float: the memory (samples at `fs`).
     fn dispersion_memory_samples(&self, bandwidth_hz: f64, fs: f64) -> f64 {
-        self.to_rust().dispersion_memory_samples(bandwidth_hz, fs)
+        self.inner.dispersion_memory_samples(bandwidth_hz, fs)
     }
 
     fn __repr__(&self) -> String {
+        let f = &self.inner;
         format!(
             "comrs.FiberParams(alpha_db_km={}, d_ps_nm_km={}, gamma_w_km={}, span_km={}, n_spans={}, fc_hz={:e}, nf_db={})",
-            self.alpha_db_km, self.d_ps_nm_km, self.gamma_w_km, self.span_km, self.n_spans, self.fc_hz, self.nf_db
+            f.alpha_db_km, f.d_ps_nm_km, f.gamma_w_km, f.span_km, f.n_spans, f.fc_hz, f.nf_db
         )
+    }
+
+    fn __getnewargs_ex__<'py>(&self, py: Python<'py>) -> PyResult<((), Bound<'py, PyDict>)> {
+        let f = &self.inner;
+        let kw = PyDict::new(py);
+        kw.set_item("alpha_db_km", f.alpha_db_km)?;
+        kw.set_item("d_ps_nm_km", f.d_ps_nm_km)?;
+        kw.set_item("gamma_w_km", f.gamma_w_km)?;
+        kw.set_item("span_km", f.span_km)?;
+        kw.set_item("n_spans", f.n_spans)?;
+        kw.set_item("fc_hz", f.fc_hz)?;
+        kw.set_item("nf_db", f.nf_db)?;
+        Ok(((), kw))
     }
 }
 
@@ -179,47 +179,44 @@ impl PyFiber {
 ///
 /// The spontaneous-emission factor is `n_sp = (G·NF - 1)/(2(G - 1))` and the ASE adds
 /// complex Gaussian noise of variance `(G - 1) n_sp h f_c f_s` per sample at the
-/// sampling rate `f_s` (OptiCommPy `edfa`).
+/// sampling rate `f_s` (OptiCommPy `edfa`). The defaults are those of OptiCommPy.
 ///
 /// Args:
 ///     gain_db (float): gain (dB, positive).
 ///     nf_db (float): noise figure (dB, at least 3 dB).
 ///     fc_hz (float): carrier frequency (Hz).
-#[pyclass(name = "Edfa", module = "comrs", get_all, set_all)]
+#[pyclass(name = "Edfa", module = "comrs")]
 #[derive(Clone)]
 pub struct PyEdfa {
-    /// float: Gain (dB) (read and write).
-    pub gain_db: f64,
-    /// float: Noise figure (dB) (read and write).
-    pub nf_db: f64,
-    /// float: Carrier frequency (Hz) (read and write).
-    pub fc_hz: f64,
+    inner: Edfa,
 }
 
-impl PyEdfa {
-    fn to_rust(&self) -> Edfa {
-        Edfa { gain_db: self.gain_db, nf_db: self.nf_db, fc_hz: self.fc_hz }
+wrapper_methods! {
+    PyEdfa {
+        /// float: Gain (dB) (read and write).
+        gain_db / set_gain_db: f64,
+        /// float: Noise figure (dB) (read and write).
+        nf_db / set_nf_db: f64,
+        /// float: Carrier frequency (Hz) (read and write).
+        fc_hz / set_fc_hz: f64,
     }
-}
 
-#[pymethods]
-impl PyEdfa {
     #[new]
-    #[pyo3(signature = (*, gain_db = 20.0, nf_db = 4.5, fc_hz = 193.1e12))]
+    #[pyo3(signature = (*, gain_db = Edfa::default().gain_db, nf_db = Edfa::default().nf_db, fc_hz = Edfa::default().fc_hz))]
     fn new(gain_db: f64, nf_db: f64, fc_hz: f64) -> Self {
-        PyEdfa { gain_db, nf_db, fc_hz }
+        PyEdfa { inner: Edfa { gain_db, nf_db, fc_hz } }
     }
 
     /// float: Spontaneous-emission factor `n_sp`.
     #[getter]
     fn n_sp(&self) -> f64 {
-        self.to_rust().n_sp()
+        self.inner.n_sp()
     }
 
     /// float: ASE power spectral density `(G - 1) n_sp h f_c` (W/Hz).
     #[getter]
     fn ase_psd(&self) -> f64 {
-        self.to_rust().ase_psd()
+        self.inner.ase_psd()
     }
 
     /// Variance of the ASE per sample.
@@ -230,7 +227,7 @@ impl PyEdfa {
     /// Returns:
     ///     float: the variance `E|w|²` (W).
     fn noise_variance(&self, fs: f64) -> f64 {
-        self.to_rust().noise_variance(fs)
+        self.inner.noise_variance(fs)
     }
 
     /// Amplify a field and add the ASE.
@@ -252,11 +249,20 @@ impl PyEdfa {
         fs: f64,
         mut rng: PyRefMut<'py, PyRng>,
     ) -> PyResult<CArr<'py>> {
-        Ok(carr(py, self.to_rust().apply(&cvec(x)?, fs, &mut rng.inner).py()?))
+        Ok(carr(py, self.inner.apply(&cvec(x)?, fs, &mut rng.inner).py()?))
     }
 
     fn __repr__(&self) -> String {
-        format!("comrs.Edfa(gain_db={}, nf_db={}, fc_hz={:e})", self.gain_db, self.nf_db, self.fc_hz)
+        let e = &self.inner;
+        format!("comrs.Edfa(gain_db={}, nf_db={}, fc_hz={:e})", e.gain_db, e.nf_db, e.fc_hz)
+    }
+
+    fn __getnewargs_ex__<'py>(&self, py: Python<'py>) -> PyResult<((), Bound<'py, PyDict>)> {
+        let kw = PyDict::new(py);
+        kw.set_item("gain_db", self.inner.gain_db)?;
+        kw.set_item("nf_db", self.inner.nf_db)?;
+        kw.set_item("fc_hz", self.inner.fc_hz)?;
+        Ok(((), kw))
     }
 }
 
@@ -271,6 +277,9 @@ impl PyEdfa {
 ///
 /// Returns:
 ///     numpy.ndarray: the field at the output (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn linear_fiber_channel<'py>(
     py: Python<'py>,
@@ -279,7 +288,7 @@ fn linear_fiber_channel<'py>(
     length_km: f64,
     fs: f64,
 ) -> PyResult<CArr<'py>> {
-    let (x, f) = (cvec(x)?, fiber.to_rust());
+    let (x, f) = (cvec(x)?, fiber.inner.clone());
     Ok(carr(py, py.detach(|| channels::linear_fiber_channel(&x, &f, length_km, fs))))
 }
 
@@ -296,9 +305,10 @@ pub(crate) fn raman(py: Python<'_>, v: Option<&Bound<'_, PyAny>>) -> PyResult<Op
 
 /// The symmetric split-step Fourier method of OptiCommPy (`ssfm`), one polarisation.
 ///
-/// Every span is cut into `⌊L_span/h⌋` steps; a step applies half of the linear
-/// operator (loss and dispersion) in the frequency domain, the nonlinear phase
-/// `γ|A|²h`, then the other half. After every span:
+/// Every span is cut into `n = ⌈L_span/h⌉` equal steps of `δ = L_span/n` (`h` itself
+/// when it divides the span); a step applies half of the linear operator (loss and
+/// dispersion) in the frequency domain, the nonlinear phase `γ|A|²δ`, then the other
+/// half. After every span:
 ///
 /// - `"edfa"`: an EDFA of gain `α L` and the noise figure of the fibre (ASE drawn from
 ///   `rng`, noiseless without one);
@@ -313,6 +323,9 @@ pub(crate) fn raman(py: Python<'_>, v: Option<&Bound<'_, PyAny>>) -> PyResult<Op
 ///         ``fiber.raman`` in a specification (see :func:`raman_profile`); the amplifier
 ///         after a span then restores every frequency to its launch power.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> link = comrs.Ssfm(comrs.FiberParams(n_spans=2), step_km=1.0, amplification="ideal")
@@ -326,6 +339,18 @@ pub struct PySsfm {
 
 #[pymethods]
 impl PySsfm {
+    fn __repr__(&self) -> String {
+        let s = &self.inner;
+        format!(
+            "Ssfm(n_spans={}, span_km={}, step_km={}, amplification='{}', raman={})",
+            s.fiber.n_spans,
+            s.fiber.span_km,
+            s.step_km,
+            format!("{:?}", s.amplification).to_lowercase(),
+            py_bool(s.raman.is_some())
+        )
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, step_km = 1.0, amplification = "edfa", raman = None))]
     fn new(
@@ -337,7 +362,7 @@ impl PySsfm {
     ) -> PyResult<Self> {
         Ok(PySsfm {
             inner: Ssfm {
-                fiber: fiber.to_rust(),
+                fiber: fiber.inner.clone(),
                 step_km,
                 amplification: amplification.parse::<Amplification>().py()?,
                 raman: self::raman(py, raman)?,
@@ -348,7 +373,7 @@ impl PySsfm {
     /// FiberParams: The link (a copy).
     #[getter]
     fn fiber(&self) -> PyFiber {
-        PyFiber::from_rust(&self.inner.fiber)
+        PyFiber { inner: self.inner.fiber.clone() }
     }
 
     /// float: The step size (km).
@@ -368,6 +393,9 @@ impl PySsfm {
     ///
     /// Returns:
     ///     numpy.ndarray: the field at the end of the link (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, fs, rng = None, *, precision = "f64"))]
     fn propagate<'py>(
         &self,
@@ -402,6 +430,9 @@ impl PySsfm {
     ///
     /// Returns:
     ///     numpy.ndarray: the back-propagated field (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
     fn backpropagate<'py>(
         &self,
@@ -430,6 +461,9 @@ impl PySsfm {
 ///     pmd_ps_sqrt_km (float): PMD coefficient (ps/√km); 0 for none.
 ///     sections_per_span (int): sections per span.
 ///     rng (Rng, optional): draws the PMD realisation (needed when the PMD is not 0).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "Manakov", module = "comrs")]
 pub struct PyManakov {
     inner: Manakov,
@@ -437,6 +471,10 @@ pub struct PyManakov {
 
 #[pymethods]
 impl PyManakov {
+    fn __repr__(&self) -> String {
+        format!("Manakov(n_spans={}, rms_dgd_s={:e})", self.inner.fiber.n_spans, self.inner.pmd.rms_dgd_s())
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, pmd_ps_sqrt_km = 0.0, sections_per_span = 10, rng = None))]
     fn new(
@@ -445,7 +483,7 @@ impl PyManakov {
         sections_per_span: usize,
         rng: Option<PyRefMut<'_, PyRng>>,
     ) -> PyResult<Self> {
-        let f = fiber.to_rust();
+        let f = fiber.inner.clone();
         let pmd = match (pmd_ps_sqrt_km, rng) {
             (0.0, _) => PmdLink::none(&f, sections_per_span).py()?,
             (p, Some(mut r)) => PmdLink::random(&f, p, sections_per_span, &mut r.inner).py()?,
@@ -470,6 +508,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the fields of the two polarisations.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, rng = None))]
     fn propagate<'py>(
         &self,
@@ -497,6 +538,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn backpropagate_with_pmd<'py>(
         &self,
         py: Python<'py>,
@@ -520,6 +564,9 @@ impl PyManakov {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two fields without the PMD.
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn equalize_pmd<'py>(
         &self,
         py: Python<'py>,
@@ -553,6 +600,9 @@ impl PyManakov {
 ///     amplification (str): ``"edfa"``, ``"ideal"`` or ``"none"``.
 ///     raman (dict, optional): Raman pumps and ISRS in every span (see
 ///         :func:`raman_profile`).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyclass(name = "ManakovSsfm", module = "comrs")]
 pub struct PyManakovSsfm {
     inner: ManakovSsfm,
@@ -560,9 +610,21 @@ pub struct PyManakovSsfm {
 
 #[pymethods]
 impl PyManakovSsfm {
+    fn __repr__(&self) -> String {
+        let m = &self.inner;
+        format!(
+            "ManakovSsfm(n_spans={}, rule={:?}, max_iterations={}, tolerance={:e}, amplification='{}')",
+            m.fiber.n_spans,
+            m.rule,
+            m.max_iterations,
+            m.tolerance,
+            format!("{:?}", m.amplification).to_lowercase()
+        )
+    }
+
     #[new]
     #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the settings of the solver, by keyword")]
     fn new(
         py: Python<'_>,
         fiber: &PyFiber,
@@ -576,7 +638,7 @@ impl PyManakovSsfm {
         let rule = step_km.map_or(StepRule::NonlinearPhase(max_nl_phase), StepRule::Fixed);
         Ok(PyManakovSsfm {
             inner: ManakovSsfm {
-                fiber: fiber.to_rust(),
+                fiber: fiber.inner.clone(),
                 rule,
                 max_iterations,
                 tolerance,
@@ -597,6 +659,9 @@ impl PyManakovSsfm {
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray, int]: the two fields and the number of
     ///     steps.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, rng = None))]
     fn propagate<'py>(
         &self,
@@ -628,6 +693,9 @@ impl PyManakovSsfm {
     ///
     /// Returns:
     ///     tuple[numpy.ndarray, numpy.ndarray]: the two back-propagated fields.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (x, y, fs, *, steps_per_span = 1, nonlinear_scale = 1.0))]
     fn backpropagate<'py>(
         &self,

@@ -3,7 +3,7 @@
 //! free-space optics, and the PIN-FET receiver of visible-light links.
 
 use crate::rng::PyRng;
-use crate::{FArr, IntoPy, farr, fvec, map_real};
+use crate::{FArr, IntoPy, count, farr, fvec, map_real};
 use comrs::channel::owc::atmospheric::{self as fso, GammaGamma, PointingError, Turbulence, Wave};
 use comrs::channel::owc::indoor::{
     self, Detector, Emitter, Illumination, ImpulseResponse, Reflectance, Resolution, Room,
@@ -64,6 +64,9 @@ fn emitters(
 ///
 /// Returns:
 ///     float: the mode.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn lambertian_mode(semi_angle_rad: f64) -> PyResult<f64> {
     indoor::lambertian_mode(semi_angle_rad).py()
@@ -101,6 +104,9 @@ fn owc_direction(py: Python<'_>, elevation_rad: f64, azimuth_rad: f64) -> FArr<'
 ///
 /// Returns:
 ///     float: the illuminance (lx).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn owc_illuminance(
     positions: &Bound<'_, PyAny>,
@@ -161,6 +167,9 @@ impl PyImpulseResponse {
     ///
     /// Returns:
     ///     numpy.ndarray: `H(f)` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn frequency_response<'py>(
         &self,
         py: Python<'py>,
@@ -220,6 +229,9 @@ impl PyImpulseResponse {
 ///     reflectance (float | dict): one reflectivity for every surface, or a dict of
 ///         `north`, `south`, `east`, `west`, `ceiling`, `floor` (missing ones: 0).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> room = comrs.OwcRoom([5.0, 5.0, 3.0], 0.8)
@@ -276,6 +288,9 @@ impl PyRoom {
     ///
     /// Returns:
     ///     OwcIllumination: the light on the elements.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (positions, directions, mode, power_w, *, bin_s, partitions))]
     #[allow(clippy::too_many_arguments, reason = "the emitters as arrays and the resolution")]
     fn illuminate(
@@ -289,9 +304,10 @@ impl PyRoom {
         partitions: Vec<[usize; 3]>,
     ) -> PyResult<PyIllumination> {
         let e = emitters(positions, directions, mode, power_w)?;
+        let (n_emitters, n_orders) = (e.len(), partitions.len());
         let room = self.inner;
         let inner = py.detach(|| room.illuminate(&e, &Resolution::new(bin_s, partitions))).py()?;
-        Ok(PyIllumination { inner })
+        Ok(PyIllumination { inner, n_emitters, n_orders })
     }
 
     fn __repr__(&self) -> String {
@@ -304,10 +320,17 @@ impl PyRoom {
 #[pyclass(name = "OwcIllumination", module = "comrs")]
 pub struct PyIllumination {
     inner: Illumination,
+    /// The number of emitters and of orders (partitions), for the `repr`.
+    n_emitters: usize,
+    n_orders: usize,
 }
 
 #[pymethods]
 impl PyIllumination {
+    fn __repr__(&self) -> String {
+        format!("OwcIllumination(emitters={}, orders={})", self.n_emitters, self.n_orders)
+    }
+
     /// The impulse responses at a detector: the line of sight, then each order of
     /// reflection, on the same bins.
     ///
@@ -322,6 +345,9 @@ impl PyIllumination {
     ///
     /// Returns:
     ///     list[OwcImpulseResponse]: one response per order, from the line of sight.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (position, direction, area_m2, fov_rad, *, filter_gain=1.0, concentrator_index=None))]
     fn impulse_responses(
         &self,
@@ -364,6 +390,9 @@ fn rytov_variance(cn2: f64, wavelength_m: f64, length_m: f64) -> f64 {
 ///
 /// Returns:
 ///     float: the attenuation (dB/km).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn fog_attenuation_db_per_km(visibility_km: f64, wavelength_nm: f64) -> PyResult<f64> {
     fso::attenuation_db_per_km(visibility_km, wavelength_nm).py()
@@ -375,6 +404,9 @@ fn fog_attenuation_db_per_km(visibility_km: f64, wavelength_nm: f64) -> PyResult
 /// Args:
 ///     alpha (float): the effective number of large-scale cells.
 ///     beta (float): the effective number of small-scale cells.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -389,11 +421,13 @@ pub struct PyGammaGamma {
 
 #[pymethods]
 impl PyGammaGamma {
+    fn __getnewargs__(&self) -> (f64, f64) {
+        (self.inner.alpha, self.inner.beta)
+    }
+
     #[new]
     fn new(alpha: f64, beta: f64) -> PyResult<Self> {
-        let inner = GammaGamma { alpha, beta };
-        fso::Fso { loss_db: 0.0, turbulence: Turbulence::GammaGamma(inner), pointing: None }.check().py()?;
-        Ok(PyGammaGamma { inner })
+        Ok(PyGammaGamma { inner: GammaGamma::new(alpha, beta).py()? })
     }
 
     /// The parameters predicted by the Rytov variance for a negligible inner scale.
@@ -404,15 +438,13 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     GammaGamma: the distribution.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     #[staticmethod]
     #[pyo3(signature = (rytov, wave="plane"))]
     fn from_rytov(rytov: f64, wave: &str) -> PyResult<Self> {
-        let wave = match wave {
-            "plane" => Wave::Plane,
-            "spherical" => Wave::Spherical,
-            _ => return Err(PyValueError::new_err(format!("wave must be 'plane' or 'spherical', got {wave:?}"))),
-        };
-        Ok(PyGammaGamma { inner: GammaGamma::from_rytov(rytov, wave).py()? })
+        Ok(PyGammaGamma { inner: GammaGamma::from_rytov(rytov, wave.parse::<Wave>().py()?).py()? })
     }
 
     /// float: `α`.
@@ -442,6 +474,9 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the density, of the shape of `i`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn pdf(&self, i: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(i, |x| Ok(self.inner.pdf(x)))
     }
@@ -454,8 +489,11 @@ impl PyGammaGamma {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> FArr<'py> {
-        farr(py, (0..n).map(|_| self.inner.draw(&mut rng.inner)).collect())
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
+    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 
     fn __repr__(&self) -> String {
@@ -470,6 +508,9 @@ impl PyGammaGamma {
 ///     beam_radius_m (float): the beam radius at the receiver (m).
 ///     aperture_radius_m (float): the radius of the aperture (m).
 ///     jitter_m (float): the standard deviation of the displacement per direction (m).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "PointingError", module = "comrs")]
 #[derive(Clone, Copy)]
 pub struct PyPointingError {
@@ -478,11 +519,21 @@ pub struct PyPointingError {
 
 #[pymethods]
 impl PyPointingError {
+    fn __repr__(&self) -> String {
+        let p = &self.inner;
+        format!(
+            "PointingError(beam_radius_m={}, aperture_radius_m={}, jitter_m={})",
+            p.beam_radius_m, p.aperture_radius_m, p.jitter_m
+        )
+    }
+
+    fn __getnewargs__(&self) -> (f64, f64, f64) {
+        (self.inner.beam_radius_m, self.inner.aperture_radius_m, self.inner.jitter_m)
+    }
+
     #[new]
     fn new(beam_radius_m: f64, aperture_radius_m: f64, jitter_m: f64) -> PyResult<Self> {
-        let inner = PointingError { beam_radius_m, aperture_radius_m, jitter_m };
-        fso::Fso { loss_db: 0.0, turbulence: Turbulence::None, pointing: Some(inner) }.check().py()?;
-        Ok(PyPointingError { inner })
+        Ok(PyPointingError { inner: PointingError::new(beam_radius_m, aperture_radius_m, jitter_m).py()? })
     }
 
     /// The fraction `A₀ = erf²(v)` collected without displacement.
@@ -508,6 +559,9 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the fraction, of the shape of `r_m`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn collected(&self, r_m: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(r_m, |x| Ok(self.inner.collected(x)))
     }
@@ -519,6 +573,9 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     float | numpy.ndarray: the density, of the shape of `h`.
+    ///
+    /// Raises:
+    ///     ValueError: for values that are not real numbers.
     fn pdf(&self, h: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         map_real(h, |x| Ok(self.inner.pdf(x)))
     }
@@ -531,8 +588,11 @@ impl PyPointingError {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> FArr<'py> {
-        farr(py, (0..n).map(|_| self.inner.draw(&mut rng.inner)).collect())
+    ///
+    /// Raises:
+    ///     ValueError: for a negative count.
+    fn draw<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(py, (0..count(n, "n")?).map(|_| self.inner.draw(&mut rng.inner)).collect()))
     }
 }
 
@@ -547,6 +607,9 @@ impl PyPointingError {
 ///         model.
 ///     pointing (PointingError | None): the pointing errors.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> link = comrs.Fso(3.0, turbulence=comrs.GammaGamma.from_rytov(1.0))
@@ -560,6 +623,11 @@ pub struct PyFso {
 
 #[pymethods]
 impl PyFso {
+    fn __repr__(&self) -> String {
+        let f = &self.inner;
+        format!("Fso(loss_db={}, turbulence={:?}, pointing={:?})", f.loss_db, f.turbulence, f.pointing)
+    }
+
     #[new]
     #[pyo3(signature = (loss_db=0.0, *, turbulence=None, scintillation_index=None, pointing=None))]
     fn new(
@@ -569,21 +637,14 @@ impl PyFso {
         pointing: Option<PyRef<'_, PyPointingError>>,
     ) -> PyResult<Self> {
         let turbulence = match turbulence {
-            None => Turbulence::None,
-            Some(t) => {
-                if let Ok(g) = t.cast::<PyGammaGamma>() {
-                    Turbulence::GammaGamma(g.borrow().inner)
-                } else {
-                    match t.extract::<String>()?.as_str() {
-                        "lognormal" => Turbulence::LogNormal {
-                            scintillation_index: scintillation_index
-                                .ok_or_else(|| PyValueError::new_err("lognormal needs scintillation_index"))?,
-                        },
-                        "negative-exponential" => Turbulence::NegativeExponential,
-                        other => return Err(PyValueError::new_err(format!("unknown turbulence {other:?}"))),
-                    }
+            Some(t) if t.is_instance_of::<PyGammaGamma>() => {
+                if scintillation_index.is_some() {
+                    return Err(PyValueError::new_err("scintillation_index is that of the log-normal model"));
                 }
+                Turbulence::GammaGamma(t.cast::<PyGammaGamma>()?.borrow().inner)
             }
+            Some(t) => Turbulence::from_name(&t.extract::<String>()?, scintillation_index).py()?,
+            None => Turbulence::from_name("none", scintillation_index).py()?,
         };
         let inner = fso::Fso { loss_db, turbulence, pointing: pointing.map(|p| p.inner) };
         inner.check().py()?;
@@ -606,8 +667,14 @@ impl PyFso {
     ///
     /// Returns:
     ///     numpy.ndarray: `(n,)` (float64).
-    fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: usize) -> PyResult<FArr<'py>> {
-        Ok(farr(py, (0..n).map(|_| self.inner.gain(&mut rng.inner)).collect::<comrs::Result<Vec<_>>>().py()?))
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
+    fn gains<'py>(&self, py: Python<'py>, mut rng: PyRefMut<'_, PyRng>, n: i64) -> PyResult<FArr<'py>> {
+        Ok(farr(
+            py,
+            (0..count(n, "n")?).map(|_| self.inner.gain(&mut rng.inner)).collect::<comrs::Result<Vec<_>>>().py()?,
+        ))
     }
 }
 
@@ -630,47 +697,34 @@ impl PyFso {
 ///     >>> rx = comrs.PinFetReceiver.komine2004()
 ///     >>> rx.responsivity
 ///     0.53
-#[pyclass(name = "PinFetReceiver", module = "comrs", get_all, set_all)]
+#[pyclass(name = "PinFetReceiver", module = "comrs")]
 #[derive(Clone)]
 pub struct PyPinFet {
-    /// float: Responsivity (A/W).
-    responsivity: f64,
-    /// float: Background current of the ambient light (A).
-    background_current_a: f64,
-    /// float: Open-loop voltage gain.
-    open_loop_gain: f64,
-    /// float: Fixed capacitance per unit area (F/m²).
-    capacitance_f_per_m2: f64,
-    /// float: FET channel noise factor.
-    channel_noise_factor: f64,
-    /// float: FET transconductance (S).
-    transconductance_s: f64,
-    /// float: Absolute temperature (K).
-    temperature_k: f64,
-    /// float: Noise bandwidth factor `I₂`.
-    i2: f64,
-    /// float: Noise bandwidth factor `I₃`.
-    i3: f64,
+    inner: PinFetReceiver,
 }
 
-impl PyPinFet {
-    fn to_rust(&self) -> PinFetReceiver {
-        PinFetReceiver {
-            responsivity: self.responsivity,
-            background_current_a: self.background_current_a,
-            open_loop_gain: self.open_loop_gain,
-            capacitance_f_per_m2: self.capacitance_f_per_m2,
-            channel_noise_factor: self.channel_noise_factor,
-            transconductance_s: self.transconductance_s,
-            temperature_k: self.temperature_k,
-            i2: self.i2,
-            i3: self.i3,
-        }
+wrapper_methods! {
+    PyPinFet {
+        /// float: Responsivity (A/W) (read and write).
+        responsivity / set_responsivity: f64,
+        /// float: Background current of the ambient light (A) (read and write).
+        background_current_a / set_background_current_a: f64,
+        /// float: Open-loop voltage gain (read and write).
+        open_loop_gain / set_open_loop_gain: f64,
+        /// float: Fixed capacitance per unit area (F/m²) (read and write).
+        capacitance_f_per_m2 / set_capacitance_f_per_m2: f64,
+        /// float: FET channel noise factor (read and write).
+        channel_noise_factor / set_channel_noise_factor: f64,
+        /// float: FET transconductance (S) (read and write).
+        transconductance_s / set_transconductance_s: f64,
+        /// float: Absolute temperature (K) (read and write).
+        temperature_k / set_temperature_k: f64,
+        /// float: Noise bandwidth factor `I₂` (read and write).
+        i2 / set_i2: f64,
+        /// float: Noise bandwidth factor `I₃` (read and write).
+        i3 / set_i3: f64,
     }
-}
 
-#[pymethods]
-impl PyPinFet {
     #[new]
     #[allow(clippy::too_many_arguments, reason = "one argument per field of the receiver")]
     fn new(
@@ -685,15 +739,17 @@ impl PyPinFet {
         i3: f64,
     ) -> Self {
         PyPinFet {
-            responsivity,
-            background_current_a,
-            open_loop_gain,
-            capacitance_f_per_m2,
-            channel_noise_factor,
-            transconductance_s,
-            temperature_k,
-            i2,
-            i3,
+            inner: PinFetReceiver {
+                responsivity,
+                background_current_a,
+                open_loop_gain,
+                capacitance_f_per_m2,
+                channel_noise_factor,
+                transconductance_s,
+                temperature_k,
+                i2,
+                i3,
+            },
         }
     }
 
@@ -703,18 +759,7 @@ impl PyPinFet {
     ///     PinFetReceiver: the receiver.
     #[staticmethod]
     fn komine2004() -> Self {
-        let r = PinFetReceiver::komine2004();
-        PyPinFet {
-            responsivity: r.responsivity,
-            background_current_a: r.background_current_a,
-            open_loop_gain: r.open_loop_gain,
-            capacitance_f_per_m2: r.capacitance_f_per_m2,
-            channel_noise_factor: r.channel_noise_factor,
-            transconductance_s: r.transconductance_s,
-            temperature_k: r.temperature_k,
-            i2: r.i2,
-            i3: r.i3,
-        }
+        PyPinFet { inner: PinFetReceiver::komine2004() }
     }
 
     /// The variance of the shot noise (A²) of the signal and of the ambient light.
@@ -727,7 +772,7 @@ impl PyPinFet {
     /// Returns:
     ///     float: the variance (A²).
     fn shot_variance(&self, signal_w: f64, isi_w: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().shot_variance(signal_w, isi_w, bandwidth_hz)
+        self.inner.shot_variance(signal_w, isi_w, bandwidth_hz)
     }
 
     /// The variance of the thermal noise (A²) of the feedback resistor and of the FET.
@@ -739,7 +784,7 @@ impl PyPinFet {
     /// Returns:
     ///     float: the variance (A²).
     fn thermal_variance(&self, area_m2: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().thermal_variance(area_m2, bandwidth_hz)
+        self.inner.thermal_variance(area_m2, bandwidth_hz)
     }
 
     /// The SNR (dB) of on–off keying with intersymbol interference (their eq. (16)).
@@ -753,7 +798,39 @@ impl PyPinFet {
     /// Returns:
     ///     float: the SNR (dB).
     fn ook_snr_db(&self, signal_w: f64, isi_w: f64, area_m2: f64, bandwidth_hz: f64) -> f64 {
-        self.to_rust().ook_snr_db(signal_w, isi_w, area_m2, bandwidth_hz)
+        self.inner.ook_snr_db(signal_w, isi_w, area_m2, bandwidth_hz)
+    }
+
+    fn __repr__(&self) -> String {
+        let r = &self.inner;
+        format!(
+            "comrs.PinFetReceiver({}, {:e}, {}, {:e}, {}, {}, {}, {}, {})",
+            r.responsivity,
+            r.background_current_a,
+            r.open_loop_gain,
+            r.capacitance_f_per_m2,
+            r.channel_noise_factor,
+            r.transconductance_s,
+            r.temperature_k,
+            r.i2,
+            r.i3
+        )
+    }
+
+    #[allow(clippy::type_complexity, reason = "the nine positional arguments of the constructor")]
+    fn __getnewargs__(&self) -> (f64, f64, f64, f64, f64, f64, f64, f64, f64) {
+        let r = &self.inner;
+        (
+            r.responsivity,
+            r.background_current_a,
+            r.open_loop_gain,
+            r.capacitance_f_per_m2,
+            r.channel_noise_factor,
+            r.transconductance_s,
+            r.temperature_k,
+            r.i2,
+            r.i3,
+        )
     }
 }
 

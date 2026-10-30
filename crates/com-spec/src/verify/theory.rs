@@ -52,7 +52,7 @@ fn d_m() -> usize {
     4
 }
 fn d_points() -> usize {
-    40
+    com_mapping::theory::DEFAULT_QUADRATURE_POINTS
 }
 fn d_one() -> usize {
     1

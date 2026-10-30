@@ -1,13 +1,9 @@
-//! Filtered multicarrier waveforms (FBMC/OQAM, UFMC) and Bussgang's decomposition of a
-//! memoryless amplifier driven by a Gaussian signal.
+//! Filtered multicarrier waveforms: FBMC/OQAM and UFMC.
 
 use crate::{CArr, FArr, IntoPy, carr, cvec, farr, fvec};
-use comrs::dsp::nonlinear;
-use comrs::hardware::amplifier::{Rapp, Saleh};
 use comrs::waveform::fbmc::{self, Fbmc};
 use comrs::waveform::ufmc::Ufmc;
 use num_complex::Complex64 as C64;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// FBMC/OQAM (staggered multitone) with the PHYDYAS prototype filter.
@@ -19,6 +15,9 @@ use pyo3::prelude::*;
 /// Args:
 ///     n_fft (int): the number of subcarriers `M`, even.
 ///     overlap (int): the overlapping factor `K` of the prototype (2, 3 or 4).
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -77,6 +76,9 @@ impl PyFbmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, a: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&fvec(a)?).py()?))
     }
@@ -89,6 +91,9 @@ impl PyFbmc {
     ///
     /// Returns:
     ///     numpy.ndarray: `y[n * M + m]` (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, r: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(r)?).py()?))
     }
@@ -122,6 +127,9 @@ impl PyFbmc {
 ///
 /// Returns:
 ///     numpy.ndarray: the real symbols (float64).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn oqam_stagger<'py>(py: Python<'py>, c: &Bound<'py, PyAny>, m: usize) -> PyResult<FArr<'py>> {
     Ok(farr(py, fbmc::oqam_stagger(&cvec(c)?, m).py()?))
@@ -135,6 +143,9 @@ fn oqam_stagger<'py>(py: Python<'py>, c: &Bound<'py, PyAny>, m: usize) -> PyResu
 ///
 /// Returns:
 ///     numpy.ndarray: the complex symbols (complex128).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 fn oqam_destagger<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, m: usize) -> PyResult<CArr<'py>> {
     Ok(carr(py, fbmc::oqam_destagger(&fvec(a)?, m).py()?))
@@ -151,6 +162,9 @@ fn oqam_destagger<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, m: usize) -> PyRe
 ///     filter_len (int): `L`.
 ///     sidelobe_db (float): attenuation of the sidelobes of the filter (dB).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> u = comrs.Ufmc(64, 4, 12, 16, sidelobe_db=40.0)
@@ -164,6 +178,10 @@ pub struct PyUfmc {
 
 #[pymethods]
 impl PyUfmc {
+    fn __repr__(&self) -> String {
+        format!("Ufmc(block_len={}, n_active={})", self.inner.block_len(), self.inner.n_active())
+    }
+
     #[new]
     #[pyo3(signature = (n_fft, n_subbands, subband_size, filter_len, *, sidelobe_db=40.0))]
     fn new(
@@ -195,6 +213,9 @@ impl PyUfmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the samples (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn modulate<'py>(&self, py: Python<'py>, data: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.modulate(&cvec(data)?).py()?))
     }
@@ -206,80 +227,19 @@ impl PyUfmc {
     ///
     /// Returns:
     ///     numpy.ndarray: the symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn demodulate<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
         Ok(carr(py, self.inner.demodulate(&cvec(samples)?).py()?))
     }
 }
 
-/// Bussgang's decomposition `y = K x + d` of a memoryless amplifier driven by a circular
-/// complex Gaussian signal: the complex gain and the power of the distortion.
-///
-/// Args:
-///     model (str): `"rapp"` (gain 1, `saturation`, `smoothness`) or
-///         `"saleh"` (`alpha_a`, `beta_a`, `alpha_p`, `beta_p`).
-///     power (float): the input power.
-///     saturation (float): Rapp's saturation amplitude.
-///     smoothness (float): Rapp's smoothness `p`.
-///     alpha_a (float): Saleh's AM/AM gain.
-///     beta_a (float): Saleh's AM/AM compression.
-///     alpha_p (float): Saleh's AM/PM gain (rad).
-///     beta_p (float): Saleh's AM/PM compression.
-///
-/// Returns:
-///     tuple[complex, float]: `K` and `σ_d²`.
-///
-/// Examples:
-///     >>> import comrs
-///     >>> k, d = comrs.amplifier_bussgang("saleh", 10 ** -0.4, alpha_p=3.141592653589793 / 6)
-///     >>> round(k.real, 4), round(k.imag, 4)
-///     (0.5917, 0.1106)
-#[pyfunction]
-#[pyo3(signature = (model, power, *, saturation=1.0, smoothness=1.0, alpha_a=1.0, beta_a=1.0, alpha_p=0.0, beta_p=1.0))]
-#[allow(clippy::too_many_arguments, reason = "the parameters of both amplifier models, by keyword")]
-fn amplifier_bussgang(
-    model: &str,
-    power: f64,
-    saturation: f64,
-    smoothness: f64,
-    alpha_a: f64,
-    beta_a: f64,
-    alpha_p: f64,
-    beta_p: f64,
-) -> PyResult<(C64, f64)> {
-    match model {
-        "rapp" => {
-            let a = Rapp { gain: 1.0, saturation, smoothness };
-            let b = nonlinear::bussgang(|r| C64::new(a.am_am(r), 0.0), power);
-            Ok((b.gain, b.distortion))
-        }
-        "saleh" => {
-            let a = Saleh { alpha_a, beta_a, alpha_p, beta_p };
-            let b = nonlinear::bussgang(|r| C64::from_polar(a.am_am(r), a.am_pm(r)), power);
-            Ok((b.gain, b.distortion))
-        }
-        other => Err(PyValueError::new_err(format!("unknown amplifier {other:?}: rapp, saleh"))),
-    }
-}
-
-/// The Dolph–Chebyshev window (as `scipy.signal.windows.chebwin`).
-///
-/// Args:
-///     n (int): length.
-///     attenuation_db (float): level of the sidelobes below the main lobe (dB).
-///
-/// Returns:
-///     numpy.ndarray: the window, maximum 1 (float64).
-#[pyfunction]
-fn chebyshev_window(py: Python<'_>, n: usize, attenuation_db: f64) -> FArr<'_> {
-    farr(py, comrs::dsp::window::chebyshev(n, attenuation_db))
-}
-
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyFbmc>()?;
     m.add_class::<PyUfmc>()?;
     m.add_function(wrap_pyfunction!(oqam_stagger, m)?)?;
     m.add_function(wrap_pyfunction!(oqam_destagger, m)?)?;
-    m.add_function(wrap_pyfunction!(amplifier_bussgang, m)?)?;
-    m.add_function(wrap_pyfunction!(chebyshev_window, m)?)?;
     Ok(())
 }

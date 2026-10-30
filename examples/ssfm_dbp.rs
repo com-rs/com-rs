@@ -63,7 +63,7 @@ impl Scenario for LongHaul {
         let fiber = FiberParams { n_spans: 10, ..FiberParams::default() };
         Ok(Link {
             constellation: Constellation::qam(16)?.normalized(),
-            rrc: filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.1 }, SPS, 4097),
+            rrc: filter::pulse_shape(filter::PulseShape::Rrc { rolloff: 0.1 }, SPS, 4097)?,
             ssfm: Ssfm::new(fiber, 1.0),
         })
     }

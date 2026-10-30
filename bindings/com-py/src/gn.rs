@@ -2,7 +2,7 @@
 //! the moments of a format, the Raman profiles of a span and the WDM grid.
 
 use crate::fiber::PyFiber;
-use crate::{FArr, IntoPy, farr, fvec, json};
+use crate::{FArr, IntoPy, count, farr, fvec, json};
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum, closed_form_nli_psd};
 use comrs::math::dbm2w;
 use numpy::IntoPyArray;
@@ -53,9 +53,12 @@ use pyo3::types::PyDict;
 ///     modulation (Constellation | str, optional): the modulation format of the EGN
 ///         model.
 ///     px (array_like, optional): the probabilities of its points.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, freqs, power_dbm, symbol_rate, *, rolloff = 0.1, channel = None, coherent = true, resolution_hz = None, raman = None, modulation = None, px = None))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the link, the grid and the options of the model, by keyword")]
 fn gn_model<'py>(
     py: Python<'py>,
     fiber: &PyFiber,
@@ -74,35 +77,20 @@ fn gn_model<'py>(
     let px = px.map(fvec).transpose()?;
     let n = freqs.len();
     let powers = powers_dbm(power_dbm, n)?;
-    let ch = channel.unwrap_or(n / 2);
     let egn = match modulation {
         None => None,
         Some(f) => Some(self::format_moments_of(py, f, px.as_deref())?),
     };
     let model =
-        GnModel { fiber: fiber.to_rust(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
-    let spec = WdmSpectrum {
-        freqs: freqs.clone(),
-        powers_w: powers.iter().map(|p| dbm2w(*p)).collect(),
-        symbol_rate,
-        rolloff,
-    };
-    let (nli, ase, snr, eta, p_opt) = py
-        .detach(|| -> comrs::core::Result<_> {
-            let nli = model.nli_psd(&spec, spec.freqs.get(ch).copied().unwrap_or(0.0))?;
-            let ase = model.ase_psd_channel(&spec, ch)?;
-            let snr = model.snr(&spec, ch)?;
-            let eta = model.eta(&freqs, symbol_rate, rolloff, ch)?;
-            let p_opt = model.optimal_power(&freqs, symbol_rate, rolloff, ch)?;
-            Ok((nli, ase, snr, eta, p_opt))
-        })
-        .py()?;
+        GnModel { fiber: fiber.inner.clone(), coherent, resolution_hz, raman: crate::fiber::raman(py, raman)?, egn };
+    let spec = WdmSpectrum { freqs, powers_w: powers.iter().map(|p| dbm2w(*p)).collect(), symbol_rate, rolloff };
+    let s = py.detach(|| model.summary(&spec, channel)).py()?;
     let d = PyDict::new(py);
-    d.set_item("nli_psd", nli)?;
-    d.set_item("ase_psd", ase)?;
-    d.set_item("snr_db", comrs::math::lin2db(snr))?;
-    d.set_item("eta", eta)?;
-    d.set_item("p_opt_dbm", comrs::math::w2dbm(p_opt))?;
+    d.set_item("nli_psd", s.nli_psd)?;
+    d.set_item("ase_psd", s.ase_psd)?;
+    d.set_item("snr_db", comrs::math::lin2db(s.snr))?;
+    d.set_item("eta", s.eta)?;
+    d.set_item("p_opt_dbm", comrs::math::w2dbm(s.optimal_power_w))?;
     Ok(d)
 }
 
@@ -140,6 +128,9 @@ fn format_moments_of(py: Python<'_>, f: &Bound<'_, PyAny>, px: Option<&[f64]>) -
 ///
 /// Returns:
 ///     tuple[float, float]: ``(Φ, Ψ)``.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs
@@ -182,6 +173,9 @@ fn format_moments(
 ///     channel), ``ase_psd`` (W/Hz, both polarisations, per channel at the end of the
 ///     span) and ``iterations``.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> p = comrs.raman_profile(comrs.FiberParams(span_km=100), [0.0], -10.0,
@@ -200,15 +194,13 @@ fn raman_profile<'py>(
     let n = freqs.len();
     let powers = powers_dbm(power_dbm, n)?;
     let r = crate::fiber::raman(py, Some(raman))?.ok_or_else(|| PyValueError::new_err("raman must be a mapping"))?;
-    let f = fiber.to_rust();
+    let f = fiber.inner.clone();
     let signals: Vec<(f64, f64)> = freqs.iter().zip(&powers).map(|(fr, p)| (f.fc_hz + fr, dbm2w(*p))).collect();
     let p = py.detach(|| r.solve(&f, &signals)).py()?;
     let d = PyDict::new(py);
-    let rows: Vec<Vec<f64>> =
-        p.log_power.iter().map(|l| l.iter().map(|v| 10.0 * std::f64::consts::LOG10_E * v + 30.0).collect()).collect();
-    let n_waves = rows.len();
+    let n_waves = p.log_power.len();
     let n_z = p.z_km.len();
-    let flat: Vec<f64> = rows.into_iter().flatten().collect();
+    let flat: Vec<f64> = (0..n_waves).flat_map(|k| p.power_dbm(k)).collect();
     d.set_item("z_km", farr(py, p.z_km.clone()))?;
     d.set_item("freqs_hz", farr(py, p.freqs_hz.clone()))?;
     d.set_item(
@@ -238,7 +230,7 @@ fn raman_profile<'py>(
 ///     float: the NLI power spectral density (W/Hz).
 #[pyfunction]
 fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing: f64, power_dbm: f64) -> f64 {
-    closed_form_nli_psd(&fiber.to_rust(), n_channels, symbol_rate, spacing, dbm2w(power_dbm))
+    closed_form_nli_psd(&fiber.inner, n_channels, symbol_rate, spacing, dbm2w(power_dbm))
 }
 
 /// The centre frequencies of ``n`` WDM channels, relative to the carrier: the grid of
@@ -251,13 +243,16 @@ fn gn_closed_form(fiber: &PyFiber, n_channels: usize, symbol_rate: f64, spacing:
 /// Returns:
 ///     numpy.ndarray: the ``n`` frequencies (Hz, float64).
 ///
+/// Raises:
+///     ValueError: for a negative count.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> comrs.wdm_grid(3, 50e9).tolist()
 ///     [-50000000000.0, 0.0, 50000000000.0]
 #[pyfunction]
-fn wdm_grid(py: Python<'_>, n: usize, spacing: f64) -> FArr<'_> {
-    farr(py, comrs::dsp::signal::wdm_grid(n, spacing))
+fn wdm_grid(py: Python<'_>, n: i64, spacing: f64) -> PyResult<FArr<'_>> {
+    Ok(farr(py, comrs::dsp::signal::wdm_grid(count(n, "n")?, spacing)))
 }
 
 /// Register the bindings of this module.

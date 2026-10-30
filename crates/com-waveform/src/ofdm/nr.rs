@@ -82,7 +82,7 @@
 
 use super::Ofdm;
 use super::grid::PilotTable;
-use com_core::{Result, ensure, ensure_shape};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_math::C64;
 use com_math::sequences::{gold_3gpp, lfsr};
 use std::f64::consts::FRAC_1_SQRT_2;
@@ -340,6 +340,25 @@ pub enum SsbElement {
     PbchDmrs,
 }
 
+impl std::str::FromStr for SsbElement {
+    type Err = Error;
+
+    /// `empty`, `pss`, `sss`, `pbch` or `pbch_dmrs` (case-insensitive).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<SsbElement> {
+        match s.to_ascii_lowercase().as_str() {
+            "empty" => Ok(SsbElement::Empty),
+            "pss" => Ok(SsbElement::Pss),
+            "sss" => Ok(SsbElement::Sss),
+            "pbch" => Ok(SsbElement::Pbch),
+            "pbch_dmrs" => Ok(SsbElement::PbchDmrs),
+            _ => Err(Error::Config(format!("unknown SSB element {s:?}: empty, pss, sss, pbch or pbch_dmrs"))),
+        }
+    }
+}
+
 /// What the subcarrier `k` (0 to 239) of the symbol `l` (0 to 3) of the SSB of the cell
 /// `n_cell_id` carries (see the module).
 pub fn ssb_element(n_cell_id: u32, k: usize, l: usize) -> SsbElement {
@@ -501,6 +520,15 @@ impl PdschDmrs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ssb_elements_are_read_by_name() {
+        for e in [SsbElement::Empty, SsbElement::Pss, SsbElement::Sss, SsbElement::Pbch, SsbElement::PbchDmrs] {
+            let name = format!("{e:?}").replace("PbchDmrs", "pbch_dmrs");
+            assert_eq!(name.parse::<SsbElement>().unwrap(), e);
+        }
+        assert!("dmrs".parse::<SsbElement>().is_err());
+    }
 
     #[test]
     fn the_numerologies_of_lin_et_al_and_of_lte() {

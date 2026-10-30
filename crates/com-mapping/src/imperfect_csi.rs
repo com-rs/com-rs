@@ -58,8 +58,40 @@
 //! 1. M.-X. Chang, Y. T. Su, "Performance analysis of equalized OFDM systems in Rayleigh
 //!    fading," *IEEE Trans. Wireless Commun.* 1(4), 721–732, 2002.
 
+use crate::constellation::{Constellation, ConstellationKind};
+use com_core::{Error, Result};
 use com_math::bessel_j0;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
+
+/// The BER of the constellation `c` equalised by an estimate of correlations
+/// $(\rho_{1}, \rho_{2})$ and of standard deviation ratio `sigma_ratio` at the mean SNR
+/// per bit `mean_ebn0_lin` (linear): [`ber_bpsk_imperfect_csi`] for BPSK,
+/// [`ber_qpsk_imperfect_csi`] for Gray QPSK (4-QAM or 4-PSK) and
+/// [`ber_16qam_imperfect_csi`] for Gray 16-QAM (`sigma_ratio` is used by 16-QAM only:
+/// the PSK decisions do not depend on $|\hat{H}|$).
+///
+/// # Errors
+/// [`Error::Config`] for another constellation.
+///
+/// # Examples
+/// ```
+/// use com_mapping::constellation::Constellation;
+/// use com_mapping::imperfect_csi::{ber_16qam_imperfect_csi, ber_imperfect_csi};
+/// let c = Constellation::from_name("16qam")?;
+/// assert_eq!(ber_imperfect_csi(&c, 1e5, 0.999, 0.0, 1.0)?, ber_16qam_imperfect_csi(1e5, 0.999, 0.0, 1.0));
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn ber_imperfect_csi(c: &Constellation, mean_ebn0_lin: f64, rho1: f64, rho2: f64, sigma_ratio: f64) -> Result<f64> {
+    match (c.kind(), c.order()) {
+        (ConstellationKind::Psk, 2) => Ok(ber_bpsk_imperfect_csi(mean_ebn0_lin, rho1, rho2)),
+        (ConstellationKind::Qam | ConstellationKind::Psk, 4) => Ok(ber_qpsk_imperfect_csi(mean_ebn0_lin, rho1, rho2)),
+        (ConstellationKind::Qam, 16) => Ok(ber_16qam_imperfect_csi(mean_ebn0_lin, rho1, rho2, sigma_ratio)),
+        (kind, m) => Err(Error::Config(format!(
+            "the BER with an imperfect estimate is for BPSK, QPSK and 16-QAM, got {m}-{}",
+            kind.name()
+        ))),
+    }
+}
 
 /// The BER of BPSK equalised by an estimate of correlations $(\rho_{1}, \rho_{2})$ at the
 /// mean SNR per bit `mean_ebn0_lin` (linear; Chang & Su eq. 31).
@@ -145,6 +177,17 @@ pub fn ber_dqpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> f64 {
 mod tests {
     use super::*;
     use crate::theory::ber_rayleigh_mrc;
+
+    #[test]
+    fn the_constellation_selects_the_closed_form() {
+        let (g, r1, r2) = (30.0, 0.98, 0.05);
+        let at = |name: &str| ber_imperfect_csi(&Constellation::from_name(name).unwrap(), g, r1, r2, 0.9);
+        assert_eq!(at("bpsk").unwrap(), ber_bpsk_imperfect_csi(g, r1, r2));
+        assert_eq!(at("QPSK").unwrap(), ber_qpsk_imperfect_csi(g, r1, r2));
+        assert_eq!(at("4psk").unwrap(), ber_qpsk_imperfect_csi(g, r1, r2));
+        assert_eq!(at("16-QAM").unwrap(), ber_16qam_imperfect_csi(g, r1, r2, 0.9));
+        assert!(at("8psk").is_err() && at("64qam").is_err());
+    }
 
     #[test]
     fn the_perfect_estimate_gives_the_known_results() {

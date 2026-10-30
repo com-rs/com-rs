@@ -33,6 +33,9 @@ fn profile(name: &str) -> PyResult<Profile> {
 ///     numpy.ndarray: the taps `(n_clusters, 2)`, column 0 the delays (s) and column 1
 ///     the powers (dB), as `power_delay_profile`.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> taps = comrs.cdl_profile("CDL-C", 100e-9)
@@ -58,6 +61,9 @@ fn cdl_profile<'py>(py: Python<'py>, name: &str, delay_spread_s: f64) -> PyResul
 ///
 /// Returns:
 ///     float | None: the K-factor (dB), `None` without line of sight.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -96,6 +102,9 @@ fn cdl_k_factor_db(name: &str) -> PyResult<Option<f64>> {
 ///     dual_polarized (bool): cross-polarised pairs (slants ±45°) instead of vertical
 ///         elements: the arrays then have `2 n_tx` and `2 n_rx` antennas.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> ch = comrs.CdlChannel("CDL-C", 100e-9, 30.72e6, n_rx=4, n_tx=2)
@@ -111,7 +120,7 @@ pub struct PyCdl {
 impl PyCdl {
     #[new]
     #[pyo3(signature = (profile, delay_spread_s, fs, *, n_rx=1, n_tx=1, spacing=0.5, velocity_mps=0.0, fc_hz=3.5e9, dual_polarized=false))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the profile, the arrays and the motion, by keyword")]
     fn new(
         profile: &str,
         delay_spread_s: f64,
@@ -180,6 +189,9 @@ impl PyCdl {
     ///     tuple[numpy.ndarray, ChannelTaps]: the received streams (`(n,)` for a SISO
     ///     channel given a 1-D input, `(n_rx, n)` otherwise) and the taps of the
     ///     realisation.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     fn fade(
         &self,
         py: Python<'_>,
@@ -200,6 +212,9 @@ impl PyCdl {
     ///
     /// Returns:
     ///     ChannelTaps: the taps, whose `coefficients()` give every link at every sample.
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     fn draw(&self, n: i64, mut rng: PyRefMut<'_, PyRng>) -> PyResult<PyTaps> {
         let taps = self.inner.draw(count(n, "n")?, &mut rng.inner).py()?;
         Ok(PyTaps::new(taps, self.inner.n_rx(), self.inner.n_tx()))

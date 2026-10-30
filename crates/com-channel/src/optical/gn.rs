@@ -253,6 +253,24 @@ pub struct GnModel {
     pub egn: Option<FormatMoments>,
 }
 
+/// The figures of one channel of a WDM link ([`GnModel::summary`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GnSummary {
+    /// The channel.
+    pub channel: usize,
+    /// The NLI power spectral density at its frequency ([`GnModel::nli_psd`], W/Hz).
+    pub nli_psd: f64,
+    /// The ASE power spectral density at its frequency ([`GnModel::ase_psd_channel`],
+    /// W/Hz).
+    pub ase_psd: f64,
+    /// Its SNR after a matched filter ([`GnModel::snr`], linear).
+    pub snr: f64,
+    /// The NLI coefficient for equal channel powers ([`GnModel::eta`], (W/Hz)/W³).
+    pub eta: f64,
+    /// The optimal launch power per channel ([`GnModel::optimal_power`], W).
+    pub optimal_power_w: f64,
+}
+
 /// Segments of the span on which the power profiles are integrated piecewise
 /// exponentially: exact for the loss alone, within 0.003 dB of a fine quadrature for a
 /// counter-pumped span.
@@ -473,6 +491,27 @@ impl GnModel {
         Ok(self.nli_psd(&s, freqs[ch])? / (p * p * p))
     }
 
+    /// The figures of channel `channel` of `spectrum` (the middle one, $\lfloor N/2
+    /// \rfloor$ of $N$, by default): its NLI and ASE spectral densities, its SNR, and the
+    /// NLI coefficient and the optimal power of the grid with equal powers.
+    ///
+    /// # Errors
+    /// As [`GnModel::snr`] and [`GnModel::optimal_power`].
+    pub fn summary(&self, spectrum: &WdmSpectrum, channel: Option<usize>) -> Result<GnSummary> {
+        let n = spectrum.freqs.len();
+        let ch = channel.unwrap_or(n / 2);
+        ensure(ch < n, || format!("no channel {ch}: the spectrum has {n} channels"))?;
+        let (freqs, rs, rolloff) = (&spectrum.freqs, spectrum.symbol_rate, spectrum.rolloff);
+        Ok(GnSummary {
+            channel: ch,
+            nli_psd: self.nli_psd(spectrum, freqs[ch])?,
+            ase_psd: self.ase_psd_channel(spectrum, ch)?,
+            snr: self.snr(spectrum, ch)?,
+            eta: self.eta(freqs, rs, rolloff, ch)?,
+            optimal_power_w: self.optimal_power(freqs, rs, rolloff, ch)?,
+        })
+    }
+
     /// The optimal launch power per channel $(G_{\mathrm{ASE}}/(2\eta))^{1/3}$ (W)
     /// (with [`GnModel::raman`], for the profiles of 1 mW per channel).
     ///
@@ -665,6 +704,20 @@ pub fn closed_form_nli_psd(
 mod tests {
     use super::*;
     use com_dsp::signal::wdm_grid;
+
+    #[test]
+    fn the_summary_gathers_the_figures_of_the_middle_channel() {
+        let model =
+            GnModel { resolution_hz: Some(1e9), ..GnModel::new(FiberParams { n_spans: 5, ..FiberParams::default() }) };
+        let s = WdmSpectrum::uniform(wdm_grid(5, 50e9), 1e-3, 32e9, 0.1);
+        let got = model.summary(&s, None).unwrap();
+        assert_eq!(got.channel, 2);
+        assert_eq!(got.nli_psd, model.nli_psd(&s, s.freqs[2]).unwrap());
+        assert_eq!(got.snr, model.snr(&s, 2).unwrap());
+        assert_eq!(got.optimal_power_w, model.optimal_power(&s.freqs, 32e9, 0.1, 2).unwrap());
+        assert_eq!(model.summary(&s, Some(0)).unwrap().ase_psd, model.ase_psd_channel(&s, 0).unwrap());
+        assert!(model.summary(&s, Some(5)).is_err());
+    }
 
     #[test]
     fn the_cell_average_of_the_phased_array_factor_is_exact() {

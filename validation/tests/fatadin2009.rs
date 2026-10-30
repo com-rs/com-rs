@@ -75,7 +75,7 @@ fn link_ber(alg: Option<Algorithm>, cd_ps_nm: f64, osnr_db: f64, n_sym: usize, r
     let fs = SYMBOL_RATE * sps as f64;
     let bits = random_bits(n_sym * 4, rng);
     let symbols = c.modulate(&bits).unwrap();
-    let rrc = pulse_shape(PulseShape::Rrc { rolloff: 1.0 }, sps, 32 * sps + 1);
+    let rrc = pulse_shape(PulseShape::Rrc { rolloff: 1.0 }, sps, 32 * sps + 1).unwrap();
     let tx = fir_filter(&rrc, &upsample(&symbols, sps));
     // a lossless fibre of 17 ps/(nm km): the dispersion D L of the abscissa of Fig. 3
     let fiber = FiberParams { alpha_db_km: 0.0, d_ps_nm_km: 17.0, ..FiberParams::default() };

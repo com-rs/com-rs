@@ -1,9 +1,8 @@
-//! OFDM, PAPR reduction, power amplifiers, digital predistortion and spectral metrics.
+//! OFDM, PAPR reduction and its theory, and the correction of the OFDM impairments (the
+//! amplifiers are in [`crate::amplifier`], the spectra in [`crate::spectrum`]).
 
 use crate::comm::PyConstellation;
-use crate::{CArr, FArr, IArr, IntoPy, carr, cvec, farr, fvec, iarr, map_real, uvec};
-use comrs::dsp::compensation::dpd::MemoryPolynomialDpd;
-use comrs::hardware::amplifier::{MemoryPolynomial, Rapp, Saleh};
+use crate::{CArr, FArr, IArr, IntoPy, carr, count, cvec, farr, fvec, iarr, map_real, uvec};
 use comrs::metrics::spectrum;
 use comrs::waveform::ofdm::correction;
 use comrs::waveform::ofdm::{NoReduction, Ofdm, PaprReduction};
@@ -29,6 +28,9 @@ use pyo3::types::PyDict;
 ///     n_cp (int): cyclic prefix, in Nyquist-rate samples.
 ///     dc_null (bool): leave the DC subcarrier empty.
 ///     dft_spread (bool): DFT-spread OFDM.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -152,6 +154,9 @@ impl PyOfdm {
     ///     numpy.ndarray | tuple[numpy.ndarray, numpy.ndarray]: the samples
     ///     (complex128); with a reduction technique, the samples and the side
     ///     information of every block (the SLM or PTS candidate, int64).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (data, reduction=None))]
     fn modulate(
         &self,
@@ -181,6 +186,9 @@ impl PyOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: the data symbols (complex128).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter or input (the message names it).
     #[pyo3(signature = (samples, reduction=None, *, side=None))]
     fn demodulate<'py>(
         &self,
@@ -206,6 +214,9 @@ impl PyOfdm {
     ///
     /// Returns:
     ///     numpy.ndarray: the PAPR of every block (dB).
+    ///
+    /// Raises:
+    ///     ValueError: for an input that is not an array of numbers of the expected shape.
     fn papr_db<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
         Ok(farr(py, self.inner.papr_db_per_block(&cvec(samples)?)))
     }
@@ -290,6 +301,9 @@ impl PyPaprReduction {
     ///
     /// Returns:
     ///     PaprReduction: the technique (its side information is the candidate).
+    ///
+    /// Raises:
+    ///     ValueError: for an invalid parameter (the message names it).
     ///
     /// Examples:
     ///     >>> import comrs
@@ -407,6 +421,9 @@ impl PyPaprReduction {
 ///
 /// Returns:
 ///     float | numpy.ndarray: the PAPR (dB), of `x` or of every block.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (x, *, block_len=None))]
 fn papr_db(py: Python<'_>, x: &Bound<'_, PyAny>, block_len: Option<usize>) -> PyResult<Py<PyAny>> {
@@ -426,6 +443,9 @@ fn papr_db(py: Python<'_>, x: &Bound<'_, PyAny>, block_len: Option<usize>) -> Py
 ///
 /// Returns:
 ///     numpy.ndarray: `P(X > t)` at every threshold (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py, PyAny>) -> PyResult<FArr<'py>> {
     Ok(farr(py, spectrum::ccdf(&fvec(values)?, &fvec(thresholds)?)))
@@ -445,6 +465,9 @@ fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py
 /// Returns:
 ///     float | numpy.ndarray: `P(PAPR > γ)` at every threshold.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> p = comrs.theory_papr_ccdf(256, [8.0, 10.0])
@@ -452,7 +475,8 @@ fn ccdf<'py>(py: Python<'py>, values: &Bound<'py, PyAny>, thresholds: &Bound<'py
 ///     True
 #[pyfunction]
 #[pyo3(signature = (n, papr_db, *, oversampled=true, candidates=1))]
-fn theory_papr_ccdf(n: usize, papr_db: &Bound<'_, PyAny>, oversampled: bool, candidates: usize) -> PyResult<Py<PyAny>> {
+fn theory_papr_ccdf(n: i64, papr_db: &Bound<'_, PyAny>, oversampled: bool, candidates: usize) -> PyResult<Py<PyAny>> {
+    let n = count(n, "n")?;
     map_real(papr_db, |t| {
         Ok(if oversampled { papr::ccdf_slm(n, candidates, t) } else { papr::ccdf_slm_nyquist(n, candidates, t) })
     })
@@ -466,6 +490,9 @@ fn theory_papr_ccdf(n: usize, papr_db: &Bound<'_, PyAny>, oversampled: bool, can
 ///
 /// Returns:
 ///     dict: ``gain`` (α), ``output_power``, ``distortion`` (σ_d²), ``sdr_db``.
+///
+/// Raises:
+///     ValueError: for an invalid parameter (the message names it).
 #[pyfunction]
 fn clipping_bussgang(py: Python<'_>, ratio_db: f64) -> PyResult<Bound<'_, PyDict>> {
     let b = comrs::dsp::nonlinear::clipping_bussgang(ratio_db);
@@ -475,242 +502,6 @@ fn clipping_bussgang(py: Python<'_>, ratio_db: f64) -> PyResult<Bound<'_, PyDict
     d.set_item("distortion", b.distortion)?;
     d.set_item("sdr_db", b.sdr_db(1.0))?;
     Ok(d)
-}
-
-/// Welch's power spectral density (periodic Hann window, 50 % overlap), centred.
-///
-/// Args:
-///     x (array_like): the signal.
-///     fs (float): sampling rate (Hz).
-///     nfft (int): length of a segment.
-///
-/// Returns:
-///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (Hz) and the density
-///     (power per Hz), which integrates to the average power.
-#[pyfunction]
-#[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
-fn psd<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
-    let v = cvec(x)?;
-    let (f, s) = py.detach(|| spectrum::psd(&v, fs, nfft)).py()?;
-    Ok((farr(py, f), farr(py, s)))
-}
-
-/// The averaged periodogram of non-overlapping segments of `nfft` samples (no window):
-/// with `nfft` the block length of a cyclic signal (OFDM without prefix), it has no
-/// leakage, and its out-of-band part is the regrowth of a nonlinearity.
-///
-/// Args:
-///     x (array_like): the signal.
-///     fs (float): sampling rate (Hz).
-///     nfft (int): length of a segment.
-///
-/// Returns:
-///     tuple[numpy.ndarray, numpy.ndarray]: the frequencies (Hz) and the density
-///     (power per Hz).
-#[pyfunction]
-#[pyo3(signature = (x, fs=1.0, *, nfft=1024))]
-fn periodogram<'py>(py: Python<'py>, x: &Bound<'py, PyAny>, fs: f64, nfft: usize) -> PyResult<(FArr<'py>, FArr<'py>)> {
-    let v = cvec(x)?;
-    let (f, s) = py.detach(|| spectrum::periodogram(&v, fs, nfft)).py()?;
-    Ok((farr(py, f), farr(py, s)))
-}
-
-/// The adjacent channel leakage ratio (dB) of a density (`psd` or `periodogram`): power
-/// in `[-B/2, B/2)` over the larger power of the channels of width `B` centred at
-/// `±offset`.
-///
-/// Args:
-///     freqs (array_like): the frequencies of the density (Hz).
-///     density (array_like): the density.
-///     bandwidth (float): the channel width `B` (Hz).
-///     offset (float): the offset of the adjacent channels (Hz).
-///
-/// Returns:
-///     float: the ACLR (dB).
-#[pyfunction]
-fn aclr_db(freqs: &Bound<'_, PyAny>, density: &Bound<'_, PyAny>, bandwidth: f64, offset: f64) -> PyResult<f64> {
-    spectrum::aclr_db(&fvec(freqs)?, &fvec(density)?, bandwidth, offset).py()
-}
-
-/// Rapp's solid-state amplifier: `A(r) = g r / (1 + (g r / A_sat)^(2p))^(1/(2p))`, no
-/// AM/PM (Rapp 1991).
-///
-/// Args:
-///     x (array_like): the input envelope.
-///     gain (float): the small-signal gain `g`.
-///     saturation (float): the saturation amplitude `A_sat`.
-///     smoothness (float): the smoothness `p`.
-///
-/// Returns:
-///     numpy.ndarray: the output (complex128).
-#[pyfunction]
-#[pyo3(signature = (x, *, gain=1.0, saturation=1.0, smoothness=2.0))]
-fn pa_rapp<'py>(
-    py: Python<'py>,
-    x: &Bound<'py, PyAny>,
-    gain: f64,
-    saturation: f64,
-    smoothness: f64,
-) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Rapp { gain, saturation, smoothness }.amplify(&cvec(x)?).py()?))
-}
-
-/// The static predistorter of Rapp's amplifier: the inverse AM/AM, up to `max_output`
-/// times the saturation (the cascade is then an ideal envelope limiter).
-///
-/// Args:
-///     x (array_like): the input envelope.
-///     gain (float): the small-signal gain of the amplifier.
-///     saturation (float): its saturation amplitude.
-///     smoothness (float): its smoothness.
-///     max_output (float): the largest output, relative to the saturation.
-///
-/// Returns:
-///     numpy.ndarray: the predistorted input (complex128).
-#[pyfunction]
-#[pyo3(signature = (x, *, gain=1.0, saturation=1.0, smoothness=2.0, max_output=0.99))]
-fn rapp_predistort<'py>(
-    py: Python<'py>,
-    x: &Bound<'py, PyAny>,
-    gain: f64,
-    saturation: f64,
-    smoothness: f64,
-    max_output: f64,
-) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Rapp { gain, saturation, smoothness }.predistort(&cvec(x)?, max_output).py()?))
-}
-
-/// Saleh's travelling-wave tube amplifier (AM/AM and AM/PM; Saleh 1981, default
-/// coefficients of his fit).
-///
-/// Args:
-///     x (array_like): the input envelope.
-///     alpha_a (float): AM/AM coefficient `α_a`.
-///     beta_a (float): AM/AM coefficient `β_a`.
-///     alpha_p (float): AM/PM coefficient `α_φ`.
-///     beta_p (float): AM/PM coefficient `β_φ`.
-///
-/// Returns:
-///     numpy.ndarray: the output (complex128).
-#[pyfunction]
-#[pyo3(signature = (x, *, alpha_a=2.1587, beta_a=1.1517, alpha_p=4.0033, beta_p=9.1040))]
-fn pa_saleh<'py>(
-    py: Python<'py>,
-    x: &Bound<'py, PyAny>,
-    alpha_a: f64,
-    beta_a: f64,
-    alpha_p: f64,
-    beta_p: f64,
-) -> PyResult<CArr<'py>> {
-    Ok(carr(py, Saleh { alpha_a, beta_a, alpha_p, beta_p }.amplify(&cvec(x)?).py()?))
-}
-
-/// The memory-polynomial amplifier of Ding et al. (2004): orders 1, 3, 5, memory 3.
-///
-/// Args:
-///     x (array_like): the input envelope.
-///
-/// Returns:
-///     numpy.ndarray: the output (complex128).
-#[pyfunction]
-fn pa_memory_polynomial<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-    Ok(carr(py, MemoryPolynomial::ding2004().amplify(&cvec(x)?)))
-}
-
-/// A memory-polynomial digital predistorter, trained by indirect learning (Eun & Powers
-/// 1997; Ding et al. 2004; Morgan et al. 2006).
-///
-/// Args:
-///     orders (list[int]): nonlinearity orders (odd: 1, 3, 5, …).
-///     memory (int): memory depth `M` (samples).
-///
-/// Examples:
-///     >>> import comrs, numpy as np
-///     >>> g = 1.0513 + 0.0904j                      # small-signal gain of the amplifier
-///     >>> x = 0.2 * comrs.Rng(1).complex_noise(20_000, 1.0)
-///     >>> dpd = comrs.MemoryPolynomialDpd([1, 3, 5], 3)
-///     >>> dpd.train_indirect(x, comrs.pa_memory_polynomial, gain=g, iterations=2)
-///     >>> nmse = lambda y: float(np.mean(np.abs(y / g - x) ** 2) / np.mean(np.abs(x) ** 2))
-///     >>> nmse(comrs.pa_memory_polynomial(dpd.apply(x))) < nmse(comrs.pa_memory_polynomial(x)) / 5
-///     True
-///
-/// The drive must stay where the amplifier is monotonic: beyond, the post-inverse that
-/// indirect learning fits has no meaning and the iterations diverge.
-#[pyclass(name = "MemoryPolynomialDpd", module = "comrs")]
-pub struct PyDpd {
-    inner: MemoryPolynomialDpd,
-}
-
-#[pymethods]
-impl PyDpd {
-    #[new]
-    #[pyo3(signature = (orders=vec![1, 3, 5], memory=3))]
-    fn new(orders: Vec<u32>, memory: usize) -> Self {
-        PyDpd { inner: MemoryPolynomialDpd::new(orders, memory) }
-    }
-
-    /// numpy.ndarray: The coefficients, order after order, tap after tap (complex128).
-    #[getter]
-    fn coefficients<'py>(&self, py: Python<'py>) -> CArr<'py> {
-        carr(py, self.inner.coefficients())
-    }
-
-    /// Predistort a block.
-    ///
-    /// Args:
-    ///     x (array_like): the input envelope.
-    ///
-    /// Returns:
-    ///     numpy.ndarray: the predistorted envelope (complex128).
-    fn apply<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<CArr<'py>> {
-        let v = cvec(x)?;
-        Ok(carr(py, py.detach(|| self.inner.apply(&v))))
-    }
-
-    /// Fit the polynomial mapping `x` to `y` by regularised least squares.
-    ///
-    /// Args:
-    ///     x (array_like): the input of the polynomial.
-    ///     y (array_like): the output it should give.
-    ///     regularization (float): the Tikhonov regularisation.
-    #[pyo3(signature = (x, y, *, regularization=1e-9))]
-    fn fit(&mut self, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, regularization: f64) -> PyResult<()> {
-        self.inner.fit(&cvec(x)?, &cvec(y)?, regularization).py()
-    }
-
-    /// Indirect learning against an amplifier.
-    ///
-    /// Args:
-    ///     x (array_like): the training signal.
-    ///     pa (callable): the amplifier, an array to an array.
-    ///     gain (complex): the target complex gain of the cascade.
-    ///     iterations (int): iterations of the indirect learning.
-    ///     regularization (float): the regularisation of every fit.
-    #[pyo3(signature = (x, pa, *, gain=C64::new(1.0, 0.0), iterations=3, regularization=1e-9))]
-    fn train_indirect(
-        &mut self,
-        py: Python<'_>,
-        x: &Bound<'_, PyAny>,
-        pa: &Bound<'_, PyAny>,
-        gain: C64,
-        iterations: usize,
-        regularization: f64,
-    ) -> PyResult<()> {
-        let x = cvec(x)?;
-        // the exception raised by `pa`, passed through the Rust error
-        let mut raised = None;
-        let amplify = |z: &[C64]| {
-            pa.call1((carr(py, z.to_vec()),)).and_then(|y| cvec(&y)).map_err(|e| {
-                raised = Some(e);
-                comrs::Error::Config("the amplifier raised an exception".into())
-            })
-        };
-        let r = self.inner.train_indirect(&x, amplify, gain, iterations, regularization);
-        match raised {
-            Some(e) => Err(e),
-            None => r.py(),
-        }
-    }
 }
 
 /// Pilot-based gain correction limited to `eps` (Cimini 1985, eq. (16)): `r / (max(|p|,
@@ -724,6 +515,9 @@ impl PyDpd {
 ///
 /// Returns:
 ///     numpy.ndarray: the corrected samples (complex128).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 #[pyfunction]
 fn gain_limited_correction<'py>(
     py: Python<'py>,
@@ -745,6 +539,9 @@ fn gain_limited_correction<'py>(
 /// Returns:
 ///     float | numpy.ndarray: the SDR (dB) at every SIR.
 ///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.sdr_gain_limited(25.0, -17.0), 1)
@@ -764,26 +561,22 @@ fn sdr_gain_limited(sir_db: &Bound<'_, PyAny>, eps_db: f64, rho: C64) -> PyResul
 ///
 /// Returns:
 ///     float | numpy.ndarray: the SDR (dB) at every SIR.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
 #[pyfunction]
 fn sdr_optimum_correction(sir_db: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     map_real(sir_db, |s| Ok(comrs::math::lin2db(correction::sdr_optimum(comrs::math::db2lin(s)))))
 }
 
+/// Register the bindings of this module.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyOfdm>()?;
     m.add_class::<PyPaprReduction>()?;
-    m.add_class::<PyDpd>()?;
     m.add_function(wrap_pyfunction!(papr_db, m)?)?;
     m.add_function(wrap_pyfunction!(ccdf, m)?)?;
     m.add_function(wrap_pyfunction!(theory_papr_ccdf, m)?)?;
     m.add_function(wrap_pyfunction!(clipping_bussgang, m)?)?;
-    m.add_function(wrap_pyfunction!(psd, m)?)?;
-    m.add_function(wrap_pyfunction!(periodogram, m)?)?;
-    m.add_function(wrap_pyfunction!(aclr_db, m)?)?;
-    m.add_function(wrap_pyfunction!(pa_rapp, m)?)?;
-    m.add_function(wrap_pyfunction!(rapp_predistort, m)?)?;
-    m.add_function(wrap_pyfunction!(pa_saleh, m)?)?;
-    m.add_function(wrap_pyfunction!(pa_memory_polynomial, m)?)?;
     m.add_function(wrap_pyfunction!(gain_limited_correction, m)?)?;
     m.add_function(wrap_pyfunction!(sdr_gain_limited, m)?)?;
     m.add_function(wrap_pyfunction!(sdr_optimum_correction, m)?)?;

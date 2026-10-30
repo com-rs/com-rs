@@ -90,7 +90,7 @@ fn carrier_bins() -> Vec<usize> {
 /// The per-subcarrier SDR of the theory (useful over distortion on every subcarrier).
 fn sdr_theory(gamma: f64) -> Vec<f64> {
     let c = output_series(limiter(gamma), 60);
-    let (u, d) = distortion_spectrum(&c, N_ON, N_FFT * OVERSAMPLING);
+    let (u, d) = distortion_spectrum(&c, N_ON, N_FFT * OVERSAMPLING).unwrap();
     carrier_bins().iter().map(|&k| u[k] / d[k]).collect()
 }
 

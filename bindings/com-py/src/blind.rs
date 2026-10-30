@@ -4,9 +4,8 @@
 use crate::comm::PyConstellation;
 use crate::{IntoPy, cvec, map_real};
 use comrs::dsp::cyclo;
-use comrs::metrics::blind::{self, Cumulants};
+use comrs::metrics::blind::{self, Classifier, Cumulants};
 use num_complex::Complex64 as C64;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -32,6 +31,9 @@ fn cumulant_dict<'py>(py: Python<'py>, c: &Cumulants) -> PyResult<Bound<'py, PyD
 ///     dict: ``c20``, ``c21``, ``c40``, ``c41``, ``c42``, ``c40_normalized``,
 ///     ``c42_normalized``.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> c = comrs.Constellation("qam", 4).normalized()
@@ -51,6 +53,9 @@ fn cumulants<'py>(py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<Bound<'py,
 ///
 /// Returns:
 ///     dict: as :func:`cumulants`.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -87,6 +92,9 @@ fn theory_cumulants<'py>(
 ///     dict: ``index`` (the decided candidate) and ``scores`` (one per candidate, the
 ///     largest wins).
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs, numpy as np
 ///     >>> rng = comrs.Rng(1)
@@ -105,15 +113,8 @@ fn classify_modulation<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let x = cvec(x)?;
     let cands: Vec<_> = candidates.iter().map(|c| c.inner.normalized()).collect();
-    let d = match method {
-        "ml" => py.detach(|| blind::classify_ml_blind(&x, &cands)).py()?,
-        "ml_known" => {
-            let n = noise_var.ok_or_else(|| PyValueError::new_err("ml_known needs noise_var"))?;
-            py.detach(|| blind::classify_ml(&x, &cands, n)).py()?
-        }
-        "cumulants" => blind::classify_cumulants(&x, &cands, noise_var).py()?,
-        other => return Err(PyValueError::new_err(format!("unknown method {other:?}: ml, ml_known or cumulants"))),
-    };
+    let classifier = Classifier::from_name(method, noise_var).py()?;
+    let d = py.detach(|| classifier.classify(&x, &cands)).py()?;
     let out = PyDict::new(py);
     out.set_item("index", d.index)?;
     out.set_item("scores", d.scores)?;
@@ -129,6 +130,9 @@ fn classify_modulation<'py>(
 ///
 /// Returns:
 ///     float: the SNR (dB); ``inf`` when the moments give no noise.
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs
@@ -156,6 +160,9 @@ fn snr_m2m4_db(x: &Bound<'_, PyAny>, constellation: &PyConstellation) -> PyResul
 /// Returns:
 ///     float | numpy.ndarray: the bound on ``E[(ρ̂ - ρ)²] / ρ²``.
 ///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
+///
 /// Examples:
 ///     >>> import comrs
 ///     >>> round(comrs.snr_crb_nmse(30.0, 64), 4)  # tends to 1/64
@@ -168,10 +175,7 @@ fn snr_crb_nmse(
     samples_per_symbol: usize,
     real: bool,
 ) -> PyResult<Py<PyAny>> {
-    if n_symbols == 0 || samples_per_symbol == 0 {
-        return Err(PyValueError::new_err("n_symbols and samples_per_symbol must be positive"));
-    }
-    map_real(snr_db, |s| Ok(blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real)))
+    map_real(snr_db, |s| blind::snr_crb_nmse(comrs::math::db2lin(s), n_symbols, samples_per_symbol, real).py())
 }
 
 /// The symbol rate of a linearly modulated signal from the strongest line of the
@@ -186,6 +190,9 @@ fn snr_crb_nmse(
 ///
 /// Returns:
 ///     float: the symbol rate (Hz).
+///
+/// Raises:
+///     ValueError: for an invalid parameter or input (the message names it).
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np
@@ -208,6 +215,9 @@ fn estimate_symbol_rate(x: &Bound<'_, PyAny>, fs: f64, f_min: f64, f_max: f64) -
 ///
 /// Returns:
 ///     complex: the cyclic autocorrelation.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
 ///
 /// Examples:
 ///     >>> import comrs, numpy as np

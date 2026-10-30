@@ -171,6 +171,77 @@ def test_every_public_routine_documents_its_arguments(name, obj):
             assert re.search(rf"^\s+{p} \(", doc, re.M), f"{name}: argument {p} is not documented"
 
 
+BINDINGS = pathlib.Path(__file__).parents[1] / "bindings" / "com-py" / "src"
+# the files of the runner and of the specifications are reviewed in their own batch
+RAISES_PENDING = {"sim.rs", "spec.rs"}
+
+
+def fallible_bindings(lines):
+    """The Python routines of a binding file that return ``PyResult``: ``(name, doc
+    lines)``, the doc of a fallible constructor being that of its class."""
+    region, pymethods, docs, doc, attrs, out = None, False, {}, [], [], []
+    i = 0
+    while i < len(lines):
+        line, s = lines[i], lines[i].strip()
+        if s.startswith("///"):
+            doc.append(line)
+            i += 1
+            continue
+        pymethods = pymethods or s in ("#[pymethods]", "#[pyo3::pymethods]")
+        if m := re.match(r"^impl (Py\w+) \{", line):
+            region, pymethods = (m.group(1) if pymethods else None), False
+        if line.startswith("wrapper_methods! {"):
+            region = lines[i + 1].split()[0]
+        if line.startswith("}"):
+            region = None
+        if (m := re.match(r"^pub struct (Py\w+)", line)) and doc:
+            docs[m.group(1)] = doc
+        if s.startswith("#["):
+            attrs.append(s)
+            depth = s.count("(") - s.count(")") + s.count("[") - s.count("]")
+            while depth > 0:
+                i += 1
+                depth += (
+                    lines[i].count("(")
+                    - lines[i].count(")")
+                    + lines[i].count("[")
+                    - lines[i].count("]")
+                )
+            i += 1
+            continue
+        seen, attrs = " ".join(attrs), []
+        if m := re.match(r"^(\s*)(?:pub(?:\(crate\))? )?fn (\w+)", line):
+            sig, k = line, i
+            while not sig.rstrip().endswith("{"):
+                k += 1
+                sig += lines[k]
+            exposed = "#[pyfunction]" in seen or (region is not None and len(m.group(1)) == 4)
+            skip = m.group(2).startswith("__") or "#[getter]" in seen or "#[setter]" in seen
+            if exposed and not skip and "->" in sig and "PyResult" in sig.split("->")[-1]:
+                if "#[new]" in seen:
+                    out.append((f"{region} (constructor)", docs.get(region, [])))
+                elif doc:
+                    out.append((m.group(2), doc))
+            doc, i = [], k + 1
+            continue
+        if s and not s.startswith("//"):
+            doc = []
+        i += 1
+    return out
+
+
+def test_every_fallible_binding_documents_its_exceptions():
+    files = sorted(p for p in BINDINGS.rglob("*.rs") if p.name not in RAISES_PENDING)
+    assert len(files) > 10
+    missing = [
+        f"{path.name}: {name}"
+        for path in files
+        for name, doc in fallible_bindings(path.read_text().split("\n"))
+        if not any(re.match(r"\s*///\s*Raises:", d) for d in doc)
+    ]
+    assert missing == [], f"no Raises: section in {missing}"
+
+
 def test_every_public_class_is_documented():
     for name in comrs.__all__:
         obj = getattr(comrs, name)
@@ -435,6 +506,57 @@ def test_invalid_parameters_raise_value_errors(match, call):
         call()
 
 
+def test_negative_counts_are_value_errors_and_wrong_types_type_errors():
+    rng = comrs.Rng(0)
+    for call in (
+        lambda: comrs.Scrambler(7).sequence(-1),
+        lambda: comrs.GammaGamma(2.0, 1.5).draw(rng, -1),
+        lambda: comrs.PointingError(0.1, 0.05, 0.02).draw(rng, -1),
+        lambda: comrs.Fso(1.0).gains(rng, -1),
+        lambda: comrs.Interleaver.random(-4),
+        lambda: comrs.wdm_grid(-3, 50e9),
+        lambda: comrs.chebyshev_window(-1, 40.0),
+        lambda: comrs.moving_average(np.ones(4), -2),
+    ):
+        with pytest.raises(ValueError, match="non-negative"):
+            call()
+    with pytest.raises(TypeError, match="puncturing pattern"):
+        comrs.ConvolutionalCode(100, puncture=3.5)
+    with pytest.raises(ValueError, match="puncturing pattern"):
+        comrs.ConvolutionalCode(100, puncture=[[1, -1]])
+    with pytest.raises(TypeError, match="qpp"):
+        comrs.TurboCode(40, qpp=1.5)
+    # a name is checked when it is assigned, not when it is used
+    pd = comrs.Photodiode()
+    with pytest.raises(ValueError, match="filter"):
+        pd.filter_kind = "gaus"
+    assert pd.filter_kind == "rect"
+
+
+def test_every_class_has_a_repr_and_the_values_pickle():
+    import copy
+    import pickle
+
+    classes = [getattr(_comrs, n) for n in dir(_comrs) if inspect.isclass(getattr(_comrs, n))]
+    assert [c.__name__ for c in classes if c.__repr__ is object.__repr__] == []
+    rng = comrs.Rng(3)
+    rng.uniform(2)
+    for clone in (pickle.loads(pickle.dumps(rng)), copy.deepcopy(rng), copy.copy(rng)):
+        assert np.array_equal(clone.uniform(4), copy.copy(rng).uniform(4))
+    values = (
+        comrs.FiberParams(n_spans=3, span_km=50.0),
+        comrs.Edfa(gain_db=15.0),
+        comrs.Photodiode(filter_kind="gauss", ideal=True),
+        comrs.PinFetReceiver.komine2004(),
+        comrs.GammaGamma(2.0, 1.5),
+        comrs.PointingError(0.1, 0.05, 0.02),
+    )
+    for v in values:
+        assert repr(pickle.loads(pickle.dumps(v))) == repr(v)
+    f = comrs.Frame()
+    assert repr(copy.copy(f)) == repr(f)
+
+
 def test_tuning_parameters_are_keyword_only():
     with pytest.raises(TypeError):
         comrs.pulse_shape("rrc", 4, 1025)
@@ -623,3 +745,23 @@ def test_conditions_keep_their_python_values():
         trial, [{"obj": marker}, {"obj": marker, "x": 2}], name="o", stop={"max_trials": 1}
     )
     assert res[0].condition["obj"] is marker and res[1].index == 1
+
+
+def test_the_tolerance_is_the_rule_of_comrs_verify():
+    t = comrs.Tolerance(factor=1.6)
+    assert t.accepts(0.30, 0.26) and not t.accepts(0.5, 0.26) and t.is_set
+    assert comrs.Tolerance(rtol=0.05).accepts([1.0, 2.05], [1.0, 2.0])
+    assert comrs.Tolerance(atol=0.1).accepts([1.05, 0.95], 1.0)
+    assert not comrs.Tolerance().is_set and not comrs.Tolerance().accepts(1.0, 1.0)
+    with pytest.raises(ValueError, match="expected values"):
+        comrs.Tolerance(atol=0.1).accepts([1.0, 2.0, 3.0], [1.0, 2.0])
+
+
+def test_the_continuous_time_pulses():
+    t = np.linspace(-8, 8, 4001)
+    h = comrs.rrc_taps(t, 0.3)
+    # unit energy, and the raised cosine is Nyquist
+    assert float(np.sum(h**2) * (t[1] - t[0])) == pytest.approx(1.0, abs=2e-3)
+    np.testing.assert_allclose(comrs.rc_taps(np.arange(1.0, 6.0), 0.25), 0.0, atol=1e-12)
+    # the period scales the time axis
+    np.testing.assert_allclose(comrs.rrc_taps(2 * t, 0.3, ts=2.0), h / 2.0)

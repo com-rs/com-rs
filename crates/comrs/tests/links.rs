@@ -98,7 +98,7 @@ fn llr_signs_are_the_hard_decisions() {
 fn gray_labels_differ_by_one_bit_between_neighbours() {
     for (c, d_min) in [(Constellation::qam(16).unwrap(), 2.0), (Constellation::pam(8).unwrap(), 2.0)] {
         let p = c.points();
-        let labels = gray_code(c.bits_per_symbol() as u32);
+        let labels = gray_code(c.bits_per_symbol() as u32).unwrap();
         assert_eq!(labels.len(), c.order());
         for i in 0..p.len() {
             for j in 0..i {

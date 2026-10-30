@@ -31,7 +31,7 @@ const SPS: usize = 16;
 /// Three RRC QPSK carriers, unit power, then scaled to the rms `rms`.
 fn three_carriers(n_sym: usize, rms: f64, rng: &mut Rng) -> Vec<C64> {
     let h: Vec<C64> =
-        pulse_shape(PulseShape::Rrc { rolloff: 0.22 }, SPS, SPS * 40 + 1).into_iter().map(C64::from).collect();
+        pulse_shape(PulseShape::Rrc { rolloff: 0.22 }, SPS, SPS * 40 + 1).unwrap().into_iter().map(C64::from).collect();
     let spacing = 5.0 / 3.84 / SPS as f64;
     let qpsk = Constellation::psk(4).unwrap().normalized();
     let mut x = vec![C64::new(0.0, 0.0); n_sym * SPS];

@@ -113,9 +113,17 @@ impl ConstellationKind {
     }
 }
 
+/// The largest number of bits of [`gray_code`] (16 777 216 code words; the $2^{n}$ words
+/// are allocated at once).
+pub const MAX_GRAY_BITS: u32 = 24;
+
 /// The Gray code of every `n`-bit integer: `code[i] = i ⊕ (i >> 1)` ([`com_math::gray`]).
-pub fn gray_code(n_bits: u32) -> Vec<usize> {
-    (0..1usize << n_bits).map(gray).collect()
+///
+/// # Errors
+/// [`Error::Config`] for more than [`MAX_GRAY_BITS`] bits.
+pub fn gray_code(n_bits: u32) -> Result<Vec<usize>> {
+    ensure(n_bits <= MAX_GRAY_BITS, || format!("n_bits must be at most {MAX_GRAY_BITS}, got {n_bits}"))?;
+    Ok((0..1usize << n_bits).map(gray).collect())
 }
 
 /// The bits of every index, `bits_per_symbol` bits each, most significant bit first

@@ -156,6 +156,11 @@ pub struct MemoryPolynomialDpd {
 }
 
 impl MemoryPolynomialDpd {
+    /// The orders of the predistorter of Ding et al. (2004): 1, 3 and 5.
+    pub const DEFAULT_ORDERS: [u32; 3] = [1, 3, 5];
+    /// The memory depth of the predistorter of Ding et al. (2004): 3 samples.
+    pub const DEFAULT_MEMORY: usize = 3;
+
     /// The identity predistorter with the given orders and memory (a memory of 0 is 1).
     pub fn new(orders: Vec<u32>, memory: usize) -> MemoryPolynomialDpd {
         let memory = memory.max(1);
@@ -273,6 +278,15 @@ impl MemoryPolynomialDpd {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn the_default_predistorter_is_the_identity_of_ding_2004() {
+        let d =
+            MemoryPolynomialDpd::new(MemoryPolynomialDpd::DEFAULT_ORDERS.to_vec(), MemoryPolynomialDpd::DEFAULT_MEMORY);
+        assert_eq!((d.orders(), d.memory(), d.coefficients().len()), (vec![1, 3, 5], 3, 9));
+        let x = [C64::new(0.3, -0.1), C64::new(0.2, 0.4)];
+        assert_eq!(d.apply(&x), x.to_vec());
+    }
 
     #[test]
     fn the_fit_recovers_a_memory_polynomial() {

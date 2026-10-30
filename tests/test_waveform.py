@@ -352,7 +352,10 @@ def test_information_rates_over_fading():
     rayleigh = comrs.theory_mi(16, 10.0, fading="rayleigh")
     assert rayleigh < awgn
     gray = comrs.Constellation("qam", 16)
-    assert comrs.cm_capacity(gray, 10.0, "rayleigh") == pytest.approx(
+    # one kernel, one default quadrature: the capacity of a constellation object is
+    # theory_mi of its family
+    assert comrs.cm_capacity(gray, 10.0, "rayleigh") == pytest.approx(rayleigh, abs=1e-12)
+    assert comrs.cm_capacity(gray, 10.0, "rayleigh", points=16) == pytest.approx(
         comrs.theory_mi(16, 10.0, fading="rayleigh", points=16), abs=1e-9
     )
     assert comrs.theory_gmi(16, 10.0, fading="rayleigh") <= rayleigh + 1e-9

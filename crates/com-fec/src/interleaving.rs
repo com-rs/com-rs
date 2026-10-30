@@ -20,7 +20,7 @@
 //!    polynomials over integer rings," *IEEE Trans. Inf. Theory*, 51(1), 101–119, 2005.
 
 use com_core::rng::Rng;
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
 
 /// A permutation of the positions of a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +54,24 @@ impl Interleaver {
             seen[p] = true;
         }
         Ok(Interleaver { perm })
+    }
+
+    /// The interleaver of a standard by name, for blocks of `k` bits: `lte`, the QPP
+    /// interleaver of the LTE turbo code ([`crate::turbo::lte_qpp`], TS 36.212,
+    /// Table 5.1.3-3), case-insensitive.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for another name, or a size `k` outside the table.
+    pub fn from_name(name: &str, k: usize) -> Result<Interleaver> {
+        match name.to_ascii_lowercase().as_str() {
+            "lte" => {
+                let (f1, f2) = crate::turbo::lte_qpp(k).ok_or_else(|| {
+                    Error::Config(format!("K = {k} is not a block size of LTE (TS 36.212, Table 5.1.3-3)"))
+                })?;
+                Interleaver::qpp(k, f1, f2)
+            }
+            _ => Err(Error::Config(format!("unknown interleaver {name:?}: lte"))),
+        }
     }
 
     /// Length of the block.
@@ -90,6 +108,13 @@ impl Interleaver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lte_interleaver_is_read_by_name() {
+        assert_eq!(Interleaver::from_name("LTE", 40).unwrap(), Interleaver::qpp(40, 3, 10).unwrap());
+        assert!(Interleaver::from_name("lte", 41).is_err());
+        assert!(Interleaver::from_name("umts", 40).is_err());
+    }
 
     #[test]
     fn permutations_invert() {

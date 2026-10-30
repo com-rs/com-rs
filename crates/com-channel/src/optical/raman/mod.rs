@@ -212,6 +212,11 @@ impl RamanProfile {
         self.log_power[k].iter().map(|l| l.exp()).collect()
     }
 
+    /// The power of wave `k` along the span (dBm).
+    pub fn power_dbm(&self, k: usize) -> Vec<f64> {
+        self.log_power[k].iter().map(|l| 10.0 * std::f64::consts::LOG10_E * l + 30.0).collect()
+    }
+
     /// The net gain of signal `k` over the span, $P(L)/P(0)$ (dB).
     pub fn net_gain_db(&self, k: usize) -> f64 {
         let l = &self.log_power[k];
@@ -413,6 +418,9 @@ mod tests {
             assert!(p.on_off_gain_db(k).abs() < 1e-9);
         }
         assert_eq!(p.ase_psd, vec![0.0, 0.0]);
+        // 1 mW and 2 mW at the start of the span, 16 dB less at its end
+        let dbm = p.power_dbm(1);
+        assert!((dbm[0] - 10.0 * 2f64.log10()).abs() < 1e-12 && (dbm[0] - dbm[dbm.len() - 1] - 16.0).abs() < 1e-9);
     }
 
     #[test]
