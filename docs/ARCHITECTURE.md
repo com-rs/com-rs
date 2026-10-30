@@ -219,7 +219,7 @@ The following cases are settled. Treat them as precedent.
 | The bits a rate matching sends (puncturing, circular buffers) | `com_fec::puncture::BitSelection` | `select` on the encoder side, `accumulate_into` (LLRs summed over the copies) on the decoder side |
 | Maximum Doppler shift of a speed | `com_channel::multipath::max_doppler_hz` | A property of the medium, used by the CDL channel and the tests |
 | Spherical angles to a direction | `com_math::geometry::from_spherical` | No communication meaning; shared by the CDL arrays and the indoor optical channel |
-| The loop over the spans of an optical link (amplifiers, Raman) | `com_channel::optical::fiber::amplified_spans` (crate-private) | One loop for `Ssfm`, `ManakovSsfm` and `pmd::Manakov` |
+| The loop over the spans of an optical link (amplifiers, Raman) | `com_channel::optical::fiber::amplified_spans` (crate-private) | One loop for `Ssfm`, `ManakovSsfm` and `pmd::ManakovPmd` |
 
 ## Naming conventions
 
@@ -570,7 +570,7 @@ description, `# Model`, `# Errors`, `# Panics`, `# Examples`, `# References`.
 ///
 /// # Errors
 ///
-/// [`Propagate::propagate_into`] returns [`Error::Config`] if `x` has no samples.
+/// [`Propagate::propagate_into`] returns [`Error::Shape`] if `x` has no samples.
 ///
 /// # Examples
 ///
@@ -582,7 +582,7 @@ description, `# Model`, `# Errors`, `# Panics`, `# Examples`, `# References`.
 /// let mut ch = Awgn::new(EsN0(Db(10.0)));
 /// let x = Signal::from_stream(vec![C64::new(1.0, 0.0); 1024], Hertz(1.0))?;
 /// let y = ch.propagate(&x, &mut rng)?;
-/// assert_eq!(y.n_samples(), 1024);
+/// assert_eq!(y.len(), 1024);
 /// # Ok::<(), com_core::Error>(())
 /// ```
 ///

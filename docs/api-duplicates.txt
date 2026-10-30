@@ -16,11 +16,12 @@ bind
 bit_map
 bits
 bits_per_symbol
+block  # Interleaver::block (the row-column interleaver) / PilotPattern::block (the pilot pattern of whole symbols)
 block_len
 bussgang
 check
-coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 code
+coefficients  # getters of different objects: the taps of a predistorter, the arm coefficients of a Mach-Zehnder modulator
 conditions
 config
 constellation
@@ -28,8 +29,8 @@ dbp
 decode
 decoder_mut
 delays
+demap_bits
 demodulate
-demodulate_with
 describe
 detect
 draw
@@ -55,6 +56,8 @@ list
 llr
 load
 m
+map_bits
+max_doppler_hz  # Cdl::max_doppler_hz calls the kernel com_channel::multipath::max_doppler_hz
 mean
 merge
 modulate
@@ -94,6 +97,7 @@ run
 run_dual
 sample_rate
 ser
+ser_esn0  # com_mapping::theory (a constellation) / ce_ofdm::theory (the waveform at the SNR of its linear regime, on the former)
 set_streams
 snr
 stream
