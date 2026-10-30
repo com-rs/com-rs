@@ -49,6 +49,8 @@ Run `just check`: the checks of CI, in its order.
 - `python tools/maturity_table.py --check` (docs/MATURITY.md and the maturity tables of
   README.md and docs/python/maturity.rst are generated from `validation/maturity.yaml`,
   and every test it cites exists)
+- `python tools/cards.py --check` (every validation card of `validation/cards/` points at
+  an existing runner, literature entry and theme folder; `just card <id>` reruns one)
 - `python tools/gen_stubs.py --check` (the type stubs `python/comrs/_comrs.pyi` match the
   extension) and `python tools/gen_blocks.py --check` (`python/comrs/blocks.py`, the classes of the
   declarative blocks, matches the registry)

@@ -1,0 +1,17 @@
+id: hager2021_fig5
+title: Effective SNR of linear equalisation and DBP over 25 x 80 km
+literature: hager2021
+source:
+  kind: paper
+  reference: "C. Häger, H. D. Pfister, Physics-based deep learning for fiber-optic communication systems, IEEE J. Sel. Areas Commun. 39(1), 2021 (arXiv:2010.14258)"
+  locator: "Fig. 5, linear equalisation and DBP with one step per span, digitised from the vector paths"
+description: >
+  25 x 80 km of standard fibre at 10.7 GBd with Gaussian symbols, split step at 6 samples
+  per symbol, receivers at 2: linear equalisation and frequency-domain DBP with one step
+  per span against the launch power. The chain, the curves and their tolerances are in
+  the specification.
+run:
+  spec: specs/validation/hager2021_fig5.yaml
+tier: ci
+findings:
+  - "this comparison found that the DBP with coarse steps applied the nonlinear phase over the step length instead of the effective length (fixed in Ssfm::backpropagate)"

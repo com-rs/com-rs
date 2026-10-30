@@ -39,12 +39,18 @@ check:
     python3 tools/api_index.py --check
     python tools/literature_table.py --check
     python tools/maturity_table.py --check
+    python tools/cards.py --check
     python tools/gen_stubs.py --check
     python tools/gen_blocks.py --check
 
 # Licences and advisories of the dependencies (needs cargo-deny)
 deny:
     cargo deny check
+
+# Rerun the comparison of one validation card (validation/cards/<id>.yaml): its Python
+# function, Rust test or specification
+card id:
+    python tools/cards.py run {{id}}
 
 # Regenerate docs/API.md, the index of every public item (read it before adding one)
 api-index:

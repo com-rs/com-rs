@@ -43,6 +43,7 @@ expect:
       x: [-12, -11, -10, -9, -8, -7, -6, -5, -4, -3]
       y: [14.56, 15.46, 16.31, 17.00, 17.40, 17.44, 16.96, 16.00, 14.50, 12.81]
     atol: 0.3
+    why: "the figure is digitised to about 0.05 dB; 0.3 dB covers the realisation of one figure point (one block of 4096 symbols in the paper) and the small differences of the amplifier and step models"
   - name: DBP, 1 step per span
     source: Häger & Pfister, IEEE JSAC 39(1), 2021, Fig. 5 (digitised)
     where: {receiver: dbp1}
@@ -52,3 +53,4 @@ expect:
       x: [-12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2]
       y: [14.65, 15.65, 16.65, 17.65, 18.64, 19.61, 20.60, 21.56, 22.51, 23.41, 24.25, 24.93, 25.35, 25.13, 23.56]
     atol: 0.3
+    why: "the figure is digitised to about 0.05 dB; 0.3 dB covers the realisation of one figure point (one block of 4096 symbols in the paper) and the small differences of the amplifier and step models"

@@ -18,6 +18,9 @@
 //! and a point passes when it lies within three standard errors of theory
 //! ([`within_three_sigma`]).
 
+#[cfg(feature = "spec")]
+pub mod card;
+
 /// Errors to collect at every simulated point.
 pub const MIN_ERRORS: u64 = 100;
 

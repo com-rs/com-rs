@@ -5,21 +5,17 @@
 //! filter of $L = 16$ taps and 120 dB of attenuation (Sec. IV), against the same block in
 //! OFDM without prefix. The spectra are averaged over 2000 symbols, with a resolution of
 //! 1/16 subcarrier, normalised to the band, and their envelope is read past the last
-//! subcarrier:
-//!
-//! - OFDM stays near −26 dB 20 subcarriers away and −30 dB at 40 and beyond, as on the
-//!   figure (here −26.3, −30.3; within 2 dB);
-//! - UFMC reaches −60 dB 17 to 18 subcarriers away on the figure, here 19 (between 17 and
-//!   20 checked), and lies more than 35 dB below OFDM 20 subcarriers away;
-//! - between, the skirt of UFMC is 5 to 7 dB above the figure (−33.7 dB against about
-//!   −40 at 10 subcarriers): the figure shows one realisation, and the filter it used is
-//!   not given beyond its length and attenuation.
+//! subcarrier. The test measures; the values read on the figure, their tolerances and the
+//! difference found (the skirt of UFMC 5 to 7 dB above the figure) are in the card
+//! `validation/cards/vakilian2013_fig3b.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use comrs::math::fft::fft;
 use comrs::prelude::*;
 use comrs::waveform::ofdm::Ofdm;
 use comrs::waveform::ufmc::Ufmc;
+use serde_json::json;
 
 const N: usize = 128;
 const Q: usize = 12;
@@ -57,12 +53,22 @@ fn envelope(sp: &[(f64, f64)], d: f64) -> f64 {
 #[test]
 fn vakilian_2013_fig_3b() {
     let mut rng = Rng::new(2013);
+    let mut card = Card::load("vakilian2013_fig3b").unwrap();
     let ufmc = Ufmc::new(N, 1, Q, 16, 120.0).unwrap();
     let ofdm = Ofdm { oversampling: 1, n_cp: 0, ..Ofdm::new(N, Q).unwrap() };
     let u = spectrum(|d| ufmc.modulate(d).unwrap(), &mut rng);
     let o = spectrum(|d| ofdm.modulate(d).unwrap(), &mut rng);
-    assert!((envelope(&o, 20.0) + 26.0).abs() < 2.0 && (envelope(&o, 40.0) + 30.0).abs() < 2.0);
+    for d in [20, 40] {
+        card.check(
+            &json!({"waveform": "ofdm", "metric": "envelope_db", "subcarriers_away": d}),
+            envelope(&o, f64::from(d)),
+        );
+    }
     let first_below = (1..40).find(|d| envelope(&u, f64::from(*d)) < -60.0).unwrap();
-    assert!((17..=20).contains(&first_below), "UFMC below -60 dB from {first_below} subcarriers");
-    assert!(envelope(&u, 20.0) < envelope(&o, 20.0) - 35.0);
+    card.check(&json!({"waveform": "ufmc", "metric": "first_below_minus_60_db"}), f64::from(first_below));
+    card.check(
+        &json!({"waveform": "ufmc", "metric": "below_ofdm_db", "subcarriers_away": 20}),
+        envelope(&o, 20.0) - envelope(&u, 20.0),
+    );
+    card.finish().unwrap();
 }

@@ -1,7 +1,11 @@
-"""The validation cards of ``validation/cards/``: one test per case of every card.
+"""The validation cards of ``validation/cards/``: their schema, and one test per case of
+every card whose runner is a Python function.
 
-A card states the function under test, its inputs, the expected outputs with their
-tolerance and the exact source of the expectation (see ``validation/cards/README.md``).
+A card states what is compared with which source (a paper with its figure or table, a
+standard, a tool), the expected outputs with their tolerance and the reason for it, and
+how the measured values are produced: a function of ``comrs`` (run here), a Rust test of
+``validation/tests/`` or a specification of ``specs/validation/`` (run by
+``tools/cards.py run <id>``; see ``validation/cards/README.md``).
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ def expected_value(value: Any) -> Any:
 CASES = [
     pytest.param(card, i, id=f"{card['id']}[{i}]")
     for card in cards()
+    if "function" in card["run"]
     for i in range(len(card["cases"]))
 ]
 
@@ -83,7 +88,7 @@ def test_the_regex_of_numbers_read_as_strings_matches_them():
 def test_no_number_is_read_as_a_string():
     # YAML 1.1 (PyYAML) reads 21.4e9 as a string: write 2.14e+10
     for card in cards():
-        for case in card["cases"]:
+        for case in card.get("cases", []):
             bad = [s for s in strings(case) if NUMBER_AS_STRING.match(s)]
             assert not bad, f"{card['id']}: {bad} read as strings; write 2.14e+10 (a dot, a sign)"
 
@@ -96,21 +101,52 @@ def test_every_card_follows_the_schema():
         assert card["_file"] == f"{card['id']}.yaml"
 
 
+def test_every_tolerance_that_is_not_exact_says_why():
+    for card in cards():
+        for case in card.get("cases", []):
+            tol = card.get("tolerance", {}) | case.get("tolerance", {})
+            if tol and not tol.get("exact"):
+                assert "why" in case or "why" in card, f"{card['id']}: the tolerance has no why"
+
+
+def accepted(got: np.ndarray, want: Any, tol: dict[str, Any]) -> bool:
+    """The rule of the cards (and of ``comrs verify``): ``|v - e| <= atol + rtol |e|``, or
+    ``e/f <= v <= f e`` with ``factor``, or a range ``{min, max}``."""
+    if isinstance(want, dict):
+        lo, hi = want.get("min", -np.inf), want.get("max", np.inf)
+        return bool(np.all((got >= lo) & (got <= hi)))
+    want = np.asarray(want)
+    ok = np.zeros(np.shape(got), dtype=bool)
+    if "atol" in tol or "rtol" in tol:
+        ok |= np.abs(got - want) <= tol.get("atol", 0.0) + tol.get("rtol", 0.0) * np.abs(want)
+    if "factor" in tol:
+        f = tol["factor"]
+        ok |= (want > 0) & (got >= want / f) & (got <= want * f)
+    return bool(np.all(ok))
+
+
+def test_the_rule_of_the_cards():
+    assert accepted(np.asarray(0.30), 0.26, {"factor": 1.6})
+    assert not accepted(np.asarray(0.5), 0.26, {"factor": 1.6})
+    assert accepted(np.asarray([1.0, 2.05]), [1.0, 2.0], {"rtol": 0.05})
+    assert accepted(np.asarray(14.0), {"min": 10}, {}) and not accepted(
+        np.asarray(1.2), {"max": 1}, {}
+    )
+
+
 @pytest.mark.parametrize(("card", "i"), CASES)
 def test_card(card, i):
     case = card["cases"][i]
-    got = resolve(card["function"])(**{k: build(v) for k, v in case["inputs"].items()})
+    got = resolve(card["run"]["function"])(**{k: build(v) for k, v in case["inputs"].items()})
     output = case.get("output", card.get("output"))
     if output is not None:
         got = got[output]
     want = expected_value(case["expected"])
     tol = card.get("tolerance", {}) | case.get("tolerance", {})
-    got, want = np.asarray(got), np.asarray(want)
+    got = np.asarray(got)
     where = f"{card['id']} case {i} ({card['source']['reference']}, {card['source']['locator']})"
     if tol.get("exact"):
-        np.testing.assert_array_equal(got, want, err_msg=where)
+        np.testing.assert_array_equal(got, np.asarray(want), err_msg=where)
     else:
-        np.testing.assert_allclose(
-            got, want, rtol=tol.get("rel", 0.0), atol=tol.get("abs", 0.0), err_msg=where
-        )
+        assert accepted(got, want, tol), f"{where}: got {got}, expected {want} ({tol})"
     assert comrs  # the package under test

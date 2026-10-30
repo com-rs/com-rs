@@ -1,13 +1,16 @@
 id: chang2002_fig4_floors
 title: Error floors of Gray 16-QAM equalised by an imperfect channel estimate
-function: comrs.theory_ber_imperfect_csi
+literature: chang2002
 source:
   kind: paper
   reference: "M.-X. Chang, Y. T. Su, Performance analysis of equalized OFDM systems in Rayleigh fading, IEEE Trans. Wireless Commun. 1(4), 721-732, 2002"
   locator: "Fig. 4 (eq. 53 and Table I), read at Eb/N0 = 50 dB"
-  file: 2002_chang_equalized-ofdm-rayleigh_twc.pdf
-tolerance: {rel: 0.3}
-note: "values read on the figure, to about 10 %; rho2 = 0, sigma2 = sigma1"
+  file: multicarrier/2002_chang_equalized-ofdm-rayleigh_twc.pdf
+run:
+  function: comrs.theory_ber_imperfect_csi
+tolerance: {rtol: 0.3}
+why: "values read on the figure, to about 10 %"
+note: "rho2 = 0, sigma2 = sigma1"
 cases:
   - inputs: {modulation: 16qam, ebn0_db: 50.0, rho1: 1.0}
     expected: 5.0e-6

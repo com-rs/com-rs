@@ -1,0 +1,61 @@
+id: barry1993_table2
+title: Received power and bandwidth of four indoor optical wireless links
+literature: barry1993
+source:
+  kind: paper
+  reference: "J. R. Barry, J. M. Kahn, W. J. Krause, E. A. Lee, D. G. Messerschmitt, Simulation of multipath impulse response for indoor wireless optical channels, IEEE J. Sel. Areas Commun. 11(3), 367-379, 1993"
+  locator: "Table II and Figs. 3, 6-8: the configurations A to D of Table I"
+  file: optical-wireless/1993_barry_multipath-impulse-response-indoor-optical_jsac.pdf
+description: >
+  The impulse responses of the line of sight and of 1 to 3 reflections
+  (comrs::channel::owc::indoor), with the partitions per order of reflection of the paper
+  and bins of 0.2 ns, for a 1 W source and a detector of 1 cm²: the received power, its
+  share per order and the -3 dB bandwidth of the total response.
+run:
+  test: validation/tests/barry1993.rs
+tier: campaign
+tolerance: {rtol: 0.03}
+why: "the method discretises the walls into partitions, and the reflected powers converge slowly with them; 3 % is the agreement obtained with the partitions of the paper, not a precision the paper states"
+findings:
+  - "configuration A: the bandwidth is not checked; we find 14.4 MHz with three reflections where Sec. IV-A gives 9 MHz, and with one reflection the line of sight carries 0.709 of the power, so close to the -3 dB threshold (0.708) that the bandwidth is ill-conditioned (87 MHz against 30). The gap is not explained."
+cases:
+  - {inputs: {config: A, metric: power_uw, reflections: 0}, expected: 1.23}
+  - {inputs: {config: A, metric: power_uw, reflections: 1}, expected: 0.505}
+  - {inputs: {config: A, metric: power_uw, reflections: 2}, expected: 0.430}
+  - {inputs: {config: A, metric: power_uw, reflections: 3}, expected: 0.269}
+  - {inputs: {config: A, metric: total_power_uw}, expected: 2.4}
+  - {inputs: {config: B, metric: total_power_nw}, expected: 307.0}
+  - inputs: {config: B, metric: share_percent, reflections: 0}
+    expected: 77.9
+    tolerance: {atol: 7.79}
+    why: "a tenth of the share, at least 0.5 point: the small orders converge slowest with the partitions"
+  - inputs: {config: B, metric: share_percent, reflections: 1}
+    expected: 6.0
+    tolerance: {atol: 0.6}
+    why: "a tenth of the share, at least 0.5 point: the small orders converge slowest with the partitions"
+  - inputs: {config: B, metric: share_percent, reflections: 2}
+    expected: 13.0
+    tolerance: {atol: 1.3}
+    why: "a tenth of the share, at least 0.5 point: the small orders converge slowest with the partitions"
+  - inputs: {config: B, metric: share_percent, reflections: 3}
+    expected: 3.2
+    tolerance: {atol: 0.5}
+    why: "a tenth of the share, at least 0.5 point: the small orders converge slowest with the partitions"
+  - inputs: {config: B, metric: bandwidth_mhz}
+    expected: 19.5
+    tolerance: {rtol: 0.05}
+    why: "the -3 dB point depends on the tail of the response, truncated at three reflections in both; 5 % is the agreement obtained, not a precision the paper states"
+  - {inputs: {config: C, metric: total_power_nw}, expected: 283.7}
+  - inputs: {config: C, metric: bandwidth_mhz}
+    expected: 13.0
+    tolerance: {rtol: 0.05}
+    why: "the -3 dB point depends on the tail of the response, truncated at three reflections in both; 5 % is the agreement obtained, not a precision the paper states"
+  - inputs: {config: D, metric: power_uw, reflections: 0}
+    expected: 0.0
+    tolerance: {exact: true}
+    why: "a diffuse link: the line of sight is blocked, its power is exactly zero"
+  - {inputs: {config: D, metric: total_power_nw}, expected: 689.8}
+  - inputs: {config: D, metric: bandwidth_mhz}
+    expected: 32.0
+    tolerance: {rtol: 0.05}
+    why: "the -3 dB point depends on the tail of the response, truncated at three reflections in both; 5 % is the agreement obtained, not a precision the paper states"

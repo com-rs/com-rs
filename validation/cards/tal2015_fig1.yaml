@@ -1,0 +1,37 @@
+id: tal2015_fig1
+title: Word error rate of SC and list decoding of a (2048, 1024) polar code
+literature: tal2015
+source:
+  kind: paper
+  reference: "I. Tal, A. Vardy, List decoding of polar codes, IEEE Trans. Inf. Theory 61(5), 2213-2226, 2015"
+  locator: "Fig. 1, read at 1.5, 2 and 2.5 dB"
+  file: coding/2015_tal_list-decoding-polar-codes_it.pdf
+description: >
+  A polar code of length 2048 and rate 1/2, designed at Eb/N0 = 2 dB by the Gaussian
+  approximation (the paper: the construction of Tal & Vardy, IT 59(10), 2013), BPSK over
+  AWGN, decoded by successive cancellation and by lists of 8 and 32 (comrs::fec::polar);
+  every point runs until 100 frame errors.
+run:
+  test: validation/tests/tal2015.rs::tal_vardy_2015_fig_1
+tier: campaign
+duration: "130 s on an Apple M6"
+tolerance: {factor: 1.6}
+why: >
+  the construction differs from the paper's, which moves the curves by about 0.07 dB
+  (a factor up to 1.5 at these slopes); 100 errors per point add a 10 % standard error
+findings:
+  - "SC sits about 0.07 dB to the right of the figure, from the other construction"
+cases:
+  - {inputs: {list: 1, ebn0_db: 1.5}, expected: 0.26}
+  - {inputs: {list: 1, ebn0_db: 2.0}, expected: 0.0385}
+  - {inputs: {list: 1, ebn0_db: 2.5}, expected: 0.0032}
+  - {inputs: {list: 8, ebn0_db: 1.5}, expected: 0.018}
+  - {inputs: {list: 8, ebn0_db: 2.0}, expected: 0.0028}
+  - {inputs: {list: 32, ebn0_db: 1.5}, expected: 0.012}
+  - {inputs: {list: 32, ebn0_db: 2.0}, expected: 0.0027}
+  - inputs: {claim: list_gain_at_2db}
+    expected: {min: 10}
+    note: "WER of SC over that of the list of 8 at 2 dB: 14 on the figure"
+  - inputs: {claim: list_32_over_list_8_at_1.5db}
+    expected: {max: 1}
+    note: "the list of 32 beats the list of 8 at 1.5 dB, as on the figure"

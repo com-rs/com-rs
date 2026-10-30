@@ -15,8 +15,6 @@ workspace = true
 [dependencies]
 comrs = { workspace = true, features = ["optical"] }
 ndarray.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
 
 [features]

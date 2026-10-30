@@ -1,13 +1,15 @@
 id: afisiadis2020_fig2
 title: Symbol error rate of LoRa (SF 7) over AWGN, noncoherent receiver
-function: comrs.css_ser
+literature: afisiadis2020
 source:
   kind: paper
   reference: "O. Afisiadis, M. Cotting, A. Burg, A. Balatsoukas-Stimming, On the error rate of the LoRa modulation with interference, IEEE Trans. Wireless Commun. 19(2), 1292-1304, 2020"
   locator: "Fig. 2, SF 7, read at -8 and -7 dB (SNR per sample); exact eq. (16)"
-  file: 2020_afisiadis_lora-error-rate-interference_twc_arxiv.pdf
-tolerance: {rel: 0.15}
-note: "values read on the figure"
+  file: modulation/2020_afisiadis_lora-error-rate-interference_twc_arxiv.pdf
+run:
+  function: comrs.css_ser
+tolerance: {rtol: 0.15}
+why: "values read on the figure"
 cases:
   - inputs: {sf: 7, snr_db: -8.0}
     expected: 1.8e-3

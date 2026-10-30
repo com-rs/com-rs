@@ -1,0 +1,34 @@
+id: vakilian2013_fig3b
+title: Spectrum of one resource block in UFMC and OFDM
+literature: vakilian2013
+source:
+  kind: paper
+  reference: "V. Vakilian, T. Wild, F. Schaich, S. ten Brink, J.-F. Frigon, Universal-filtered multi-carrier technique for wireless systems beyond LTE, Proc. IEEE Globecom Workshops, 223-228, 2013"
+  locator: "Fig. 3(b), the envelopes read past the last subcarrier"
+  file: multicarrier/2013_vakilian_ufmc-beyond-lte_globecomw.pdf
+description: >
+  One resource block of 12 QPSK subcarriers on a grid of N = 128, the Dolph-Chebyshev
+  filter of L = 16 taps and 120 dB of attenuation (Sec. IV), against the same block in
+  OFDM without prefix (comrs::waveform::ufmc, ofdm); spectra averaged over 2000 symbols
+  at 1/16 subcarrier, normalised to the band.
+run:
+  test: validation/tests/vakilian2013.rs::vakilian_2013_fig_3b
+tier: ci
+findings:
+  - "between the band and 17 subcarriers, the UFMC skirt is 5 to 7 dB above the figure (-33.7 dB against about -40 at 10 subcarriers): the figure shows one realisation and gives the filter by its length and attenuation only"
+cases:
+  - inputs: {waveform: ofdm, metric: envelope_db, subcarriers_away: 20}
+    expected: -26.0
+    tolerance: {atol: 2.0}
+    why: "read on the figure to about 1 dB; the averaged spectrum fluctuates by 0.5 dB"
+  - inputs: {waveform: ofdm, metric: envelope_db, subcarriers_away: 40}
+    expected: -30.0
+    tolerance: {atol: 2.0}
+    why: "read on the figure to about 1 dB; the averaged spectrum fluctuates by 0.5 dB"
+  - inputs: {waveform: ufmc, metric: first_below_minus_60_db}
+    expected: 18.5
+    tolerance: {atol: 1.5}
+    why: "17 to 18 subcarriers on the figure; one subcarrier more is allowed for the unknown filter design"
+  - inputs: {waveform: ufmc, metric: below_ofdm_db, subcarriers_away: 20}
+    expected: {min: 35}
+    note: "UFMC is about 39 dB below OFDM 20 subcarriers away on the figure"

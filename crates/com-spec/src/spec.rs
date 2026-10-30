@@ -181,6 +181,28 @@ pub enum Format {
     Toml,
 }
 
+impl Format {
+    /// Read a document in this format as JSON (the specifications, and the validation
+    /// cards of `com-validation`).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for a syntax error.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_spec::Format;
+    /// assert_eq!(Format::Yaml.read("a: [1, 2]")?["a"][1], 2);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn read(self, text: &str) -> Result<Json> {
+        match self {
+            Format::Yaml => serde_norway::from_str(text).map_err(|e| Error::Config(format!("YAML: {e}"))),
+            Format::Json => serde_json::from_str(text).map_err(|e| Error::Config(format!("JSON: {e}"))),
+            Format::Toml => toml::from_str(text).map_err(|e| Error::Config(format!("TOML: {e}"))),
+        }
+    }
+}
+
 fn grid_axis(name: &str, v: &Json) -> Result<Vec<Value>> {
     match v {
         Json::Array(a) => a.iter().map(|x| params::from_json(name, x)).collect(),
@@ -290,12 +312,7 @@ impl Spec {
     /// # Ok::<(), com_core::Error>(())
     /// ```
     pub fn parse(text: &str, format: Format) -> Result<Spec> {
-        let v: Json = match format {
-            Format::Yaml => serde_norway::from_str(text).map_err(|e| Error::Config(format!("YAML: {e}")))?,
-            Format::Json => serde_json::from_str(text).map_err(|e| Error::Config(format!("JSON: {e}")))?,
-            Format::Toml => toml::from_str(text).map_err(|e| Error::Config(format!("TOML: {e}")))?,
-        };
-        Spec::from_json(v)
+        Spec::from_json(format.read(text)?)
     }
 
     /// Parse a YAML specification.

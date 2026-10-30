@@ -1,13 +1,16 @@
 id: chang2002_fig3_dbpsk_floors
 title: Error floors of DBPSK over Jakes' fading
-function: comrs.theory_ber_dpsk_jakes
+literature: chang2002
 source:
   kind: paper
   reference: "M.-X. Chang, Y. T. Su, Performance analysis of equalized OFDM systems in Rayleigh fading, IEEE Trans. Wireless Commun. 1(4), 721-732, 2002"
   locator: "Fig. 3 (eq. 40), read at Eb/N0 = 50 dB"
-  file: 2002_chang_equalized-ofdm-rayleigh_twc.pdf
-tolerance: {rel: 0.3}
-note: "values read on the figure; the curve labelled fD Ts = 0.05 floors where eq. 40 puts fD Ts = 0.005, a misprint of the label"
+  file: multicarrier/2002_chang_equalized-ofdm-rayleigh_twc.pdf
+run:
+  function: comrs.theory_ber_dpsk_jakes
+tolerance: {rtol: 0.3}
+why: "values read on the figure"
+note: "the curve labelled fD Ts = 0.05 floors where eq. 40 puts fD Ts = 0.005, a misprint of the label"
 cases:
   - inputs: {m: 2, ebn0_db: 50.0, fd_ts: 0.01}
     expected: 5.0e-4

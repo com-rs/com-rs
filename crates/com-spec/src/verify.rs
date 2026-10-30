@@ -75,6 +75,45 @@ use com_sim::runner::ConditionResult;
 use serde::Deserialize;
 use serde_json::{Map, Value as Json};
 
+/// The acceptance rule of a measured value `v` against an expected value `e`:
+/// `|v - e| ≤ atol + rtol |e|` (with `atol` or `rtol`), or `e/f ≤ v ≤ f e` (with
+/// `factor: f`, for error rates over several decades); either rule suffices.
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Tolerance {
+    /// Absolute tolerance.
+    #[serde(default)]
+    pub atol: Option<f64>,
+    /// Tolerance relative to the expected value.
+    #[serde(default)]
+    pub rtol: Option<f64>,
+    /// Factor, at least 1.
+    #[serde(default)]
+    pub factor: Option<f64>,
+}
+
+impl Tolerance {
+    /// Whether a rule is given.
+    pub fn is_set(&self) -> bool {
+        self.atol.is_some() || self.rtol.is_some() || self.factor.is_some()
+    }
+
+    /// Whether `v` is accepted for `e`.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_spec::verify::Tolerance;
+    /// let t = Tolerance { factor: Some(2.0), ..Tolerance::default() };
+    /// assert!(t.accepts(1.9e-3, 1e-3) && !t.accepts(2.1e-3, 1e-3));
+    /// ```
+    pub fn accepts(&self, v: f64, e: f64) -> bool {
+        let by_tol = (self.atol.is_some() || self.rtol.is_some())
+            && (v - e).abs() <= self.atol.unwrap_or(0.0) + self.rtol.unwrap_or(0.0) * e.abs();
+        let by_factor = self.factor.is_some_and(|f| e > 0.0 && v >= e / f && v <= e * f);
+        by_tol || by_factor
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 struct ExpectSpec {
@@ -105,6 +144,21 @@ struct ExpectSpec {
     min_count: u64,
     #[serde(default)]
     measured_range: Option<[f64; 2]>,
+    /// Why the tolerance is what it is (the precision of the published value, the
+    /// sampling error), for the reader.
+    #[serde(default)]
+    #[allow(dead_code, reason = "documentation of the specification, not used to check")]
+    why: String,
+    /// A comment, for the reader.
+    #[serde(default)]
+    #[allow(dead_code, reason = "documentation of the specification, not used to check")]
+    note: String,
+}
+
+impl ExpectSpec {
+    fn tolerance(&self) -> Tolerance {
+        Tolerance { atol: self.atol, rtol: self.rtol, factor: self.factor }
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -236,7 +290,7 @@ impl Expectation {
         ensure(sources.iter().filter(|&&b| b).count() == 1, || {
             format!("expectation {:?}: give exactly one of value, curve, theory and reference", spec.name)
         })?;
-        ensure(spec.atol.is_some() || spec.rtol.is_some() || spec.interval.is_some() || spec.factor.is_some(), || {
+        ensure(spec.tolerance().is_set() || spec.interval.is_some(), || {
             format!("expectation {:?}: give atol, rtol, factor or interval", spec.name)
         })?;
         ensure(!matches!(spec.factor, Some(f) if f < 1.0), || {
@@ -405,13 +459,10 @@ impl Expectation {
                 continue;
             }
             let (lo, hi) = est.interval(confidence);
-            let tol = s.atol.unwrap_or(0.0) + s.rtol.unwrap_or(0.0) * e.abs();
-            let by_tol = (s.atol.is_some() || s.rtol.is_some()) && (v - e).abs() <= tol;
             let by_interval = s.interval.is_some_and(|c| {
                 let (a, b) = est.interval(c);
                 a <= e && e <= b
             });
-            let by_factor = s.factor.is_some_and(|f| e > 0.0 && v >= e / f && v <= e * f);
             out.push(Check {
                 name: s.name.clone(),
                 source: s.source.clone(),
@@ -419,7 +470,7 @@ impl Expectation {
                 metric: s.metric.clone(),
                 expected: e,
                 measured: (v, lo, hi),
-                passed: by_tol || by_interval || by_factor,
+                passed: s.tolerance().accepts(v, e) || by_interval,
             });
         }
         if out.is_empty() {
@@ -456,10 +507,7 @@ impl Expectation {
             })?;
             let Some(e) = self.expected(&r.condition)? else { continue };
             let atol = s.atol.unwrap_or(0.0);
-            let by_tol =
-                (s.atol.is_some() || s.rtol.is_some()) && (r.value - e).abs() <= atol + s.rtol.unwrap_or(0.0) * e.abs();
             let by_interval = s.interval.is_some() && r.lo - atol <= e && e <= r.hi + atol;
-            let by_factor = s.factor.is_some_and(|f| e > 0.0 && r.value >= e / f && r.value <= e * f);
             out.push(Check {
                 name: s.name.clone(),
                 source: s.source.clone(),
@@ -467,7 +515,7 @@ impl Expectation {
                 metric: s.metric.clone(),
                 expected: e,
                 measured: (r.value, r.lo, r.hi),
-                passed: by_tol || by_interval || by_factor,
+                passed: s.tolerance().accepts(r.value, e) || by_interval,
             });
         }
         if out.is_empty() {

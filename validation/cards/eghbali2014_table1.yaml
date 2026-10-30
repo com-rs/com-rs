@@ -1,13 +1,15 @@
 id: eghbali2014_table1
 title: Dispersion factor K of the digital compensation of chromatic dispersion
-function: comrs.cd_dispersion_factor
+literature: eghbali2014
 source:
   kind: paper
   reference: "A. Eghbali, H. Johansson, O. Gustafsson, S. J. Savory, Optimal least-squares FIR digital filters for compensation of chromatic dispersion in digital coherent optical receivers, J. Lightw. Technol. 32(8), 1449-1456, 2014"
   locator: "Table I (D = 17 ps/(nm km), lambda = 1553 nm, c = 3e8 m/s)"
-  file: 2014_eghbali_ls-fir-cd-compensation_jlt.pdf
-tolerance: {rel: 1.0e-3}
-note: "com-rs takes c = 299792458 m/s; the carrier 3e8/1553e-9 Hz keeps lambda = 1553 nm up to 0.07 %"
+  file: fiber/2014_eghbali_ls-fir-cd-compensation_jlt.pdf
+run:
+  function: comrs.cd_dispersion_factor
+tolerance: {rtol: 1.0e-3}
+why: "com-rs takes c = 299792458 m/s; the carrier 3e8/1553e-9 Hz keeps lambda = 1553 nm up to 0.07 %"
 cases:
   - inputs:
       fiber: {construct: comrs.FiberParams, args: {d_ps_nm_km: 17.0, fc_hz: 1.931745009658725e+14}}

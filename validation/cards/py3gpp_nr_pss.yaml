@@ -1,11 +1,13 @@
 id: py3gpp_nr_pss
 title: Primary synchronisation signal of 5G NR
-function: comrs.nr_pss
+literature: py3gpp
 source:
   kind: tool
   reference: "py3gpp (AGPL-3.0), nrPSS, an open reimplementation of the 5G functions of MATLAB; 3GPP TS 38.211, Sec. 7.4.2.2"
   locator: "recorded outputs tests/oracle/nr_ssb.json (cells 0, 1, 2)"
   version: "0.6.0"
+run:
+  function: comrs.nr_pss
 tolerance: {exact: true}
 cases:
   - inputs: {n_id2: 0}

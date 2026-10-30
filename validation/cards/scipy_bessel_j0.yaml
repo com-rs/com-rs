@@ -1,12 +1,15 @@
 id: scipy_bessel_j0
 title: Bessel function of the first kind and order zero
-function: comrs.bessel_j0
+literature: scipy
 source:
   kind: tool
   reference: "SciPy, scipy.special.j0"
   locator: "values recorded from scipy.special.j0"
   version: "1.x"
-tolerance: {abs: 1.0e-14}
+run:
+  function: comrs.bessel_j0
+tolerance: {atol: 1.0e-14}
+why: "two double-precision implementations of |J0| <= 1: a few units in the last place"
 cases:
   - inputs: {x: 1.0}
     expected: 0.7651976865579665

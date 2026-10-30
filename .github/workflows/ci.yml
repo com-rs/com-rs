@@ -104,6 +104,7 @@ jobs:
           python tools/api_index.py --check
           python tools/literature_table.py --check
           python tools/maturity_table.py --check
+          python tools/cards.py --check
           # the generated stub of the extension and classes of the blocks
           python tools/gen_stubs.py --check
           python tools/gen_blocks.py --check

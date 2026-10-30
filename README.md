@@ -381,19 +381,21 @@ The validation found two problems, both fixed:
 
 ### Validation cards
 
-A validation card states, for one algorithm, its inputs, the outputs it must give with
-their tolerance, and the exact source of the expectation (a paper with its equation,
-table or figure; a standard with its section; a reference implementation with its
-version). The cards of [`validation/cards/`](validation/cards/) are data, not code:
-`tests/test_cards.py` runs every case against the Python interface, a JSON Schema checks
-their structure, and another library can run the same cards by mapping the function
-names to its own.
+A validation card is one comparison written as data: the source (a paper with its
+equation, table or figure; a standard with its section; a reference implementation with
+its version), the expected values with their tolerance and why, the differences found,
+and the runner that measures them again — a function of the Python interface, a Rust
+test of `validation/tests/` or a specification verified by `comrs verify`. Rerunning a
+comparison does not need the paper: `just card tal2015_fig1`. The cards are in
+[`validation/cards/`](validation/cards/), with their schema.
 
 ```yaml
 id: chang2002_fig4_floors
-function: comrs.theory_ber_imperfect_csi
+literature: chang2002
 source: {kind: paper, reference: "Chang & Su, IEEE TWC 1(4), 2002", locator: "Fig. 4, read at 50 dB"}
-tolerance: {rel: 0.3}
+run: {function: comrs.theory_ber_imperfect_csi}
+tolerance: {rtol: 0.3}
+why: "values read on the figure, to about 10 %"
 cases:
   - inputs: {modulation: 16qam, ebn0_db: 50.0, rho1: 0.999}
     expected: 3.5e-3

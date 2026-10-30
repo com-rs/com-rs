@@ -1,12 +1,15 @@
 id: chiani2019_b99
 title: 99 % bandwidth of the LoRa complex envelope
-function: comrs.css_occupied_bandwidth
+literature: chiani2019
 source:
   kind: paper
   reference: "M. Chiani, A. Elzanaty, On the LoRa modulation for IoT: waveform properties and spectral analysis, IEEE Internet Things J. 6(5), 8463-8470, 2019"
   locator: "Table I, column B99 (units of B), M = 2^3, 2^5, 2^7"
-  file: 2019_chiani_lora-waveform-spectral-analysis_iotj_arxiv.pdf
-tolerance: {rel: 0.005}
+  file: modulation/2019_chiani_lora-waveform-spectral-analysis_iotj_arxiv.pdf
+run:
+  function: comrs.css_occupied_bandwidth
+tolerance: {rtol: 0.005}
+why: "printed to three decimals; the library finds the 99 % point on a discrete grid of frequencies"
 note: "from the spectrum of eqs. (20)-(25) in Fresnel functions; M = 2^10 and 2^12 are checked by validation/tests/css.rs"
 cases:
   - inputs: {sf: 3}
