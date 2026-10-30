@@ -1,0 +1,25 @@
+id: komine2004_fig3
+title: Illuminance of the desk of a room lit by four LED lights
+literature: komine2004
+source:
+  kind: paper
+  reference: "T. Komine, M. Nakagawa, Fundamental analysis for visible-light communication system using LED lights, IEEE Trans. Consum. Electron. 50(1), 100-107, 2004"
+  locator: "Fig. 3 (its caption: minimum, maximum and average illuminance), with the room of Fig. 2 and Table I"
+  file: optical-wireless/2004_komine_vlc-led-lights-fundamental-analysis_tce.pdf
+description: >
+  The room of Fig. 2 (5 x 5 x 3 m, four lights of 60 x 60 LEDs at 1 cm pitch, 2.5 m
+  high, centred at (1.25, 1.25), (3.75, 1.25), (1.25, 3.75) and (3.75, 3.75)), 0.73 cd
+  per LED and a semi-angle of 70 degrees (Table I); the horizontal illuminance
+  (comrs::channel::owc::indoor::illuminance_lx) on the desk 0.85 m high, sampled every
+  0.1 m from wall to wall.
+run:
+  test: validation/tests/komine2004.rs::komine_2004_illuminance_fig_3
+tier: ci
+tolerance: {atol: 0.5}
+why: "the caption prints 0.1 lx; the values agree to the printed digits (313.53, 1211.50, 865.65 lx), 0.5 lx is the margin of the test"
+findings:
+  - "the Lambertian mode is printed m = ln 2 / ln cos(Phi_1/2), without its minus sign"
+cases:
+  - {inputs: {quantity: illuminance_lx, stat: min}, expected: 313.5}
+  - {inputs: {quantity: illuminance_lx, stat: max}, expected: 1211.5}
+  - {inputs: {quantity: illuminance_lx, stat: mean}, expected: 865.7}

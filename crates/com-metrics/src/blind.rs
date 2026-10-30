@@ -88,6 +88,10 @@ use com_mapping::constellation::Constellation;
 use com_math::C64;
 use com_math::stats::Moments;
 
+/// The floor of the signal power $C_{21} - N$ that normalises the cumulants of
+/// [`Cumulants::features`], so that an estimate at or below the noise stays finite.
+const POWER_FLOOR: f64 = 1e-300;
+
 /// The cumulants of order two and four of a zero-mean complex signal (see the module).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cumulants {
@@ -149,7 +153,7 @@ impl Cumulants {
     /// The phase-invariant features $(|\tilde{C}_{40}|, \tilde{C}_{42})$, with the signal
     /// power $C_{21} - N$ when the noise variance `noise_var` is known.
     pub fn features(&self, noise_var: Option<f64>) -> (f64, f64) {
-        let s = (self.c21 - noise_var.unwrap_or(0.0)).max(1e-300);
+        let s = (self.c21 - noise_var.unwrap_or(0.0)).max(POWER_FLOOR);
         (self.c40.norm() / (s * s), self.c42 / (s * s))
     }
 }

@@ -1,0 +1,34 @@
+id: alhabash2001_figs3_6_8
+title: The parameters of the gamma-gamma model of plane and spherical waves, zero inner scale
+literature: alhabash2001
+source:
+  kind: paper
+  reference: "M. A. Al-Habash, L. C. Andrews, R. L. Phillips, Mathematical model for the irradiance probability density function of a laser beam propagating through turbulent media, Opt. Eng. 40(8), 1554-1562, 2001"
+  locator: "alpha and beta printed with Figs. 3, 6, 7 and 8 (eqs. (19) and (26), zero inner scale); the scintillation index of Sec. 4"
+  file: optical-wireless/2001_alhabash_gamma-gamma-irradiance-pdf_opteng.pdf
+description: >
+  The large- and small-scale parameters alpha and beta of the gamma-gamma density
+  (comrs::channel::owc::atmospheric::GammaGamma::from_rytov) for a plane wave of Rytov
+  variance sigma_1^2 = 25 (Fig. 3) and spherical waves of beta_0^2 = 0.06, 2 and 5
+  (Figs. 6-8; beta_0^2 = 0.4 sigma_1^2), and the scintillation index 1/alpha + 1/beta +
+  1/(alpha beta) of the plane wave.
+run:
+  test: validation/tests/alhabash2001.rs::al_habash_2001_parameters_figs_3_and_6_to_8
+tier: ci
+tolerance: {atol: 0.015}
+why: "alpha and beta are printed to two decimals; the computation differs from the printed values by one unit of the last digit at most (34.28 against 34.27, 2.21 against 2.20, 2.12 against 2.11)"
+findings:
+  - "eqs. (19) and (26) print the exponent 7/6 for the small-scale variance; the parameters of the figures and the scintillation index follow from 5/6 (7/6 would give beta = 4.29 for sigma_1^2 = 25)"
+cases:
+  - {inputs: {wave: plane, sigma1_sq: 25.0, quantity: alpha}, expected: 8.05}
+  - {inputs: {wave: plane, sigma1_sq: 25.0, quantity: beta}, expected: 1.03}
+  - {inputs: {wave: spherical, beta0_sq: 0.06, quantity: alpha}, expected: 34.27}
+  - {inputs: {wave: spherical, beta0_sq: 0.06, quantity: beta}, expected: 32.82}
+  - {inputs: {wave: spherical, beta0_sq: 2.0, quantity: alpha}, expected: 2.20}
+  - {inputs: {wave: spherical, beta0_sq: 2.0, quantity: beta}, expected: 1.70}
+  - {inputs: {wave: spherical, beta0_sq: 5.0, quantity: alpha}, expected: 2.11}
+  - {inputs: {wave: spherical, beta0_sq: 5.0, quantity: beta}, expected: 1.24}
+  - inputs: {wave: plane, sigma1_sq: 25.0, quantity: scintillation_index}
+    expected: 1.214
+    tolerance: {atol: 1.0e-3}
+    why: "printed to three decimals in Sec. 4"

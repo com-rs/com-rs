@@ -11,18 +11,21 @@
 //! | curve | here | figure |
 //! |---|---|---|
 //! | N = 1, coherent QPSK (closed form) | 16.86 | 16.4 (Fig. 5), 17.0 (Fig. 7) |
-//! | N = 512, 60 mph, optimum gain correction (15) | 11.3 | 11.0 |
-//! | N = 512, 60 mph, gain-limited correction (16) | 12.35 | 11.9 (Fig. 5), 11.5 (Fig. 7) |
-//! | N = 512, 30 mph, gain-limited | 12.9 | 12.8 |
-//! | N = 128, 30 mph, gain-limited | 13.9 | 13.95 |
+//! | N = 512, 60 mph, optimum gain correction (15) | 11.10 | 11.0 |
+//! | N = 512, 60 mph, gain-limited correction (16) | 12.41 | 11.9 (Fig. 5), 11.5 (Fig. 7) |
+//! | N = 512, 30 mph, gain-limited | 12.97 | 12.8 |
+//! | N = 128, 30 mph, gain-limited | 13.86 | 13.95 |
 //!
 //! The text claims "improvements in SIR of 6–7 dB" for N = 512 at 60 mph over N = 1:
-//! its own Fig. 5 shows 4.5 dB at 1e-2 (16.4 - 11.9), as does the simulation (4.5 dB);
-//! the other claims hold: less than 1 dB lost at 30 mph (0.5 dB), about 2 dB more with N
-//! = 128 (1.55 dB here against N = 512 at 60 mph, 2.05 on the figure), and 1 dB more
-//! with the optimum correction (1.0 dB). The closed forms of the SDR (Figs. 3 and 4) are
-//! checked by `crates/com-waveform/src/ofdm/correction.rs::literature`.
+//! its own Fig. 5 shows 4.5 dB at 1e-2 (16.4 - 11.9), as does the simulation (4.45 dB);
+//! the other claims hold: less than 1 dB lost at 30 mph (0.56 dB), about 2 dB more with
+//! N = 128 (1.46 dB here against N = 512 at 60 mph, 2.05 on the figure), and 1 dB more
+//! with the optimum correction (1.3 dB). The closed forms of the SDR (Figs. 3 and 4) are
+//! checked by `crates/com-waveform/src/ofdm/correction.rs::literature`. The values read,
+//! the claims and their tolerances are in the cards `validation/cards/cimini1985_fig5.yaml`,
+//! `cimini1985_fig6.yaml` and `cimini1985_fig7.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::card::Card;
 use com_validation::sweep_crossing;
 use comrs::channel::multipath::max_doppler_hz;
 use comrs::channel::multipath::{Tdl, TdlParams};
@@ -31,6 +34,7 @@ use comrs::math::bisect;
 use comrs::math::fft::{fft, ifft};
 use comrs::prelude::*;
 use comrs::waveform::ofdm::correction::gain_limited;
+use serde_json::json;
 
 const FS: f64 = 7_500.0;
 
@@ -140,20 +144,23 @@ fn sir_n1() -> f64 {
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn cimini_1985_fig_5_flat_fading() {
+    let mut card = Card::load("cimini1985_fig5").unwrap();
     let n1 = sir_n1();
-    assert!((n1 - 16.86).abs() < 0.01, "{n1}");
+    card.check(&json!({"n": 1, "correction": "closed_form"}), n1);
     let opt = sir_at_1e2(512, 60.0, true, flat());
     let gl60 = sir_at_1e2(512, 60.0, false, flat());
     let gl30 = sir_at_1e2(512, 30.0, false, flat());
     let gl128 = sir_at_1e2(128, 30.0, false, flat());
-    for (got, read) in [(opt, 11.0), (gl60, 11.9), (gl30, 12.8), (gl128, 13.95)] {
-        assert!((got - read).abs() < 0.6, "{got} dB against {read} dB read on Fig. 5");
-    }
+    card.check(&json!({"n": 512, "mph": 60, "correction": "optimum"}), opt);
+    card.check(&json!({"n": 512, "mph": 60, "correction": "gain_limited"}), gl60);
+    card.check(&json!({"n": 512, "mph": 30, "correction": "gain_limited"}), gl30);
+    card.check(&json!({"n": 128, "mph": 30, "correction": "gain_limited"}), gl128);
     // the gain over N = 1: 4.5 dB, as on the figure, not the 6–7 dB of the text
-    assert!((n1 - gl60 - 4.5).abs() < 0.4, "{}", n1 - gl60);
-    assert!((0.0..1.0).contains(&(gl30 - gl60)), "30 mph: {}", gl30 - gl60);
-    assert!((1.2..2.5).contains(&(gl128 - gl60)), "N = 128: {}", gl128 - gl60);
-    assert!((0.6..1.4).contains(&(gl60 - opt)), "optimum: {}", gl60 - opt);
+    card.check(&json!({"claim": "gain_of_n512_at_60_mph_over_n1_db"}), n1 - gl60);
+    card.check(&json!({"claim": "loss_at_30_mph_db"}), gl30 - gl60);
+    card.check(&json!({"claim": "loss_of_n128_db"}), gl128 - gl60);
+    card.check(&json!({"claim": "gain_of_optimum_correction_db"}), gl60 - opt);
+    card.finish().unwrap();
 }
 
 /// Cimini 1985, Fig. 6 (N = 512, 60 mph): the BER against the gain limit has its
@@ -165,18 +172,20 @@ fn cimini_1985_fig_5_flat_fading() {
 #[ignore = "statistical validation: run with --ignored"]
 fn cimini_1985_fig_6_gain_limit() {
     let limits: Vec<f64> = (0..=12).map(|k| -24.0 + 2.0 * k as f64).collect();
-    for (sir, ber_read, at_read) in [(15.0, 2.5e-3, -7.5), (17.0, 7.5e-4, -9.0), (20.0, 8e-5, -10.3)] {
+    let mut card = Card::load("cimini1985_fig6").unwrap();
+    for sir in [15, 17, 20] {
         let curve: Vec<f64> = limits
             .iter()
             .map(|e| {
                 let corr = Correction::Limited(comrs::math::db2amp(*e));
-                ber(Link { n: 512, fd: doppler(60.0), corr, rho: flat() }, sir, 4000, 9)
+                ber(Link { n: 512, fd: doppler(60.0), corr, rho: flat() }, f64::from(sir), 4000, 9)
             })
             .collect();
         let (k, min) = curve.iter().enumerate().fold((0, 1.0), |a, (k, &b)| if b < a.1 { (k, b) } else { a });
-        assert!((min / ber_read).ln().abs() < 1.5f64.ln(), "SIR {sir}: {min} against {ber_read}");
-        assert!((limits[k] - at_read).abs() <= 2.5, "SIR {sir}: minimum at {} dB", limits[k]);
+        card.check(&json!({"sir_db": sir, "quantity": "min_ber"}), min);
+        card.check(&json!({"sir_db": sir, "quantity": "gain_limit_db_at_min"}), limits[k]);
     }
+    card.finish().unwrap();
 }
 
 /// Cimini 1985, eq. (23) and Fig. 7: the correlation of the two-ray channel ($\Delta$
@@ -203,6 +212,8 @@ fn cimini_1985_eq_23_and_fig_7_delay_spread() {
     let ideal = sir_at_1e2(512, 60.0, false, flat());
     let l500 = sir_at_1e2(512, 60.0, false, rho_at(500.0)) - ideal;
     let l1k = sir_at_1e2(512, 60.0, false, rho_at(1000.0)) - ideal;
-    assert!((0.0..2.0).contains(&l500), "500 Hz: {l500} dB");
-    assert!((3.5..5.0).contains(&l1k), "1 kHz: {l1k} dB");
+    let mut card = Card::load("cimini1985_fig7").unwrap();
+    card.check(&json!({"offset_hz": 500, "quantity": "loss_db"}), l500);
+    card.check(&json!({"offset_hz": 1000, "quantity": "loss_db"}), l1k);
+    card.finish().unwrap();
 }

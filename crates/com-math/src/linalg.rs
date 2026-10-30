@@ -38,9 +38,13 @@
 //! 1. G. H. Golub and C. F. Van Loan, *Matrix Computations*, 4th ed., Johns Hopkins
 //!    University Press, 2013 (Sec. 5.2, 4.2, 8.6).
 
-use crate::C64;
+use crate::{C64, SCALE_FLOOR};
 use com_core::{Error, Result};
 use ndarray::{Array2, ArrayView2, ShapeBuilder};
+
+/// The smallest diagonal pivot of [`cholesky`]: at or below it (or NaN) the matrix is not
+/// positive definite.
+const MIN_PIVOT: f64 = 1e-300;
 
 /// A dense complex matrix.
 pub type CMat = Array2<C64>;
@@ -94,7 +98,7 @@ pub fn cholesky(a: &ArrayView2<'_, C64>) -> Result<CMat> {
         for k in 0..j {
             d -= l[[j, k]].norm_sqr();
         }
-        if d.is_nan() || d <= 1e-300 {
+        if d.is_nan() || d <= MIN_PIVOT {
             return Err(Error::Numerical("the matrix is not positive definite".into()));
         }
         let d = d.sqrt();
@@ -195,7 +199,7 @@ pub fn qr(a: &ArrayView2<'_, C64>) -> Result<(CMat, CMat)> {
     }
     let mut q = a.to_owned();
     let mut r = Array2::<C64>::zeros((n, n));
-    let scale = a.iter().map(C64::norm_sqr).sum::<f64>().sqrt().max(1e-300);
+    let scale = a.iter().map(C64::norm_sqr).sum::<f64>().sqrt().max(SCALE_FLOOR);
     for j in 0..n {
         for _pass in 0..2 {
             for k in 0..j {

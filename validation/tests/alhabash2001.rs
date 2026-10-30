@@ -17,28 +17,43 @@
 //! in eqs. (19) and (26) the plane wave would give $\beta = 4.29$. The density
 //! integrates to 1 with unit mean, and the draws (a product of gamma variables) have
 //! the predicted scintillation index. The inner-scale cases (Figs. 1, 2, 4, 5, 9–14)
-//! are not modelled.
+//! are not modelled. The printed values and their tolerances are in the card
+//! `validation/cards/alhabash2001_figs3_6_8.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use comrs::channel::owc::atmospheric::{GammaGamma, Wave};
 use comrs::prelude::*;
+use serde_json::{Value, json};
+
+/// The inputs of a case of the card: a plane wave by its Rytov variance $\sigma_{1}^{2}$,
+/// a spherical wave by $\beta_{0}^{2}$, as the figures give them.
+fn inputs(wave: Wave, parameter: f64, quantity: &str) -> Value {
+    match wave {
+        Wave::Plane => json!({"wave": "plane", "sigma1_sq": parameter, "quantity": quantity}),
+        Wave::Spherical => json!({"wave": "spherical", "beta0_sq": parameter, "quantity": quantity}),
+    }
+}
 
 #[test]
 fn al_habash_2001_parameters_figs_3_and_6_to_8() {
-    // spherical waves are given by β₀² = 0.4 σ₁²
+    let mut card = Card::load("alhabash2001_figs3_6_8").unwrap();
+    // (the parameter of the figure, the wave, the Rytov variance): spherical waves are
+    // given by β₀² = 0.4 σ₁²
     let cases = [
-        (25.0, Wave::Plane, 8.05, 1.03),
-        (0.06 / 0.4, Wave::Spherical, 34.27, 32.82),
-        (2.0 / 0.4, Wave::Spherical, 2.20, 1.70),
-        (5.0 / 0.4, Wave::Spherical, 2.11, 1.24),
+        (25.0, Wave::Plane, 25.0),
+        (0.06, Wave::Spherical, 0.06 / 0.4),
+        (2.0, Wave::Spherical, 2.0 / 0.4),
+        (5.0, Wave::Spherical, 5.0 / 0.4),
     ];
-    for (rytov, wave, alpha, beta) in cases {
+    for (parameter, wave, rytov) in cases {
         let g = GammaGamma::from_rytov(rytov, wave).unwrap();
-        assert!((g.alpha - alpha).abs() < 0.015, "{wave:?} {rytov}: α {:.3} vs {alpha}", g.alpha);
-        assert!((g.beta - beta).abs() < 0.015, "{wave:?} {rytov}: β {:.3} vs {beta}", g.beta);
+        card.check(&inputs(wave, parameter, "alpha"), g.alpha);
+        card.check(&inputs(wave, parameter, "beta"), g.beta);
     }
     let g = GammaGamma::from_rytov(25.0, Wave::Plane).unwrap();
-    assert!((g.scintillation_index() - 1.214).abs() < 1e-3, "{}", g.scintillation_index());
+    card.check(&inputs(Wave::Plane, 25.0, "scintillation_index"), g.scintillation_index());
+    card.finish().unwrap();
 }
 
 #[test]

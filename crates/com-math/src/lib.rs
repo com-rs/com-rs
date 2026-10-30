@@ -98,6 +98,10 @@ pub const SPEED_OF_LIGHT: f64 = 299_792_458.0;
 /// The temperature of 0 °C (K): $T_{\mathrm{K}} = T_{\mathrm{°C}} + 273.15$.
 pub const ZERO_CELSIUS: f64 = 273.15;
 
+/// The floor of the scale (a norm or a span of the data) that relative tolerances are
+/// taken against, so that the tolerance of an all-zero input stays positive.
+pub(crate) const SCALE_FLOOR: f64 = 1e-300;
+
 /// `e^{jθ} = cos θ + j sin θ`.
 #[inline]
 pub fn cis(theta: f64) -> C64 {

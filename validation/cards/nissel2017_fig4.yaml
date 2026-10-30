@@ -1,0 +1,31 @@
+id: nissel2017_fig4
+title: BER of OFDM and CP-OFDM without noise over the doubly-selective Vehicular A channel
+literature: nissel2017
+source:
+  kind: paper
+  reference: "R. Nissel, M. Rupp, OFDM and FBMC-OQAM in doubly-selective channels: calculating the bit error probability, IEEE Commun. Lett. 21(6), 2017"
+  locator: "Fig. 4, read at 50, 250 and 500 km/h"
+  file: multicarrier/2017_nissel_ofdm-fbmc-oqam-doubly-selective-bep_comml.pdf
+description: >
+  64-QAM, no noise, 15 kHz subcarriers (196 at 2.94 MHz), 2.5 GHz; the ITU-R M.1225
+  Vehicular A profile with Jakes' Doppler (comrs::channel::multipath::Tdl); OFDM without
+  prefix and CP-OFDM with a prefix of 14 samples (4.76 us), and FBMC/OQAM with the
+  PHYDYAS prototype (K = 4); the one-tap equaliser on the exact diagonal of Q^H H G
+  (eq. (8)); the middle two of six symbols over 300 realisations.
+run:
+  test: validation/tests/nissel2017.rs::nissel_2017_fig_4_vehicular_a
+tier: campaign
+duration: "about 15 s on an Apple M6"
+tolerance: {rtol: 0.3}
+why: "Fig. 4 read on log axes to about 10 %; the 300 realisations of the test add their own spread; 30 % is the agreement obtained (at most 9 % here)"
+findings:
+  - "the FBMC curve of the paper uses the Hermite prototype of Haas & Belfiore (1997), not in com-rs: with PHYDYAS FBMC lies between CP-OFDM and OFDM at 50 km/h and below CP-OFDM at 500 km/h, as in the figure (the test checks these orderings), but equals CP-OFDM at 250 km/h (1.2e-2 against 8.5e-3 for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread"
+cases:
+  - {inputs: {kmh: 50, scheme: ofdm}, expected: 3.2e-2}
+  - {inputs: {kmh: 250, scheme: ofdm}, expected: 4.3e-2}
+  - {inputs: {kmh: 500, scheme: ofdm}, expected: 6.8e-2}
+  - inputs: {kmh: 50, scheme: cp_ofdm}
+    expected: {max: 1.0e-3}
+    note: "the curve leaves the figure below 1e-3"
+  - {inputs: {kmh: 250, scheme: cp_ofdm}, expected: 1.45e-2}
+  - {inputs: {kmh: 500, scheme: cp_ofdm}, expected: 4.5e-2}

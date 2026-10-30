@@ -1,0 +1,26 @@
+id: liang2025_fig6_65536qam
+title: The finite-constellation shaping gain of Maxwell-Boltzmann QAM from 256 to 65536 points
+literature: liang2025
+source:
+  kind: paper
+  reference: "E. M. Liang, J. M. Kahn, Probabilistic shaping distributions for optical communications, J. Lightw. Technol. 43(4), 1504-1521, 2025"
+  locator: "Fig. 6 (the blue arrow) and Sec. III-C3: about 1.4 dB for 65536-QAM, about 0.13 dB less than the ultimate gain of eq. (27)"
+  file: fiber/2025_liang_shaping-distributions_jlt.pdf
+description: >
+  The largest shaping gain (as in liang2025_fig6_256qam) of 256-, 1024-, 4096-, 16384-
+  and 65536-QAM; the test also checks that it grows with the order by smaller steps at
+  every factor of 4 (a claim with no value to read).
+run:
+  test: validation/tests/liang2025.rs::liang_kahn_2025_fig6_shaping_gains_256_to_65536_qam
+tier: campaign
+duration: "about 90 s on an Apple M6"
+findings:
+  - "the gains are 1.08, 1.26, 1.37, 1.44 and 1.48 dB from 256- to 65536-QAM; 65536-QAM stays 0.05 dB below the ultimate gain, not 0.13 dB"
+cases:
+  - inputs: {qam: 65536, quantity: shaping_gain_db}
+    expected: 1.4
+    tolerance: {atol: 0.1}
+    why: "the text gives about 1.4 dB, the arrow of Fig. 6 read to about 0.1 dB"
+  - inputs: {qam: 65536, quantity: gap_to_ultimate_db}
+    expected: {min: 0.0}
+    note: "below the ultimate shaping gain of eq. (27); the text: about 0.13 dB below"
