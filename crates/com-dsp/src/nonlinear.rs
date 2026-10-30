@@ -174,7 +174,7 @@ pub fn output_series_sampled(values: &[C64], n_terms: usize) -> Vec<f64> {
 /// let (k, d) = (b.gain, b.distortion);
 /// let g = 2.0f64;
 /// let want = 1.0 - (-g).exp() + 0.5 * (std::f64::consts::PI * g).sqrt() * com_math::erfc(g.sqrt());
-/// assert!((k.re - want).abs() < 1e-6 && k.im.abs() < 1e-15); // erfc: 1.2e-7
+/// assert!((k.re - want).abs() < 1e-9 && k.im.abs() < 1e-15);
 /// // σ_d² = P (1 - e^{-γ} - K²)
 /// assert!((d - 0.5 * (1.0 - (-g).exp() - want * want)).abs() < 1e-6);
 /// ```

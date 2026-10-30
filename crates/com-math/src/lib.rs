@@ -158,25 +158,118 @@ pub fn energy(x: &[C64]) -> f64 {
     x.iter().map(C64::norm_sqr).sum()
 }
 
-/// Complementary error function `erfc(x) = (2/√π) ∫_x^∞ e^{-t²} dt`.
+/// Complementary error function $\operatorname{erfc}(x) = \frac{2}{\sqrt{\pi}}
+/// \int_{x}^{\infty} e^{-t^{2}}\, dt$.
 ///
-/// Chebyshev fit of Press et al. (*Numerical Recipes*, §6.2), with a relative error
-/// below `1.2·10⁻⁷` on the whole real line, which is ample for error rates down to
-/// `10⁻³⁰⁰`.
+/// The rational Chebyshev approximations of Cody (1969), as in his `CALERF` (SPECFUN,
+/// 1990): $1 - x R_{1}(x^{2})$ for $|x| \le 0.46875$,
+/// $e^{-x^{2}} R_{2}(x)$ up to 4 and $\frac{e^{-x^{2}}}{x} \left(\frac{1}{\sqrt{\pi}} +
+/// \frac{1}{x^{2}} R_{3}(1/x^{2})\right)$ beyond, $e^{-x^{2}}$ computed in two factors so
+/// that its rounding does not grow with $x^{2}$; $2 - \operatorname{erfc}(-x)$ for
+/// $x < -0.46875$. Its relative error is below $10^{-15}$ wherever the result is a
+/// normal number (against mpmath, the tail included: $\operatorname{erfc}(26) \approx
+/// 5.7 \cdot 10^{-296}$); it underflows to 0 beyond 27.3.
+///
+/// # Examples
+/// ```
+/// use com_math::erfc;
+/// assert!((erfc(1.0) / 0.157_299_207_050_285_13 - 1.0).abs() < 1e-15);
+/// assert!((erfc(10.0) / 2.088_487_583_762_544_8e-45 - 1.0).abs() < 1e-15);
+/// ```
+///
+/// # References
+///
+/// 1. W. J. Cody, "Rational Chebyshev approximations for the error function," *Math.
+///    Comp.*, 23(107), 631–637, 1969.
+/// 2. W. J. Cody, "Algorithm 715: SPECFUN — a portable FORTRAN package of special
+///    function routines and test drivers," *ACM Trans. Math. Softw.*, 19(1), 22–32, 1993.
+#[allow(
+    clippy::unreadable_literal,
+    clippy::excessive_precision,
+    reason = "the coefficients of Cody's CALERF, digit for digit"
+)]
 pub fn erfc(x: f64) -> f64 {
-    let z = x.abs();
-    let t = 1.0 / (1.0 + 0.5 * z);
-    let r = t
-        * (-z * z - 1.265_512_23
-            + t * (1.000_023_68
-                + t * (0.374_091_96
-                    + t * (0.096_784_18
-                        + t * (-0.186_288_06
-                            + t * (0.278_868_07
-                                + t * (-1.135_203_98
-                                    + t * (1.488_515_87 + t * (-0.822_152_23 + t * 0.170_872_77)))))))))
-            .exp();
-    if x >= 0.0 { r } else { 2.0 - r }
+    const A: [f64; 5] = [
+        3.16112374387056560e00,
+        1.13864154151050156e02,
+        3.77485237685302021e02,
+        3.20937758913846947e03,
+        1.85777706184603153e-1,
+    ];
+    const B: [f64; 4] =
+        [2.36012909523441209e01, 2.44024637934444173e02, 1.28261652607737228e03, 2.84423683343917062e03];
+    const C: [f64; 9] = [
+        5.64188496988670089e-1,
+        8.88314979438837594e00,
+        6.61191906371416295e01,
+        2.98635138197400131e02,
+        8.81952221241769090e02,
+        1.71204761263407058e03,
+        2.05107837782607147e03,
+        1.23033935479799725e03,
+        2.15311535474403846e-8,
+    ];
+    const D: [f64; 8] = [
+        1.57449261107098347e01,
+        1.17693950891312499e02,
+        5.37181101862009858e02,
+        1.62138957456669019e03,
+        3.29079923573345963e03,
+        4.36261909014324716e03,
+        3.43936767414372164e03,
+        1.23033935480374942e03,
+    ];
+    const P: [f64; 6] = [
+        3.05326634961232344e-1,
+        3.60344899949804439e-1,
+        1.25781726111229246e-1,
+        1.60837851487422766e-2,
+        6.58749161529837803e-4,
+        1.63153871373020978e-2,
+    ];
+    const Q: [f64; 5] = [
+        2.56852019228982242e00,
+        1.87295284992346725e00,
+        5.27905102951428412e-1,
+        6.05183413124413191e-2,
+        2.33520497626869185e-3,
+    ];
+    const FRAC_1_SQRT_PI: f64 = 5.6418958354775628695e-1;
+    let y = x.abs();
+    if y <= 0.46875 {
+        let ysq = if y > 1.11e-16 { y * y } else { 0.0 };
+        let (mut num, mut den) = (A[4] * ysq, ysq);
+        for i in 0..3 {
+            num = (num + A[i]) * ysq;
+            den = (den + B[i]) * ysq;
+        }
+        return 1.0 - x * (num + A[3]) / (den + B[3]);
+    }
+    // erfc(27.3) is below the smallest subnormal number
+    let r = if y > 27.3 {
+        0.0
+    } else {
+        let r = if y <= 4.0 {
+            let (mut num, mut den) = (C[8] * y, y);
+            for i in 0..7 {
+                num = (num + C[i]) * y;
+                den = (den + D[i]) * y;
+            }
+            (num + C[7]) / (den + D[7])
+        } else {
+            let ysq = 1.0 / (y * y);
+            let (mut num, mut den) = (P[5] * ysq, ysq);
+            for i in 0..4 {
+                num = (num + P[i]) * ysq;
+                den = (den + Q[i]) * ysq;
+            }
+            (FRAC_1_SQRT_PI - ysq * (num + P[4]) / (den + Q[4])) / y
+        };
+        // e^{-y²} = e^{-u²} e^{-(y - u)(y + u)} with u = y rounded down to 1/16: exact u²
+        let u = (y * 16.0).trunc() / 16.0;
+        (-u * u).exp() * (-(y - u) * (y + u)).exp() * r
+    };
+    if x < 0.0 { 2.0 - r } else { r }
 }
 
 /// Inverse of [`erfc`] on `(0, 2)`, by bisection (`±∞` at the ends).
@@ -473,8 +566,8 @@ pub fn bessel_i0e(x: f64) -> f64 {
 /// The error function $\operatorname{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x}
 /// e^{-t^{2}}\, dt$: its Maclaurin series $\frac{2}{\sqrt{\pi}} \sum_{k} \frac{(-1)^{k}
 /// x^{2k+1}}{k!\,(2k+1)}$ for $|x| < 2$ (relative error about $10^{-15}$, small
-/// arguments included), $1 - \operatorname{erfc}(x)$ beyond (absolute error below
-/// $10^{-9}$). Odd.
+/// arguments included), $1 - \operatorname{erfc}(x)$ beyond (absolute error about
+/// $10^{-16}$). Odd.
 ///
 /// # Examples
 /// ```
@@ -985,13 +1078,46 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unreadable_literal, clippy::excessive_precision, reason = "the values of mpmath, digit for digit")]
     fn erfc_reference_values() {
-        // values of erfc from tables
-        for (x, v) in [(0.0, 1.0), (0.5, 0.479_500_122), (1.0, 0.157_299_207), (3.0, 2.209_049_7e-5)] {
-            assert!((erfc(x) / v - 1.0).abs() < 2e-7, "erfc({x})");
-            assert!((erfc(-x) - (2.0 - v)).abs() < 1e-7);
+        // mpmath 1.3 with 40 digits, rounded to 20: every branch of Cody's approximations
+        // (|x| ≤ 0.46875, up to 4, beyond) and the tail down to 5.7·10⁻²⁹⁶
+        for (x, v) in [
+            (0.0, 1.0),
+            (1e-10, 0.99999999988716208329),
+            (0.1, 0.8875370839817151078),
+            (0.3, 0.67137324054087257236),
+            (0.46875, 0.50738652678206200841),
+            (0.5, 0.47950012218695346232),
+            (0.75, 0.2888443663464848684),
+            (1.0, 0.15729920705028513066),
+            (1.5, 0.033894853524689272933),
+            (2.0, 0.0046777349810472658379),
+            (3.0, 0.000022090496998585441373),
+            (4.0, 1.5417257900280018852e-8),
+            (4.5, 1.9661604415428874763e-10),
+            (5.0, 1.5374597944280348502e-12),
+            (6.0, 2.1519736712498913117e-17),
+            (8.0, 1.122429717298292708e-29),
+            (10.0, 2.088487583762544757e-45),
+            (15.0, 7.2129941724512066666e-100),
+            (20.0, 5.3958656116079009289e-176),
+            (26.0, 5.6631924088561428465e-296),
+        ] {
+            assert!((erfc(x) / v - 1.0).abs() < 1e-15, "erfc({x}) = {} against {v}", erfc(x));
+            assert!((erfc(-x) - (2.0 - v)).abs() < 1e-15, "erfc(-{x})");
         }
+        for (x, v) in [(-0.3, 1.3286267594591274276), (-1.0, 1.8427007929497148693), (-3.0, 1.9999779095030014146)] {
+            assert!((erfc(x) / v - 1.0).abs() < 1e-15, "erfc({x})");
+        }
+        // the subnormal range, then zero, the limits and NaN
+        assert!((erfc(27.0) / 5.237048923789255685e-319 - 1.0).abs() < 1e-3);
+        assert_eq!((erfc(27.5), erfc(f64::INFINITY), erfc(f64::NEG_INFINITY)), (0.0, 0.0, 2.0));
+        assert!(erfc(f64::NAN).is_nan());
         assert!((erfcinv(erfc(1.3)) - 1.3).abs() < 1e-9);
+        // Q(4.753424308822899) = 1.0000000000000013·10⁻⁶ (mpmath), within the rounding of
+        // x/√2 amplified by x² ≈ 23
+        assert!((qfunc(4.753_424_308_822_899) / 1.000_000_000_000_001_3e-6 - 1.0).abs() < 1e-14);
     }
 
     #[test]
