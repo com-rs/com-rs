@@ -152,7 +152,7 @@ fn raman(v: Json) -> Result<Raman> {
                 other => return Err(Error::Config(format!("raman: direction must be co or counter, got {other:?}"))),
             };
             let frequency_hz = match (p.wavelength_nm, p.frequency_thz) {
-                (Some(w), None) => com_math::SPEED_OF_LIGHT / (w * 1e-9),
+                (Some(w), None) => com_math::nm2hz(w),
                 (None, Some(f)) => f * 1e12,
                 _ => return Err(Error::Config("raman: a pump needs wavelength_nm or frequency_thz".into())),
             };
