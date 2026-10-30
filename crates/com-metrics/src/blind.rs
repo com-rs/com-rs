@@ -83,7 +83,7 @@
 //!    1(2), 137–156, 2007.
 
 use crate::posterior::SymbolMetric;
-use com_core::{Result, ensure};
+use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
 
@@ -182,6 +182,57 @@ pub struct Classification {
     /// ([`classify_cumulants`]) or the mean log-likelihood per sample ([`classify_ml`]);
     /// the largest wins.
     pub scores: Vec<f64>,
+}
+
+/// A modulation classifier, the noise variance known or not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Classifier {
+    /// [`classify_ml_blind`]: the likelihood, the scale and the noise estimated by M2M4
+    /// under every candidate.
+    MlBlind,
+    /// [`classify_ml`]: the likelihood with the known noise variance.
+    Ml {
+        /// The noise variance.
+        noise_var: f64,
+    },
+    /// [`classify_cumulants`]: the fourth-order cumulants, the noise variance
+    /// subtracted when it is known.
+    Cumulants {
+        /// The noise variance, if known.
+        noise_var: Option<f64>,
+    },
+}
+
+impl Classifier {
+    /// The classifier of a name: `ml` ([`Classifier::MlBlind`], which ignores
+    /// `noise_var`), `ml_known` ([`Classifier::Ml`], which needs it) or `cumulants`
+    /// (case-insensitive).
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for another name, or `ml_known` without a noise
+    /// variance.
+    pub fn from_name(name: &str, noise_var: Option<f64>) -> Result<Classifier> {
+        match name.to_ascii_lowercase().as_str() {
+            "ml" => Ok(Classifier::MlBlind),
+            "ml_known" => noise_var
+                .map(|noise_var| Classifier::Ml { noise_var })
+                .ok_or_else(|| Error::Config("ml_known needs the noise variance".into())),
+            "cumulants" => Ok(Classifier::Cumulants { noise_var }),
+            _ => Err(Error::Config(format!("unknown classifier {name:?}: ml, ml_known or cumulants"))),
+        }
+    }
+
+    /// Classify `r` among `candidates`.
+    ///
+    /// # Errors
+    /// As the function of the classifier.
+    pub fn classify(&self, r: &[C64], candidates: &[Constellation]) -> Result<Classification> {
+        match *self {
+            Classifier::MlBlind => classify_ml_blind(r, candidates),
+            Classifier::Ml { noise_var } => classify_ml(r, candidates, noise_var),
+            Classifier::Cumulants { noise_var } => classify_cumulants(r, candidates, noise_var),
+        }
+    }
 }
 
 fn decide(scores: Vec<f64>) -> Classification {
@@ -333,6 +384,18 @@ pub fn snr_crb_nmse(snr: f64, n_symbols: usize, samples_per_symbol: usize, real:
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn the_classifiers_are_read_by_name_and_call_their_function() {
+        let cands = [Constellation::psk(2).unwrap(), Constellation::qam(16).unwrap().normalized()];
+        let mut rng = Rng::new(4);
+        let r: Vec<C64> = (0..500).map(|_| cands[1].points()[rng.below(16)] + rng.complex_gaussian() * 0.1).collect();
+        let by = |name: &str, nv: Option<f64>| Classifier::from_name(name, nv).unwrap().classify(&r, &cands).unwrap();
+        assert_eq!(by("ML", None), classify_ml_blind(&r, &cands).unwrap());
+        assert_eq!(by("ml_known", Some(0.01)), classify_ml(&r, &cands, 0.01).unwrap());
+        assert_eq!(by("cumulants", Some(0.01)), classify_cumulants(&r, &cands, Some(0.01)).unwrap());
+        assert!(Classifier::from_name("ml_known", None).is_err() && Classifier::from_name("svm", None).is_err());
+    }
 
     #[test]
     fn theoretical_cumulants_of_common_alphabets() {
