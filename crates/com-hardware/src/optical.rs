@@ -44,7 +44,7 @@
 //! assert!(null[0].norm() < 1e-15);
 //! ```
 
-use crate::oscillator::{PhaseOrigin, increment_sd, phase_noise, wiener_phase};
+use crate::oscillator::{PhaseOrigin, increment_sd, wiener_phase};
 use com_core::rng::Rng;
 use com_core::{Result, ensure, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
@@ -74,16 +74,51 @@ impl Default for Laser {
 }
 
 impl Laser {
-    /// `n` samples of the field at the sampling rate `fs`.
-    pub fn field(&self, n: usize, fs: f64, rng: &mut Rng) -> Vec<C64> {
+    /// The unit-amplitude carrier of the laser, `n` samples at the sampling rate `fs`:
+    /// the Wiener phase of its linewidth ([`wiener_phase`] with the increments of
+    /// [`increment_sd`], $\phi_{0} = 0$) and its frequency offset,
+    /// $e^{j(\phi_{k} + 2\pi \Delta f k / f_{s})}$. A zero linewidth draws nothing from
+    /// `rng`.
+    ///
+    /// # Errors
+    /// [`com_core::Error::Config`] for a negative linewidth or a sampling rate that is not
+    /// positive.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_hardware::optical::Laser;
+    /// use com_core::rng::Rng;
+    /// let laser = Laser { linewidth_hz: 0.0, freq_shift_hz: 1e9, ..Laser::default() };
+    /// let c = laser.carrier(8, 8e9, &mut Rng::new(1))?;
+    /// assert!((c[2] - com_math::cis(std::f64::consts::FRAC_PI_2)).norm() < 1e-15);   // a quarter turn
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn carrier(&self, n: usize, fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
+        let sd = increment_sd(self.linewidth_hz, fs)?;
+        let phi = if sd > 0.0 { wiener_phase(sd, n, PhaseOrigin::Zero, rng) } else { vec![0.0; n] };
+        Ok(phi.iter().enumerate().map(|(k, p)| cis(p + 2.0 * PI * self.freq_shift_hz * k as f64 / fs)).collect())
+    }
+
+    /// `n` samples of the field at the sampling rate `fs`: the [`Laser::carrier`] times
+    /// $\sqrt{P (1 + r_{k})}$, the relative intensity noise $r_{k}$ drawn after the
+    /// phase.
+    ///
+    /// # Errors
+    /// As [`Laser::carrier`]; [`com_core::Error::Config`] for a negative or non-finite
+    /// intensity-noise variance.
+    pub fn field(&self, n: usize, fs: f64, rng: &mut Rng) -> Result<Vec<C64>> {
+        ensure(self.rin_var >= 0.0 && self.rin_var.is_finite(), || {
+            format!("the intensity-noise variance must be non-negative, got {}", self.rin_var)
+        })?;
         let p = dbm2w(self.power_dbm);
-        let phi = phase_noise(self.linewidth_hz, n, 1.0 / fs, rng);
-        (0..n)
-            .map(|k| {
+        let carrier = self.carrier(n, fs, rng)?;
+        Ok(carrier
+            .into_iter()
+            .map(|c| {
                 let r = if self.rin_var > 0.0 { (1.0 + self.rin_var.sqrt() * rng.gaussian()).max(0.0) } else { 1.0 };
-                cis(phi[k] + 2.0 * PI * self.freq_shift_hz * k as f64 / fs) * (p * r).sqrt()
+                c * (p * r).sqrt()
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -490,10 +525,8 @@ impl WdmTransmitter {
         let mut out = vec![vec![C64::new(0.0, 0.0); n]; pols];
         for (ch, (&f, &p)) in self.freqs.iter().zip(&self.powers_w).enumerate() {
             // the carrier of the channel, with the phase noise of its laser
-            let sd = increment_sd(self.linewidth_hz, fs);
-            let phi = if sd > 0.0 { wiener_phase(sd, n, PhaseOrigin::Zero, rng) } else { vec![0.0; n] };
-            let carrier: Vec<C64> =
-                phi.iter().enumerate().map(|(k, p)| cis(2.0 * PI * f * k as f64 / fs + p)).collect();
+            let carrier =
+                Laser { linewidth_hz: self.linewidth_hz, freq_shift_hz: f, ..Laser::default() }.carrier(n, fs, rng)?;
             let a = (p / pols as f64).sqrt();
             for (pol, o) in out.iter_mut().enumerate() {
                 let s = symbols(ch, pol, rng);
