@@ -59,9 +59,10 @@
 //!    between two vectors perturbed by Gaussian noise," *IEEE Trans. Commun.*, 30(8),
 //!    1828–1841, 1982.
 
-use crate::constellation::{gray_code, indices_to_bits};
+use crate::constellation::indices_to_bits;
 use com_core::{Error, Result, ensure};
-use com_math::{C64, cis};
+use com_math::bits::bits_to_indices;
+use com_math::{C64, cis, gray, gray_inverse};
 use std::f64::consts::TAU;
 
 /// Check the order and the indices of a differential code.
@@ -152,15 +153,12 @@ pub fn detect(r: &[C64], m: usize) -> Result<Vec<usize>> {
     Ok(r.windows(2).map(|w| phase_index(w[1] * w[0].conj(), m)).collect())
 }
 
-/// Differential M-PSK with Gray-labelled phase transitions.
+/// Differential M-PSK with Gray-labelled phase transitions: the differential phase
+/// index $k$ carries the label $g(k)$ ([`com_math::gray`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dpsk {
     m: usize,
     bits: usize,
-    /// `gray[k]` is the label of the differential phase index `k`.
-    gray: Vec<usize>,
-    /// `index[label]` is the differential phase index of a label.
-    index: Vec<usize>,
 }
 
 impl Dpsk {
@@ -170,13 +168,7 @@ impl Dpsk {
     /// [`Error::Config`] unless `m` is a power of two ≥ 2.
     pub fn new(m: usize) -> Result<Dpsk> {
         check(&[], m)?;
-        let bits = m.trailing_zeros() as usize;
-        let gray = gray_code(bits as u32);
-        let mut index = vec![0; m];
-        for (k, &label) in gray.iter().enumerate() {
-            index[label] = k;
-        }
-        Ok(Dpsk { m, bits, gray, index })
+        Ok(Dpsk { m, bits: m.trailing_zeros() as usize })
     }
 
     /// The order $M$.
@@ -194,11 +186,7 @@ impl Dpsk {
     /// # Errors
     /// [`Error::Shape`] if the number of bits is not a multiple of $\log_{2} M$.
     pub fn indices(&self, bits: &[u8]) -> Result<Vec<usize>> {
-        let b = self.bits;
-        if bits.len() % b != 0 {
-            return Err(Error::Shape(format!("{} bits is not a multiple of {b} bits per symbol", bits.len())));
-        }
-        Ok(bits.chunks(b).map(|c| self.index[com_math::bits_to_index(c)]).collect())
+        Ok(bits_to_indices(bits, self.bits)?.into_iter().map(gray_inverse).collect())
     }
 
     /// The bits of a sequence of differential phase indices.
@@ -207,7 +195,7 @@ impl Dpsk {
     /// [`Error::Config`] if an index is not below $M$.
     pub fn bits(&self, indices: &[usize]) -> Result<Vec<u8>> {
         check(indices, self.m)?;
-        Ok(indices_to_bits(&indices.iter().map(|&k| self.gray[k]).collect::<Vec<_>>(), self.bits))
+        Ok(indices_to_bits(&indices.iter().map(|&k| gray(k)).collect::<Vec<_>>(), self.bits))
     }
 
     /// The `n/log2 M + 1` unit-energy PSK symbols carrying `n` bits (the reference first).

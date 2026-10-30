@@ -47,8 +47,9 @@
 //! ```
 
 use com_core::{Error, Result, ensure, same_len};
+use com_math::bits::bits_to_indices;
 use com_math::nearest::Slicer;
-use com_math::{C64, bits_to_index, cis, gray, index_to_bits};
+use com_math::{C64, cis, gray, index_to_bits};
 use std::str::FromStr;
 
 /// The family of a constellation.
@@ -222,9 +223,8 @@ impl Constellation {
     }
 
     /// On-off keying.
-    #[allow(clippy::expect_used, reason = "OOK of order 2 is always a valid constellation")]
     pub fn ook() -> Constellation {
-        Constellation::new(ConstellationKind::Ook, 2).expect("OOK is valid")
+        Constellation::new(ConstellationKind::Ook, 2).unwrap_or_else(|_| unreachable!("OOK of order 2 is valid"))
     }
 
     /// The constellation of a name: `16-QAM`, `qam16`, `QPSK` (4-QAM), `BPSK` (2-PSK),
@@ -399,11 +399,7 @@ impl Constellation {
     /// # Errors
     /// [`Error::Shape`] if the number of bits is not a multiple of `log2 M`.
     pub fn indices(&self, bits: &[u8]) -> Result<Vec<usize>> {
-        let b = self.bits;
-        if bits.len() % b != 0 {
-            return Err(Error::Shape(format!("{} bits is not a multiple of {b} bits per symbol", bits.len())));
-        }
-        Ok(bits.chunks(b).map(bits_to_index).collect())
+        bits_to_indices(bits, self.bits)
     }
 
     /// Map a bit stream to symbols (OptiCommPy `modulateGray`).
@@ -446,10 +442,13 @@ fn pam_levels(m: usize) -> Vec<f64> {
     (0..m).map(|i| 2.0 * i as f64 - (m as f64 - 1.0)).collect()
 }
 
-/// The log of prior probabilities, floored at `1e-300` so that a zero probability gives
-/// a finite log (the metric of an impossible point).
+/// The floor of a prior probability before its logarithm: $\ln 10^{-300} \approx -691$.
+pub const PRIOR_FLOOR: f64 = 1e-300;
+
+/// The log of prior probabilities, floored at [`PRIOR_FLOOR`] so that a zero
+/// probability gives a finite log (the metric of an impossible point).
 pub fn log_priors(px: &[f64]) -> Vec<f64> {
-    px.iter().map(|v| v.max(1e-300).ln()).collect()
+    px.iter().map(|v| v.max(PRIOR_FLOOR).ln()).collect()
 }
 
 /// The side of a square QAM of order `m` (`None` unless `m` is a perfect square).
