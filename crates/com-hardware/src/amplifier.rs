@@ -49,6 +49,32 @@ fn memoryless(x: &[C64], am_am: impl Fn(f64) -> f64, am_pm: impl Fn(f64) -> f64)
     y
 }
 
+/// The memoryless amplifier models, by name.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Model {
+    /// [`Rapp`].
+    Rapp,
+    /// [`Saleh`].
+    Saleh,
+}
+
+impl std::str::FromStr for Model {
+    type Err = Error;
+
+    /// `rapp` or `saleh` (case-insensitive).
+    ///
+    /// # Errors
+    /// [`Error::Config`] for another name.
+    fn from_str(s: &str) -> Result<Model> {
+        match s.to_ascii_lowercase().as_str() {
+            "rapp" => Ok(Model::Rapp),
+            "saleh" => Ok(Model::Saleh),
+            _ => Err(Error::Config(format!("unknown amplifier {s:?}: rapp, saleh"))),
+        }
+    }
+}
+
 /// Rapp's model of a solid-state amplifier: a smooth envelope limiter.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rapp {
@@ -237,6 +263,13 @@ mod tests {
                 assert!((a - b * 2.0).norm() < 1e-9);
             }
         }
+    }
+
+    #[test]
+    fn the_models_are_parsed_by_name() {
+        assert_eq!("Rapp".parse::<Model>().unwrap(), Model::Rapp);
+        assert_eq!("saleh".parse::<Model>().unwrap(), Model::Saleh);
+        assert!("twta".parse::<Model>().is_err());
     }
 
     #[test]
