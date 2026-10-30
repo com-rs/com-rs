@@ -52,7 +52,6 @@ use com_core::rng::Rng;
 use com_core::signal::Signal;
 use com_core::{Result, ensure, ensure_shape, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
-use com_dsp::signal::freq_shift;
 use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, ZERO_CELSIUS, cis, db2lin, dbm2w};
 use std::f64::consts::PI;
 
@@ -574,101 +573,6 @@ pub fn coherent_receiver_signal(es: &Signal, elo: &Signal, pd: &Photodiode, rng:
     Ok(out)
 }
 
-/// A WDM transmitter: channels of the same symbol rate on the frequencies `freqs`
-/// (relative to the carrier), each shaped by the pulse `taps` at `sps` samples per
-/// symbol, of power `powers_w` (W, both polarisations), on a laser of linewidth
-/// `linewidth_hz` (OptiCommPy's `simpleWDMTx`).
-///
-/// A polarisation of a channel is the shaped symbols normalised to unit power, or,
-/// with `mzm_scale`, the field of OptiCommPy's IQ modulator driven by the shaped
-/// symbols normalised to the peak amplitude `mzm_scale · V_π`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct WdmTransmitter {
-    /// Centre frequencies of the channels relative to the carrier (Hz).
-    pub freqs: Vec<f64>,
-    /// Launch power of every channel, both polarisations (W).
-    pub powers_w: Vec<f64>,
-    /// Taps of the pulse.
-    pub taps: Vec<f64>,
-    /// Samples per symbol of the multiplex.
-    pub sps: usize,
-    /// Linewidth of the transmit lasers (Hz).
-    pub linewidth_hz: f64,
-    /// Peak drive of the IQ modulator relative to `V_π`; a linear modulator if `None`.
-    pub mzm_scale: Option<f64>,
-}
-
-impl WdmTransmitter {
-    /// The unit-power waveform of one polarisation of a channel.
-    ///
-    /// # Errors
-    /// The errors of the IQ modulator.
-    pub fn shape(&self, symbols: &[C64]) -> Result<Vec<C64>> {
-        let x = fir_filter(&self.taps, &com_dsp::resample::upsample(symbols, self.sps));
-        Ok(match self.mzm_scale {
-            None => com_dsp::signal::pnorm(&x),
-            Some(scale) => {
-                // OptiCommPy: the drive normalised to the peak amplitude scale·V_π
-                let iqm = Iqm::default();
-                let peak = x.iter().map(|v| v.norm()).fold(0.0, f64::max).max(1e-300);
-                let u: Vec<C64> = x.iter().map(|v| v * (scale * iqm.vpi / peak)).collect();
-                com_dsp::signal::pnorm(&iqm.modulate(&vec![C64::new(1.0, 0.0); u.len()], &u)?)
-            }
-        })
-    }
-
-    /// The multiplex of `pols` polarisations of `n_symbols` symbols per channel at the
-    /// symbol rate `symbol_rate`: `symbols(channel, polarisation, rng)` gives the
-    /// symbols of every polarisation of every channel, drawn after the phase noise of
-    /// the channel's laser.
-    ///
-    /// # Errors
-    /// The errors of [`WdmTransmitter::shape`].
-    pub fn multiplex<F>(
-        &self,
-        pols: usize,
-        n_symbols: usize,
-        symbol_rate: f64,
-        rng: &mut Rng,
-        mut symbols: F,
-    ) -> Result<Vec<Vec<C64>>>
-    where
-        F: FnMut(usize, usize, &mut Rng) -> Vec<C64>,
-    {
-        let n = n_symbols * self.sps;
-        let fs = symbol_rate * self.sps as f64;
-        let mut out = vec![vec![C64::new(0.0, 0.0); n]; pols];
-        for (ch, (&f, &p)) in self.freqs.iter().zip(&self.powers_w).enumerate() {
-            // the carrier of the channel, with the phase noise of its laser
-            let carrier =
-                Laser { linewidth_hz: self.linewidth_hz, freq_shift_hz: f, ..Laser::default() }.carrier(n, fs, rng)?;
-            let a = (p / pols as f64).sqrt();
-            for (pol, o) in out.iter_mut().enumerate() {
-                let s = symbols(ch, pol, rng);
-                for ((o, w), e) in o.iter_mut().zip(self.shape(&s)?).zip(&carrier) {
-                    *o += w * e * a;
-                }
-            }
-        }
-        Ok(out)
-    }
-}
-
-/// The channel of centre frequency `f` (Hz) of a multiplex sampled at `fs`, brought to
-/// baseband and band-limited by resampling to `n_out` samples (an ideal coherent
-/// receiver with its local oscillator on the channel).
-pub fn wdm_demultiplex(x: &[C64], f: f64, fs: f64, n_out: usize) -> Vec<C64> {
-    com_dsp::resample::resample_fft(&freq_shift(x, -f, fs), n_out)
-}
-
-/// The centre frequencies of `n` WDM channels spaced by `spacing` (Hz), relative to the
-/// carrier, as OptiCommPy's `simpleWDMTx`: $(k - \lfloor N/2 \rfloor) \Delta f$ for
-/// $k = 0, \dots, N - 1$, shifted by $\Delta f / 2$ when $N$ is even.
-pub fn wdm_grid(n: usize, spacing: f64) -> Vec<f64> {
-    let shift = if n % 2 == 0 { spacing / 2.0 } else { 0.0 };
-    (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing + shift).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -710,58 +614,5 @@ mod tests {
         }
         let slow = Signal::from_stream(vec![C64::new(0.1, 0.0); 256], Hertz(fs / 2.0)).unwrap();
         assert!(coherent_receiver_signal(&x, &slow, &pd, &mut a).is_err());
-    }
-}
-
-#[cfg(test)]
-mod wdm_tests {
-    use super::*;
-
-    #[test]
-    fn the_demultiplexer_recovers_a_channel_of_the_multiplex() {
-        // three channels of 1 mW; the centre one, demultiplexed, is its shaped symbols
-        let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 8, 1025);
-        let tx = WdmTransmitter {
-            freqs: wdm_grid(3, 50e9),
-            powers_w: vec![1e-3; 3],
-            taps,
-            sps: 8,
-            linewidth_hz: 0.0,
-            mzm_scale: None,
-        };
-        let mut rng = Rng::new(2);
-        let qpsk = |rng: &mut Rng| C64::new(f64::from(rng.bit()) * 2.0 - 1.0, f64::from(rng.bit()) * 2.0 - 1.0);
-        let centre: Vec<C64> = (0..512).map(|_| qpsk(&mut rng)).collect();
-        let x = tx
-            .multiplex(1, 512, 32e9, &mut rng, |ch, _, rng| {
-                if ch == 1 { centre.clone() } else { (0..512).map(|_| qpsk(rng)).collect() }
-            })
-            .unwrap();
-        let p = x[0].iter().map(C64::norm_sqr).sum::<f64>() / x[0].len() as f64;
-        assert!((p / 3e-3 - 1.0).abs() < 0.05, "{p}");
-        // at 2 samples per symbol the band is ±32 GHz: the neighbours (50 ± 17.6 GHz)
-        // are out of it
-        let y = wdm_demultiplex(&x[0], 0.0, 256e9, 512 * 2);
-        let reference = com_dsp::resample::resample_fft(&tx.shape(&centre).unwrap(), 512 * 2);
-        let err: f64 = y.iter().zip(&reference).map(|(a, b)| (a / 1e-3f64.sqrt() - b).norm_sqr()).sum::<f64>();
-        let sig: f64 = reference.iter().map(C64::norm_sqr).sum();
-        assert!(err / sig < 1e-3, "{}", err / sig);
-    }
-
-    /// The demultiplexer shifted the multiplex itself, with the phase `-2π f k / fs`,
-    /// before it called `com_dsp::signal::freq_shift`, whose phase `(-2π f / fs) k`
-    /// rounds differently: the outputs differ by the rounding of phases up to `2π f n / fs`.
-    #[test]
-    fn the_demultiplexer_shifts_as_before_to_the_rounding_of_the_phase() {
-        let mut rng = Rng::new(5);
-        let x: Vec<C64> = (0..8192).map(|_| rng.complex_gaussian()).collect();
-        let (fs, f) = (256e9, 75e9);
-        let shifted: Vec<C64> = x.iter().enumerate().map(|(k, v)| v * cis(-2.0 * PI * f * k as f64 / fs)).collect();
-        let old = com_dsp::resample::resample_fft(&shifted, 2048);
-        let new = wdm_demultiplex(&x, f, fs, 2048);
-        let err = old.iter().zip(&new).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>().sqrt();
-        let sig = old.iter().map(C64::norm_sqr).sum::<f64>().sqrt();
-        // the phase reaches 2π · 75/256 · 8192 ≈ 1.5·10⁴ rad, rounded to about 2·10⁻¹² rad
-        assert!(err / sig < 1e-11, "{}", err / sig);
     }
 }

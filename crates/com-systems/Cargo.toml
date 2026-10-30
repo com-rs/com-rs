@@ -22,6 +22,8 @@ workspace = true
 
 [dependencies]
 com-core.workspace = true
+com-dsp.workspace = true
 com-fec.workspace = true
+com-hardware.workspace = true
 com-mapping.workspace = true
 com-math.workspace = true
