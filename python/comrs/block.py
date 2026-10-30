@@ -105,7 +105,8 @@ class Block:
 
     Subclass it and implement :meth:`__call__` to write a block in Python; the frame
     exposes ``samples`` (read and write), ``sps``, ``tx_bits``, ``tx_symbols`` and
-    ``constellation``. A block that depends on the condition overrides :meth:`bind`.
+    ``constellation``. A block that depends on the condition overrides :meth:`bind`
+    (with its keyword arguments, or ``**kwargs``).
 
     Example:
         >>> import comrs
@@ -130,6 +131,7 @@ class Block:
         name: str | None = None,
         label: str | None = None,
         profile: bool = False,
+        base_dir: str | os.PathLike[str] | None = None,
     ) -> Callable[[Frame, Rng], None]:
         """The callable that applies the block for a condition (itself by default).
 
@@ -141,6 +143,9 @@ class Block:
                 files.
             label (str | None): the name of the block in the chain.
             profile (bool): time the blocks (chains only).
+            base_dir (str | os.PathLike | None): the directory the relative paths of
+                the block are resolved against (that of its specification file), for
+                the blocks that read files.
 
         Returns:
             Callable[[Frame, Rng], None]: the block of the condition.

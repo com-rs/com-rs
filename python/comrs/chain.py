@@ -35,10 +35,11 @@ Example:
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from comrs import spec as _spec
 from comrs._comrs import Frame, Rng, Stop, _run_chain, run_spec
@@ -52,8 +53,11 @@ class Chain(Block):
     """An ordered, named sequence of blocks; a chain is itself a block.
 
     Args:
-        *blocks: unnamed blocks (named ``block0``, ``block1``…).
-        **named: named blocks, in order.
+        *blocks: unnamed blocks, named as the Rust runner names the blocks of a link:
+            by their type (``source``; a Python block by its class or function,
+            ``gain``), a repeated name followed by the position of its block
+            (``awgn_2``, ``awgn_3``).
+        **named: named blocks, in order, after the unnamed ones.
 
     Attributes:
         settings (dict): the campaign settings of the specification the chain comes
@@ -70,14 +74,21 @@ class Chain(Block):
         >>> link = comrs.Chain(tx=B.Source(n_symbols=64), norm=B.Normalize())
         >>> link.names, len(link)
         (['tx', 'norm'], 2)
+        >>> comrs.Chain(B.Source(), B.Awgn(snr_db=3.0), B.Awgn(snr_db=6.0)).names
+        ['source', 'awgn_2', 'awgn_3']
     """
 
     def __init__(self, *blocks: Any, **named: Any) -> None:
+        from comrs._comrs import _link_labels
+
         self.settings: dict[str, Any] = {}
         self.base_dir: Path | None = None
-        self._blocks: dict[str, Block] = {}
-        for i, b in enumerate(blocks):
-            self._blocks[f"block{i}"] = _as_block(b)
+        unnamed = [_as_block(b) for b in blocks]
+        labels = _link_labels([_kind(b) for b in unnamed]) if unnamed else []
+        clash = sorted(set(labels) & set(named))
+        if clash:
+            raise ValueError(f"the names {clash} are given to a named and an unnamed block")
+        self._blocks: dict[str, Block] = dict(zip(labels, unnamed, strict=True))
         for name, b in named.items():
             self._blocks[name] = _as_block(b)
 
@@ -246,13 +257,8 @@ class Chain(Block):
             >>> f.samples.size
             8
         """
-        fiber = fiber if fiber is not None else self.settings.get("fiber")
-        base_dir = base_dir if base_dir is not None else self.base_dir
-        names = [n for n, _ in self.flatten()]
-        steps = [
-            b.bind(condition, fiber=fiber, name=name, label=n, **_paths(b, base_dir))
-            for n, b in self.flatten()
-        ]
+        bound = self._steps(condition, fiber, name, base_dir)
+        names, steps = [n for n, _ in bound], [s for _, s in bound]
 
         def apply(frame: Frame, rng: Rng) -> None:
             if not profile:
@@ -267,6 +273,22 @@ class Chain(Block):
             frame.record("link.time_ms", 1e3 * (time.perf_counter() - t_link))
 
         return apply
+
+    def _steps(
+        self,
+        condition: Mapping[str, Any] | None,
+        fiber: Mapping[str, Any] | None,
+        name: str | None,
+        base_dir: str | os.PathLike[str] | None,
+    ) -> list[tuple[str, Callable[[Frame, Rng], None]]]:
+        """The blocks of a condition, with their dotted names: the arguments of
+        :meth:`bind`, the ``fiber`` and the ``base_dir`` of the chain by default."""
+        fiber = fiber if fiber is not None else self.settings.get("fiber")
+        base_dir = base_dir if base_dir is not None else self.base_dir
+        return [
+            (n, b.bind(condition, fiber=fiber, name=name, label=n, base_dir=base_dir))
+            for n, b in self.flatten()
+        ]
 
     # a chain is a block that also returns its frame: callers of a block ignore the value
     def __call__(  # type: ignore[override]
@@ -289,12 +311,16 @@ class Chain(Block):
         self.bind(condition)(frame, rng)
         return frame
 
-    def trace(self, condition: Mapping[str, Any] | None, rng: Rng) -> Trace:
+    def trace(
+        self, condition: Mapping[str, Any] | None, rng: Rng, *, name: str | None = None
+    ) -> Trace:
         """Run the chain once and keep a copy of the frame after every block.
 
         Args:
             condition (dict | None): the values of the grid variables.
             rng (Rng): the generator.
+            name (str | None): the name of the campaign, for the blocks that write
+                files (as :meth:`bind`).
 
         Returns:
             Trace: ``{name: Frame}`` in the order of the chain (``trace.plot()``,
@@ -302,10 +328,9 @@ class Chain(Block):
         """
         frame = Frame()
         out = Trace()
-        fiber = self.settings.get("fiber")
-        for name, b in self.flatten():
-            b.bind(condition, fiber=fiber, label=name, **_paths(b, self.base_dir))(frame, rng)
-            out[name] = frame.copy()
+        for label, step in self._steps(condition, None, name, None):
+            step(frame, rng)
+            out[label] = frame.copy()
         return out
 
     # --- specifications -----------------------------------------------------------
@@ -345,7 +370,7 @@ class Chain(Block):
         spec = _spec.settings(
             self.settings, name=name, grid=grid, metrics=metrics, stop=stop, seed=seed, **extra
         )
-        spec["link"] = [b.spec(n.split(".")[-1]) for n, b in self.flatten()]  # type: ignore[attr-defined]
+        spec["link"] = _link(self.flatten())
         return spec
 
     @classmethod
@@ -396,8 +421,9 @@ class Chain(Block):
         Both kinds of chain run on the Rust runner, trial ``t`` of condition ``i``
         drawing from ``Rng.stream(seed, name, i, t)``: a native chain on all cores
         (:func:`comrs.run_spec`), a chain with Python blocks on one thread; the
-        stopping rule (a mapping, or a :class:`comrs.sim.Stop`), the statistics and
-        the outputs are the same, so a native chain gives the same results on both.
+        stopping rule (a mapping, or a :class:`comrs.sim.Stop`, which runs a native
+        chain on the one-thread path too), the statistics and the outputs are the
+        same, so a native chain gives the same results on both.
 
         Args:
             grid (dict | None): the grid.
@@ -405,7 +431,8 @@ class Chain(Block):
             stop (dict | Stop | None): the stopping rule.
             seed (int | None): the base seed.
             name (str | None): the campaign name.
-            threads (int | None): worker threads of a native chain (0: all cores).
+            threads (int | None): worker threads of a native chain with a stopping rule
+                given as a mapping (0: all cores).
             progress (bool): print one line per condition on the standard error.
             **extra: other fields of the specification (``batch``, ``profile``,
                 ``fiber``, ``output``…).
@@ -413,6 +440,10 @@ class Chain(Block):
         Returns:
             Results: one dict per condition, as :func:`comrs.run_spec`, with tabular
             access, plots and persistence.
+
+        Raises:
+            ValueError: for ``threads`` other than 1 on the one-thread path (Python
+                blocks, or a :class:`comrs.sim.Stop`), which would ignore it.
         """
         rule, mapping = (stop, None) if isinstance(stop, Stop) else (None, stop)
         spec = _spec.settings(
@@ -429,6 +460,12 @@ class Chain(Block):
             spec["link"] = self.to_spec()["link"]
             res = run_spec(spec, threads=threads, progress=progress, base_dir=self.base_dir)
             return Results(res, spec)
+        if threads not in (None, 1):
+            why = "a comrs.sim.Stop" if rule is not None else "Python blocks"
+            raise ValueError(
+                f"threads={threads}: a chain with {why} runs on one thread (give the stopping "
+                "rule as a mapping to run a native chain on several)"
+            )
         results = self._run_python(spec, rule, progress)
         return Results(results, {**spec, "block_order": [n for n, _ in self.flatten()]})
 
@@ -471,9 +508,35 @@ class Chain(Block):
         return f"Chain(\n{inner}\n)"
 
 
-def _paths(block: Block, base_dir: str | os.PathLike[str] | None) -> dict[str, Any]:
-    """The ``base_dir`` argument of :meth:`Block.bind` for the blocks that read files
-    (native blocks and chains; a Python block keeps its signature)."""
-    return (
-        {"base_dir": base_dir} if base_dir is not None and isinstance(block, Native | Chain) else {}
-    )
+def _link(blocks: list[tuple[str, Block]]) -> list[dict[str, Any]]:
+    """The link of a specification of native blocks, every block labelled by its name in
+    the chain, the label left out where the Rust runner names the block so anyway (its
+    type, or the type and the position of a repeated one: ``awgn_2``)."""
+    from comrs._comrs import _link_labels
+
+    names = [n.split(".")[-1] for n, _ in blocks]
+    natives = [cast("Native", b) for _, b in blocks]
+    link = [b.spec(n) for n, b in zip(names, natives, strict=True)]
+    # the blocks named by the chain, not by a `label` parameter (a probe's)
+    bare = [
+        {k: v for k, v in d.items() if k != "label" or "label" in b.params}
+        for d, b in zip(link, natives, strict=True)
+    ]
+    trimmed = [
+        lean if auto == n else d
+        for d, lean, n, auto in zip(link, bare, names, _link_labels(bare), strict=True)
+    ]
+    return trimmed if _link_labels(trimmed) == names else link
+
+
+def _kind(block: Block) -> str:
+    """The type of a block, as an unnamed block is named: the registry type of a
+    native block, ``chain``, or the class (or function) name of a Python block in
+    snake case (``block`` when it has none)."""
+    if isinstance(block, Native):
+        return block.kind
+    if isinstance(block, Chain):
+        return "chain"
+    raw = getattr(getattr(block, "f", None), "__name__", None) or type(block).__name__
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", raw).lower()
+    return snake if snake.isidentifier() else "block"

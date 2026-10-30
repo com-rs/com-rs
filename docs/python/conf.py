@@ -11,15 +11,13 @@ from pathlib import Path
 import comrs
 
 # `reset_style` below is referenced by name by the gallery; the examples that read the
-# specifications of the repository import `_gallery_utils`; the palette is that of
-# `comrs.plot`, the themes those of `tools/_common.py`
+# specifications of the repository import `_gallery_utils`; the style and the palette
+# are those of `comrs.plot`, the themes those of `tools/_common.py`
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.append(str(HERE.parents[1] / "tools"))
 
 from _common import GALLERY_THEMES  # noqa: E402
-
-from comrs.plot import BACKGROUND, EDGE, GRID, LABEL, MUTED, SERIES, TEXT  # noqa: E402
 
 project = "comrs"
 author = "Vincent Choqueuse"
@@ -58,40 +56,12 @@ copybutton_prompt_is_regexp = True
 
 
 def reset_style(gallery_conf, fname):
-    """Recessive axes, thin marks and the categorical order of the documentation."""
+    """The style of :func:`comrs.plot.style` from the matplotlib defaults, before every
+    example."""
     import matplotlib as mpl
 
     mpl.rcdefaults()
-    mpl.rcParams.update(
-        {
-            "figure.figsize": (7.0, 4.4),
-            "figure.dpi": 110,
-            "figure.facecolor": BACKGROUND,
-            "axes.facecolor": BACKGROUND,
-            "savefig.facecolor": BACKGROUND,
-            "axes.prop_cycle": mpl.cycler(color=SERIES),
-            "axes.edgecolor": EDGE,
-            "axes.labelcolor": LABEL,
-            "axes.titlesize": 12,
-            "axes.titleweight": "semibold",
-            "axes.titlecolor": TEXT,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "axes.grid": True,
-            "axes.grid.which": "major",
-            "grid.color": GRID,
-            "grid.linewidth": 0.6,
-            "xtick.color": MUTED,
-            "ytick.color": MUTED,
-            "xtick.minor.visible": False,
-            "lines.linewidth": 2.0,
-            "lines.markersize": 6.5,
-            "legend.frameon": False,
-            "legend.fontsize": 9,
-            "font.size": 10,
-            "text.color": TEXT,
-        }
-    )
+    comrs.plot.style()
 
 
 sphinx_gallery_conf = {

@@ -85,8 +85,10 @@ def grid(**axes: Any) -> list[dict[str, Any]]:
         >>> grid(m=[4, 16], snr_db=[0.0, 10.0])
         [{'m': 4, 'snr_db': 0.0}, {'m': 4, 'snr_db': 10.0}, {'m': 16, 'snr_db': 0.0}, {'m': 16, 'snr_db': 10.0}]
     """
-    axes = {k: v if isinstance(v, Mapping) else list(v) for k, v in axes.items()}
-    return spec_conditions({"name": "grid", "grid": axes, "link": ["normalize"]})
+    from comrs.spec import _grid_axes
+
+    # the conditions of a specification with this grid, expanded by the Rust parser
+    return spec_conditions({"name": "grid", "grid": _grid_axes(axes), "link": ["normalize"]})
 
 
 def run(

@@ -120,7 +120,7 @@ print(len(kept), "trials kept,", kept[0].shape)
 
 # %%
 # **Saving a trace.** ``Trace.save`` writes the samples of every stage to a ``.npz``
-# file, one array per block, for NumPy or any tool that reads them.
+# file, under ``stage/<name>/`` for every block, for NumPy or any tool that reads them.
 path = frames.save(folder / "trace.npz")
 with np.load(path) as z:
     print(sorted(z.files)[:6], "…")
