@@ -22,13 +22,16 @@
 //! shifts $k_{i}$ (in bins of $1/(NT)$), $r\[n\] = \sum_{i} h_{i} e^{j 2\pi k_{i}(n -
 //! l_{i})/(MN)} s\[\[n - l_{i}\]_{MN}\]$ after the prefix (eq. (6)), becomes in the
 //! delay–Doppler plane $\mathbf{y} = H_{\mathrm{eff}} \mathbf{x} + \mathbf{w}$ with the
-//! sparse matrix of Theorem 1, [`Otfs::effective_channel`]: $P$ nonzero entries per row,
+//! sparse matrix of Theorem 1, [`Otfs::effective_channel`] ([`EffectiveChannel`]: $P$
+//! entries per row, applied in $O(MNP)$ operations, [`EffectiveChannel::to_dense`] for
+//! the detectors that take a matrix),
 //! the 2D circular convolution $Y\[m, n\] = \sum_{i} h_{i} X\[\[m - l_{i}\]_{M},
 //! \[n - k_{i}\]_{N}\]$ of ideal pulses (eq. (30)) up to the phases
 //! $\alpha_{i}(m, n)$ of Remark 1. Fractional Doppler shifts spread over all the Doppler
 //! bins ([`Otfs::transform_channel`] takes any time-domain channel matrix). The
-//! channel itself is drawn in `com-channel` (`multipath::DelayDoppler`); the
-//! detectors are those of `com-mimo` on $H_{\mathrm{eff}}$.
+//! channel itself is drawn in `com-channel` (`multipath::DelayDoppler`), its paths are
+//! [`com_core::channel::Path`]; the detectors are those of `com-mimo` on
+//! $H_{\mathrm{eff}}$.
 //!
 //! # Examples
 //! ```
@@ -55,6 +58,7 @@
 //!    waveform," *IEEE Wireless Commun.*, 28(4), 136–144, 2021.
 
 use crate::ofdm::check_rate;
+use com_core::channel::Path;
 use com_core::prelude::*;
 use com_core::{ensure, ensure_shape};
 use com_dsp::signal::{extend_with_prefix, strip_prefix};
@@ -162,10 +166,10 @@ impl Otfs {
         Ok(out)
     }
 
-    /// The effective delay–Doppler channel of paths `(gain, delay, doppler_hz)` at the
-    /// sampling rate `sample_rate`: the $MN \times MN$ matrix of Theorem 1 of Raviteja
-    /// et al. (2019), eq. (12), with $z = e^{j 2\pi/(MN)}$ and the Doppler shifts in bins
-    /// $k_{i} = \nu_{i} MN / f_{s}$ (of either sign),
+    /// The effective delay–Doppler channel of `paths` at [`Otfs::sample_rate`]: the
+    /// $MN \times MN$ matrix of Theorem 1 of Raviteja et al. (2019), eq. (12), with
+    /// $z = e^{j 2\pi/(MN)}$ and the Doppler shifts in bins $k_{i} = \nu_{i} MN / f_{s}$
+    /// (of either sign),
     ///
     /// $$
     /// T^{(i)}(p, q) = \begin{cases} e^{-j 2\pi n/N} z^{k_{i}([m - l_{i}]_{M})} &
@@ -173,28 +177,50 @@ impl Otfs {
     /// \qquad q = [m - l_{i}]_{M} + M[n - k_{i}]_{N},
     /// $$
     ///
-    /// $p = nM + m$, zero elsewhere, summed with the gains. The time of a path counts
-    /// from the first sample of the frame, its prefix included, as in
-    /// `com_channel::multipath::DelayDoppler`: the gain of eq. (6), whose time starts
-    /// after the prefix, is $h_{i} e^{j 2\pi k_{i} N_{\mathrm{cp}}/(MN)}$. The model
-    /// assumes a prefix at least as long as the largest delay.
+    /// $p = nM + m$, zero elsewhere, summed with the gains: one entry per path in every
+    /// row ([`EffectiveChannel`]). The time of a path counts from the first sample of the
+    /// frame, its prefix included, as in `com_channel::multipath::DelayDoppler`: the gain
+    /// of eq. (6), whose time starts after the prefix, is
+    /// $h_{i} e^{j 2\pi k_{i} N_{\mathrm{cp}}/(MN)}$. The model assumes a prefix at least
+    /// as long as the largest delay.
     ///
     /// # Errors
-    /// [`Error::Config`] for a delay of $M$ samples or more, or a Doppler shift that is
-    /// not a whole number of bins ([`Otfs::transform_channel`] takes any channel).
-    pub fn effective_channel(&self, paths: &[(C64, usize, f64)], sample_rate: f64) -> Result<CMat> {
+    /// [`Error::Config`] for an invalid configuration, a delay of $M$ samples or more, or
+    /// a Doppler shift that is not a whole number of bins ([`Otfs::transform_channel`]
+    /// takes any channel).
+    ///
+    /// # Examples
+    /// ```
+    /// use com_waveform::otfs::Otfs;
+    /// use com_core::channel::Path;
+    /// use com_core::units::Hertz;
+    /// use com_math::C64;
+    /// // M N = 32 samples at 32 kHz: one Doppler bin is 1 kHz
+    /// let o = Otfs { sample_rate: Hertz(32e3), ..Otfs::new(8, 4)? };
+    /// let h = o.effective_channel(&[Path { gain: C64::new(1.0, 0.0), delay: 1, doppler_hz: 1e3 }])?;
+    /// assert_eq!((h.size(), h.paths()), (32, 1));
+    /// let x: Vec<C64> = (0..32).map(|i| C64::new(i as f64, 0.0)).collect();
+    /// let y = h.apply(&x)?;
+    /// let dense = h.to_dense();
+    /// assert!((0..32).all(|p| ((0..32).map(|q| dense[[p, q]] * x[q]).sum::<C64>() - y[p]).norm() < 1e-12));
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn effective_channel(&self, paths: &[Path]) -> Result<EffectiveChannel> {
         self.check()?;
         let (m, n) = (self.n_fft, self.n_symbols);
         let mn = m * n;
-        let mut h = CMat::zeros((mn, mn));
-        for &(gain, l, doppler_hz) in paths {
+        let n_paths = paths.len();
+        let mut cols = vec![0usize; mn * n_paths];
+        let mut vals = vec![C64::new(0.0, 0.0); mn * n_paths];
+        for (i, path) in paths.iter().enumerate() {
+            let l = path.delay;
             ensure(l < m, || format!("a delay of {l} bins needs more than {m} delay bins"))?;
-            let bins = doppler_hz * mn as f64 / sample_rate;
+            let bins = path.doppler_hz * mn as f64 / self.sample_rate.0;
             ensure((bins - bins.round()).abs() < 1e-9, || {
                 format!("a Doppler shift of {bins} bins is not a whole bin: use transform_channel")
             })?;
             let k = bins.round() as i64;
-            let gain = gain * cis(std::f64::consts::TAU * k as f64 * self.n_cp as f64 / mn as f64);
+            let gain = path.gain * cis(std::f64::consts::TAU * k as f64 * self.n_cp as f64 / mn as f64);
             for p in 0..mn {
                 let (row_n, row_m) = (p / m, p % m);
                 let shifted = (row_m + m - l) % m;
@@ -202,10 +228,11 @@ impl Otfs {
                 let z = cis(std::f64::consts::TAU * k as f64 * shifted as f64 / mn as f64);
                 let wrap =
                     if row_m < l { cis(-std::f64::consts::TAU * row_n as f64 / n as f64) } else { C64::new(1.0, 0.0) };
-                h[[p, q]] += gain * z * wrap;
+                cols[p * n_paths + i] = q;
+                vals[p * n_paths + i] = gain * z * wrap;
             }
         }
-        Ok(h)
+        Ok(EffectiveChannel { size: mn, n_paths, cols, vals })
     }
 
     /// The effective channel $(F_{N} \otimes I_{M}) H (F_{N}^{H} \otimes I_{M})$ of a
@@ -236,6 +263,62 @@ impl Otfs {
             out.column_mut(q).iter_mut().zip(t).for_each(|(o, v)| *o = v);
         }
         Ok(out)
+    }
+}
+
+/// The effective delay–Doppler channel of [`Otfs::effective_channel`]: an $MN \times MN$
+/// matrix of $P$ entries per row, one per path (the entries of paths that land on the
+/// same column add up).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectiveChannel {
+    size: usize,
+    n_paths: usize,
+    /// The column of every entry, row after row, $P$ per row.
+    cols: Vec<usize>,
+    /// The value of every entry.
+    vals: Vec<C64>,
+}
+
+impl EffectiveChannel {
+    /// The size $MN$ of the square matrix.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// The number $P$ of entries per row (the paths).
+    pub fn paths(&self) -> usize {
+        self.n_paths
+    }
+
+    /// The entries `(column, value)` of row `p`, one per path.
+    ///
+    /// # Panics
+    /// If `p` is not below [`EffectiveChannel::size`].
+    pub fn row(&self, p: usize) -> impl Iterator<Item = (usize, C64)> + '_ {
+        let r = p * self.n_paths..(p + 1) * self.n_paths;
+        self.cols[r.clone()].iter().copied().zip(self.vals[r].iter().copied())
+    }
+
+    /// $\mathbf{y} = H_{\mathrm{eff}} \mathbf{x}$, in $O(MNP)$ operations.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] unless `x` has $MN$ values.
+    pub fn apply(&self, x: &[C64]) -> Result<Vec<C64>> {
+        ensure_shape(x.len() == self.size, || format!("{} values for an effective channel of {}", x.len(), self.size))?;
+        Ok((0..self.size).map(|p| self.row(p).map(|(q, v)| v * x[q]).sum()).collect())
+    }
+
+    /// The dense $MN \times MN$ matrix ($16 (MN)^{2}$ bytes: 16 MB at $32 \times 32$), for
+    /// the detectors that take a matrix.
+    pub fn to_dense(&self) -> CMat {
+        let mut h = CMat::zeros((self.size, self.size));
+        // path after path, as the entries of a path were added to the matrix
+        for i in 0..self.n_paths {
+            for p in 0..self.size {
+                h[[p, self.cols[p * self.n_paths + i]]] += self.vals[p * self.n_paths + i];
+            }
+        }
+        h
     }
 }
 
@@ -286,22 +369,76 @@ mod tests {
 
     #[test]
     fn a_channel_without_delay_or_doppler_is_the_identity_and_rows_are_sparse() {
-        let o = Otfs::new(6, 4).unwrap();
         // one Doppler bin is 1 Hz at a sampling rate of MN = 24 Hz
-        let h = o.effective_channel(&[(C64::new(0.5, 0.0), 0, 0.0)], 24.0).unwrap();
+        let o = Otfs { sample_rate: Hertz(24.0), ..Otfs::new(6, 4).unwrap() };
+        let h = o.effective_channel(&paths_of(&[(C64::new(0.5, 0.0), 0, 0.0)])).unwrap().to_dense();
         for p in 0..24 {
             for q in 0..24 {
                 assert_eq!(h[[p, q]], if p == q { C64::new(0.5, 0.0) } else { C64::new(0.0, 0.0) });
             }
         }
         let paths = [(C64::new(1.0, 0.0), 0, 0.0), (C64::new(0.3, 0.2), 2, 1.0), (C64::new(-0.4, 0.1), 5, -2.0)];
-        let h = o.effective_channel(&paths, 24.0).unwrap();
+        let sparse = o.effective_channel(&paths_of(&paths)).unwrap();
+        let h = sparse.to_dense();
         for p in 0..24 {
             assert_eq!((0..24).filter(|&q| h[[p, q]].norm() > 0.0).count(), 3);
             assert_eq!((0..24).filter(|&q| h[[q, p]].norm() > 0.0).count(), 3);
+            assert_eq!(sparse.row(p).count(), 3);
         }
-        assert!(o.effective_channel(&[(C64::new(1.0, 0.0), 0, 0.5)], 24.0).is_err());
+        assert!(o.effective_channel(&paths_of(&[(C64::new(1.0, 0.0), 0, 0.5)])).is_err());
+        assert!(sparse.apply(&[C64::new(0.0, 0.0); 23]).is_err());
         assert!(Otfs { n_cp: 25, ..o }.check().is_err());
+    }
+
+    /// Paths from `(gain, delay, doppler_hz)`.
+    fn paths_of(p: &[(C64, usize, f64)]) -> Vec<Path> {
+        p.iter().map(|&(gain, delay, doppler_hz)| Path { gain, delay, doppler_hz }).collect()
+    }
+
+    /// The effective channel of Theorem 1 as it was written before it was sparse: a dense
+    /// matrix, path after path.
+    fn dense_theorem_1(o: &Otfs, paths: &[(C64, usize, f64)], sample_rate: f64) -> CMat {
+        let (m, n) = (o.n_fft, o.n_symbols);
+        let mn = m * n;
+        let mut h = CMat::zeros((mn, mn));
+        for &(gain, l, doppler_hz) in paths {
+            let k = (doppler_hz * mn as f64 / sample_rate).round() as i64;
+            let gain = gain * cis(std::f64::consts::TAU * k as f64 * o.n_cp as f64 / mn as f64);
+            for p in 0..mn {
+                let (row_n, row_m) = (p / m, p % m);
+                let shifted = (row_m + m - l) % m;
+                let q = shifted + m * ((row_n as i64 - k).rem_euclid(n as i64) as usize);
+                let z = cis(std::f64::consts::TAU * k as f64 * shifted as f64 / mn as f64);
+                let wrap =
+                    if row_m < l { cis(-std::f64::consts::TAU * row_n as f64 / n as f64) } else { C64::new(1.0, 0.0) };
+                h[[p, q]] += gain * z * wrap;
+            }
+        }
+        h
+    }
+
+    #[test]
+    fn the_sparse_channel_is_the_former_dense_matrix() {
+        let mut rng = com_core::rng::Rng::new(8);
+        for (m, n, cp) in [(6usize, 4usize, 0usize), (16, 8, 4), (5, 7, 3)] {
+            let mn = (m * n) as f64;
+            let o = Otfs { n_cp: cp, sample_rate: Hertz(mn * 1e3), ..Otfs::new(m, n).unwrap() };
+            // whole bins of 1 kHz, two paths on the same delay and Doppler (they add up)
+            let paths = [
+                (rng.complex_gaussian(), 0usize, 0.0),
+                (rng.complex_gaussian(), 2, 1e3),
+                (rng.complex_gaussian(), m - 1, -2e3),
+                (rng.complex_gaussian(), 2, 1e3),
+            ];
+            let sparse = o.effective_channel(&paths_of(&paths)).unwrap();
+            assert_eq!(sparse.to_dense(), dense_theorem_1(&o, &paths, mn * 1e3), "{m} × {n}");
+            let x: Vec<C64> = (0..m * n).map(|_| rng.complex_gaussian()).collect();
+            let dense = sparse.to_dense();
+            for (p, y) in sparse.apply(&x).unwrap().iter().enumerate() {
+                let want: C64 = (0..m * n).map(|q| dense[[p, q]] * x[q]).sum();
+                assert!((y - want).norm() < 1e-12);
+            }
+        }
     }
 
     /// The effective channel as it was computed before: column $q$ is
@@ -341,7 +478,9 @@ mod tests {
                 h[[p, (p + 24 - l) % 24]] += g * cis(std::f64::consts::TAU * k * (p as f64 - l as f64) / 24.0);
             }
         }
-        let (a, b) = (o.transform_channel(&h).unwrap(), o.effective_channel(&paths, 24.0).unwrap());
+        let theorem = Otfs { sample_rate: Hertz(24.0), ..o };
+        let (a, b) =
+            (o.transform_channel(&h).unwrap(), theorem.effective_channel(&paths_of(&paths)).unwrap().to_dense());
         assert!(a.iter().zip(&b).all(|(x, y)| (x - y).norm() < 1e-12));
     }
 }
@@ -357,7 +496,8 @@ mod literature {
     /// four channels $(k, l) = (0, 0), (0, 1), (1, 0), (1, 1)$, entry by entry.
     #[test]
     fn raviteja_2019_example_of_theorem_1() {
-        let o = Otfs::new(2, 2).unwrap();
+        // MN = 4: one bin is 1 Hz at 4 Hz
+        let o = Otfs { sample_rate: Hertz(4.0), ..Otfs::new(2, 2).unwrap() };
         let (z0, one) = (C64::new(0.0, 0.0), C64::new(1.0, 0.0));
         let (j4, mj4, mj2) =
             (cis(std::f64::consts::FRAC_PI_2), cis(-std::f64::consts::FRAC_PI_2), cis(-std::f64::consts::PI));
@@ -368,8 +508,7 @@ mod literature {
             ((1, 1.0), [[z0, z0, z0, j4], [z0, z0, one, z0], [z0, mj4, z0, z0], [one, z0, z0, z0]]),
         ];
         for ((l, k), want) in cases {
-            // MN = 4: one bin is 1 Hz at 4 Hz
-            let t = o.effective_channel(&[(one, l, k)], 4.0).unwrap();
+            let t = o.effective_channel(&[Path { gain: one, delay: l, doppler_hz: k }]).unwrap().to_dense();
             for p in 0..4 {
                 for q in 0..4 {
                     assert!((t[[p, q]] - want[p][q]).norm() < 1e-12, "l {l} k {k} ({p}, {q}): {}", t[[p, q]]);
