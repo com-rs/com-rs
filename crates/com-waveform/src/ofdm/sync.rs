@@ -305,7 +305,8 @@ mod tests {
 
     /// The offset was the phase of a correlation summed again after the metric, and the
     /// peaks were found by folds, before the correlation of the metric and
-    /// `com_math::argmax`: the same estimates to the last bit.
+    /// `com_math::argmax`: the same timing and peak to the last bit, and the same offset
+    /// to the rounding of the windowed sums (computed in O(n) by block sums).
     #[test]
     fn synchronize_reuses_the_correlation_of_the_metric() {
         let ofdm = Ofdm { n_cp: 16, ..Ofdm::new(128, 100).unwrap() };
@@ -327,7 +328,9 @@ mod tests {
         }
         let d = (a + b) / 2;
         let p: C64 = (0..half).map(|k| rx[d + k].conj() * rx[d + k + half]).sum();
-        assert_eq!(e, Estimate { timing: d, cfo: p.arg() / std::f64::consts::PI, peak });
+        assert_eq!((e.timing, e.peak), (d, peak));
+        let cfo = p.arg() / std::f64::consts::PI;
+        assert!((e.cfo - cfo).abs() <= 1e-13 * cfo.abs(), "{} against {cfo}", e.cfo);
     }
 
     /// The direct sums of the former metric: the windowed sums of the shared kernel are
