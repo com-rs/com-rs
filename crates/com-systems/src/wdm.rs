@@ -26,7 +26,7 @@
 //! use com_dsp::signal::wdm_grid;
 //! use com_core::rng::Rng;
 //! use com_math::C64;
-//! let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 4, 129);
+//! let taps = com_dsp::filter::pulse_shape(com_dsp::filter::PulseShape::Rrc { rolloff: 0.1 }, 4, 129)?;
 //! let tx = WdmTransmitter { freqs: wdm_grid(3, 50e9), powers_w: vec![1e-3; 3], taps, sps: 4, linewidth_hz: 0.0, mzm_scale: None };
 //! let x = tx.multiplex(2, 64, 32e9, &mut Rng::new(1), |_, _, _| vec![C64::new(1.0, 0.0); 64])?;
 //! assert_eq!((x.len(), x[0].len()), (2, 64 * 4));
