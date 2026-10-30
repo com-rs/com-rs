@@ -21,8 +21,6 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any
-
 from comrs.block import Native, Var, _check_registry, _native_init
 
 
@@ -32,7 +30,7 @@ class Source(Native):
     Needs: nothing. Gives: bits, symbols, constellation, samples.
 
     Args:
-        constellation (Any): `16-QAM`, `QPSK`, `8-PSK`, `4-PAM`, `OOK`, {kind, m}, or `gaussian` (circular Gaussian symbols, no decisions); unit energy; default 16-QAM
+        constellation (str | dict): `16-QAM`, `QPSK`, `8-PSK`, `4-PAM`, `OOK`, {kind, m}, or `gaussian` (circular Gaussian symbols, no decisions); unit energy; keys kind, m; default 16-QAM
         n_symbols (int): symbols per trial; default 4096
         symbol_rate (float): symbol rate; 1 keeps a normalised time axis [Bd]; default 1.0
         mb_lambda (float): Maxwell-Boltzmann shaping p(x) ∝ exp(-λ|x|²); default none
@@ -46,7 +44,7 @@ class Source(Native):
     def __init__(
         self,
         *,
-        constellation: Any = "16-QAM",
+        constellation: str | dict | Var = "16-QAM",
         n_symbols: int | Var = 4096,
         symbol_rate: float | Var = 1.0,
         mb_lambda: float | Var | None = None,
@@ -74,10 +72,10 @@ class Capture(Native):
         datatype (str): data type of a raw file: cf32_le, ci16_le, cf64_le, ci8, cu8, …; default none
         fs (float): sampling rate; required when the file does not record it [Hz]; default from file
         symbol_rate (float): symbol rate [Bd]; required
-        constellation (Any): the transmitted constellation; default 16-QAM
+        constellation (str | dict): the transmitted constellation; keys kind, m; default 16-QAM
         reference (str): one period of the transmitted symbols (.npy complex) or indices (.npy or text integers); required
         segment (int): samples per trial; default whole file
-        offset (Any): first sample of a segment: random (drawn per trial) or an integer; default random
+        offset (str | int): first sample of a segment: random (drawn per trial) or an integer; default random
     """
 
     needs = ()
@@ -102,10 +100,10 @@ class Capture(Native):
         datatype: str | Var | None = None,
         fs: float | Var | None = None,
         symbol_rate: float | Var,
-        constellation: Any = "16-QAM",
+        constellation: str | dict | Var = "16-QAM",
         reference: str | Var,
         segment: int | Var | None = None,
-        offset: Any = "random",
+        offset: str | int | Var = "random",
     ) -> None:
         _init(
             self,
@@ -367,7 +365,7 @@ class Fiber(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         length_km (float): length; the whole link by default [km]; default total
         compensate_loss (bool): restore the power with an ideal gain e^(αL/2); default true
     """
@@ -379,7 +377,7 @@ class Fiber(Native):
     def __init__(
         self,
         *,
-        fiber: Any = "spec fiber",
+        fiber: dict | Var | None = None,
         length_km: float | Var | None = None,
         compensate_loss: bool | Var = True,
     ) -> None:
@@ -392,7 +390,7 @@ class Ssfm(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         step_km (float): step [km]; default 1.0
         amplification (str): edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency; one of edfa, ideal, none; default edfa
         noise (bool): draw the ASE of the EDFAs and the spontaneous Raman noise; default true
@@ -406,7 +404,7 @@ class Ssfm(Native):
     def __init__(
         self,
         *,
-        fiber: Any = "spec fiber",
+        fiber: dict | Var | None = None,
         step_km: float | Var = 1.0,
         amplification: str | Var = "edfa",
         noise: bool | Var = True,
@@ -454,7 +452,7 @@ class Cdc(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         length_km (float): compensated length [km]; default total
     """
 
@@ -462,7 +460,9 @@ class Cdc(Native):
     gives = ()
     param_names = ("fiber", "length_km")
 
-    def __init__(self, *, fiber: Any = "spec fiber", length_km: float | Var | None = None) -> None:
+    def __init__(
+        self, *, fiber: dict | Var | None = None, length_km: float | Var | None = None
+    ) -> None:
         _init(self, "cdc", fiber=fiber, length_km=length_km)
 
 
@@ -472,7 +472,7 @@ class Dbp(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         steps_per_span (int): symmetric steps per span; default 1
         amplification (str): the amplification of the forward link; one of edfa, ideal, none; default edfa
         nonlinear (bool): false: linear back-propagation (dispersion compensation and loss); default true
@@ -486,7 +486,7 @@ class Dbp(Native):
     def __init__(
         self,
         *,
-        fiber: Any = "spec fiber",
+        fiber: dict | Var | None = None,
         steps_per_span: int | Var = 1,
         amplification: str | Var = "edfa",
         nonlinear: bool | Var = True,
@@ -509,25 +509,25 @@ class PulseShape(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        kind (str): transmit pulse; one of rect, nrz, rc, rrc; default rrc
-        sps (int): samples per symbol; default 2
+        kind (str): the pulse; one of rect, nrz, rc, rrc; default rrc
         rolloff (float): roll-off of rc and rrc; default 0.1
         n_taps (int): taps of rc and rrc (odd: on the sampling instants); default 1025
+        sps (int): samples per symbol; default 2
     """
 
     needs = ("samples",)
     gives = ()
-    param_names = ("kind", "sps", "rolloff", "n_taps")
+    param_names = ("kind", "rolloff", "n_taps", "sps")
 
     def __init__(
         self,
         *,
         kind: str | Var = "rrc",
-        sps: int | Var = 2,
         rolloff: float | Var = 0.1,
         n_taps: int | Var = 1025,
+        sps: int | Var = 2,
     ) -> None:
-        _init(self, "pulse_shape", kind=kind, sps=sps, rolloff=rolloff, n_taps=n_taps)
+        _init(self, "pulse_shape", kind=kind, rolloff=rolloff, n_taps=n_taps, sps=sps)
 
 
 class Normalize(Native):
@@ -570,9 +570,9 @@ class MatchedFilter(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        kind (str): receive pulse; one of rect, nrz, rc, rrc; default rrc
-        rolloff (float): roll-off; default 0.1
-        n_taps (int): taps; default 1025
+        kind (str): the pulse; one of rect, nrz, rc, rrc; default rrc
+        rolloff (float): roll-off of rc and rrc; default 0.1
+        n_taps (int): taps of rc and rrc (odd: on the sampling instants); default 1025
     """
 
     needs = ("samples",)
@@ -633,9 +633,9 @@ class AdaptiveEqualizer(Native):
     Needs: samples, constellation. Gives: nothing.
 
     Args:
-        algorithm (Any): cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]; default cma
+        algorithm (str | list): cma, rde, nlms, dd-lms, or a schedule [[algorithm, symbols], …]; default cma
         n_taps (int): taps; default 15
-        mu (Any): step size, or one per stage of the schedule (the last one holds for the following stages); default 1e-3
+        mu (float | list): step size, or one per stage of the schedule (the last one holds for the following stages); default 1e-3
         passes (int): passes over the block; default 1
         kikuchi (int): 2 × 2: Kikuchi's initialisation against the singularity, output 0 alone during this number of symbols, then output 1 as its unitary complement; records correlation and singular; default none
     """
@@ -647,9 +647,9 @@ class AdaptiveEqualizer(Native):
     def __init__(
         self,
         *,
-        algorithm: Any = "cma",
+        algorithm: str | list | Var = "cma",
         n_taps: int | Var = 15,
-        mu: Any = 0.001,
+        mu: float | list | Var = 0.001,
         passes: int | Var = 1,
         kikuchi: int | Var | None = None,
     ) -> None:
@@ -934,9 +934,9 @@ class Probe(Native):
 
     Args:
         metrics (list): the metrics of the specifications (on symbols aligned at 1 sample per symbol), and power_dbm and papr_db anywhere; default [snr_db]
-        skip_start (int): left out at the start, as the metrics [symbols]; default 0
-        skip_end (int): left out at the end [symbols]; default 0
-        scale (str): scaling before the decisions, as the metrics; one of power, ls, none; default power
+        skip_start (int): symbols left out at the start of every polarisation (the edges of the filters) [symbols]; default 0
+        skip_end (int): symbols left out at the end of every polarisation [symbols]; default 0
+        scale (str): scaling before the decisions: power (blind), ls (least-squares complex gain, genie-aided) or none; one of power, ls, none; default power
     """
 
     needs = ("samples",)
@@ -1023,10 +1023,10 @@ class WdmTx(Native):
         n_channels (int): channels N; the grid is (k - ⌊N/2⌋) Δf, shifted by Δf/2 when N is even; default 5
         spacing_hz (float): grid spacing Δf [Hz]; default 50e9
         sps (int): samples per symbol of the multiplex (the sampling rate must cover the band); default 8
-        power_dbm (Any): launch power per channel, both polarisations; a list gives one per channel [dBm]; default 0.0
-        kind (str): pulse; one of rect, nrz, rc, rrc; default rrc
-        rolloff (float): roll-off of the pulse; default 0.1
-        n_taps (int): taps of the pulse; default 1025
+        power_dbm (float | list): launch power per channel, both polarisations; a list gives one per channel [dBm]; default 0.0
+        kind (str): the pulse; one of rect, nrz, rc, rrc; default rrc
+        rolloff (float): roll-off of rc and rrc; default 0.1
+        n_taps (int): taps of rc and rrc (odd: on the sampling instants); default 1025
         linewidth_hz (float): linewidth of the transmit lasers [Hz]; default 0.0
         channel (int): index of the channel under test (⌊N/2⌋ by default); default centre
         mzm_scale (float): drive the IQ modulator of OptiCommPy at this peak amplitude V/V_π (none: a linear modulator); default none
@@ -1053,7 +1053,7 @@ class WdmTx(Native):
         n_channels: int | Var = 5,
         spacing_hz: float | Var = 50000000000.0,
         sps: int | Var = 8,
-        power_dbm: Any = 0.0,
+        power_dbm: float | list | Var = 0.0,
         kind: str | Var = "rrc",
         rolloff: float | Var = 0.1,
         n_taps: int | Var = 1025,
@@ -1083,7 +1083,7 @@ class Manakov(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         max_nl_phase (float): largest nonlinear phase rotation per step [rad]; default 2e-2
         step_km (float): a fixed step instead of the adaptive one [km]; default none
         max_iterations (int): trapezoidal iterations per step at most; default 10
@@ -1107,7 +1107,7 @@ class Manakov(Native):
     def __init__(
         self,
         *,
-        fiber: Any = "spec fiber",
+        fiber: dict | Var | None = None,
         max_nl_phase: float | Var = 0.02,
         step_km: float | Var | None = None,
         max_iterations: int | Var = 10,
@@ -1159,7 +1159,7 @@ class ManakovDbp(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        fiber (Any): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; default spec fiber
+        fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         steps_per_span (int): symmetric steps per span; default 1
         nonlinear_scale (float): ξ: multiplies the nonlinear phase (0: dispersion compensation only); default 1.0
         amplification (str): the amplification of the forward link; one of edfa, ideal, none; default edfa
@@ -1172,7 +1172,7 @@ class ManakovDbp(Native):
     def __init__(
         self,
         *,
-        fiber: Any = "spec fiber",
+        fiber: dict | Var | None = None,
         steps_per_span: int | Var = 1,
         nonlinear_scale: float | Var = 1.0,
         amplification: str | Var = "edfa",
@@ -1231,8 +1231,8 @@ class Rayleigh(Native):
         n_rx (int): receive antennas; default 1
         coherence (int): samples per channel matrix (0: one matrix per trial, 1: fast fading) [samples]; default 0
         k_factor (float): Rician factor K (linear), 0 for Rayleigh fading; default 0.0
-        rx_correlation (float): exponential correlation ρ of the receive antennas, in (-1, 1); default 0.0
-        tx_correlation (float): exponential correlation ρ of the transmit antennas, in (-1, 1); default 0.0
+        rx_correlation (float): exponential correlation ρ of the receive antennas; default 0.0
+        tx_correlation (float): exponential correlation ρ of the transmit antennas; default 0.0
     """
 
     needs = ("samples",)
@@ -1265,7 +1265,7 @@ class Tdl(Native):
     Needs: samples. Gives: csi.
 
     Args:
-        profile (Any): EPA, EVA, ETU (3GPP TS 36.101), pedestrian_a, pedestrian_b, vehicular_a, vehicular_b (ITU-R M.1225, Tables 4 and 5), or {rms_delay_s, resolution_s} (exponential); default EPA
+        profile (str | dict): EPA, EVA, ETU (3GPP TS 36.101), pedestrian_a, pedestrian_b, vehicular_a, vehicular_b (ITU-R M.1225, Tables 4 and 5), or {rms_delay_s, resolution_s} (exponential); keys rms_delay_s, resolution_s; default EPA
         doppler_hz (float): maximum Doppler shift; 0 for a channel constant over the trial [Hz]; default 0.0
         n_rx (int): receive antennas; default 1
     """
@@ -1275,7 +1275,11 @@ class Tdl(Native):
     param_names = ("profile", "doppler_hz", "n_rx")
 
     def __init__(
-        self, *, profile: Any = "EPA", doppler_hz: float | Var = 0.0, n_rx: int | Var = 1
+        self,
+        *,
+        profile: str | dict | Var = "EPA",
+        doppler_hz: float | Var = 0.0,
+        n_rx: int | Var = 1,
     ) -> None:
         _init(self, "tdl", profile=profile, doppler_hz=doppler_hz, n_rx=n_rx)
 
@@ -1332,7 +1336,7 @@ class OfdmTx(Native):
         oversampling (int): oversampling L; default 1
         dc_null (bool): leave the DC subcarrier empty; default false
         n_symbols (int): OFDM symbols per grid; default 14
-        pilots (Any): pattern block {period}, comb {spacing}, lattice {freq, time} or none; with several antennas the pilots of a symbol are dealt to the antennas in turn; default {pattern: lattice, freq: 3, time: 4}
+        pilots (str | dict): pattern block {period}, comb {spacing}, lattice {freq, time} or none; with several antennas the pilots of a symbol are dealt to the antennas in turn; keys pattern, period, spacing, freq, time; default {pattern: lattice, freq: 3, time: 4}
         subcarrier_spacing_hz (float): subcarrier spacing Δf [Hz]; default 15e3
         seed (int): seed of the pilot symbols; default 0
     """
@@ -1360,7 +1364,7 @@ class OfdmTx(Native):
         oversampling: int | Var = 1,
         dc_null: bool | Var = False,
         n_symbols: int | Var = 14,
-        pilots: Any = None,
+        pilots: str | dict | Var | None = None,
         subcarrier_spacing_hz: float | Var = 15000.0,
         seed: int | Var = 0,
     ) -> None:
@@ -1449,7 +1453,7 @@ class PasEncode(Native):
     Needs: nothing. Gives: bits, symbols, constellation, samples, payload.
 
     Args:
-        constellation (Any): a square QAM: 2^m-PAM per dimension; default 64-QAM
+        constellation (str | dict): a square QAM: 2^m-PAM per dimension; keys kind, m; default 64-QAM
         mb_lambda (float): Maxwell-Boltzmann amplitudes p(a) ∝ exp(-λ x²) on the unit-energy uniform QAM (0: uniform); default 1.0
         n (int): length of the LDPC codeword, a multiple of 2m [bits]; default 1536
         k (int): information bits of the code; above n(m-1)/m the signs also carry data (γ > 0) [bits]; default n(m-1)/m
@@ -1483,7 +1487,7 @@ class PasEncode(Native):
     def __init__(
         self,
         *,
-        constellation: Any = "64-QAM",
+        constellation: str | dict | Var = "64-QAM",
         mb_lambda: float | Var = 1.0,
         n: int | Var = 1536,
         k: int | Var | None = None,
@@ -1520,7 +1524,7 @@ class PasDecode(Native):
     Needs: samples, symbols, noise. Gives: decoded.
 
     Args:
-        constellation (Any): a square QAM: 2^m-PAM per dimension; default 64-QAM
+        constellation (str | dict): a square QAM: 2^m-PAM per dimension; keys kind, m; default 64-QAM
         mb_lambda (float): Maxwell-Boltzmann amplitudes p(a) ∝ exp(-λ x²) on the unit-energy uniform QAM (0: uniform); default 1.0
         n (int): length of the LDPC codeword, a multiple of 2m [bits]; default 1536
         k (int): information bits of the code; above n(m-1)/m the signs also carry data (γ > 0) [bits]; default n(m-1)/m
@@ -1554,7 +1558,7 @@ class PasDecode(Native):
     def __init__(
         self,
         *,
-        constellation: Any = "64-QAM",
+        constellation: str | dict | Var = "64-QAM",
         mb_lambda: float | Var = 1.0,
         n: int | Var = 1536,
         k: int | Var | None = None,
@@ -1593,7 +1597,7 @@ class FecEncode(Native):
     Args:
         code (dict): the code: {type: conv|rs|turbo|ldpc|polar, …} and its parameters; required
         blocks (int): codewords per trial; default 1
-        interleave (bool): random bit interleaver over the coded bits of the trial (BICM); default false
+        interleave (bool): random bit interleaver over the coded bits of the trial (BICM), the same in fec_encode and fec_decode; default false
         seed (int): seed of the interleaver; default 0
     """
 
@@ -1618,7 +1622,7 @@ class Map(Native):
     Needs: bits. Gives: symbols, constellation, samples.
 
     Args:
-        constellation (Any): the constellation, as for source; default QPSK
+        constellation (str | dict): the constellation, as for source; keys kind, m; default QPSK
         symbol_rate (float): symbol rate [Bd]; default 1.0
     """
 
@@ -1626,7 +1630,9 @@ class Map(Native):
     gives = ("symbols", "constellation", "samples")
     param_names = ("constellation", "symbol_rate")
 
-    def __init__(self, *, constellation: Any = "QPSK", symbol_rate: float | Var = 1.0) -> None:
+    def __init__(
+        self, *, constellation: str | dict | Var = "QPSK", symbol_rate: float | Var = 1.0
+    ) -> None:
         _init(self, "map", constellation=constellation, symbol_rate=symbol_rate)
 
 
@@ -1654,8 +1660,8 @@ class FecDecode(Native):
 
     Args:
         code (dict): the code of fec_encode, with the decoder settings; required
-        interleave (bool): as fec_encode; default false
-        seed (int): as fec_encode; default 0
+        interleave (bool): random bit interleaver over the coded bits of the trial (BICM), the same in fec_encode and fec_decode; default false
+        seed (int): seed of the interleaver; default 0
     """
 
     needs = ("llr",)

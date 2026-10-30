@@ -1070,12 +1070,18 @@ def _link_labels(link: list[Any]) -> list[str]: ...
 def _load_spec(
     spec: str | os.PathLike[str] | dict[str, Any],
 ) -> tuple[dict[str, Any], os.PathLike[str] | None]: ...
+def _metric_columns(name: str) -> list[str]: ...
 def _run_chain(
     spec: dict[str, Any],
     setup: Callable[..., Any],
     *,
     progress: bool = ...,
     stop: Stop | None = ...,
+    threads: int | None = ...,
+    batch: int | None = ...,
+    fast_dev_run: bool = ...,
+    csv_path: str | os.PathLike[str] | None = ...,
+    json_path: str | os.PathLike[str] | None = ...,
 ) -> list[dict[str, Any]]: ...
 def _sim_run(
     trial: Callable[..., Any],
@@ -1633,6 +1639,7 @@ def verify_spec(
     *,
     threads: int | None = ...,
     progress: bool = ...,
+    report_path: str | os.PathLike[str] | None = ...,
 ) -> dict[str, Any]: ...
 def viterbi_viterbi(x: ArrayLike, *, n: int = ..., m: int = ...) -> np.ndarray: ...
 def w2dbm(p_w: float | ArrayLike) -> float | np.ndarray: ...
