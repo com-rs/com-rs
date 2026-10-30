@@ -307,6 +307,28 @@ impl Runner {
     /// the same kind, with the condition and the trial in the message; the errors of the
     /// loggers.
     pub fn run<S: Scenario>(mut self, scenario: &S, grid: &Grid) -> Result<Vec<ConditionResult>> {
+        self.check(grid)?;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.threads)
+            .build()
+            .map_err(|e| Error::Config(format!("thread pool: {e}")))?;
+        let conditions = grid.conditions();
+        let info = RunInfo { threads: pool.current_num_threads(), ..self.run_info(scenario.name(), conditions.len()) };
+        self.start(&info)?;
+        let t_run = Instant::now();
+        let mut results = Vec::with_capacity(conditions.len());
+        let mut stop_run = false;
+        for (index, cond) in conditions.into_iter().enumerate() {
+            let res = self.condition(scenario, index, cond, &pool, stop_run)?;
+            stop_run |= self.end_condition(&res)?;
+            results.push(res);
+        }
+        self.finish(info, results, t_run)
+    }
+
+    /// The checks of [`Runner::run`] before it starts: the confidence levels, the grid and
+    /// a stopping rule that stops.
+    fn check(&self, grid: &Grid) -> Result<()> {
         crate::stopping::check_confidence(self.confidence, "the runner")?;
         self.stop.check_confidences()?;
         grid.check()?;
@@ -316,54 +338,72 @@ impl Runner {
                 self.stop
             )));
         }
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(self.threads)
-            .build()
-            .map_err(|e| Error::Config(format!("thread pool: {e}")))?;
-        let conditions = grid.conditions();
-        let info = RunInfo { threads: pool.current_num_threads(), ..self.run_info(scenario.name(), conditions.len()) };
+        Ok(())
+    }
+
+    /// The start of the run, for every callback, then every logger.
+    fn start(&mut self, info: &RunInfo) -> Result<()> {
         for c in &mut self.callbacks {
-            c.on_run_start(&info);
+            c.on_run_start(info);
         }
         for l in &mut self.loggers {
-            l.start(&info)?;
+            l.start(info)?;
         }
-        let t_run = Instant::now();
-        let mut results = Vec::with_capacity(conditions.len());
-        let mut stop_run = false;
-        for (index, cond) in conditions.into_iter().enumerate() {
-            // every callback sees the start of the condition (no short circuit), unless
-            // the run was stopped
-            let mut skip = stop_run;
-            if !stop_run {
-                for c in &mut self.callbacks {
-                    if c.on_condition_start(index, &cond) == Action::Skip {
-                        skip = true;
-                    }
-                }
-            }
-            let res = if skip {
-                ConditionResult {
-                    index,
-                    condition: cond,
-                    status: Status::Skipped,
-                    trials: 0,
-                    wall_s: 0.0,
-                    record: Record::new(),
-                }
-            } else {
-                self.run_condition(scenario, index, cond, &pool)?
-            };
+        Ok(())
+    }
+
+    /// One condition: skipped if the run was stopped or a callback skips it, run
+    /// otherwise.
+    fn condition<S: Scenario>(
+        &mut self,
+        scenario: &S,
+        index: usize,
+        cond: Condition,
+        pool: &rayon::ThreadPool,
+        stop_run: bool,
+    ) -> Result<ConditionResult> {
+        // every callback sees the start of the condition (no short circuit), unless
+        // the run was stopped
+        let mut skip = stop_run;
+        if !stop_run {
             for c in &mut self.callbacks {
-                if c.on_condition_end(&res) == Action::StopRun {
-                    stop_run = true;
+                if c.on_condition_start(index, &cond) == Action::Skip {
+                    skip = true;
                 }
             }
-            for l in &mut self.loggers {
-                l.log(&res, self.confidence)?;
-            }
-            results.push(res);
         }
+        if skip {
+            Ok(ConditionResult {
+                index,
+                condition: cond,
+                status: Status::Skipped,
+                trials: 0,
+                wall_s: 0.0,
+                record: Record::new(),
+            })
+        } else {
+            self.run_condition(scenario, index, cond, pool)
+        }
+    }
+
+    /// The end of a condition, for every callback, then every logger; whether a callback
+    /// stops the run.
+    fn end_condition(&mut self, res: &ConditionResult) -> Result<bool> {
+        let mut stop_run = false;
+        for c in &mut self.callbacks {
+            if c.on_condition_end(res) == Action::StopRun {
+                stop_run = true;
+            }
+        }
+        for l in &mut self.loggers {
+            l.log(res, self.confidence)?;
+        }
+        Ok(stop_run)
+    }
+
+    /// The end of the run, for every callback, then every logger with the wall time since
+    /// `t_run`; the results.
+    fn finish(&mut self, info: RunInfo, results: Vec<ConditionResult>, t_run: Instant) -> Result<Vec<ConditionResult>> {
         for c in &mut self.callbacks {
             c.on_run_end(&results);
         }
