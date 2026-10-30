@@ -13,14 +13,17 @@
 //! - Sec. V of Hadani et al. (Fig. 5), qualitatively (their TDL-C channel and frame of
 //!   1024 subcarriers are not simulated): with a linear MMSE equaliser on the whole
 //!   frame, uncoded 4QAM over EVA at 120 km/h (4 GHz, 15 kHz, one path per tap with
-//!   Jakes' Doppler) has a BER falling much faster with the SNR than one-tap CP-OFDM.
+//!   Jakes' Doppler) has a BER falling much faster with the SNR than one-tap CP-OFDM
+//!   (the claims and their bounds in the card `validation/cards/hadani2017_fig5.yaml`).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::card::Card;
 use comrs::channel::awgn::add_noise;
 use comrs::channel::multipath::{DelayDoppler, DelayDopplerModel, Path, Profile, max_doppler_hz};
 use comrs::metrics::errors::bit_errors;
 use comrs::mimo::detection::{Linear, MimoDetector};
 use comrs::prelude::*;
 use comrs::waveform::otfs::Otfs;
+use serde_json::json;
 
 #[test]
 fn raviteja_2019_theorem_1_through_the_channel() {
@@ -123,14 +126,17 @@ fn ber(otfs: bool, kmh: f64, snr_db: f64, frames: usize, seed: u64) -> f64 {
 /// and collects the diversity of the paths; one-tap OFDM sees one Rayleigh gain per
 /// symbol. From 10 to 20 dB the BER of OFDM falls about eightfold (4.2e-2 to 5.5e-3,
 /// diversity 1), that of OTFS ninetyfold (3.4e-2 to 3.7e-4), fifteen times below OFDM
-/// at 20 dB. The test checks these factors with the margin of the frames simulated: OFDM
+/// at 20 dB. The card checks these factors with the margin of the frames simulated: OFDM
 /// between 4 and 15, OTFS above 30, OTFS at least five times below OFDM at 20 dB.
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn hadani_2017_fig_5_diversity_of_otfs() {
     let (o10, o20) = (ber(true, 120.0, 10.0, 60, 1), ber(true, 120.0, 20.0, 120, 2));
     let (f10, f20) = (ber(false, 120.0, 10.0, 200, 3), ber(false, 120.0, 20.0, 400, 4));
-    assert!(f10 / f20 < 15.0 && f10 / f20 > 4.0, "OFDM {f10} → {f20}");
-    assert!(o10 / o20 > 30.0, "OTFS {o10} → {o20}");
-    assert!(o20 < f20 / 5.0, "at 20 dB: OTFS {o20}, OFDM {f20}");
+    println!("OFDM {f10:.2e} → {f20:.2e}, OTFS {o10:.2e} → {o20:.2e}");
+    let mut card = Card::load("hadani2017_fig5").unwrap();
+    card.check(&json!({"quantity": "ofdm_ber_ratio_10_to_20_db"}), f10 / f20);
+    card.check(&json!({"quantity": "otfs_ber_ratio_10_to_20_db"}), o10 / o20);
+    card.check(&json!({"quantity": "ofdm_over_otfs_ber_at_20_db"}), f20 / o20);
+    card.finish().unwrap();
 }

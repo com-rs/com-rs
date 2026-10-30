@@ -17,13 +17,17 @@
 //!   PHYDYAS prototype FBMC is between CP-OFDM and OFDM at 50 km/h and below CP-OFDM at
 //!   500 km/h, as in the figure, but equal to CP-OFDM at 250 km/h (1.2e-2 against 8.5e-3
 //!   for Hermite): PHYDYAS, four symbols long, suffers more from the Doppler spread.
+//!   The values read and their tolerances are in the card
+//!   `validation/cards/nissel2017_fig4.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::card::Card;
 use comrs::channel::awgn::add_noise;
 use comrs::channel::multipath::{Profile, Taps, Tdl, TdlParams, max_doppler_hz};
 use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
 use comrs::waveform::ofdm::Ofdm;
+use serde_json::json;
 
 /// Sampling rate of Nissel & Rupp for Vehicular A, and the subcarrier spacing.
 const FS: f64 = 2.94e6;
@@ -175,19 +179,22 @@ fn nissel_2017_fig_2_fbmc_in_doubly_flat_fading() {
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn nissel_2017_fig_4_vehicular_a() {
-    let read: [(f64, f64, f64); 3] = [(50.0, 3.2e-2, 1e-3), (250.0, 4.3e-2, 1.45e-2), (500.0, 6.8e-2, 4.5e-2)];
-    for (kmh, ofdm_read, cp_read) in read {
-        let ofdm = ber(Scheme::Ofdm, kmh, 300, 1);
-        let cp = ber(Scheme::CpOfdm, kmh, 300, 2);
-        let fbmc = ber(Scheme::Fbmc, kmh, 300, 3);
-        assert!((ofdm / ofdm_read - 1.0).abs() < 0.3, "{kmh} km/h OFDM {ofdm}");
-        if kmh < 100.0 {
-            assert!(cp < cp_read && cp < fbmc && fbmc < ofdm, "{kmh} km/h: {cp} {fbmc} {ofdm}");
-        } else {
-            assert!((cp / cp_read - 1.0).abs() < 0.3, "{kmh} km/h CP-OFDM {cp}");
+    let mut card = Card::load("nissel2017_fig4").unwrap();
+    for kmh in [50, 250, 500] {
+        let v = f64::from(kmh);
+        let ofdm = ber(Scheme::Ofdm, v, 300, 1);
+        let cp = ber(Scheme::CpOfdm, v, 300, 2);
+        let fbmc = ber(Scheme::Fbmc, v, 300, 3);
+        println!("{kmh} km/h: OFDM {ofdm:.3e}, CP-OFDM {cp:.3e}, FBMC {fbmc:.3e}");
+        card.check(&json!({"kmh": kmh, "scheme": "ofdm"}), ofdm);
+        card.check(&json!({"kmh": kmh, "scheme": "cp_ofdm"}), cp);
+        // the orderings of the curves (a claim with no value to read)
+        if kmh < 100 {
+            assert!(cp < fbmc && fbmc < ofdm, "{kmh} km/h: {cp} {fbmc} {ofdm}");
         }
-        if kmh > 400.0 {
+        if kmh > 400 {
             assert!(fbmc < cp && cp < ofdm, "{kmh} km/h: {fbmc} {cp} {ofdm}");
         }
     }
+    card.finish().unwrap();
 }

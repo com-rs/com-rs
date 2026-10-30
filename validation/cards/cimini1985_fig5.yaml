@@ -1,0 +1,58 @@
+id: cimini1985_fig5
+title: SIR of OFDM QPSK at a BER of 1e-2 against a cochannel interferer in flat fading
+literature: cimini1985
+source:
+  kind: paper
+  reference: "L. J. Cimini, Jr., Analysis and simulation of a digital mobile channel using orthogonal frequency division multiplexing, IEEE Trans. Commun. 33(7), 665-675, 1985"
+  locator: "Fig. 5 (N = 1, 128 and 512 at 30 and 60 mph, an ideal pilot) and the claims of Sec. II-E"
+  file: multicarrier/1985_cimini_ofdm-digital-mobile-channel_tcom.pdf
+description: >
+  QPSK on N subchannels at 7.5 kHz (comrs::waveform::ofdm::correction::gain_limited for
+  the gain-limited correction of eq. (16)), the desired and a cochannel OFDM signal in
+  independent flat Jakes fading at 850 MHz (comrs::channel::multipath::Tdl), the BER
+  compared at 1e-2 as in the paper (footnote 4); the SIR at 1e-2 by interpolation of log
+  BER on a 1 dB grid (400 000 symbols per point), the best of seven gain limits from -20
+  to 0 dB for the gain-limited correction.
+run:
+  test: validation/tests/cimini1985.rs::cimini_1985_fig_5_flat_fading
+tier: campaign
+duration: "about 50 s on an Apple M6, with the other two cards of the file"
+findings:
+  - "the text claims improvements in SIR of 6-7 dB for N = 512 at 60 mph over N = 1: its own Fig. 5 shows 4.5 dB at 1e-2 (16.4 - 11.9), as does the simulation (4.45 dB)"
+  - "the other claims hold: less than 1 dB lost at 30 mph, about 2 dB more with N = 128 (1.46 dB here against N = 512 at 60 mph, 2.05 on the figure), about 1 dB more with the optimum correction (1.3 dB here)"
+cases:
+  - inputs: {n: 1, correction: closed_form}
+    expected: 16.86
+    tolerance: {atol: 0.01}
+    why: "the closed form of coherent QPSK in Rayleigh fading with a Gaussian interferer, solved by bisection, to 0.01 dB"
+    note: "Fig. 5 reads 16.4 and Fig. 7 17.0 for N = 1"
+  - inputs: {n: 512, mph: 60, correction: optimum}
+    expected: 11.0
+    tolerance: {atol: 0.6}
+    why: "Fig. 5 read to about 0.2 dB; the SIR is interpolated on a 1 dB grid of simulated BER; 0.6 dB is the agreement obtained"
+  - inputs: {n: 512, mph: 60, correction: gain_limited}
+    expected: 11.9
+    tolerance: {atol: 0.6}
+    why: "Fig. 5 read to about 0.2 dB; the SIR is interpolated on a 1 dB grid of simulated BER; 0.6 dB is the agreement obtained"
+  - inputs: {n: 512, mph: 30, correction: gain_limited}
+    expected: 12.8
+    tolerance: {atol: 0.6}
+    why: "Fig. 5 read to about 0.2 dB; the SIR is interpolated on a 1 dB grid of simulated BER; 0.6 dB is the agreement obtained"
+  - inputs: {n: 128, mph: 30, correction: gain_limited}
+    expected: 13.95
+    tolerance: {atol: 0.6}
+    why: "Fig. 5 read to about 0.2 dB; the SIR is interpolated on a 1 dB grid of simulated BER; 0.6 dB is the agreement obtained"
+  - inputs: {claim: gain_of_n512_at_60_mph_over_n1_db}
+    expected: 4.5
+    tolerance: {atol: 0.4}
+    why: "16.4 - 11.9 on Fig. 5, each read to about 0.2 dB"
+    note: "not the 6-7 dB of the text"
+  - inputs: {claim: loss_at_30_mph_db}
+    expected: {min: 0.0, max: 1.0}
+    note: "less than 1 dB lost at 30 mph against 60 mph (Sec. II-E)"
+  - inputs: {claim: loss_of_n128_db}
+    expected: {min: 1.2, max: 2.5}
+    note: "about 2 dB more with N = 128 at 30 mph than with N = 512 at 60 mph (2.05 dB on the figure)"
+  - inputs: {claim: gain_of_optimum_correction_db}
+    expected: {min: 0.6, max: 1.4}
+    note: "about 1 dB gained by the optimum correction of eq. (15)"

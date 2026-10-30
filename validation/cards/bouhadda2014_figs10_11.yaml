@@ -1,0 +1,63 @@
+id: bouhadda2014_figs10_11
+title: BER of nonlinearly amplified 16-QAM OFDM and FBMC/OQAM with the gain corrected
+literature: bouhadda2014
+source:
+  kind: paper
+  reference: "H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi, R. Bouallegue, Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and OFDM signals, EURASIP J. Adv. Signal Process. 2014:60, 2014"
+  locator: "Figs. 10 (phi_0 = 0) and 11 (phi_0 = pi/6): 16-QAM, IBO of 4 and 8 dB, the Gaussian model of eq. (45) and the floors read at 30 dB"
+  file: multicarrier/2014_bouhadda_ber-nonlinear-fbmc-oqam-ofdm_jasp.pdf
+description: >
+  64 subcarriers (PHYDYAS, K = 4, for FBMC/OQAM, comrs::waveform::fbmc), the TWTA of
+  eq. (13) with A_sat = 1 (comrs::hardware::amplifier::Saleh) at the input back-off of
+  eq. (14), AWGN, E_b that of the useful output |K|^2 sigma^2; the gain K of Bussgang
+  (comrs::dsp::nonlinear::bussgang) corrected before the decision. The BER simulated
+  over 300 blocks of 8 symbols per subcarrier, divided by that of the Gaussian model of
+  eq. (45) with the exact K and sigma_d^2; and the model at 30 dB against the floors of
+  the figures.
+run:
+  test: validation/tests/bouhadda2014.rs::bouhadda_2014_figs_10_11_corrected_gain
+tier: campaign
+duration: "about 10 s on an Apple M6"
+tolerance: {atol: 0.25}
+why: "eq. (45) treats the distortion as Gaussian; with 300 blocks the ratio lies between 0.91 and 1.20 (OFDM at an IBO of 8 dB above the model by up to 20 % at the floor); 0.25 is the tolerance of the test"
+cases:
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 10, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 10, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 20, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 20, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 30, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 4, ebn0_db: 30, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 10, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 10, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 20, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 20, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 30, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 0, ibo_db: 8, ebn0_db: 30, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 10, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 10, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 20, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 20, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 30, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 4, ebn0_db: 30, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 10, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 10, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 20, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 20, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 30, waveform: ofdm, quantity: ber_over_model}, expected: 1.0}
+  - {inputs: {phi0_deg: 30, ibo_db: 8, ebn0_db: 30, waveform: fbmc, quantity: ber_over_model}, expected: 1.0}
+  - inputs: {phi0_deg: 0, ibo_db: 4, quantity: model_ber_at_30_db}
+    expected: 3.5e-2
+    tolerance: {rtol: 0.3}
+    why: "the floor of the curve at 30 dB read on log axes (Fig. 10); the tolerance is the agreement obtained"
+  - inputs: {phi0_deg: 0, ibo_db: 8, quantity: model_ber_at_30_db}
+    expected: 1.15e-3
+    tolerance: {rtol: 0.3}
+    why: "the floor of the curve at 30 dB read on log axes (Fig. 10); the tolerance is the agreement obtained"
+  - inputs: {phi0_deg: 30, ibo_db: 4, quantity: model_ber_at_30_db}
+    expected: 4.2e-2
+    tolerance: {rtol: 0.3}
+    why: "the floor of the curve at 30 dB read on log axes (Fig. 11); the tolerance is the agreement obtained"
+  - inputs: {phi0_deg: 30, ibo_db: 8, quantity: model_ber_at_30_db}
+    expected: 2.0e-3
+    tolerance: {rtol: 0.3}
+    why: "the floor of the curve at 30 dB read on log axes (Fig. 11); the tolerance is the agreement obtained"

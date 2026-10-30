@@ -1,0 +1,25 @@
+id: cimini1985_fig6
+title: BER of OFDM QPSK against the gain limit of the correction
+literature: cimini1985
+source:
+  kind: paper
+  reference: "L. J. Cimini, Jr., Analysis and simulation of a digital mobile channel using orthogonal frequency division multiplexing, IEEE Trans. Commun. 33(7), 665-675, 1985"
+  locator: "Fig. 6 (N = 512, 60 mph): the minima of the BER at SIRs of 15, 17 and 20 dB and the gain limits where they are read"
+  file: multicarrier/1985_cimini_ofdm-digital-mobile-channel_tcom.pdf
+description: >
+  The link of cimini1985_fig5 with N = 512 at 60 mph and the gain-limited correction
+  of eq. (16) for limits from -24 to 0 dB every 2 dB (4000 blocks per point): the
+  minimum of the BER and the limit where it is reached, which is where the SDR of eq.
+  (20) peaks.
+run:
+  test: validation/tests/cimini1985.rs::cimini_1985_fig_6_gain_limit
+tier: campaign
+findings:
+  - "above the optimum limit the simulated BER rises faster than on the figure (1.0e-2 at 0 dB and an SIR of 15 dB, against 4e-3 read)"
+cases:
+  - {inputs: {sir_db: 15, quantity: min_ber}, expected: 2.5e-3, tolerance: {factor: 1.5}, why: "the minimum read on log axes; 4000 blocks of 512 subchannels give more than 9000 errors; 1.5 is the tolerance of the test"}
+  - {inputs: {sir_db: 15, quantity: gain_limit_db_at_min}, expected: -7.5, tolerance: {atol: 2.5}, why: "the minimum is flat and the limits are simulated every 2 dB"}
+  - {inputs: {sir_db: 17, quantity: min_ber}, expected: 7.5e-4, tolerance: {factor: 1.5}, why: "the minimum read on log axes; 1.5 is the tolerance of the test"}
+  - {inputs: {sir_db: 17, quantity: gain_limit_db_at_min}, expected: -9.0, tolerance: {atol: 2.5}, why: "the minimum is flat and the limits are simulated every 2 dB"}
+  - {inputs: {sir_db: 20, quantity: min_ber}, expected: 8.0e-5, tolerance: {factor: 1.5}, why: "the minimum read on log axes; 4000 blocks give about 240 errors; 1.5 is the tolerance of the test"}
+  - {inputs: {sir_db: 20, quantity: gain_limit_db_at_min}, expected: -10.3, tolerance: {atol: 2.5}, why: "the minimum is flat and the limits are simulated every 2 dB"}

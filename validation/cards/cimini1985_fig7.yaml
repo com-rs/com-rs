@@ -1,0 +1,27 @@
+id: cimini1985_fig7
+title: Loss of OFDM QPSK when the pilot is decorrelated by a two-ray delay spread
+literature: cimini1985
+source:
+  kind: paper
+  reference: "L. J. Cimini, Jr., Analysis and simulation of a digital mobile channel using orthogonal frequency division multiplexing, IEEE Trans. Commun. 33(7), 665-675, 1985"
+  locator: "Fig. 7 and Sec. II-F: the losses at a BER of 1e-2 of a pilot 500 Hz and 1 kHz away from the subchannel, against an ideal pilot"
+  file: multicarrier/1985_cimini_ofdm-digital-mobile-channel_tcom.pdf
+description: >
+  The link of cimini1985_fig5 with N = 512 at 60 mph and the gain-limited correction,
+  the pilot envelope rho* Z_d + sqrt(1 - |rho|^2) Z_x (eq. (24)) with the correlation
+  rho of the two-ray channel (Delta = 50 us, eq. (23), Tdl::frequency_correlation)
+  between the pilot and a subchannel 500 Hz and 1 kHz away; the test also checks eq.
+  (23) to 1e-12 and its coherence bandwidth 1/(4 Delta).
+run:
+  test: validation/tests/cimini1985.rs::cimini_1985_eq_23_and_fig_7_delay_spread
+tier: campaign
+findings:
+  - "the coherence bandwidth of eq. (23) is 1/(4 Delta), not the 1/Delta of the text"
+  - "the losses are 0.74 dB at 500 Hz (2.0 dB on the figure) and 4.26 dB at 1 kHz (4.1 dB on the figure; 5 or 6 dB in the text)"
+cases:
+  - inputs: {offset_hz: 500, quantity: loss_db}
+    expected: {min: 0.0, max: 2.0}
+    note: "less than 2 dB at 500 Hz (Sec. II-F)"
+  - inputs: {offset_hz: 1000, quantity: loss_db}
+    expected: {min: 3.5, max: 5.0}
+    note: "4.1 dB on Fig. 7"

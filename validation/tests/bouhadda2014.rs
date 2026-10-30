@@ -17,8 +17,12 @@
 //!   "IBO = 4 dB" are those of an input back-off of 8 dB, the value of the text (at 4 dB
 //!   the floor of OFDM is 1.7e-2, not 1.2e-5): floors of 1.0e-5 (OFDM) and 1.5e-4 (FBMC)
 //!   against 1.2e-5 and 1.6e-4 read; the "loss of ≈7 dB" of FBMC "at a BER of 5e-3"
-//!   is 0.2 dB there (2.6 dB at 5e-4).
+//!   is 0.2 dB there (2.5 dB at 5e-4).
+//!
+//! The values read, the claims and their tolerances are in the cards
+//! `validation/cards/bouhadda2014_figs10_11.yaml` and `bouhadda2014_fig7.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
+use com_validation::card::Card;
 use com_validation::sweep_crossing;
 use comrs::channel::awgn::add_noise;
 use comrs::dsp::nonlinear::bussgang;
@@ -28,6 +32,7 @@ use comrs::metrics::errors::bit_errors;
 use comrs::prelude::*;
 use comrs::waveform::fbmc::{Fbmc, oqam_destagger, oqam_stagger};
 use comrs::waveform::ofdm::Ofdm;
+use serde_json::json;
 
 const M: usize = 64;
 
@@ -102,34 +107,46 @@ fn ebn0_at(curve: impl Fn(f64) -> f64, target: f64) -> f64 {
 #[ignore = "statistical validation: run with --ignored"]
 fn bouhadda_2014_figs_10_11_corrected_gain() {
     let pi6 = std::f64::consts::FRAC_PI_6;
-    for (phi0, ibo, floor) in [(0.0, 4.0, 3.5e-2), (0.0, 8.0, 1.15e-3), (pi6, 4.0, 4.2e-2), (pi6, 8.0, 2.0e-3)] {
-        for e in [10.0, 20.0, 30.0] {
-            let t = theory(16, phi0, ibo, e);
+    let mut card = Card::load("bouhadda2014_figs10_11").unwrap();
+    // (φ0 in degrees for the card, φ0, IBO)
+    for (deg, phi0, ibo) in [(0, 0.0, 4), (0, 0.0, 8), (30, pi6, 4), (30, pi6, 8)] {
+        let ibo_db = f64::from(ibo);
+        for e in [10, 20, 30] {
+            let t = theory(16, phi0, ibo_db, f64::from(e));
             for fbmc in [false, true] {
-                let b = ber(Link { fbmc, order: 16, phi0, ibo, correct: true }, e, 300, 1 + u64::from(fbmc));
-                assert!((b / t - 1.0).abs() < 0.25, "φ0 {phi0} IBO {ibo} {e} dB FBMC {fbmc}: {b} against {t}");
+                let link = Link { fbmc, order: 16, phi0, ibo: ibo_db, correct: true };
+                let b = ber(link, f64::from(e), 300, 1 + u64::from(fbmc));
+                let waveform = if fbmc { "fbmc" } else { "ofdm" };
+                card.check(
+                    &json!({"phi0_deg": deg, "ibo_db": ibo, "ebn0_db": e, "waveform": waveform, "quantity": "ber_over_model"}),
+                    b / t,
+                );
             }
         }
-        let t30 = theory(16, phi0, ibo, 30.0);
-        assert!((t30 / floor - 1.0).abs() < 0.3, "φ0 {phi0} IBO {ibo}: floor {t30} against {floor}");
+        let t30 = theory(16, phi0, ibo_db, 30.0);
+        card.check(&json!({"phi0_deg": deg, "ibo_db": ibo, "quantity": "model_ber_at_30_db"}), t30);
     }
+    card.finish().unwrap();
 }
 
 #[test]
 #[ignore = "statistical validation: run with --ignored"]
 fn bouhadda_2014_fig_7_phase_rotation() {
     let p3 = std::f64::consts::FRAC_PI_3;
+    let mut card = Card::load("bouhadda2014_fig7").unwrap();
     let ofdm = ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 12_000, 3);
     let fbmc = ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, 30.0, 2000, 4);
-    assert!((ofdm / 1.2e-5).ln().abs() < 1.5f64.ln(), "OFDM floor {ofdm}");
-    assert!((fbmc / 1.6e-4).ln().abs() < 1.5f64.ln(), "FBMC floor {fbmc}");
+    card.check(&json!({"waveform": "ofdm", "ibo_db": 8, "quantity": "ber_at_30_db"}), ofdm);
+    card.check(&json!({"waveform": "fbmc", "ibo_db": 8, "quantity": "ber_at_30_db"}), fbmc);
     // at 4 dB of back-off the floor of OFDM is far above the curve labelled so
-    assert!(ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 4.0, correct: false }, 30.0, 300, 5) > 1e-2);
+    let ofdm4 = ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 4.0, correct: false }, 30.0, 300, 5);
+    card.check(&json!({"waveform": "ofdm", "ibo_db": 4, "quantity": "ber_at_30_db"}), ofdm4);
     let gap = |target: f64| {
         ebn0_at(|e| ber(Link { fbmc: true, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 6), target)
             - ebn0_at(|e| ber(Link { fbmc: false, order: 4, phi0: p3, ibo: 8.0, correct: false }, e, 3000, 7), target)
     };
     let (g3, g4) = (gap(5e-3), gap(5e-4));
-    assert!(g3.abs() < 0.6, "gap at 5e-3: {g3} dB");
-    assert!((1.8..3.5).contains(&g4), "gap at 5e-4: {g4} dB");
+    card.check(&json!({"quantity": "fbmc_loss_db", "ber": 5e-3}), g3);
+    card.check(&json!({"quantity": "fbmc_loss_db", "ber": 5e-4}), g4);
+    card.finish().unwrap();
 }

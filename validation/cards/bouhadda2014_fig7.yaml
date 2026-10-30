@@ -1,0 +1,40 @@
+id: bouhadda2014_fig7
+title: The rotation of the gain of a TWTA on 4-QAM OFDM and FBMC/OQAM, the gain not corrected
+literature: bouhadda2014
+source:
+  kind: paper
+  reference: "H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani, Y. Medjahdi, R. Bouallegue, Theoretical analysis of BER performance of nonlinearly amplified FBMC/OQAM and OFDM signals, EURASIP J. Adv. Signal Process. 2014:60, 2014"
+  locator: "Fig. 7 (4-QAM, phi_0 = pi/3, K not corrected): the floors at 30 dB and the loss of FBMC claimed in the text"
+  file: multicarrier/2014_bouhadda_ber-nonlinear-fbmc-oqam-ofdm_jasp.pdf
+description: >
+  The link of bouhadda2014_figs10_11 with 4-QAM, phi_0 = pi/3 and the gain of the
+  amplifier not corrected: its rotation costs FBMC/OQAM more than OFDM through the
+  intrinsic interference. The floors at 30 dB (12 000 blocks for OFDM, 2000 for FBMC,
+  300 at an IBO of 4 dB) and the gap in Eb/N0 between FBMC and OFDM at a BER of 5e-3 and
+  5e-4 (3000 blocks per point, log BER interpolated on a 0.5 dB grid).
+run:
+  test: validation/tests/bouhadda2014.rs::bouhadda_2014_fig_7_phase_rotation
+tier: campaign
+duration: "about 15 s on an Apple M6"
+findings:
+  - "the curves labelled IBO = 4 dB are those of an input back-off of 8 dB, the value of the text: at 4 dB the floor of OFDM is 1.7e-2, not 1.2e-5"
+  - "the loss of about 7 dB of FBMC at a BER of 5e-3 claimed in the text is 0.2 dB here (2.5 dB at 5e-4)"
+cases:
+  - inputs: {waveform: ofdm, ibo_db: 8, quantity: ber_at_30_db}
+    expected: 1.2e-5
+    tolerance: {factor: 1.5}
+    why: "the floor read on log axes; 12 000 blocks give about 130 errors (9 %); 1.5 is the tolerance of the test"
+  - inputs: {waveform: fbmc, ibo_db: 8, quantity: ber_at_30_db}
+    expected: 1.6e-4
+    tolerance: {factor: 1.5}
+    why: "the floor read on log axes; 2000 blocks give about 290 errors (6 %); 1.5 is the tolerance of the test"
+  - inputs: {waveform: ofdm, ibo_db: 4, quantity: ber_at_30_db}
+    expected: {min: 1.0e-2}
+    note: "far above the curve labelled IBO = 4 dB: the label is that of 8 dB"
+  - inputs: {quantity: fbmc_loss_db, ber: 5.0e-3}
+    expected: 0.0
+    tolerance: {atol: 0.6}
+    why: "not the 7 dB of the text: the curves meet at 5e-3; 3000 blocks per point and a 0.5 dB grid"
+  - inputs: {quantity: fbmc_loss_db, ber: 5.0e-4}
+    expected: {min: 1.8, max: 3.5}
+    note: "the gap opens towards the floor of FBMC"

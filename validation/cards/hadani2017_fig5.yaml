@@ -1,0 +1,31 @@
+id: hadani2017_fig5
+title: Diversity of OTFS with an MMSE detector against one-tap CP-OFDM over EVA at 120 km/h
+literature: hadani2017
+source:
+  kind: paper
+  reference: "R. Hadani, S. Rakib, M. Tsatsanis, A. Monk, A. J. Goldsmith, A. F. Molisch, R. Calderbank, Orthogonal time frequency space modulation, Proc. IEEE WCNC, 2017"
+  locator: "Sec. V and Fig. 5, qualitatively: the BER of OTFS falls much faster with the SNR than that of OFDM"
+  file: multicarrier/2017_hadani_orthogonal-time-frequency-space-modulation_wcnc_arxiv.pdf
+description: >
+  Uncoded 4QAM over EVA at 120 km/h (4 GHz, 15 kHz, one path per tap with Jakes'
+  Doppler, comrs::channel::multipath::DelayDopplerModel), 32 subcarriers and frames of
+  16 symbols with a prefix of 4 samples: OTFS (comrs::waveform::otfs) with the linear
+  MMSE detector of com-mimo on the exact effective channel of the frame, against
+  CP-OFDM with one-tap equalisers on the response at the middle of every symbol, at 10
+  and 20 dB. The TDL-C channel and the frame of 1024 subcarriers of the paper are not
+  simulated, so the card checks the claims, not the curves.
+run:
+  test: validation/tests/raviteja2019.rs::hadani_2017_fig_5_diversity_of_otfs
+tier: campaign
+duration: "about 65 s on an Apple M6"
+findings:
+  - "from 10 to 20 dB the BER of OFDM falls 7.7 times (4.2e-2 to 5.5e-3, diversity 1), that of OTFS 92 times (3.4e-2 to 3.7e-4), 15 times below OFDM at 20 dB"
+cases:
+  - inputs: {quantity: ofdm_ber_ratio_10_to_20_db}
+    expected: {min: 4.0, max: 15.0}
+    note: "diversity 1: a factor of 10 for 10 dB, within the margin of 200 and 400 frames"
+  - inputs: {quantity: otfs_ber_ratio_10_to_20_db}
+    expected: {min: 30.0}
+    note: "the diversity of the paths: much more than a decade for 10 dB"
+  - inputs: {quantity: ofdm_over_otfs_ber_at_20_db}
+    expected: {min: 5.0}
