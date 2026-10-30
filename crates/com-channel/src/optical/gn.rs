@@ -674,10 +674,7 @@ pub fn closed_form_nli_psd(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn grid(n: usize, spacing: f64) -> Vec<f64> {
-        (0..n).map(|k| (k as f64 - (n / 2) as f64) * spacing).collect()
-    }
+    use com_dsp::signal::wdm_grid;
 
     #[test]
     fn the_cell_average_of_the_phased_array_factor_is_exact() {
@@ -710,7 +707,7 @@ mod tests {
         for (spans, coherent) in [(1usize, false), (20, true)] {
             let fiber = FiberParams { n_spans: spans, d_ps_nm_km: 16.7, ..FiberParams::default() };
             let gn = GnModel { coherent, ..GnModel::new(fiber) };
-            let s = WdmSpectrum::uniform(grid(9, 50e9), 1e-3, 32e9, 0.02);
+            let s = WdmSpectrum::uniform(wdm_grid(9, 50e9), 1e-3, 32e9, 0.02);
             let f = s.freqs[0];
             let default = gn.nli_psd(&s, f).unwrap();
             let df = 2e8f64.min(32e9 / 256.0);
@@ -766,7 +763,7 @@ mod tests {
         let fiber = FiberParams { n_spans: 1, d_ps_nm_km: 16.0, ..FiberParams::default() };
         let gn = GnModel { coherent: false, ..GnModel::new(fiber.clone()) };
         for n in [1, 3, 5] {
-            let s = WdmSpectrum::uniform(grid(n, 32e9), 1e-3, 32e9, 0.0);
+            let s = WdmSpectrum::uniform(wdm_grid(n, 32e9), 1e-3, 32e9, 0.0);
             let num = gn.nli_psd(&s, 0.0).unwrap();
             let cf = closed_form_nli_psd(&fiber, n, 32e9, 32e9, 1e-3);
             assert!((num / cf - 1.0).abs() < 0.1, "{n} channels: {num} vs {cf}");
@@ -780,7 +777,7 @@ mod tests {
         let fiber = FiberParams { n_spans: 3, d_ps_nm_km: 16.0, ..FiberParams::default() };
         let plain = GnModel::new(fiber.clone());
         let raman = GnModel { raman: Some(Raman { isrs: false, ..Raman::default() }), ..plain.clone() };
-        let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, 32e9, 0.1);
+        let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, 32e9, 0.1);
         let (a, b) = (plain.nli_psd(&s, 0.0).unwrap(), raman.nli_psd(&s, 0.0).unwrap());
         assert!((a / b - 1.0).abs() < 1e-9, "{a} {b}");
         let (a, b) = (plain.ase_psd(), raman.ase_psd_channel(&s, 1).unwrap());
@@ -815,14 +812,14 @@ mod tests {
     fn a_spectrum_of_invalid_rate_or_rolloff_is_an_error_not_an_abort() {
         let gn = GnModel::new(FiberParams::default());
         for (rs, b) in [(-32e9, 0.1), (0.0, 0.1), (f64::NAN, 0.1), (f64::INFINITY, 0.1), (32e9, -0.1), (32e9, 1.5)] {
-            let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, rs, b);
+            let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, rs, b);
             assert!(matches!(gn.nli_psd(&s, 0.0), Err(com_core::Error::Config(_))), "{rs} {b}");
             assert!(gn.snr(&s, 1).is_err());
             assert!(gn.eta(&s.freqs, rs, b, 1).is_err());
         }
         let s = WdmSpectrum::uniform(vec![0.0, f64::NAN], 1e-3, 32e9, 0.1);
         assert!(gn.nli_psd(&s, 0.0).is_err());
-        let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, 32e9, 0.1);
+        let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, 32e9, 0.1);
         assert!(gn.nli_psd(&s, f64::NAN).is_err());
         assert!(gn.nli_psd(&s, 0.0).unwrap() > 0.0);
     }
@@ -831,7 +828,7 @@ mod tests {
     fn egn_of_gaussian_symbols_is_the_gn_model_and_qpsk_gets_less_nli() {
         let fiber = FiberParams { n_spans: 2, d_ps_nm_km: 16.0, ..FiberParams::default() };
         let gn = GnModel::new(fiber);
-        let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, 32e9, 0.05);
+        let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, 32e9, 0.05);
         let egn = |fm| GnModel { egn: Some(fm), ..gn.clone() }.nli_psd(&s, 0.0).unwrap();
         assert_eq!(egn(FormatMoments::GAUSSIAN), gn.nli_psd(&s, 0.0).unwrap());
         let ratio = egn(FormatMoments { phi: -1.0, psi: 4.0 }) / gn.nli_psd(&s, 0.0).unwrap();
@@ -865,13 +862,13 @@ mod tests {
     fn nli_grows_as_the_cube_of_the_power_and_with_the_spans() {
         let fiber = FiberParams { n_spans: 2, d_ps_nm_km: 16.0, ..FiberParams::default() };
         let gn = GnModel::new(fiber);
-        let f = grid(3, 50e9);
+        let f = wdm_grid(3, 50e9);
         let a = gn.nli_psd(&WdmSpectrum::uniform(f.clone(), 1e-3, 32e9, 0.1), 0.0).unwrap();
         let b = gn.nli_psd(&WdmSpectrum::uniform(f, 2e-3, 32e9, 0.1), 0.0).unwrap();
         assert!((b / a - 8.0).abs() < 1e-9);
         // coherent accumulation over two spans: more than twice one span
         let one = GnModel { fiber: FiberParams { n_spans: 1, ..gn.fiber.clone() }, ..gn.clone() };
-        let s = WdmSpectrum::uniform(grid(3, 50e9), 1e-3, 32e9, 0.1);
+        let s = WdmSpectrum::uniform(wdm_grid(3, 50e9), 1e-3, 32e9, 0.1);
         let ratio = gn.nli_psd(&s, 0.0).unwrap() / one.nli_psd(&s, 0.0).unwrap();
         assert!(ratio > 2.0 && ratio < 4.0, "{ratio}");
     }
