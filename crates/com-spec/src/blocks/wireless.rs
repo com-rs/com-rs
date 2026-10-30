@@ -52,6 +52,7 @@ use com_channel::fading::Mimo;
 use com_channel::multipath::{Profile, Taps, Tdl};
 use com_channel::spatial::{Kronecker, exponential_correlation};
 use com_core::rng::Rng;
+use com_core::units::Hertz;
 use com_core::{Error, Result, ensure};
 use com_mapping::constellation::Constellation;
 use com_math::C64;
@@ -449,6 +450,7 @@ impl OfdmTx {
             n_cp: p.n_cp,
             dc_null: p.dc_null,
             dft_spread: false,
+            sample_rate: Hertz(p.subcarrier_spacing_hz * (p.oversampling * p.n_fft) as f64),
         };
         ofdm.check()?;
         let grid = ResourceGrid {

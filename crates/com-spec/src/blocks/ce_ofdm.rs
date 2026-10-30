@@ -56,7 +56,14 @@ block_params! {
 
 impl CeOfdmSpec {
     fn link(&self) -> CeOfdm {
-        CeOfdm { n_data: self.n_data, oversampling: self.oversampling, h: self.h, n_cp: self.n_cp }
+        CeOfdm {
+            n_data: self.n_data,
+            oversampling: self.oversampling,
+            h: self.h,
+            n_cp: self.n_cp,
+            receiver: Receiver::default(),
+            sample_rate: com_core::units::Hertz(1.0),
+        }
     }
 }
 
