@@ -307,7 +307,7 @@ mod tests {
         // one symbol with a pulse of three symbols: the reference sample is the last one
         let g = CpmConfig::gmsk(0.3, 3, 4).build().unwrap();
         assert_eq!(g.differential_detect(&[C64::new(1.0, 0.0); 4], None).unwrap().len(), 1);
-        assert_eq!(CpmConfig::msk(4).build().unwrap().min_distance2(0), f64::INFINITY);
+        assert_eq!(CpmConfig::msk(4).build().unwrap().min_distance2(0).unwrap(), f64::INFINITY);
     }
 
     #[test]
@@ -410,16 +410,9 @@ mod tests {
         }
         // the closed-form integral of Q matches a numerical one
         let bt = 0.3;
-        let n = 20000;
         let (lo, hi) = (-3.0, 1.2);
-        let num: f64 = (0..=n)
-            .map(|i| {
-                let t = lo + (hi - lo) * i as f64 / n as f64;
-                let w = if i == 0 || i == n { 0.5 } else { 1.0 };
-                w * gmsk_pulse(t, bt) * (hi - lo) / n as f64
-            })
-            .sum();
-        assert!((num - (gmsk_phase(hi, bt) - gmsk_phase(lo, bt))).abs() < 1e-8);
+        let num = com_math::simpson(|t| gmsk_pulse(t, bt), lo, hi, 2000);
+        assert!((num - (gmsk_phase(hi, bt) - gmsk_phase(lo, bt))).abs() < 1e-10);
     }
 
     #[test]
@@ -610,7 +603,7 @@ mod literature {
     #[test]
     fn murota_hirade_1981_fig_5_minimum_distance() {
         for (bt, want) in [(0.2, 1.53), (0.4, 1.89), (0.6, 1.96), (0.8, 1.99)] {
-            let got = CpmConfig::gmsk(bt, 5, 8).build().unwrap().min_distance2(3);
+            let got = CpmConfig::gmsk(bt, 5, 8).build().unwrap().min_distance2(3).unwrap();
             assert!((got - want).abs() < 0.02, "BT = {bt}: {got} vs {want}");
         }
     }
@@ -665,7 +658,7 @@ mod literature {
     #[test]
     fn aulin_sundberg_1981_table_i_optimum_cpfsk() {
         let bound = |order: usize, h_num: u32, h_den: u32| {
-            CpmConfig { order, h_num, h_den, ..CpmConfig::msk(8) }.build().unwrap().min_distance2(2)
+            CpmConfig { order, h_num, h_den, ..CpmConfig::msk(8) }.build().unwrap().min_distance2(2).unwrap()
         };
         let (b2, b4) = (bound(2, 5, 7), bound(4, 32, 35));
         assert!((b2 - 2.434).abs() < 1e-3 && (b4 - 4.232).abs() < 1e-3, "{b2} and {b4}");
@@ -681,7 +674,7 @@ mod literature {
     fn sundberg_1986_fig_5_distance_of_binary_lrc() {
         let d2 = |length: usize, h_num: u32, h_den: u32| {
             let cfg = CpmConfig { h_num, h_den, pulse: FrequencyPulse::RaisedCosine, length, ..CpmConfig::msk(8) };
-            cfg.build().unwrap().min_distance2(3)
+            cfg.build().unwrap().min_distance2(3).unwrap()
         };
         let read = [
             (1, 1, 2, 2.0),
@@ -712,13 +705,14 @@ mod literature {
     #[test]
     fn anderson_aulin_sundberg_minimum_distance() {
         let msk = CpmConfig::msk(4).build().unwrap();
-        assert!((msk.min_distance2(4) - 2.0).abs() < 1e-3, "{}", msk.min_distance2(4));
+        assert!((msk.min_distance2(4).unwrap() - 2.0).abs() < 1e-3, "{}", msk.min_distance2(4).unwrap());
         for (p, q) in [(1u32, 4u32), (5, 7)] {
             let h = f64::from(p) / f64::from(q);
             let want = 2.0 * (1.0 - com_math::sinc(2.0 * h));
             let cpm = CpmConfig { h_num: p, h_den: q, ..CpmConfig::msk(4) }.build().unwrap();
-            let got = cpm.min_distance2(2);
-            assert!((got - want).abs() < 1e-3, "h = {p}/{q}: {got} vs {want}");
+            let got = cpm.min_distance2(2).unwrap();
+            // Simpson on 256 intervals per symbol: within 1e-9 of the closed form
+            assert!((got - want).abs() < 1e-9, "h = {p}/{q}: {got} vs {want}");
         }
         // the ML detector of 4-ary 1REC with h = 1/4 decodes a noiseless sequence
         let cpm = CpmConfig { order: 4, h_num: 1, h_den: 4, ..CpmConfig::msk(4) }.build().unwrap();

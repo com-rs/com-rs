@@ -96,10 +96,9 @@ fn q_integral(x: f64) -> f64 {
 /// # Examples
 /// ```
 /// use com_waveform::cpm::gmsk_pulse;
-/// // the pulse is symmetric and its area is 1/2 (trapezoid over ±4 symbols)
-/// let n = 8000;
-/// let area: f64 = (0..=n).map(|i| gmsk_pulse(-4.0 + 8.0 * i as f64 / n as f64, 0.3) * 8.0 / n as f64).sum();
-/// assert!((area - 0.5).abs() < 1e-6);
+/// // the pulse is symmetric and its area is 1/2 (Simpson's rule over ±4 symbols)
+/// let area = com_math::simpson(|t| gmsk_pulse(t, 0.3), -4.0, 4.0, 800);
+/// assert!((area - 0.5).abs() < 1e-9);
 /// assert!((gmsk_pulse(0.7, 0.3) - gmsk_pulse(-0.7, 0.3)).abs() < 1e-15);
 /// ```
 pub fn gmsk_pulse(t: f64, bt: f64) -> f64 {
