@@ -335,6 +335,29 @@ impl Signal {
         }
     }
 
+    /// Make `out` a copy of `self` (its storage reused when the shape is unchanged, ADR
+    /// 0011), then apply `f(stream index, stream)` to every stream of `out` in place: the
+    /// body of the `_into` methods of the blocks that transform the samples where they
+    /// are, with no allocation per stream.
+    ///
+    /// # Examples
+    /// ```
+    /// use com_core::signal::Signal;
+    /// use com_core::units::Hertz;
+    /// use num_complex::Complex64 as C64;
+    /// let x = Signal::from_streams(&[vec![C64::new(1.0, 0.0); 3], vec![C64::new(0.0, 1.0); 3]], Hertz(1.0))?;
+    /// let mut out = Signal::zeros(0, 0, Hertz(1.0));
+    /// x.map_streams_in_place(&mut out, |s, y| y.iter_mut().for_each(|v| *v *= (s + 1) as f64));
+    /// assert_eq!(out.stream(1), &[C64::new(0.0, 2.0); 3]);
+    /// # Ok::<(), com_core::Error>(())
+    /// ```
+    pub fn map_streams_in_place(&self, out: &mut Signal, mut f: impl FnMut(usize, &mut [C64])) {
+        out.assign(self);
+        for s in 0..out.n_streams() {
+            f(s, out.data.stream_slice_mut(s));
+        }
+    }
+
     /// Mean power of every stream, `mean(|x|²)`.
     pub fn power(&self) -> Vec<f64> {
         let n = self.n_samples().max(1) as f64;
@@ -446,6 +469,19 @@ mod tests {
         assert!(x.try_map_streams(&mut out, |_, s| Ok([s, s].concat())).is_err());
         x.try_map_streams(&mut out, |_, s| Ok(s.iter().map(|v| v * 2.0).collect())).unwrap();
         assert_eq!(out.stream(0), &[C64::new(2.0, 0.0); 4]);
+    }
+
+    #[test]
+    fn map_streams_in_place_reuses_the_output_and_keeps_the_rate() {
+        let x = Signal::from_streams(&[vec![C64::new(1.0, 0.0); 4], vec![C64::new(0.0, 1.0); 4]], Hertz(3.0)).unwrap();
+        let mut out = Signal::zeros(2, 4, Hertz(1.0));
+        let p = out.as_array().as_ptr();
+        x.map_streams_in_place(&mut out, |s, y| y[0] *= (s + 2) as f64);
+        assert_eq!((out.as_array().as_ptr(), out.sample_rate()), (p, Hertz(3.0)));
+        assert_eq!(
+            (out.stream(0)[0], out.stream(1)[0], out.stream(1)[1]),
+            (C64::new(2.0, 0.0), C64::new(0.0, 3.0), C64::new(0.0, 1.0))
+        );
     }
 
     #[test]
