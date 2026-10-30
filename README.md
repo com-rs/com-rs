@@ -45,8 +45,8 @@ use comrs::sim::scenario::from_fn;
 let qpsk = from_fn("qpsk", |cond, rng, rec| {
     let c = Constellation::qam(4)?.normalized();
     let bits = source::bits(2000, rng);
-    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
-    rec.errors("ber", metrics::bit_errors(&c.demodulate(&rx), &bits)? as u64, 2000);
+    let rx = awgn::awgn_ebn0(&c.map_bits(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
+    rec.errors("ber", metrics::bit_errors(&c.demap_bits(&rx), &bits)? as u64, 2000);
     Ok(())
 });
 let stop = Stop::min_errors("ber", 200).or(Stop::max_trials(10_000));
@@ -209,8 +209,8 @@ use comrs::sim::scenario::from_fn;
 let qpsk = from_fn("qpsk", |cond, rng, rec| {
     let c = Constellation::qam(4)?.normalized();
     let bits = source::bits(2000, rng);
-    let rx = awgn::awgn_ebn0(&c.modulate(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
-    rec.errors("ber", metrics::bit_errors(&c.demodulate(&rx), &bits)? as u64, 2000);
+    let rx = awgn::awgn_ebn0(&c.map_bits(&bits)?, cond.f64("ebn0_db")?, 2.0, 1.0, rng);
+    rec.errors("ber", metrics::bit_errors(&c.demap_bits(&rx), &bits)? as u64, 2000);
     Ok(())
 });
 let results = Runner::new()

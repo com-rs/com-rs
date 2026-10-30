@@ -15,7 +15,7 @@ fn mapping(c: &mut Criterion) {
     let qam = Constellation::qam(64).expect("square order").normalized();
     let mut rng = Rng::new(1);
     let bits = source::bits(6 * 4096, &mut rng);
-    let x = qam.modulate(&bits).expect("whole symbols");
+    let x = qam.map_bits(&bits).expect("whole symbols");
     let y = awgn::awgn_ebn0(&x, 12.0, 6.0, 1.0, &mut rng);
     let mut g = c.benchmark_group("mapping");
     g.throughput(Throughput::Elements(x.len() as u64));

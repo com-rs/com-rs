@@ -117,7 +117,7 @@ fn schulte_bocherer_2016_fig2_ccdm_rate_and_divergence() {
         // the matcher of com-rs indexes the set of the composition: a round trip
         if n <= 100 {
             let bits: Vec<u8> = (0..dm.k()).map(|i| u8::from(i % 3 == 1)).collect();
-            let a = dm.matched(&bits).unwrap();
+            let a = dm.match_bits(&bits).unwrap();
             assert_eq!(dm.dematch(&a).unwrap(), bits);
         }
     }

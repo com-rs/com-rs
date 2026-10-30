@@ -117,7 +117,7 @@ impl Block for CeOfdmRx {
             s.record(&self.label, "ber_theory", ce_theory::ber_receiver(&ce, kind, m, es)?);
         }
         s.samples = match (self.receiver, self.esn0_db) {
-            (Some(r), _) => self.ce.demodulate_with(&s.samples, r)?,
+            (Some(r), _) => self.ce.demodulate_with_receiver(&s.samples, r)?,
             (None, Some(es)) => Gamp::default().detect(&self.ce, &s.samples, &c, self.ce.noise_variance(es))?,
             (None, None) => unreachable!("checked by new"),
         };

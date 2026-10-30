@@ -7,7 +7,7 @@ use comrs::channel::optical::edfa::Edfa;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::fiber::{self as channels, Amplification, Precision, Ssfm};
 use comrs::channel::optical::manakov::ManakovSsfm;
-use comrs::channel::optical::pmd::{Manakov, PmdLink};
+use comrs::channel::optical::pmd::{ManakovPmd, PmdLink};
 use comrs::channel::optical::raman::Raman;
 use comrs::core::signal::DualPol;
 use comrs::math::nlse::StepRule;
@@ -466,7 +466,7 @@ impl PySsfm {
 ///     ValueError: for an invalid parameter (the message names it).
 #[pyclass(name = "Manakov", module = "comrs")]
 pub struct PyManakov {
-    inner: Manakov,
+    inner: ManakovPmd,
 }
 
 #[pymethods]
@@ -489,7 +489,7 @@ impl PyManakov {
             (p, Some(mut r)) => PmdLink::random(&f, p, sections_per_span, &mut r.inner).py()?,
             (_, None) => return Err(PyValueError::new_err("a PMD realisation needs an rng")),
         };
-        Ok(PyManakov { inner: Manakov::new(f, pmd) })
+        Ok(PyManakov { inner: ManakovPmd::new(f, pmd) })
     }
 
     /// float: RMS differential group delay of the PMD realisation (s).

@@ -61,7 +61,7 @@ fn ber(link: Link, ebn0_db: f64, blocks: usize, seed: u64) -> f64 {
     let fb = Fbmc::new(M, 4).unwrap();
     for _ in 0..blocks {
         let bits = source::bits(M * n_sym * bits_per, &mut rng);
-        let x = c.modulate(&bits).unwrap();
+        let x = c.map_bits(&bits).unwrap();
         let s = if fbmc { fb.modulate(&oqam_stagger(&x, M).unwrap()).unwrap() } else { ofdm.modulate(&x).unwrap() };
         let scale = power.sqrt();
         let mut y: Vec<C64> = s.iter().map(|v| twta.amplify(&[v * scale]).unwrap()[0] / scale).collect();
@@ -75,7 +75,7 @@ fn ber(link: Link, ebn0_db: f64, blocks: usize, seed: u64) -> f64 {
         } else {
             ofdm.demodulate(&y).unwrap().iter().map(|v| v / gain).collect()
         };
-        errors += bit_errors(&c.demodulate(&z), &bits).unwrap();
+        errors += bit_errors(&c.demap_bits(&z), &bits).unwrap();
         total += bits.len();
     }
     errors as f64 / total as f64

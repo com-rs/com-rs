@@ -184,10 +184,10 @@ fn an_ofdm_link_through_an_adc_has_the_ber_of_the_total_noise() {
             let (mut errors, mut bits_total) = (0u64, 0u64);
             for _ in 0..50 {
                 let b = source::bits(256 * 4, rng);
-                let mut y = ofdm.modulate(&c.modulate(&b)?)?;
+                let mut y = ofdm.modulate(&c.map_bits(&b)?)?;
                 add_noise(&mut y, s2, rng);
                 let z = ofdm.demodulate(&adc.convert(&y, 1.0, rng)?)?;
-                errors += bit_errors(&c.demodulate(&z), &b)? as u64;
+                errors += bit_errors(&c.demap_bits(&z), &b)? as u64;
                 bits_total += b.len() as u64;
             }
             Ok((errors, bits_total))

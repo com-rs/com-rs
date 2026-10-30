@@ -48,7 +48,7 @@
 //! $$\mathrm{SNR} = (2\pi h)^{2}\,\frac{E_{s}}{N_{0}}\,\frac{N}{N + N_{\mathrm{cp}}}\,:$$
 //!
 //! the error rates are those of the constellation over AWGN with the SNR multiplied by
-//! $(2\pi h)^{2}$ ([`theory::snr`], [`theory::ser`], [`theory::ber`]). For $M$-PAM data
+//! $(2\pi h)^{2}$ ([`theory::snr`], [`theory::ser_esn0`], [`theory::ber_esn0`]). For $M$-PAM data
 //! on every real subcarrier this is eq. (15) of the paper, which keeps the
 //! nearest-neighbour term of the Gray BER; the library uses the exact Gray BER of the
 //! square QAM whose real and imaginary parts are the two PAM symbols (checked against
@@ -69,7 +69,7 @@
 //!
 //! # Examples
 //! ```
-//! use com_waveform::ce_ofdm::{CeOfdm, Unwrap};
+//! use com_waveform::ce_ofdm::{CeOfdm, Receiver, Unwrap};
 //! use com_mapping::constellation::Constellation;
 //! use com_core::rng::Rng;
 //! let ce = CeOfdm::new(16, 2, 0.1).unwrap();
@@ -78,7 +78,7 @@
 //! let s = ce.modulate(&d).unwrap();
 //! assert_eq!(s.len(), 4 * ce.n_fft());
 //! assert!(s.iter().all(|v| (v.norm() - 1.0).abs() < 1e-12));          // constant envelope
-//! let e = ce.demodulate(&s, Unwrap::None).unwrap();
+//! let e = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::None)).unwrap();
 //! assert!(e.iter().zip(&d).all(|(a, b)| (a - b).norm() < 1e-9));
 //! ```
 
@@ -296,20 +296,11 @@ impl CeOfdm {
         Ok(out)
     }
 
-    /// The symbol estimates `d̂ = G ψ/(2πh)` of every block, by the arctangent
-    /// demodulator with the unwrapping `unwrap` ([`CeOfdm::demodulate_with`]).
-    ///
-    /// # Errors
-    /// [`com_core::Error::Config`] for invalid parameters, [`com_core::Error::Shape`] for
-    /// a number of samples that is not a multiple of `N + N_cp`.
-    pub fn demodulate(&self, r: &[C64], unwrap: Unwrap) -> Result<Vec<C64>> {
-        self.demodulate_with(r, Receiver::Arctangent(unwrap))
-    }
-
     /// The symbol estimates of every block with the receiver: the projection of its proxy
     /// of the phase on the data bins, divided by $2\pi h$ and by Bussgang's gain of the
     /// receiver ([`theory::receiver_gain`]), so that the estimates are unbiased. With
-    /// [`Receiver::Arctangent`] it is [`CeOfdm::demodulate`].
+    /// [`Receiver::Arctangent`], the estimates `d̂ = G ψ/(2πh)` of the arctangent
+    /// demodulator with its unwrapping.
     ///
     /// # Errors
     /// As [`CeOfdm::demodulate`].
@@ -323,10 +314,10 @@ impl CeOfdm {
     /// let c = Constellation::qam(16).unwrap().normalized();
     /// let (_, d) = com_mapping::source::symbols(&c, 64, None, &mut Rng::new(1)).unwrap();
     /// // without noise the linear receivers err only by their distortion, small at a small h
-    /// let e = ce.demodulate_with(&ce.modulate(&d).unwrap(), Receiver::Enhanced).unwrap();
+    /// let e = ce.demodulate_with_receiver(&ce.modulate(&d).unwrap(), Receiver::Enhanced).unwrap();
     /// assert_eq!(c.decide(&e), c.decide(&d));
     /// ```
-    pub fn demodulate_with(&self, r: &[C64], receiver: Receiver) -> Result<Vec<C64>> {
+    pub fn demodulate_with_receiver(&self, r: &[C64], receiver: Receiver) -> Result<Vec<C64>> {
         self.check_block(r.len())?;
         let (proxy, gain): (Vec<f64>, f64) = match receiver {
             Receiver::Arctangent(unwrap) => (self.received_phase(r, unwrap), 1.0),
@@ -392,7 +383,7 @@ impl Demodulate for CeOfdm {
     /// and the errors of [`CeOfdm::demodulate_with`].
     fn demodulate_into(&mut self, y: &Signal, out: &mut Symbols) -> Result<()> {
         check_input(y, self.sample_rate, "CE-OFDM")?;
-        out.set_stream(&self.demodulate_with(y.stream(0), self.receiver)?);
+        out.set_stream(&self.demodulate_with_receiver(y.stream(0), self.receiver)?);
         Ok(())
     }
 }
@@ -419,14 +410,9 @@ mod tests {
         let x = Modulate::modulate(&ce, &Symbols::from_stream(d.clone()).unwrap()).unwrap();
         assert_eq!((x.stream(0), x.sample_rate()), (&ce.modulate(&d).unwrap()[..], Hertz(2e6)));
         let back = Demodulate::demodulate(&mut ce, &x).unwrap();
-        assert_eq!(back.as_slice(), &ce.demodulate_with(x.stream(0), Receiver::Enhanced).unwrap()[..]);
+        assert_eq!(back.as_slice(), &ce.demodulate_with_receiver(x.stream(0), Receiver::Enhanced).unwrap()[..]);
         let slow = Signal::from_stream(x.stream(0).to_vec(), Hertz(1e6)).unwrap();
         assert!(Demodulate::demodulate(&mut ce, &slow).is_err());
-        // demodulate is the arctangent receiver of demodulate_with
-        assert_eq!(
-            ce.demodulate(x.stream(0), Unwrap::Stream).unwrap(),
-            ce.demodulate_with(x.stream(0), Receiver::Arctangent(Unwrap::Stream)).unwrap()
-        );
     }
 
     #[test]
@@ -445,9 +431,9 @@ mod tests {
         assert!((s[0] - s[ce.n_fft()]).norm() < 1e-12);
         // without noise, the unwrapped receiver recovers the symbols despite the wraps,
         // which the wrapped receiver does not
-        let e = ce.demodulate(&s, Unwrap::Stream).unwrap();
+        let e = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::Stream)).unwrap();
         assert!(e.iter().zip(&d).all(|(a, b)| (a - b).norm() < 1e-8));
-        let w = ce.demodulate(&s, Unwrap::None).unwrap();
+        let w = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::None)).unwrap();
         assert!(w.iter().zip(&d).map(|(a, b)| (a - b).norm()).fold(0.0, f64::max) > 0.1);
     }
 
@@ -457,7 +443,7 @@ mod tests {
         let g = (TAU * 0.05).powi(2) * 100.0;
         let s = theory::snr(&ce, 20.0).unwrap();
         assert!((s - g).abs() < 1e-9 * g);
-        let ser_ce = theory::ser(&ce, ConstellationKind::Qam, 16, 20.0).unwrap();
+        let ser_ce = theory::ser_esn0(&ce, ConstellationKind::Qam, 16, 20.0).unwrap();
         let proakis = com_mapping::theory::ser(ConstellationKind::Qam, 16, com_math::lin2db(g / 4.0)).unwrap();
         assert!((ser_ce - proakis).abs() < 1e-12);
         // the cyclic prefix costs its share of the energy
@@ -473,10 +459,10 @@ mod tests {
         let esn0_db = 20.0;
         let sigma = ce.noise_variance(esn0_db).sqrt();
         let r: Vec<C64> = ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
-        let e = ce.demodulate(&r, Unwrap::None).unwrap();
+        let e = ce.demodulate_with_receiver(&r, Receiver::Arctangent(Unwrap::None)).unwrap();
         let errors = c.decide(&e).iter().zip(c.decide(&d)).filter(|(a, b)| *a != b).count();
         let ser = errors as f64 / d.len() as f64;
-        let want = theory::ser(&ce, ConstellationKind::Qam, 16, esn0_db).unwrap();
+        let want = theory::ser_esn0(&ce, ConstellationKind::Qam, 16, esn0_db).unwrap();
         assert!((ser / want - 1.0).abs() < 0.15, "{ser} vs {want}");
     }
 
@@ -486,7 +472,7 @@ mod tests {
         let c = Constellation::qam(4).unwrap().normalized();
         let (_, d) = com_mapping::source::symbols(&c, 31, None, &mut Rng::new(4)).unwrap();
         let s = ce.modulate(&d).unwrap();
-        let clean = ce.demodulate(&s, Unwrap::Stream).unwrap();
+        let clean = ce.demodulate_with_receiver(&s, Receiver::Arctangent(Unwrap::Stream)).unwrap();
         for start in [0usize, 1, 40, 127] {
             // the phase gains 2π from `start`: the unwrapped phase of the samples rotated by a
             // full turn in small steps over one sample would do the same; add it to the phase
@@ -516,7 +502,7 @@ mod tests {
             let r: Vec<C64> =
                 ce.modulate(&d).unwrap().into_iter().map(|v| v + rng.complex_gaussian() * sigma).collect();
             for receiver in [Receiver::Linear, Receiver::Enhanced] {
-                let e = ce.demodulate_with(&r, receiver).unwrap();
+                let e = ce.demodulate_with_receiver(&r, receiver).unwrap();
                 let bits: usize =
                     c.decide(&e).iter().zip(c.decide(&d)).map(|(a, b)| (a ^ b).count_ones() as usize).sum();
                 let ber = bits as f64 / (2.0 * d.len() as f64);
@@ -556,7 +542,7 @@ mod literature {
                 for ebn0_db in [6.0, 10.0, 14.0] {
                     let ce = CeOfdm::new(64, 4, h).unwrap();
                     let esn0_db = ebn0_db + com_math::lin2db(2.0 * log2m);
-                    let lib = theory::ber(&ce, ConstellationKind::Qam, m_qam, esn0_db).unwrap();
+                    let lib = theory::ber_esn0(&ce, ConstellationKind::Qam, m_qam, esn0_db).unwrap();
                     let arg = std::f64::consts::TAU
                         * h
                         * (6.0 * log2m / ((m_pam * m_pam - 1) as f64) * db2lin(ebn0_db)).sqrt();

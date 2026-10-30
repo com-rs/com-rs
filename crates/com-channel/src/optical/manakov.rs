@@ -9,7 +9,7 @@
 //! long at their end, where the power has decayed.
 //!
 //! [`ManakovSsfm::dbp`] is its digital back-propagation. [`ManakovSsfm`] neglects
-//! polarisation-mode dispersion; `pmd::Manakov` adds it with a
+//! polarisation-mode dispersion; `pmd::ManakovPmd` adds it with a
 //! coarser scheme.
 //!
 //! # Examples

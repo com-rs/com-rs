@@ -63,7 +63,7 @@ fn ber(ce: &CeOfdm, ebn0_db: f64, blocks: usize, seed: u64, detectors: &[Detecto
 }
 
 fn phase_detector(ce: &CeOfdm, r: &[C64], _: f64) -> Vec<C64> {
-    ce.demodulate(r, Unwrap::None).unwrap()
+    ce.demodulate_with_receiver(r, Receiver::Arctangent(Unwrap::None)).unwrap()
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn pacheco2006_fig1_simulated_bandwidth() {
 #[ignore = "statistical validation: run with --ignored"]
 fn ahmed2015_fig6_low_complexity_receivers() {
     let link = |two_pi_h: f64| CeOfdm::new(32, 2, two_pi_h / TAU).unwrap();
-    let with = |r: Receiver| move |ce: &CeOfdm, x: &[C64], _: f64| ce.demodulate_with(x, r).unwrap();
+    let with = |r: Receiver| move |ce: &CeOfdm, x: &[C64], _: f64| ce.demodulate_with_receiver(x, r).unwrap();
     let (lin, enh) = (with(Receiver::Linear), with(Receiver::Enhanced));
     let detectors: [Detector; 3] = [&phase_detector, &lin, &enh];
     // 2πh = 0.3: the basic linear receiver is close to the arctangent one (eq. (20)):

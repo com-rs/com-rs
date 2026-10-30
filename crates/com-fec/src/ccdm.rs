@@ -30,7 +30,7 @@
 //! assert_eq!(dm.composition(), &[40, 30, 20, 10]);
 //! assert_eq!(dm.k(), 175);   // log2 of 100!/(40! 30! 20! 10!) = 175.03; 100 H = 184.6
 //! let bits: Vec<u8> = (0..dm.k()).map(|i| ((i * 7) % 3 == 0) as u8).collect();
-//! let a = dm.matched(&bits)?;
+//! let a = dm.match_bits(&bits)?;
 //! assert_eq!(a.iter().filter(|&&s| s == 0).count(), 40);
 //! assert_eq!(dm.dematch(&a)?, bits);
 //! # Ok::<(), com_core::Error>(())
@@ -133,7 +133,7 @@ impl Ccdm {
     ///
     /// # Errors
     /// [`com_core::Error::Shape`] if `bits` does not have $k$ bits.
-    pub fn matched(&self, bits: &[u8]) -> Result<Vec<usize>> {
+    pub fn match_bits(&self, bits: &[u8]) -> Result<Vec<usize>> {
         expect_len(bits.len(), self.k, "bits")?;
         let mut r = BigUint::from_bits(bits);
         let mut count = self.composition.clone();
@@ -198,7 +198,7 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for r in 0..32u8 {
             let bits: Vec<u8> = (0..5).rev().map(|i| (r >> i) & 1).collect();
-            let a = dm.matched(&bits).unwrap();
+            let a = dm.match_bits(&bits).unwrap();
             assert_eq!(a.iter().filter(|&&s| s == 0).count(), 3);
             assert_eq!(dm.dematch(&a).unwrap(), bits);
             assert!(seen.insert(a));
@@ -213,7 +213,7 @@ mod tests {
         for n in [64, 512, 4096] {
             let dm = Ccdm::from_distribution(&p, n).unwrap();
             let bits: Vec<u8> = (0..dm.k()).map(|_| rng.bit()).collect();
-            assert_eq!(dm.dematch(&dm.matched(&bits).unwrap()).unwrap(), bits);
+            assert_eq!(dm.dematch(&dm.match_bits(&bits).unwrap()).unwrap(), bits);
             // rate loss below 4 log2(n)/n
             assert!(h - dm.rate() < 4.0 * (n as f64).log2() / n as f64, "{n}: {}", h - dm.rate());
         }

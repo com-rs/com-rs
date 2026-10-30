@@ -249,7 +249,7 @@ impl Amplification {
 }
 
 /// The loop over the spans of a link, shared by the propagators ([`Ssfm`],
-/// `manakov::ManakovSsfm`, `pmd::Manakov`): for each of the `fiber.n_spans` spans,
+/// `manakov::ManakovSsfm`, `pmd::ManakovPmd`): for each of the `fiber.n_spans` spans,
 /// `span(k, fields, raman_span)` propagates the polarisations `fields` over span `k`,
 /// then each polarisation, in order, is amplified with its noise drawn from `rng`:
 ///

@@ -113,7 +113,6 @@ with_list
 # Python classes apart from the Rust types they wrap). Different things under a
 # generic name, not copies; candidates for a clearer name in the breaking batch
 # (section 5 of the review):
-Fading     # com_channel::fading (the trait of the fading channels) / com_mapping::theory (the channel of the information-rate closed forms: AWGN or Rayleigh)
 Estimate   # com_sim::stats (the estimate of a metric) / com_waveform::ofdm::sync (a timing and frequency estimate)
 Profile    # com_channel::multipath (the TDL power-delay profiles) / com_channel::cdl::tables (the CDL cluster tables)
 Receiver   # com_mimo::receiver (a MIMO detector applied channel use after channel use) / com_waveform::ce_ofdm (the choice of CE-OFDM phase demodulator)

@@ -29,7 +29,9 @@
 //! the last, for the three streams of a turbo code. IEEE 802.11 emits A from $133_{8}$
 //! and B from $171_{8}$, so its rows are in the printed order; DVB-S emits X from
 //! $G_{1} = 171_{8}$ and Y from $G_{2} = 133_{8}$ (EN 300 421, Sec. 4.4), so the rows of
-//! its Table 1 are given Y first. The two standards then puncture the same codes.
+//! its Table 1 are given Y first. The two standards then puncture the same codes: the
+//! patterns of rates 2/3, 3/4 and 5/6 are defined once, by IEEE 802.11, and the DVB-S
+//! constructors of these rates are aliases kept under the name of their standard.
 //!
 //! A rate matching that transmits some bits of a word, once or several times, is a
 //! [`BitSelection`]: output bit $t$ carries bit $\pi(t)$ of the word, and the receiver
@@ -233,19 +235,23 @@ impl Puncturer {
         Puncturer::of(&[&[1, 1, 0, 1, 0], &[1, 0, 1, 0, 1]])
     }
 
-    /// Rate 2/3 of ETSI EN 300 421, Table 1: X 1 0, Y 1 1 (rows Y, X: see the module).
+    /// Rate 2/3 of ETSI EN 300 421, Table 1: X 1 0, Y 1 1 (rows Y, X: see the module),
+    /// the pattern of [`Puncturer::ieee80211_2_3`] (an alias, under the name of the
+    /// standard).
     pub fn dvbs_2_3() -> Puncturer {
-        Puncturer::of(&[&[1, 1], &[1, 0]])
+        Puncturer::ieee80211_2_3()
     }
 
-    /// Rate 3/4 of ETSI EN 300 421, Table 1: X 1 0 1, Y 1 1 0 (rows Y, X).
+    /// Rate 3/4 of ETSI EN 300 421, Table 1: X 1 0 1, Y 1 1 0 (rows Y, X), the pattern
+    /// of [`Puncturer::ieee80211_3_4`] (an alias).
     pub fn dvbs_3_4() -> Puncturer {
-        Puncturer::of(&[&[1, 1, 0], &[1, 0, 1]])
+        Puncturer::ieee80211_3_4()
     }
 
-    /// Rate 5/6 of ETSI EN 300 421, Table 1: X 1 0 1 0 1, Y 1 1 0 1 0 (rows Y, X).
+    /// Rate 5/6 of ETSI EN 300 421, Table 1: X 1 0 1 0 1, Y 1 1 0 1 0 (rows Y, X), the
+    /// pattern of [`Puncturer::ieee80211_5_6`] (an alias).
     pub fn dvbs_5_6() -> Puncturer {
-        Puncturer::of(&[&[1, 1, 0, 1, 0], &[1, 0, 1, 0, 1]])
+        Puncturer::ieee80211_5_6()
     }
 
     /// Rate 7/8 of ETSI EN 300 421, Table 1: X 1 0 0 0 1 0 1, Y 1 1 1 1 0 1 0 (rows Y, X).
@@ -774,6 +780,22 @@ mod literature {
         assert_eq!(free_distance(&t, &Puncturer::ieee80211_5_6()).unwrap(), 4);
         assert!(free_distance(&t, &Puncturer::turbo_1_2()).is_err());
         assert_eq!(free_distance(&t, &Puncturer::new(&[&[1, 0], &[1, 1]]).unwrap()).unwrap(), 5);
+    }
+
+    /// ETSI EN 300 421, Table 1, read with the rows Y (from $G_{2} = 133_{8}$) then X
+    /// (from $G_{1} = 171_{8}$): the patterns of rates 2/3, 3/4 and 5/6 are those of IEEE
+    /// 802.11-2020, Figures 17-9 and 19-11, which the DVB-S constructors alias.
+    #[test]
+    fn etsi_en_300_421_table_1_is_the_80211_pattern_at_the_shared_rates() {
+        // (X, Y) as printed in Table 1
+        let table: [(&[u8], &[u8], Puncturer); 3] = [
+            (&[1, 0], &[1, 1], Puncturer::dvbs_2_3()),
+            (&[1, 0, 1], &[1, 1, 0], Puncturer::dvbs_3_4()),
+            (&[1, 0, 1, 0, 1], &[1, 1, 0, 1, 0], Puncturer::dvbs_5_6()),
+        ];
+        for (x, y, alias) in table {
+            assert_eq!(Puncturer::new(&[y, x]).unwrap(), alias);
+        }
     }
 
     /// Yasuda, Kashiki & Hirata (1984), Tables I and II in full: the 84 deleting maps of

@@ -187,7 +187,7 @@ impl PyCeOfdm {
         receiver: &str,
     ) -> PyResult<CArr<'py>> {
         let r = self::receiver(receiver, unwrap)?;
-        Ok(carr(py, self.inner.demodulate_with(&cvec(samples)?, r).py()?))
+        Ok(carr(py, self.inner.demodulate_with_receiver(&cvec(samples)?, r).py()?))
     }
 
     /// The posterior means of the symbols of every block by the GAMP receiver of López
@@ -272,7 +272,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ser(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ser(&self.inner, k, m, e).py())
+        map_real(esn0_db, |e| theory::ser_esn0(&self.inner, k, m, e).py())
     }
 
     /// The BER of the linear regime, Gray mapping: the exact Gray BER of a square QAM
@@ -292,7 +292,7 @@ impl PyCeOfdm {
     #[pyo3(signature = (m, esn0_db, kind="qam"))]
     fn ber(&self, m: usize, esn0_db: &Bound<'_, PyAny>, kind: &str) -> PyResult<Py<PyAny>> {
         let k = self::kind(kind)?;
-        map_real(esn0_db, |e| theory::ber(&self.inner, k, m, e).py())
+        map_real(esn0_db, |e| theory::ber_esn0(&self.inner, k, m, e).py())
     }
 
     /// The expected periodogram `E|S_k|²/N` of a transmitted block under the Gaussian

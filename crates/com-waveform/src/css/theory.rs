@@ -69,14 +69,15 @@ pub fn ser(sf: u32, snr_db: f64) -> Result<f64> {
     com_mapping::theory::ser_orthogonal_noncoherent(m, snr_db + com_math::lin2db(m as f64))
 }
 
-/// The BER of the noncoherent receiver over AWGN: [`ser`]` M/(2(M - 1))`, every wrong
-/// symbol being equally likely.
+/// The BER of the noncoherent receiver over AWGN at the SNR per sample `snr_db` (dB):
+/// [`ser`]` M/(2(M - 1))`, every wrong symbol being equally likely
+/// ([`com_mapping::theory::ber_orthogonal_noncoherent`] at $E_{s}/N_{0} = M\rho$).
 ///
 /// # Errors
 /// As [`ser`].
 pub fn ber(sf: u32, snr_db: f64) -> Result<f64> {
-    let m = chips(sf)? as f64;
-    Ok(ser(sf, snr_db)? * m / (2.0 * (m - 1.0)))
+    let m = chips(sf)?;
+    com_mapping::theory::ber_orthogonal_noncoherent(m, snr_db + com_math::lin2db(m as f64))
 }
 
 /// The harmonic number `H_n`.
@@ -451,8 +452,9 @@ pub fn ser_interference(sf: u32, snr_db: f64, pi_db: f64, eps: f64) -> Result<f6
 }
 
 /// The approximate frame error rate of `frame` uncoded symbols under AWGN and a same-SF
-/// interferer whose frame of the same length overlaps a uniform number of symbols
-/// (Afisiadis et al. 2020, eqs. (64)–(67)), the offset sampled every `eps` chips (as
+/// interferer of power `pi_db` (dB, relative to the signal) whose frame of the same
+/// length overlaps a uniform number of symbols (Afisiadis et al. 2020, eqs. (64)–(67)),
+/// at the SNR per sample `snr_db`, the offset sampled every `eps` chips (as
 /// [`ser_interference`]).
 ///
 /// # Errors

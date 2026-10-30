@@ -34,7 +34,7 @@
 //!
 //! - The arctangent receiver ([`super::Receiver::Arctangent`]) above its threshold sees
 //!   the SNR $(2\pi h)^{2} E_{s}/N_{0} \cdot N/(N + N_{\mathrm{cp}})$ on every subcarrier
-//!   ([`snr`], [`ser`], [`ber`]; eq. (15) of Thompson et al. 2008). For QPSK this is also
+//!   ([`snr`], [`ser_esn0`], [`ber_esn0`]; eq. (15) of Thompson et al. 2008). For QPSK this is also
 //!   the optimum asymptotic BER $Q(\sqrt{(2\pi h)^{2} \cdot 2E_{b}/N_{0}})$ of Guerreiro et
 //!   al. (2016, eq. (8)), whose asymptotic gain is $G = (2\pi h)^{2}$ ([`optimum_gain`],
 //!   [`ber_optimum`]).
@@ -106,7 +106,7 @@ fn ebn0_db(snr: f64, m: usize) -> f64 {
 ///
 /// # Errors
 /// As [`snr`] and [`com_mapping::theory::ser`].
-pub fn ser(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
+pub fn ser_esn0(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     com_mapping::theory::ser(kind, m, ebn0_db(snr(ce, esn0_db)?, m))
 }
 
@@ -126,7 +126,7 @@ fn ber_at(snr: f64, m: usize, kind: ConstellationKind) -> Result<f64> {
 ///
 /// # Errors
 /// As [`snr`] and [`com_mapping::theory::ber`].
-pub fn ber(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
+pub fn ber_esn0(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64) -> Result<f64> {
     ber_at(snr(ce, esn0_db)?, m, kind)
 }
 
@@ -285,7 +285,7 @@ pub fn optimum_gain(two_pi_h: f64, theta_max: Option<f64>) -> f64 {
 
 /// The optimum asymptotic BER of QPSK CE-OFDM in AWGN,
 /// $Q(\sqrt{G \cdot 2E_{b}/N_{0}})$ with $G$ = [`optimum_gain`] (Guerreiro et al. 2016,
-/// eq. (8)): the linear theory of the arctangent receiver ([`ber`] for 4-QAM).
+/// eq. (8)): the linear theory of the arctangent receiver ([`ber_esn0`] for 4-QAM).
 pub fn ber_optimum(two_pi_h: f64, ebn0_db: f64) -> f64 {
     qfunc((optimum_gain(two_pi_h, None) * 2.0 * com_math::db2lin(ebn0_db)).sqrt())
 }
@@ -369,7 +369,7 @@ pub fn subcarrier_snr(ce: &CeOfdm, esn0_db: f64) -> Result<Vec<f64>> {
 
 /// The SER of a constellation of `m` points of `kind` with the receiver of `ce`, averaged over
 /// the subcarriers of [`subcarrier_snr`], the distortion taken as Gaussian; for the
-/// arctangent receiver, [`ser`].
+/// arctangent receiver, [`ser_esn0`].
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ser`].
@@ -384,7 +384,7 @@ pub fn ser_receiver(ce: &CeOfdm, kind: ConstellationKind, m: usize, esn0_db: f64
 
 /// The BER of a Gray-mapped constellation of `m` points of `kind` with the receiver of `ce`,
 /// averaged over the subcarriers of [`subcarrier_snr`], the distortion taken as
-/// Gaussian; for the arctangent receiver, [`ber`].
+/// Gaussian; for the arctangent receiver, [`ber_esn0`].
 ///
 /// # Errors
 /// As [`subcarrier_snr`] and [`com_mapping::theory::ber`].
@@ -476,7 +476,7 @@ mod tests {
         // eq. (8) of the 2016 letter is the linear theory of QPSK
         let ce = CeOfdm::new(31, 4, 0.6 / TAU).unwrap();
         for eb in [4.0, 8.0] {
-            let lin = ber(&ce, ConstellationKind::Qam, 4, eb + com_math::lin2db(2.0)).unwrap();
+            let lin = ber_esn0(&ce, ConstellationKind::Qam, 4, eb + com_math::lin2db(2.0)).unwrap();
             assert!((ber_optimum(0.6, eb) / lin - 1.0).abs() < 1e-9);
         }
     }

@@ -600,7 +600,7 @@ impl Dvbs2 {
     pub fn modulate(&self, bbframe: &[u8]) -> Result<Vec<C64>> {
         let coded = self.fec.encode(bbframe)?;
         let bits = self.interleaver.as_ref().map_or(coded.clone(), |p| p.interleave(&coded));
-        let symbols = self.constellation.modulate(&bits)?;
+        let symbols = self.constellation.map_bits(&bits)?;
         let code = PlsCode { modcod: self.modcod.number(), short: self.frame == FrameSize::Short, pilots: self.pilots };
         let mut out = pi2_bpsk(&plheader_bits(code));
         let pilot = C64::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);

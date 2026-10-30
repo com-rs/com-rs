@@ -61,7 +61,7 @@ fn qam16() -> Constellation {
 /// The BER of `z` (one sample per symbol, aligned) against `bits`, after `skip` symbols.
 fn bit_error_rate(c: &Constellation, z: &[C64], bits: &[u8], skip: usize) -> f64 {
     let b = c.bits_per_symbol();
-    ber(&c.demodulate(&z[skip..]), &bits[skip * b..z.len() * b]).unwrap()
+    ber(&c.demap_bits(&z[skip..]), &bits[skip * b..z.len() * b]).unwrap()
 }
 
 /// The 16-QAM link of Sec. III after `cd_ps_nm` of dispersion at `osnr_db`, equalised by
@@ -71,7 +71,7 @@ fn link_ber(alg: Option<Algorithm>, cd_ps_nm: f64, osnr_db: f64, n_sym: usize, r
     let (c, sps) = (qam16(), 2usize);
     let fs = SYMBOL_RATE * sps as f64;
     let bits = source::bits(n_sym * 4, rng);
-    let symbols = c.modulate(&bits).unwrap();
+    let symbols = c.map_bits(&bits).unwrap();
     let rrc = pulse_shape(PulseShape::Rrc { rolloff: 1.0 }, sps, 32 * sps + 1).unwrap();
     let tx = fir_filter(&rrc, &upsample(&symbols, sps));
     // a lossless fibre of 17 ps/(nm km): the dispersion D L of the abscissa of Fig. 3
@@ -167,7 +167,7 @@ struct Recovery {
 fn carrier_recovery(dnu_ts: f64, mu: f64, osnr_db: f64, n_sym: usize, rng: &mut Rng) -> Recovery {
     let c = qam16();
     let bits = source::bits(n_sym * 4, rng);
-    let symbols = c.modulate(&bits).unwrap();
+    let symbols = c.map_bits(&bits).unwrap();
     let phase = wiener_phase((2.0 * std::f64::consts::PI * dnu_ts).sqrt(), n_sym, PhaseOrigin::Zero, rng);
     let x = derotate(&symbols, &phase, 1.0).unwrap();
     let x = awgn(&x, osnr_db, SYMBOL_RATE, B_REF, rng);

@@ -280,7 +280,7 @@ impl Metrics {
                     let c = s.constellation("metrics: ber")?;
                     let b = c.bits_per_symbol();
                     let bits: Vec<u8> = idx.iter().flat_map(|&i| s.bits[i * b..(i + 1) * b].iter().copied()).collect();
-                    rec.errors(name, metrics::bit_errors(&c.demodulate(&z), &bits)? as u64, bits.len() as u64);
+                    rec.errors(name, metrics::bit_errors(&c.demap_bits(&z), &bits)? as u64, bits.len() as u64);
                 }
                 Metric::Ser => {
                     let c = s.constellation("metrics: ser")?;

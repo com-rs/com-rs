@@ -20,7 +20,7 @@ fn error_rates() -> impl Scenario {
         let (idx, x) = source::symbols(&c, 2000, None, rng)?;
         let y = awgn::awgn_ebn0(&x, cond.f64("ebn0_db")?, c.bits_per_symbol() as f64, 1.0, rng);
         let bits = comrs::mapping::constellation::indices_to_bits(&idx, c.bits_per_symbol());
-        rec.errors("ber", metrics::bit_errors(&c.demodulate(&y), &bits)? as u64, bits.len() as u64);
+        rec.errors("ber", metrics::bit_errors(&c.demap_bits(&y), &bits)? as u64, bits.len() as u64);
         rec.errors("ser", metrics::symbol_errors(&c.decide(&y), &idx)? as u64, idx.len() as u64);
         Ok(())
     })
@@ -79,7 +79,7 @@ fn llr_signs_are_the_hard_decisions() {
         let c = c.normalized();
         let (_, x) = source::symbols(&c, 500, None, &mut rng).unwrap();
         let y = awgn::awgn(&x, 15.0, 1.0, 1.0, &mut rng);
-        let hard = c.demodulate(&y);
+        let hard = c.demap_bits(&y);
         for max_log in [true, false] {
             let llr = c.llr(&y, 0.05, None, Jacobian::from_max_log(max_log)).unwrap();
             // LLR = ln p(b = 0) - ln p(b = 1): positive for a 0

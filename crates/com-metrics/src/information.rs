@@ -88,7 +88,7 @@ pub fn monte_carlo_gmi(rx: &[C64], tx: &[C64], c: &Constellation, px: Option<&[f
     let (cn, p) = shaped(c, px)?;
     let b = cn.bits_per_symbol();
     let h = entropy(&p);
-    let btx = cn.demodulate(&t);
+    let btx = cn.demap_bits(&t);
     let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact)?;
     let gmi = gmi_from_llr(&llr, &btx, b, h);
     Ok(Gmi { gmi, ngmi: gmi / h })
@@ -442,7 +442,7 @@ mod tests {
             let sigma2 = variance(&e).max(f64::MIN_POSITIVE);
             let (cn, p) = shaped(&c, None).unwrap();
             let llr = cn.llr(&r, sigma2, Some(&p), Jacobian::Exact).unwrap();
-            let former = former_gmi_from_llr(&llr, &cn.demodulate(&t), 4, entropy(&p));
+            let former = former_gmi_from_llr(&llr, &cn.demap_bits(&t), 4, entropy(&p));
             assert!((g.gmi - former).abs() < 1e-12, "{snr} dB: {former} -> {}", g.gmi);
             let rates = information_rates(&y, &idx, &c, None).unwrap();
             assert!(rates.gmi > 0.0 && rates.gmi <= 4.0 + 1e-12);

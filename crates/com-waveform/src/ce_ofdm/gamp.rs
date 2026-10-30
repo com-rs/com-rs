@@ -272,7 +272,7 @@ impl Gamp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ce_ofdm::Unwrap;
+    use crate::ce_ofdm::{Receiver, Unwrap};
     use com_core::rng::Rng;
 
     #[test]
@@ -316,7 +316,7 @@ mod tests {
                 c.decide(e).iter().zip(c.decide(&d)).filter(|(a, b)| *a != b).count() as f64 / d.len() as f64
             };
             let gamp = Gamp::default().detect(&ce, &r, &c, sigma2).unwrap();
-            let atan = ce.demodulate(&r, Unwrap::None).unwrap();
+            let atan = ce.demodulate_with_receiver(&r, Receiver::Arctangent(Unwrap::None)).unwrap();
             assert!(ser(&gamp) == 0.0 && ser(&atan) > 0.1, "{ebn0} dB: GAMP {} arctangent {}", ser(&gamp), ser(&atan));
         }
         // a constellation that is not a product of its axes is refused
