@@ -70,6 +70,58 @@ fn rrc_spectrum(py: Python<'_>, n_symbols: i64, sps: usize, rolloff: f64) -> PyR
     Ok(farr(py, filter::rrc_spectrum(count(n_symbols, "n_symbols")?, sps, rolloff)))
 }
 
+/// The root-raised-cosine pulse at the times `t` (continuous time, symbol period `ts`):
+/// `(sin(πt'(1-β)) + 4βt' cos(πt'(1+β))) / (πt'(1 - (4βt')²))` with `t' = t/ts`,
+/// divided by `ts`, and its limits at `t = 0` and `|t| = ts/(4β)` (Proakis & Salehi,
+/// *Digital Communications*, 5th ed., Sec. 9.2-1).
+///
+/// Args:
+///     t (array_like): the times (in units of `ts`'s time base).
+///     rolloff (float): the roll-off `β`.
+///     ts (float): the symbol period.
+///
+/// Returns:
+///     numpy.ndarray: the pulse at every time (float64); `∫ h² dt = 1` for `ts = 1`.
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs, math
+///     >>> h = comrs.rrc_taps([0.0, 1.0], 0.3)
+///     >>> round(float(h[0]), 12) == round(1 - 0.3 + 4 * 0.3 / math.pi, 12)
+///     True
+#[pyfunction]
+#[pyo3(signature = (t, rolloff, *, ts = 1.0))]
+fn rrc_taps<'py>(py: Python<'py>, t: &Bound<'py, PyAny>, rolloff: f64, ts: f64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, filter::rrc_taps(&fvec(t)?, rolloff, ts)))
+}
+
+/// The raised-cosine pulse at the times `t` (continuous time, symbol period `ts`):
+/// `sinc(t/ts) cos(πβt/ts) / (1 - (2βt/ts)²)` divided by `ts`, Nyquist (zero at the
+/// other symbol instants).
+///
+/// Args:
+///     t (array_like): the times.
+///     rolloff (float): the roll-off `β`.
+///     ts (float): the symbol period.
+///
+/// Returns:
+///     numpy.ndarray: the pulse at every time (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> [abs(round(float(v), 12)) for v in comrs.rc_taps([0.0, 1.0, 2.0], 0.5)]
+///     [1.0, 0.0, 0.0]
+#[pyfunction]
+#[pyo3(signature = (t, rolloff, *, ts = 1.0))]
+fn rc_taps<'py>(py: Python<'py>, t: &Bound<'py, PyAny>, rolloff: f64, ts: f64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, filter::rc_taps(&fvec(t)?, rolloff, ts)))
+}
+
 /// FIR filtering with the `same` alignment (OptiCommPy `firFilter`); the taps may be
 /// real or complex.
 ///
@@ -801,6 +853,8 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     for f in [
         wrap_pyfunction!(pulse_shape, m)?,
         wrap_pyfunction!(rrc_spectrum, m)?,
+        wrap_pyfunction!(rrc_taps, m)?,
+        wrap_pyfunction!(rc_taps, m)?,
         wrap_pyfunction!(fir_filter, m)?,
         wrap_pyfunction!(convolve, m)?,
         wrap_pyfunction!(upsample, m)?,

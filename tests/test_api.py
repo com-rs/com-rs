@@ -714,3 +714,23 @@ def test_conditions_keep_their_python_values():
         trial, [{"obj": marker}, {"obj": marker, "x": 2}], name="o", stop={"max_trials": 1}
     )
     assert res[0].condition["obj"] is marker and res[1].index == 1
+
+
+def test_the_tolerance_is_the_rule_of_comrs_verify():
+    t = comrs.Tolerance(factor=1.6)
+    assert t.accepts(0.30, 0.26) and not t.accepts(0.5, 0.26) and t.is_set
+    assert comrs.Tolerance(rtol=0.05).accepts([1.0, 2.05], [1.0, 2.0])
+    assert comrs.Tolerance(atol=0.1).accepts([1.05, 0.95], 1.0)
+    assert not comrs.Tolerance().is_set and not comrs.Tolerance().accepts(1.0, 1.0)
+    with pytest.raises(ValueError, match="expected values"):
+        comrs.Tolerance(atol=0.1).accepts([1.0, 2.0, 3.0], [1.0, 2.0])
+
+
+def test_the_continuous_time_pulses():
+    t = np.linspace(-8, 8, 4001)
+    h = comrs.rrc_taps(t, 0.3)
+    # unit energy, and the raised cosine is Nyquist
+    assert float(np.sum(h**2) * (t[1] - t[0])) == pytest.approx(1.0, abs=2e-3)
+    np.testing.assert_allclose(comrs.rc_taps(np.arange(1.0, 6.0), 0.25), 0.0, atol=1e-12)
+    # the period scales the time axis
+    np.testing.assert_allclose(comrs.rrc_taps(2 * t, 0.3, ts=2.0), h / 2.0)

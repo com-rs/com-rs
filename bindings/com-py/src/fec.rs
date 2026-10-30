@@ -1033,6 +1033,12 @@ impl PyNrLdpc {
         self.inner.base_graph()
     }
 
+    /// float: Code rate `k / n`.
+    #[getter]
+    fn rate(&self) -> f64 {
+        self.inner.code_rate()
+    }
+
     /// int: The lifting size `Z`.
     #[getter]
     fn lifting_size(&self) -> usize {
@@ -1123,6 +1129,12 @@ impl PyNrPolar {
     #[getter]
     fn n(&self) -> usize {
         self.inner.n()
+    }
+
+    /// float: Code rate `k / n`.
+    #[getter]
+    fn rate(&self) -> f64 {
+        self.inner.code_rate()
     }
 
     /// int: The mother code length `N`.
@@ -1334,6 +1346,51 @@ impl PyCcdm {
     }
 }
 
+/// The noise variance per dimension of BPSK at `E_b/N_0` for a code of rate `rate`:
+/// `σ² = 1 / (2 R E_b/N_0)` (unit-energy symbols).
+///
+/// Args:
+///     ebn0_db (float | array_like): `E_b/N_0` (dB).
+///     rate (float): the code rate.
+///
+/// Returns:
+///     float | numpy.ndarray: `σ²` at every `E_b/N_0`.
+///
+/// Raises:
+///     ValueError: for values that are not real numbers.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> comrs.bpsk_noise_variance(0.0, 0.5)
+///     1.0
+#[pyfunction]
+fn bpsk_noise_variance(ebn0_db: &Bound<'_, PyAny>, rate: f64) -> PyResult<Py<PyAny>> {
+    map_real(ebn0_db, |e| Ok(bounds::bpsk_noise_variance(e, rate)))
+}
+
+/// The LLRs of BPSK (`0 ↦ +1`, `1 ↦ -1`) received in real Gaussian noise of variance
+/// `noise_var` per dimension: `2y/σ²` (positive for a 0, as every decoder of the package
+/// expects).
+///
+/// Args:
+///     y (array_like): the received real samples.
+///     noise_var (float): the noise variance per dimension `σ²`.
+///
+/// Returns:
+///     numpy.ndarray: one LLR per sample (float64).
+///
+/// Raises:
+///     ValueError: for an input that is not an array of numbers of the expected shape.
+///
+/// Examples:
+///     >>> import comrs
+///     >>> comrs.bpsk_llr([1.0, -0.5], 0.5).tolist()
+///     [4.0, -2.0]
+#[pyfunction]
+fn bpsk_llr<'py>(py: Python<'py>, y: &Bound<'py, PyAny>, noise_var: f64) -> PyResult<FArr<'py>> {
+    Ok(farr(py, comrs::fec::block::bpsk_llr(&fvec(y)?, noise_var)))
+}
+
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCcdm>()?;
     m.add_class::<PyCrc>()?;
@@ -1346,6 +1403,8 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyNrLdpc>()?;
     m.add_class::<PyNrPolar>()?;
     m.add_function(wrap_pyfunction!(biawgn_capacity, m)?)?;
+    m.add_function(wrap_pyfunction!(bpsk_noise_variance, m)?)?;
+    m.add_function(wrap_pyfunction!(bpsk_llr, m)?)?;
     m.add_function(wrap_pyfunction!(normal_approximation, m)?)?;
     m.add_function(wrap_pyfunction!(shannon_limit_ebn0_db, m)?)?;
     Ok(())

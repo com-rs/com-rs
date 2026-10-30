@@ -334,3 +334,13 @@ def test_punctured_rate_3_4_over_awgn_is_better_than_uncoded():
     uncoded = 0.5 * erfc(np.sqrt(10 ** (4.5 / 10)))
     assert ber[0] > ber[1] > ber[2] > 0
     assert ber[2] < uncoded / 10
+
+
+def test_nr_codes_have_a_rate_and_the_bpsk_helpers_are_the_rust_ones():
+    ldpc, polar = comrs.NrLdpc(100, 300), comrs.NrPolar(30, 100)
+    assert ldpc.rate == pytest.approx(100 / 300) and polar.rate == pytest.approx(30 / 100)
+    # sigma^2 = 1 / (2 R Eb/N0), the LLR 2 y / sigma^2
+    nv = comrs.bpsk_noise_variance([0.0, 3.0], 0.5)
+    np.testing.assert_allclose(nv, 1.0 / (2 * 0.5 * 10 ** (np.array([0.0, 3.0]) / 10)))
+    y = np.array([0.3, -1.2, 0.0])
+    np.testing.assert_array_equal(comrs.bpsk_llr(y, 0.25), 2 * y / 0.25)

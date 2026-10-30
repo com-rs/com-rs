@@ -74,6 +74,7 @@ mod rng;
 mod sim;
 mod spec;
 mod systems;
+mod verify;
 mod waveform;
 
 /// A 1-D complex array returned to Python.
@@ -316,5 +317,6 @@ fn _comrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     sim::register(m)?;
     systems::register(m)?;
     waveform::register(m)?;
+    verify::register(m)?;
     Ok(())
 }

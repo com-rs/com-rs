@@ -143,6 +143,8 @@ Limits and bounds
 
    shannon_limit_ebn0_db
    biawgn_capacity
+   bpsk_noise_variance
+   bpsk_llr
    normal_approximation
    theory_rs_wer
    theory_rs_ser
@@ -407,6 +409,8 @@ Filters and sampling
 
    pulse_shape
    rrc_spectrum
+   rrc_taps
+   rc_taps
    fir_filter
    convolve
    upsample
@@ -598,6 +602,7 @@ Declarative campaigns
    spec_blocks
    spec_schema
    spec_check_link
+   Tolerance
 
 Recordings
 ~~~~~~~~~~
