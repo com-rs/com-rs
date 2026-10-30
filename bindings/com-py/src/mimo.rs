@@ -155,7 +155,7 @@ fn rows_to_array<T: numpy::Element>(py: Python<'_>, rows: Rows<T>, single: bool)
 ///     (10, 4, 2)
 #[pyfunction]
 #[pyo3(signature = (n_rx, n_tx, rng, *, n=None, k_factor=0.0, rx_correlation=C64::new(0.0, 0.0), tx_correlation=C64::new(0.0, 0.0)))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the antennas and the options of the channel, by keyword")]
 fn mimo_channel(
     py: Python<'_>,
     n_rx: usize,

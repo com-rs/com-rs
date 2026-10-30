@@ -131,8 +131,17 @@ fn phase_noise<'py>(
 /// Raises:
 ///     ValueError: for a negative count.
 #[pyfunction]
-#[pyo3(signature = (n, fs, rng, *, power_dbm = 10.0, linewidth_hz = 100e3, rin_var = 0.0, freq_shift_hz = 0.0))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    n,
+    fs,
+    rng,
+    *,
+    power_dbm = Laser::default().power_dbm,
+    linewidth_hz = Laser::default().linewidth_hz,
+    rin_var = Laser::default().rin_var,
+    freq_shift_hz = Laser::default().freq_shift_hz,
+))]
+#[allow(clippy::too_many_arguments, reason = "the fields of the laser, by keyword")]
 fn laser<'py>(
     py: Python<'py>,
     n: i64,
@@ -188,7 +197,7 @@ fn phase_modulator<'py>(
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (e, u, *, vpi = 2.0, vb = -1.0, er_db = 60.0))]
+#[pyo3(signature = (e, u, *, vpi = Mzm::default().vpi, vb = Mzm::default().vb, er_db = Mzm::default().er_db))]
 fn mzm<'py>(
     py: Python<'py>,
     e: &Bound<'py, PyAny>,
@@ -219,8 +228,18 @@ fn mzm<'py>(
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[pyo3(signature = (e, u, *, vpi = 2.0, vb_i = -2.0, vb_q = -2.0, vphi = 1.0, er_i_db = 60.0, er_q_db = 60.0))]
-#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (
+    e,
+    u,
+    *,
+    vpi = Iqm::default().vpi,
+    vb_i = Iqm::default().vb_i,
+    vb_q = Iqm::default().vb_q,
+    vphi = Iqm::default().vphi,
+    er_i_db = Iqm::default().er_i_db,
+    er_q_db = Iqm::default().er_q_db,
+))]
+#[allow(clippy::too_many_arguments, reason = "the fields of the modulator, by keyword")]
 fn iqm<'py>(
     py: Python<'py>,
     e: &Bound<'py, PyAny>,
@@ -473,7 +492,7 @@ fn balanced_photodiode<'py>(
 /// Raises:
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, reason = "the four output fields of the hybrid")]
 fn hybrid_2x4<'py>(
     py: Python<'py>,
     es: &Bound<'py, PyAny>,

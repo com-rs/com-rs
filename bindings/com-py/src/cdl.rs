@@ -120,7 +120,7 @@ pub struct PyCdl {
 impl PyCdl {
     #[new]
     #[pyo3(signature = (profile, delay_spread_s, fs, *, n_rx=1, n_tx=1, spacing=0.5, velocity_mps=0.0, fc_hz=3.5e9, dual_polarized=false))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the profile, the arrays and the motion, by keyword")]
     fn new(
         profile: &str,
         delay_spread_s: f64,

@@ -59,7 +59,7 @@ use pyo3::types::PyDict;
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (fiber, freqs, power_dbm, symbol_rate, *, rolloff = 0.1, channel = None, coherent = true, resolution_hz = None, raman = None, modulation = None, px = None))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the link, the grid and the options of the model, by keyword")]
 fn gn_model<'py>(
     py: Python<'py>,
     fiber: &PyFiber,

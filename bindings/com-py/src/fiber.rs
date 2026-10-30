@@ -624,7 +624,7 @@ impl PyManakovSsfm {
 
     #[new]
     #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the settings of the solver, by keyword")]
     fn new(
         py: Python<'_>,
         fiber: &PyFiber,

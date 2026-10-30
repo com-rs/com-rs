@@ -282,7 +282,7 @@ pub struct PyGrid {
 impl PyGrid {
     #[new]
     #[pyo3(signature = (n_subcarriers, n_symbols, *, pattern="lattice", period=4, spacing=4, freq=3, time=4, seed=0))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the grid and the parameters of its pilot pattern, by keyword")]
     fn new(
         n_subcarriers: usize,
         n_symbols: usize,
@@ -408,7 +408,7 @@ impl PyGrid {
 ///     ValueError: for an invalid parameter or input (the message names it).
 #[pyfunction]
 #[pyo3(signature = (grid, rx, noise_var, method="linear", *, delays=None, powers=None, max_delay=None, n_fft=None))]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "the grid, the method and its profile, by keyword")]
 fn ofdm_estimate<'py>(
     py: Python<'py>,
     grid: &PyGrid,
