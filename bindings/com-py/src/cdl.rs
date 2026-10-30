@@ -4,6 +4,7 @@ use crate::ofdm_link::PyTaps;
 use crate::rng::PyRng;
 use crate::{FArr, FMat, IArr, IntoPy, count, farr, iarr, streams_in, streams_out, taps_out};
 use comrs::channel::cdl::{Array, Cdl, Profile};
+use comrs::channel::fading::Fading;
 use comrs::core::signal::Signal;
 use comrs::core::units::Hertz;
 use pyo3::exceptions::PyValueError;
