@@ -19,6 +19,7 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -98,7 +99,7 @@ res = {n: [link(e, n) for e in ebs] for n in names}
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.9))
 for name, marker in zip(names[:3], ["o", "s", "D"], strict=True):
     ax1.semilogy(
-        ebs, [r[1] for r in res[name]], marker=marker, markeredgecolor="#fcfcfb", label=name
+        ebs, [r[1] for r in res[name]], marker=marker, markeredgecolor=BACKGROUND, label=name
     )
 ax1.set(xlabel="$E_b/N_0$ (dB)", ylabel="MSE of the channel estimate", title="estimation error")
 ax1.legend()
@@ -106,13 +107,13 @@ g = 10 ** (np.linspace(0, 30, 121) / 10)
 ax2.semilogy(
     np.linspace(0, 30, 121),
     0.5 * (1 - np.sqrt(g / (1 + g))),
-    color="#8a8984",
+    color=GREY,
     linewidth=1.4,
     label="Rayleigh, theory",
 )
 for name, marker in zip(names, ["o", "s", "D", "^"], strict=True):
     ax2.semilogy(
-        ebs, [r[0] for r in res[name]], marker=marker, markeredgecolor="#fcfcfb", label=name
+        ebs, [r[0] for r in res[name]], marker=marker, markeredgecolor=BACKGROUND, label=name
     )
 ax2.set(
     xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", title="QPSK OFDM over EVA", ylim=(1e-4, 0.3)

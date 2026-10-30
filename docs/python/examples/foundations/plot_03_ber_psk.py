@@ -16,6 +16,7 @@ rate with its Wilson interval. BPSK and QPSK share the same curve
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 from comrs import sim
@@ -60,10 +61,10 @@ for m in ORDERS:
         yerr=[p - ci[:, 0], ci[:, 1] - p],
         fmt="o" if m != 4 else "s",
         color=line.get_color(),
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         label=labels[m],
     )
-ax.plot([], [], color="#52514e", linewidth=1.4, label="theory")
+ax.plot([], [], color=MUTED, linewidth=1.4, label="theory")
 ax.set(
     ylim=(1e-6, 0.5),
     xlim=(0, 20),

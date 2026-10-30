@@ -18,6 +18,7 @@ seed.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -50,16 +51,14 @@ fig, ax = plt.subplots()
     eb, [comrs.qfunc(np.sqrt(2 * v)) for v in g], linewidth=1.4, label="AWGN, theory"
 )
 (l2,) = ax.semilogy(eb, 0.5 * (1 - np.sqrt(g / (1 + g))), linewidth=1.4, label="Rayleigh, theory")
-ax.semilogy(
-    eb, 1 / (4 * g), color="#8a8984", linestyle=":", linewidth=1.2, label=r"$1/(4\bar\gamma)$"
-)
+ax.semilogy(eb, 1 / (4 * g), color=GREY, linestyle=":", linewidth=1.2, label=r"$1/(4\bar\gamma)$")
 keep = np.array(sim_awgn) > 0
 ax.plot(
     points[keep],
     np.array(sim_awgn)[keep],
     "o",
     color=l1.get_color(),
-    markeredgecolor="#fcfcfb",
+    markeredgecolor=BACKGROUND,
     label="AWGN, simulated",
 )
 ax.plot(
@@ -67,7 +66,7 @@ ax.plot(
     sim_ray,
     "s",
     color=l2.get_color(),
-    markeredgecolor="#fcfcfb",
+    markeredgecolor=BACKGROUND,
     label="Rayleigh, simulated",
 )
 ax.set(

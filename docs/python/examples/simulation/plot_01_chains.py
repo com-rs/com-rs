@@ -20,16 +20,14 @@ duration product, :math:`\\Delta\\nu T = 3 \\cdot 10^{-5}` per laser instead of
 same SNR. Both campaigns run on the parallel Rust runner.
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, COBALT, GREY, SPECS
 
 import comrs
 from comrs import blocks as B
 
-here = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-spec = next(p / "specs/coherent_link.yaml" for p in [here, *here.parents] if (p / "specs").is_dir())
+spec = SPECS / "coherent_link.yaml"
 link = comrs.Chain.from_spec(spec)
 print(link)
 
@@ -44,7 +42,7 @@ stages = {
 fig, axes = plt.subplots(1, 3, figsize=(9, 3.2), sharex=True, sharey=True)
 for ax, (name, title) in zip(axes, stages.items(), strict=True):
     y = frames[name].samples[2560:-256]
-    ax.plot(y.real, y.imag, ".", markersize=1.0, alpha=0.3, color="#2a6fdb")
+    ax.plot(y.real, y.imag, ".", markersize=1.0, alpha=0.3, color=COBALT)
     ax.set(title=title, aspect="equal", xlim=(-1.6, 1.6), ylim=(-1.6, 1.6))
     ax.set_xlabel("in phase")
 axes[0].set_ylabel("quadrature")
@@ -68,7 +66,7 @@ s = np.linspace(10, 24, 141)
 ax.semilogy(
     s,
     [comrs.theory_ber(16, e - 10 * np.log10(4), "qam") for e in s],
-    color="#8a8984",
+    color=GREY,
     linewidth=1.4,
     label="16-QAM over AWGN",
 )
@@ -76,7 +74,7 @@ for (name, chain), marker in zip(variants.items(), ["o", "s"], strict=True):
     res = chain.run(**campaign)
     ber = np.array([r["metrics"]["ber"]["value"] for r in res])
     keep = ber > 0
-    ax.semilogy(snr[keep], ber[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(snr[keep], ber[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     xlabel="SNR (dB)",
     ylabel="bit error rate",

@@ -21,6 +21,7 @@ by the adjacent channel leakage ratio, ACLR).
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, BLUE, GREY, MUTED, ORANGE
 
 import comrs
 
@@ -35,10 +36,10 @@ ax1.plot(
     ),
     label="Rapp + static inverse",
 )
-ax1.plot(r, r, color="#8a8984", linestyle=":", linewidth=1.2, label="linear")
+ax1.plot(r, r, color=GREY, linestyle=":", linewidth=1.2, label="linear")
 ax1.set(xlabel="input amplitude", ylabel="output amplitude", title="AM/AM", ylim=(0, 1.3))
 ax1.legend()
-ax2.plot(r, np.degrees(np.angle(comrs.pa_saleh(r))), color="#eb6834", label="Saleh TWTA")
+ax2.plot(r, np.degrees(np.angle(comrs.pa_saleh(r))), color=ORANGE, label="Saleh TWTA")
 ax2.set(xlabel="input amplitude", ylabel="phase shift (degrees)", title="AM/PM")
 ax2.legend()
 fig.tight_layout()
@@ -61,7 +62,7 @@ signals = {
     "DPD + amplifier": comrs.pa_memory_polynomial(dpd.apply(x)),
 }
 fig, ax = plt.subplots()
-for (name, y), color in zip(signals.items(), ["#8a8984", "#eb6834", "#2a78d6"], strict=True):
+for (name, y), color in zip(signals.items(), [GREY, ORANGE, BLUE], strict=True):
     f, s = comrs.periodogram(y, fs, nfft=ofdm.fft_len)
     # average over 8 bins for readability
     k = 8
@@ -110,13 +111,11 @@ for s in scales:
         res[name][1].append(evm_db(y, s))
 drive = 20 * np.log10(scales)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.8))
-for (name, (aclr, evm)), color, marker in zip(
-    res.items(), ["#eb6834", "#2a78d6"], ["o", "s"], strict=True
-):
-    ax1.plot(drive, aclr, marker=marker, color=color, markeredgecolor="#fcfcfb", label=name)
-    ax2.plot(drive, evm, marker=marker, color=color, markeredgecolor="#fcfcfb", label=name)
-ax1.axhline(45, color="#8a8984", linestyle=":", linewidth=1.2)
-ax1.text(drive[0], 46, "LTE limit, 45 dB", fontsize=8, color="#52514e")
+for (name, (aclr, evm)), color, marker in zip(res.items(), [ORANGE, BLUE], ["o", "s"], strict=True):
+    ax1.plot(drive, aclr, marker=marker, color=color, markeredgecolor=BACKGROUND, label=name)
+    ax2.plot(drive, evm, marker=marker, color=color, markeredgecolor=BACKGROUND, label=name)
+ax1.axhline(45, color=GREY, linestyle=":", linewidth=1.2)
+ax1.text(drive[0], 46, "LTE limit, 45 dB", fontsize=8, color=MUTED)
 ax1.set(xlabel="RMS input amplitude (dB)", ylabel="ACLR (dB)", title="spectral regrowth")
 ax2.set(xlabel="RMS input amplitude (dB)", ylabel="EVM (dB)", title="in-band distortion")
 ax1.legend()

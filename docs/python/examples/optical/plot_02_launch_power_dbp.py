@@ -20,6 +20,7 @@ moves to a higher power and a higher SNR (Ip & Kahn, *J. Lightw. Technol.* 26(20
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 
@@ -55,7 +56,7 @@ for i, p in enumerate(powers):
 # %%
 fig, ax = plt.subplots()
 for (name, values), marker in zip(snr.items(), ["o", "s", "D"], strict=True):
-    ax.plot(powers, values, marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.plot(powers, values, marker=marker, markeredgecolor=BACKGROUND, label=name)
     if name != "DBP, 1 step/span":  # its optimum sits on top of the CDC one
         k = int(np.argmax(values))
         below = name == "CDC"
@@ -66,7 +67,7 @@ for (name, values), marker in zip(snr.items(), ["o", "s", "D"], strict=True):
             xytext=(0, -15 if below else 8),
             ha="center",
             fontsize=8,
-            color="#52514e",
+            color=MUTED,
         )
 ax.set(
     xlabel="launch power (dBm)",

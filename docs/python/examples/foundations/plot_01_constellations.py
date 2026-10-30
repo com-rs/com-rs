@@ -11,6 +11,7 @@ of the bit error rate accurate at high SNR.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, BLUE, MUTED
 
 import comrs
 
@@ -19,7 +20,7 @@ for ax, (kind, m) in zip(axes, [("qam", 16), ("psk", 8), ("pam", 4)], strict=Tru
     c = comrs.Constellation(kind, m).normalized()
     p = c.points
     k = c.bits_per_symbol
-    ax.scatter(p.real, p.imag, s=46, color="#2a78d6", zorder=3, edgecolor="#fcfcfb", linewidth=1.5)
+    ax.scatter(p.real, p.imag, s=46, color=BLUE, zorder=3, edgecolor=BACKGROUND, linewidth=1.5)
     for i, z in enumerate(p):
         ax.annotate(
             format(i, f"0{k}b"),
@@ -28,7 +29,7 @@ for ax, (kind, m) in zip(axes, [("qam", 16), ("psk", 8), ("pam", 4)], strict=Tru
             xytext=(0, 7),
             ha="center",
             fontsize=8,
-            color="#52514e",
+            color=MUTED,
         )
     lim = 1.35 * np.abs(p).max()
     ax.set(xlim=(-lim, lim), ylim=(-lim, lim), aspect="equal", title=f"{m}-{kind.upper()}")

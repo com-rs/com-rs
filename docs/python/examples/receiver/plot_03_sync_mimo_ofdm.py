@@ -16,6 +16,7 @@ decoder) collects the receive diversity that the linear detectors lose.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import AMBER, BACKGROUND, GREY
 
 import comrs
 
@@ -30,7 +31,7 @@ metric = comrs.schmidl_cox(r, ofdm.fft_len // 2)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.8))
 ax1.plot(metric, linewidth=1.4)
-ax1.axvspan(300, 300 + 4 * 16, color="#eda100", alpha=0.25, label="cyclic prefix")
+ax1.axvspan(300, 300 + 4 * 16, color=AMBER, alpha=0.25, label="cyclic prefix")
 ax1.set(xlabel="sample", ylabel="M(d)", title="Schmidl & Cox timing metric, 10 dB", xlim=(0, 1100))
 ax1.legend()
 
@@ -52,12 +53,12 @@ def cfo_rmse(snr_db, trials=200):
 
 snrs = np.arange(-5.0, 26.0, 5.0)
 ax2.semilogy(
-    snrs, [cfo_rmse(s) for s in snrs], marker="o", markeredgecolor="#fcfcfb", label="simulated"
+    snrs, [cfo_rmse(s) for s in snrs], marker="o", markeredgecolor=BACKGROUND, label="simulated"
 )
 ax2.semilogy(
     snrs,
     cfo_rmse(10.0) * 10 ** (-(snrs - 10) / 20),
-    color="#8a8984",
+    color=GREY,
     linestyle=":",
     linewidth=1.2,
     label=r"$\propto 1/\sqrt{\mathrm{SNR}}$",
@@ -100,7 +101,7 @@ for (name, m), marker in zip(
 ):
     v = np.array([ser(s, m) for s in snr])
     keep = v > 0
-    ax.semilogy(snr[keep], v[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(snr[keep], v[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     xlabel=r"$E_s/N_0$ per receive antenna (dB)",
     ylabel="symbol error rate",

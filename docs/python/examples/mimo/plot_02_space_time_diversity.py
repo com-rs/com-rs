@@ -17,20 +17,11 @@ lines are the closed form of MRC with :math:`L` branches of mean SNR :math:`\\ga
    \\qquad \\mu = \\sqrt{\\frac{\\gamma}{1 + \\gamma}}.
 """
 
-import math
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED, ber_rayleigh_mrc
 
 import comrs
-
-
-def mrc(gamma, branches):
-    mu = np.sqrt(gamma / (1 + gamma))
-    return ((1 - mu) / 2) ** branches * sum(
-        math.comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
-    )
-
 
 code = comrs.Ostbc.alamouti()
 points = np.arange(0.0, 31.0, 3.0)
@@ -74,7 +65,7 @@ eb = np.linspace(0, 30, 301)
 for (name, (nt, nr, branches, share)), marker in zip(
     configs.items(), ["o", "s", "D", "^"], strict=True
 ):
-    (line,) = ax.semilogy(eb, mrc(share * 10 ** (eb / 10), branches), linewidth=1.4)
+    (line,) = ax.semilogy(eb, ber_rayleigh_mrc(share * 10 ** (eb / 10), branches), linewidth=1.4)
     sim = np.array([simulate(nt, nr, e, seed=nt * 10 + nr) for e in points])
     keep = sim > 0
     ax.semilogy(
@@ -82,10 +73,10 @@ for (name, (nt, nr, branches, share)), marker in zip(
         sim[keep],
         marker,
         color=line.get_color(),
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         label=name,
     )
-ax.plot([], [], color="#52514e", linewidth=1.4, label="theory")
+ax.plot([], [], color=MUTED, linewidth=1.4, label="theory")
 ax.set(
     ylim=(1e-6, 0.5),
     xlim=(0, 30),

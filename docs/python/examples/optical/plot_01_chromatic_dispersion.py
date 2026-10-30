@@ -12,6 +12,7 @@ accumulated dispersion (:func:`comrs.cd_fir_taps`).
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE, CRIMSON, GREY_WARM, LABEL, TEAL
 
 import comrs
 
@@ -40,7 +41,7 @@ fig, axes = plt.subplots(1, 3, figsize=(9.5, 3.6), sharex=True, sharey=True)
 for ax, (name, r) in zip(axes, cases.items(), strict=True):
     z = symbols(r)
     ber, _, snr = comrs.fast_ber_calc(z, x[200:-200], c)
-    ax.scatter(z.real, z.imag, s=2, color="#2a78d6", alpha=0.35, linewidth=0)
+    ax.scatter(z.real, z.imag, s=2, color=BLUE, alpha=0.35, linewidth=0)
     ax.set(title=name, aspect="equal", xlim=(-1.8, 1.8), ylim=(-1.8, 1.8))
     ax.text(
         0.03,
@@ -48,7 +49,7 @@ for ax, (name, r) in zip(axes, cases.items(), strict=True):
         f"SNR {snr:.1f} dB\nBER {ber:.1e}",
         transform=ax.transAxes,
         fontsize=8,
-        color="#2b2a28",
+        color=LABEL,
         va="bottom",
     )
 fig.tight_layout()
@@ -112,10 +113,10 @@ curves = {
 }
 fig, ax = plt.subplots(figsize=(6.4, 3.8))
 for (name, e), color, marker in zip(
-    curves.items(), ["#c0392b", "#8a8780", "#2a78d6", "#1b9e77"], "sdo^", strict=True
+    curves.items(), [CRIMSON, GREY_WARM, BLUE, TEAL], "sdo^", strict=True
 ):
     ax.plot(lengths, e, marker=marker, color=color, markersize=4, label=name)
-ax.axvline(251, color="#8a8780", linewidth=0.8, linestyle=":")
+ax.axvline(251, color=GREY_WARM, linewidth=0.8, linestyle=":")
 ax.set(xlabel="number of taps", ylabel="error energy E (dB)", ylim=(-165, 5))
 ax.grid(alpha=0.3)
 ax.legend(fontsize=8)
@@ -163,7 +164,7 @@ filters = {
 rng = comrs.Rng(14)
 fig, ax = plt.subplots(figsize=(6.4, 3.8))
 for (name, taps), color, marker in zip(
-    filters.items(), ["#2b2a28", "#c0392b", "#2a78d6", "#1b9e77"], "xsod", strict=True
+    filters.items(), [LABEL, CRIMSON, BLUE, TEAL], "xsod", strict=True
 ):
     b = [ber_16qam(taps, e, rng) for e in ebn0]
     ax.semilogy(ebn0, np.maximum(b, 1e-7), marker=marker, color=color, markersize=4, label=name)
@@ -182,13 +183,11 @@ fig.tight_layout()
 
 f = np.linspace(-0.5, 0.5, 2001)
 fig, ax = plt.subplots(figsize=(6.4, 3.4))
-for (name, taps), color in zip(
-    list(filters.items())[1:], ["#c0392b", "#2a78d6", "#1b9e77"], strict=True
-):
+for (name, taps), color in zip(list(filters.items())[1:], [CRIMSON, BLUE, TEAL], strict=True):
     resp = np.exp(-2j * np.pi * np.outer(f, np.arange(taps.size) - taps.size // 2)) @ taps
     ax.plot(f, 20 * np.log10(np.abs(resp)), color=color, label=name)
 for s in (-1, 1):
-    ax.axvline(s * band / FS1, color="#8a8780", linewidth=0.8, linestyle=":")
+    ax.axvline(s * band / FS1, color=GREY_WARM, linewidth=0.8, linestyle=":")
 ax.set(xlabel="frequency / $f_s$", ylabel="$|H|$ (dB)")
 ax.grid(alpha=0.3)
 ax.legend(fontsize=8)

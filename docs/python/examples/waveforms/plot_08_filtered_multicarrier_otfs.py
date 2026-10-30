@@ -28,6 +28,7 @@ through the time-domain channel.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import GRID, LABEL
 
 import comrs
 
@@ -60,7 +61,7 @@ for name, x in [
     ("UFMC, Dolph–Chebyshev L = 16", ufmc.modulate(symbols(K * BLOCKS))),
 ]:
     ax1.plot(*density_db(x), linewidth=1.4, label=name)
-ax1.axvspan(-K / 2, K / 2, color="#e6e5e1", alpha=0.5, linewidth=0)
+ax1.axvspan(-K / 2, K / 2, color=GRID, alpha=0.5, linewidth=0)
 ax1.set(
     xlim=(-N / 2, N / 2),
     ylim=(-90, 3),
@@ -90,7 +91,7 @@ for g, d, nu in paths:
         xytext=(6, 4),
         textcoords="offset points",
         fontsize=8,
-        color="#2b2a28",
+        color=LABEL,
     )
 ax2.set(
     xlabel="Doppler bin n",

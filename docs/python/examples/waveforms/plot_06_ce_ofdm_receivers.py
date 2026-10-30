@@ -31,6 +31,7 @@ Four panels, each to open next to the figure of the paper it reproduces:
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import MUTED
 
 import comrs
 
@@ -63,7 +64,7 @@ for i, e in enumerate(ebn0):
     pd.append(ber(ce.demodulate(r), d))
     gamp.append(ber(ce.gamp(r, s2, QPSK), d))
 fine = np.linspace(0, 8, 81)
-ax.semilogy(fine, comrs.ce_ofdm_ber_optimum(1.4, fine), color="#52514e", label="optimum, eq. (8)")
+ax.semilogy(fine, comrs.ce_ofdm_ber_optimum(1.4, fine), color=MUTED, label="optimum, eq. (8)")
 ax.semilogy(ebn0, pd, "o--", label="phase detector")
 ax.semilogy(ebn0, np.maximum(gamp, 1e-6), "s-", label="GAMP")
 ax.set(
@@ -90,7 +91,7 @@ for j, (receiver, label) in enumerate(names.items()):
         theory = ce.ber_receiver(4, fine + 10 * np.log10(2), receiver=receiver)
         ax.semilogy(fine, theory, color=line.get_color(), linewidth=1.2)
 ax.semilogy(
-    fine, ce.ber(4, fine + 10 * np.log10(2)), color="#52514e", linewidth=1.0, label="linear regime"
+    fine, ce.ber(4, fine + 10 * np.log10(2)), color=MUTED, linewidth=1.0, label="linear regime"
 )
 ax.set(
     ylim=(1e-5, 0.5),
@@ -103,7 +104,7 @@ ax.legend(loc="lower left")
 # 3. the 99 % bandwidth against σ
 ax = axes[1, 0]
 sigmas = np.linspace(0.05, 3.0, 60)
-ax.plot(sigmas, [comrs.pm_occupied_bandwidth(s) for s in sigmas], color="#52514e", label="analysis")
+ax.plot(sigmas, [comrs.pm_occupied_bandwidth(s) for s in sigmas], color=MUTED, label="analysis")
 points = []
 for sigma in [0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]:
     ce = comrs.CeOfdm(104, h=sigma / TAU, oversampling=8)
@@ -132,7 +133,7 @@ _, d = comrs.symbols(QPSK, 63 * 1000, comrs.Rng(4))
 blocks = ce.modulate(d).reshape(-1, n)
 sim = (np.abs(np.fft.fft(blocks, axis=1)) ** 2).mean(axis=0) / n
 k = np.fft.fftshift(np.fft.fftfreq(n, 1 / n)) / 64
-ax.plot(k, 10 * np.log10(np.fft.fftshift(ce.psd())), color="#52514e", linewidth=1.4, label="theory")
+ax.plot(k, 10 * np.log10(np.fft.fftshift(ce.psd())), color=MUTED, linewidth=1.4, label="theory")
 ax.plot(k, 10 * np.log10(np.fft.fftshift(sim)), "--", linewidth=1.0, label="simulation")
 ax.set(
     xlabel="$k/N$",

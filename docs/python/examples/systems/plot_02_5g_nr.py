@@ -20,6 +20,7 @@ bit for bit for the sequences and the positions, to 10⁻¹⁴ for the waveforms
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BLUE, CRIMSON, PAPER, SKY, TEAL
 from matplotlib.colors import ListedColormap
 
 import comrs
@@ -54,7 +55,7 @@ kinds = ["pss", "sss", "pbch", "pbch_dmrs"]
 layout = np.zeros(960, int)
 for i, kind in enumerate(kinds, start=1):
     layout[comrs.nr_ssb_indices(cell, kind)] = i
-cmap = ListedColormap(["#f3f1ec", "#c0392b", "#2a78d6", "#8fb8e6", "#1b9e77"])
+cmap = ListedColormap([PAPER, CRIMSON, BLUE, SKY, TEAL])
 fig, ax = plt.subplots(figsize=(6.4, 2.6))
 ax.imshow(layout.reshape(4, 240), aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=4)
 ax.set(xlabel="subcarrier", ylabel="OFDM symbol", yticks=range(4), title=f"SSB of cell {cell}")
@@ -81,8 +82,8 @@ snrs = np.arange(-12.0, 9.0, 2.0)
 trials = 200
 fig, ax = plt.subplots(figsize=(6.4, 3.4))
 for fading, color, label in [
-    (False, "#2a78d6", "white noise, random phase"),
-    (True, "#c0392b", "flat Rayleigh fading"),
+    (False, BLUE, "white noise, random phase"),
+    (True, CRIMSON, "flat Rayleigh fading"),
 ]:
     p_ok = []
     for snr in snrs:
@@ -117,7 +118,7 @@ for ax, (ctype, add) in zip(axes, [(1, 2), (2, 3)], strict=True):
     ax.imshow(
         m.reshape(14, 48).T,
         aspect="auto",
-        cmap=ListedColormap(["#f3f1ec", "#1b9e77"]),
+        cmap=ListedColormap([PAPER, TEAL]),
         origin="lower",
     )
     ax.set(xlabel="OFDM symbol", title=f"type {ctype}, symbols {d['symbols'].tolist()}")
@@ -142,7 +143,7 @@ spec = np.fft.fftshift(
 ).mean(0)
 f = np.fft.fftshift(np.fft.fftfreq(n_fft, 1 / fs)) / 1e6
 fig, ax = plt.subplots(figsize=(6.4, 3.0))
-ax.plot(f, 10 * np.log10(spec / spec.max()), color="#2a78d6", linewidth=1)
+ax.plot(f, 10 * np.log10(spec / spec.max()), color=BLUE, linewidth=1)
 ax.set(xlabel="frequency (MHz)", ylabel="PSD (dB)", ylim=(-40, 3))
 ax.grid(alpha=0.3)
 fig.tight_layout()

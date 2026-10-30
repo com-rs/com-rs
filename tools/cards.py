@@ -21,9 +21,8 @@ import sys
 from pathlib import Path
 
 import yaml
-from cited_tests import defines
+from _common import ROOT, defines
 
-ROOT = Path(__file__).resolve().parent.parent
 CARDS = ROOT / "validation" / "cards"
 THEME = re.compile(r"^### .*\(`([a-z-]+)/`\)$", re.MULTILINE)
 LOAD = re.compile(r'Card::load\("([a-z0-9_]+)"\)')

@@ -16,24 +16,27 @@ Apache License 2.0 (see ``THIRD_PARTY.md``)::
 
     python3 tools/record_sionna_vectors.py
 
-The output is deterministic (sorted keys, a fixed timestamp in the archive): recording
-again at the same commit produces no diff.
+The output is deterministic (sorted keys, a fixed timestamp in the archive: the
+functions of the recorded oracles, ``tests/oracle.py``): recording again at the same
+commit produces no diff.
 """
 
 from __future__ import annotations
 
 import io
-import json
+import sys
 import urllib.request
-import zipfile
 from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+from oracle import DIR as OUT
+from oracle import archive, dumps
+
 REPO = "NVlabs/sionna"
 COMMIT = "2f0a3820269b53fd022780a6f2f5f720f7ceb9b4"
 ROWS = 4
-OUT = Path(__file__).resolve().parent.parent / "tests" / "oracle"
 CRCS = ["CRC6", "CRC11", "CRC16", "CRC24A", "CRC24B", "CRC24C"]
 CONV = [
     "conv_rate_half_57_",
@@ -129,15 +132,8 @@ def main() -> None:
         arrays[f"{key}/u"] = u
         arrays[f"{key}/c"] = (u.astype(np.int64) @ g % 2).astype(np.uint8)
     OUT.mkdir(parents=True, exist_ok=True)
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for key in sorted(arrays):
-            b = io.BytesIO()
-            np.save(b, arrays[key], allow_pickle=False)
-            info = zipfile.ZipInfo(key.replace("/", ".") + ".npy", date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            z.writestr(info, b.getvalue())
-    (OUT / "sionna_vectors.npz").write_bytes(buf.getvalue())
+    flat = {key.replace("/", "."): a for key, a in arrays.items()}
+    (OUT / "sionna_vectors.npz").write_bytes(archive(flat))
     doc = {
         "tool": "Sionna (test vectors)",
         "repository": f"https://github.com/{REPO}",
@@ -148,7 +144,7 @@ def main() -> None:
         "generator_matrices": dict(sorted(generator_files().items())),
         "generator_seed": SEED,
     }
-    (OUT / "sionna_vectors.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
+    (OUT / "sionna_vectors.json").write_text(dumps(doc))
 
 
 if __name__ == "__main__":

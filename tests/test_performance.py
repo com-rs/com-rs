@@ -22,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from _gallery_utils import ber_rayleigh_mrc
 
 import comrs
 
@@ -195,15 +196,6 @@ def test_back_propagation_beats_dispersion_compensation_at_high_power():
 # --- MIMO --------------------------------------------------------------------------
 
 
-def mrc_bpsk(gamma, branches):
-    """BPSK with maximal-ratio combining of `branches` i.i.d. Rayleigh branches of
-    mean SNR `gamma` each (Proakis & Salehi, eq. 13.4-15)."""
-    mu = math.sqrt(gamma / (1 + gamma))
-    return ((1 - mu) / 2) ** branches * sum(
-        math.comb(branches - 1 + k, k) * ((1 + mu) / 2) ** k for k in range(branches)
-    )
-
-
 def bpsk_mimo_errors(n_rx, n_tx, ebn0_db, method, seed, min_errors=MIN_ERRORS):
     """Bit errors of BPSK spatial multiplexing over i.i.d. Rayleigh fading (one channel
     per vector, unit energy per stream, noise variance 1/(Eb/N0) per antenna)."""
@@ -230,7 +222,10 @@ def test_zero_forcing_has_the_diversity_of_mrc_with_nr_minus_nt_plus_one_branche
     ebn0_db = 10.0
     errors, total = bpsk_mimo_errors(n_rx, n_tx, ebn0_db, "zf", seed=21)
     assert_rate(
-        errors, total, mrc_bpsk(comrs.db2lin(ebn0_db), n_rx - n_tx + 1), label=f"ZF {n_rx}x{n_tx}"
+        errors,
+        total,
+        ber_rayleigh_mrc(comrs.db2lin(ebn0_db), n_rx - n_tx + 1),
+        label=f"ZF {n_rx}x{n_tx}",
     )
 
 
@@ -253,7 +248,7 @@ def test_alamouti_is_mrc_of_two_branches_at_half_power():
             errors += int(((est.real < 0) != (bits == 1)).sum())
             total += bits.size
             trial += 1
-        assert_rate(errors, total, mrc_bpsk(g / 2, 2 * n_rx), label=f"Alamouti 2x{n_rx}")
+        assert_rate(errors, total, ber_rayleigh_mrc(g / 2, 2 * n_rx), label=f"Alamouti 2x{n_rx}")
 
 
 def test_detectors_rank_ml_sic_linear():
@@ -655,7 +650,7 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
         B.MimoRx(),
     )
     e, n = chain_rate(alamouti, "ber", stop, snr_db=12.0)
-    assert_rate(e, n, mrc_bpsk(comrs.db2lin(12.0) / 4, 2), label="Alamouti 2x1")
+    assert_rate(e, n, ber_rayleigh_mrc(comrs.db2lin(12.0) / 4, 2), label="Alamouti 2x1")
     zf = comrs.Chain(
         B.Source(constellation="QPSK", n_symbols=10_000),
         B.MimoTx(n_tx=2),
@@ -664,7 +659,7 @@ def test_chains_reproduce_the_diversity_of_alamouti_and_zero_forcing():
         B.MimoRx(detector="zf"),
     )
     e, n = chain_rate(zf, "ber", stop, snr_db=12.0)
-    assert_rate(e, n, mrc_bpsk(comrs.db2lin(12.0) / 4, 2), label="ZF 3x2")
+    assert_rate(e, n, ber_rayleigh_mrc(comrs.db2lin(12.0) / 4, 2), label="ZF 3x2")
 
 
 def test_ofdm_chain_over_eva_with_estimated_channels():
@@ -688,7 +683,7 @@ def test_ofdm_chain_over_eva_with_estimated_channels():
     # every subcarrier is Rayleigh with perfect CSI; estimation costs a fraction of a dB,
     # less with LMMSE than with linear interpolation
     g = comrs.db2lin(15.0) / 2
-    assert ber["perfect"] == pytest.approx(mrc_bpsk(g, 1), rel=0.15), ber
+    assert ber["perfect"] == pytest.approx(ber_rayleigh_mrc(g, 1), rel=0.15), ber
     assert ber["perfect"] < ber["lmmse"] < ber["ls"] < 1.6 * ber["perfect"], ber
 
 

@@ -10,8 +10,15 @@ from pathlib import Path
 
 import comrs
 
-# `reset_style` below is referenced by name by the gallery
-sys.path.insert(0, str(Path(__file__).parent))
+# `reset_style` below is referenced by name by the gallery, and the examples import
+# `_gallery_utils` (the folders of the repository, the palette); the themes are those of
+# `tools/_common.py`
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.append(str(HERE.parents[1] / "tools"))
+
+from _common import GALLERY_THEMES  # noqa: E402
+from _gallery_utils import BACKGROUND, EDGE, GRID, LABEL, MUTED, SERIES, TEXT  # noqa: E402
 
 project = "comrs"
 author = "Vincent Choqueuse"
@@ -48,9 +55,6 @@ copybutton_prompt_is_regexp = True
 
 # --- figures: one style for the whole gallery ---------------------------------------
 
-# categorical slots, in fixed order (validated light palette)
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-
 
 def reset_style(gallery_conf, fname):
     """Recessive axes, thin marks and the categorical order of the documentation."""
@@ -61,48 +65,33 @@ def reset_style(gallery_conf, fname):
         {
             "figure.figsize": (7.0, 4.4),
             "figure.dpi": 110,
-            "figure.facecolor": "#fcfcfb",
-            "axes.facecolor": "#fcfcfb",
-            "savefig.facecolor": "#fcfcfb",
+            "figure.facecolor": BACKGROUND,
+            "axes.facecolor": BACKGROUND,
+            "savefig.facecolor": BACKGROUND,
             "axes.prop_cycle": mpl.cycler(color=SERIES),
-            "axes.edgecolor": "#b9b8b3",
-            "axes.labelcolor": "#2b2a28",
+            "axes.edgecolor": EDGE,
+            "axes.labelcolor": LABEL,
             "axes.titlesize": 12,
             "axes.titleweight": "semibold",
-            "axes.titlecolor": "#0b0b0b",
+            "axes.titlecolor": TEXT,
             "axes.spines.top": False,
             "axes.spines.right": False,
             "axes.grid": True,
             "axes.grid.which": "major",
-            "grid.color": "#e6e5e1",
+            "grid.color": GRID,
             "grid.linewidth": 0.6,
-            "xtick.color": "#52514e",
-            "ytick.color": "#52514e",
+            "xtick.color": MUTED,
+            "ytick.color": MUTED,
             "xtick.minor.visible": False,
             "lines.linewidth": 2.0,
             "lines.markersize": 6.5,
             "legend.frameon": False,
             "legend.fontsize": 9,
             "font.size": 10,
-            "text.color": "#0b0b0b",
+            "text.color": TEXT,
         }
     )
 
-
-# the themes of the gallery, in the order of a link (the order of the API reference,
-# of the maturity table and of the comparisons with the literature)
-GALLERY_THEMES = [
-    "foundations",
-    "coding",
-    "waveforms",
-    "mimo",
-    "optical",
-    "hardware",
-    "receiver",
-    "analysis",
-    "systems",
-    "simulation",
-]
 
 sphinx_gallery_conf = {
     # two galleries: the tutorials (step by step) and the classical results, one

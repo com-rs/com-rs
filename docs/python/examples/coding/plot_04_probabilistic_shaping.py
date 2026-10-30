@@ -23,6 +23,7 @@ optimised for the shaped bit channels.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, COBALT, GREY, MUTED, RUST
 
 import comrs
 from comrs import blocks as B
@@ -44,9 +45,9 @@ for s in snr:
     rates = [comrs.theory_gmi(64, s, "qam", px=mb(lam), points=20) for lam in lambdas]
     best.append((max(rates), lambdas[int(np.argmax(rates))]))
 fig, ax = plt.subplots()
-ax.plot(snr, np.log2(1 + 10 ** (snr / 10)), color="#8a8984", linewidth=1.4, label="AWGN capacity")
-ax.plot(snr, [b[0] for b in best], color="#2a6fdb", label="shaped 64-QAM, best λ")
-ax.plot(snr, uniform, color="#d95f02", label="uniform 64-QAM")
+ax.plot(snr, np.log2(1 + 10 ** (snr / 10)), color=GREY, linewidth=1.4, label="AWGN capacity")
+ax.plot(snr, [b[0] for b in best], color=COBALT, label="shaped 64-QAM, best λ")
+ax.plot(snr, uniform, color=RUST, label="uniform 64-QAM")
 # simulated links at the best λ of every SNR
 link = comrs.Chain(
     tx=B.Source(constellation="64-QAM", n_symbols=16384, mb_lambda=comrs.var("lam")),
@@ -54,7 +55,7 @@ link = comrs.Chain(
 )
 for s, (_, lam) in zip(snr[::2], best[::2], strict=True):
     r = link.run(grid={"snr": [s], "lam": [lam]}, metrics=["gmi"], stop={"max_trials": 8})
-    ax.plot(s, r[0]["metrics"]["gmi"]["value"], "o", color="#2a6fdb", markeredgecolor="#fcfcfb")
+    ax.plot(s, r[0]["metrics"]["gmi"]["value"], "o", color=COBALT, markeredgecolor=BACKGROUND)
 ax.set(xlabel="SNR (dB)", ylabel="GMI (bits per QAM symbol)", xlim=(0, 24), ylim=(0, 6.5),
        title="Bit-metric decoding of 64-QAM over AWGN")  # fmt: skip
 ax.legend(loc="upper left")
@@ -90,9 +91,9 @@ for (name, chain), marker in zip(links.items(), "osD", strict=True):
                     stop={"min_errors": {"bler": 50}, "max_trials": 400})  # fmt: skip
     x, y = res.series("snr", "bler", min_count=3)
     keep = y > 0
-    ax.semilogy(x[keep], y[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
-ax.axvline(10 * np.log10(2**3 - 1), color="#8a8984", linestyle=":", linewidth=1.0)
-ax.text(10 * np.log10(7) + 0.05, 0.12, "capacity, 3 bits", rotation=90, fontsize=8, color="#52514e")
+    ax.semilogy(x[keep], y[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
+ax.axvline(10 * np.log10(2**3 - 1), color=GREY, linestyle=":", linewidth=1.0)
+ax.text(10 * np.log10(7) + 0.05, 0.12, "capacity, 3 bits", rotation=90, fontsize=8, color=MUTED)
 ax.set(xlabel="SNR (dB)", ylabel="block error rate", ylim=(1e-3, 1),
        title="3 bits per QAM symbol over AWGN, codewords of 1536 bits")  # fmt: skip
 ax.legend(loc="upper right")

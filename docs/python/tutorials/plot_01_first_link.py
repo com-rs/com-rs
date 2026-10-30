@@ -10,6 +10,7 @@ Monte Carlo campaign on every core, with a stopping rule and confidence interval
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, MUTED
 
 import comrs
 from comrs import blocks as B
@@ -33,7 +34,7 @@ fig, ax = plt.subplots(figsize=(4.4, 4.4))
 ax.plot(c.points.real, c.points.imag, "o", markersize=7)
 for p, bits in zip(c.points, labels, strict=True):
     ax.annotate("".join(map(str, bits)), (p.real, p.imag), (6, 6), textcoords="offset points",
-                fontsize=8, color="#52514e")  # fmt: skip
+                fontsize=8, color=MUTED)  # fmt: skip
 ax.set(aspect="equal", xlabel="in phase", ylabel="quadrature", title="16-QAM, Gray labels")
 fig.tight_layout()
 
@@ -90,10 +91,10 @@ print(r["condition"], r["trials"], "trials,", r["metrics"]["ber"])
 x, ber, lo, hi = results.series("ebn0_db", "ber", interval=True)
 fine = np.linspace(0, 14, 141)
 fig, ax = plt.subplots()
-ax.semilogy(fine, [comrs.theory_ber(16, e, "qam") for e in fine], color="#52514e", linewidth=1.4,
+ax.semilogy(fine, [comrs.theory_ber(16, e, "qam") for e in fine], color=MUTED, linewidth=1.4,
             label="closed form")  # fmt: skip
-ax.semilogy(ebn0, ber_loop, "s", markeredgecolor="#fcfcfb", label="loop, 50 000 symbols")
-ax.errorbar(x, ber, yerr=[ber - lo, hi - ber], fmt="o", markeredgecolor="#fcfcfb", capsize=2,
+ax.semilogy(ebn0, ber_loop, "s", markeredgecolor=BACKGROUND, label="loop, 50 000 symbols")
+ax.errorbar(x, ber, yerr=[ber - lo, hi - ber], fmt="o", markeredgecolor=BACKGROUND, capsize=2,
             label="campaign, 500 errors per point")  # fmt: skip
 ax.set(ylim=(1e-5, 0.5), xlabel="$E_b/N_0$ (dB)", ylabel="bit error rate", title="16-QAM over AWGN")
 ax.legend()

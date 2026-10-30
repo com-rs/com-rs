@@ -22,6 +22,7 @@ uncoded BPSK.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -55,13 +56,13 @@ rates[rates == 0] = np.nan  # no error observed: nothing to draw
 
 fig, ax = plt.subplots()
 fine = np.linspace(0, 4, 81)
-ax.semilogy(fine, [comrs.qfunc(np.sqrt(2 * 10 ** (e / 10))) for e in fine], ":", color="#8a8984",
+ax.semilogy(fine, [comrs.qfunc(np.sqrt(2 * 10 ** (e / 10))) for e in fine], ":", color=GREY,
             linewidth=1.4, label="uncoded BPSK")  # fmt: skip
 ax.semilogy(
-    points, rates[:, 0], "o-", markeredgecolor="#fcfcfb", label="PEG (504, 252), bit error rate"
+    points, rates[:, 0], "o-", markeredgecolor=BACKGROUND, label="PEG (504, 252), bit error rate"
 )
 ax.semilogy(
-    points, rates[:, 1], "s--", markeredgecolor="#fcfcfb", label="PEG (504, 252), block error rate"
+    points, rates[:, 1], "s--", markeredgecolor=BACKGROUND, label="PEG (504, 252), block error rate"
 )
 ax.set(
     xlim=(0, 4),

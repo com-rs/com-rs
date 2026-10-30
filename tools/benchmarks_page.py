@@ -18,9 +18,9 @@ import argparse
 import json
 import math
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from _common import ROOT, write_or_check
+
 RESULTS = ROOT / "benchmarks" / "libraries" / "results"
 PAGE = ROOT / "docs" / "python" / "benchmarks.rst"
 REPO = "https://github.com/com-rs/com-rs/blob/main"
@@ -579,18 +579,9 @@ def main() -> int:
     )
     p.add_argument("--check", action="store_true", help="fail if the page is out of date")
     args = p.parse_args()
-    text = render()
-    if args.check:
-        if not PAGE.exists() or PAGE.read_text() != text:
-            print(
-                f"{PAGE.relative_to(ROOT)} is out of date: run python3 tools/benchmarks_page.py",
-                file=sys.stderr,
-            )
-            return 1
-        return 0
-    PAGE.write_text(text)
-    print(f"wrote {PAGE.relative_to(ROOT)}")
-    return 0
+    return write_or_check(
+        PAGE, render(), args.check, fix="python3 tools/benchmarks_page.py", written="wrote {path}"
+    )
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ OptiCommPy (``tests/test_oracle.py`` compares them on the same inputs);
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
 
@@ -59,8 +60,8 @@ for er_db, style in [(np.inf, "-"), (20.0, "--")]:
 field = comrs.mzm(np.ones(u.size), u, vpi=VPI, vb=-VPI, er_db=np.inf).real
 ax.plot(u / VPI, field, label="field, biased at the null")
 for x, name in [(-0.5, "quadrature"), (-1.0, "null")]:
-    ax.axvline(x, color="#8a8984", linestyle=":", linewidth=1.0)
-    ax.annotate(name, (x, 1.03), ha="center", fontsize=8, color="#52514e")
+    ax.axvline(x, color=GREY, linestyle=":", linewidth=1.0)
+    ax.annotate(name, (x, 1.03), ha="center", fontsize=8, color=MUTED)
 ax.set(xlabel=r"$(u + V_b)/V_\pi$ (power curves: $V_b = 0$)", ylabel="transmission", ylim=(-1.75, 1.15),
        title="Push-pull MZM")  # fmt: skip
 ax.legend(fontsize=8, loc="lower center", ncols=2)
@@ -122,7 +123,7 @@ for k, marker in zip([1, 3, 5], ["o", "s", "D"], strict=True):
             ** 2
         )
         measured.append(abs(np.fft.rfft(p)[k * cycles]) * 2 / n)
-    ax.semilogy(depths[::6], measured, marker, color=line.get_color(), markeredgecolor="#fcfcfb",
+    ax.semilogy(depths[::6], measured, marker, color=line.get_color(), markeredgecolor=BACKGROUND,
                 label=f"harmonic {k}, comrs.mzm")  # fmt: skip
 ax.set(xlabel=r"modulation depth $m = \pi V_m / V_\pi$", ylabel="harmonic amplitude", ylim=(1e-6, 1),
        title="MZM at quadrature: odd harmonics of a sine drive")  # fmt: skip
@@ -181,13 +182,13 @@ for swing in swings[::4]:
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.0, 3.6))
 ax1.plot(swings, loss_theory, label="closed form")
-ax1.plot(swings[::4], loss_sim, "o", markeredgecolor="#fcfcfb", label="comrs.iqm")
+ax1.plot(swings[::4], loss_sim, "o", markeredgecolor=BACKGROUND, label="comrs.iqm")
 ax1.set(
     xlabel=r"peak swing $V_{pk}/V_\pi$", ylabel="mean output power (dB)", title="Modulation loss"
 )
 ax1.legend()
 ax2.plot(swings, evm_theory, label="closed form")
-ax2.plot(swings[::4], evm_sim, "o", markeredgecolor="#fcfcfb", label="comrs.iqm")
+ax2.plot(swings[::4], evm_sim, "o", markeredgecolor=BACKGROUND, label="comrs.iqm")
 ax2.set(
     xlabel=r"peak swing $V_{pk}/V_\pi$", ylabel="EVM of the compression (%)", title="Linear drive"
 )

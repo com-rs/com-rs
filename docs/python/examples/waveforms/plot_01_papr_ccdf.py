@@ -22,6 +22,7 @@ standard figure of merit.
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, MUTED
 
 import comrs
 
@@ -40,10 +41,10 @@ for n in [64, 256, 1024]:
         comrs.ccdf(p, t[::4]),
         "o",
         color=line.get_color(),
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         label=f"N = {n}",
     )
-ax1.plot([], [], color="#52514e", linewidth=1.4, label="Ochiai & Imai")
+ax1.plot([], [], color=MUTED, linewidth=1.4, label="Ochiai & Imai")
 ax1.set(
     xlabel=r"$\gamma$ (dB)",
     ylabel=r"$\Pr(\mathrm{PAPR} > \gamma)$",
@@ -63,13 +64,13 @@ for L, marker in [(1, "s"), (4, "o")]:
         comrs.ccdf(p, t),
         marker=marker,
         markevery=6,
-        markeredgecolor="#fcfcfb",
+        markeredgecolor=BACKGROUND,
         label=f"OFDM, L = {L}",
     )
 ax2.semilogy(
     t,
     comrs.theory_papr_ccdf(n, t, oversampled=False),
-    color="#8a8984",
+    color=GREY,
     linestyle=":",
     linewidth=1.4,
     label="van Nee & Prasad",
@@ -77,7 +78,7 @@ ax2.semilogy(
 sc = comrs.Ofdm(1024, 256, dft_spread=True)
 p = sc.papr_db(sc.modulate(d))
 ax2.semilogy(
-    t, comrs.ccdf(p, t), marker="D", markevery=6, markeredgecolor="#fcfcfb", label="DFT-s-OFDM"
+    t, comrs.ccdf(p, t), marker="D", markevery=6, markeredgecolor=BACKGROUND, label="DFT-s-OFDM"
 )
 ax2.set(xlabel=r"$\gamma$ (dB)", xlim=(2, 12.5), title=f"N = {n}: sampling and SC-FDMA")
 ax2.legend()

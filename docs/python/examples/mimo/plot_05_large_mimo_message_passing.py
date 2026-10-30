@@ -28,6 +28,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY
 
 import comrs
 
@@ -75,7 +76,7 @@ for (nr, nt, snr_db), marker in zip([(1024, 512, 6.0), (1024, 1024, 8.0)], ["o",
     se = comrs.amp_state_evolution(qpsk, beta, n0, iterations)
     t = np.arange(1, iterations + 1)
     (line,) = ax.semilogy(t, se["mse"], label=f"state evolution, {nr} × {nt}, {snr_db:.0f} dB")
-    ax.semilogy(t, np.mean(runs, axis=0), marker, color=line.get_color(), markeredgecolor="#fcfcfb",
+    ax.semilogy(t, np.mean(runs, axis=0), marker, color=line.get_color(), markeredgecolor=BACKGROUND,
                 label=f"LAMA, {nr} × {nt}")  # fmt: skip
 ax.set(xlabel="iteration", ylabel="MSE of the estimate", title="LAMA decouples the channel (QPSK)")
 ax.legend()
@@ -125,14 +126,12 @@ io = [
 awgn = [theory_ser(beta / comrs.db2lin(s)) for s in fine]
 
 fig, ax = plt.subplots()
-ax.semilogy(
-    fine, awgn, color="#8a8984", linestyle=":", linewidth=1.2, label="AWGN (no interference)"
-)
-ax.semilogy(fine, io, color="#8a8984", linewidth=1.2, label="IO bound (state evolution)")
+ax.semilogy(fine, awgn, color=GREY, linestyle=":", linewidth=1.2, label="AWGN (no interference)")
+ax.semilogy(fine, io, color=GREY, linewidth=1.2, label="IO bound (state evolution)")
 for (name, values), marker in zip(curves.items(), ["o", "s", "D"], strict=True):
     v = np.array(values)
     keep = v > 0
-    ax.semilogy(snrs[keep], v[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy(snrs[keep], v[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     ylim=(1e-4, 1),
     xlabel=r"average receive SNR $\beta E_s/N_0$ (dB)",
@@ -158,7 +157,7 @@ fig, ax = plt.subplots()
 for (name, values), marker in zip(curves.items(), ["o", "s", "D"], strict=True):
     v = np.array(values)
     keep = v > 0
-    ax.semilogy((snrs + 4)[keep], v[keep], marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.semilogy((snrs + 4)[keep], v[keep], marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     ylim=(1e-3, 1),
     xlabel=r"average receive SNR $\beta E_s/N_0$ (dB)",
@@ -193,7 +192,7 @@ for nt_ in sizes:
 
 fig, ax = plt.subplots()
 for (name, values), marker in zip(cost.items(), ["o", "s", "D"], strict=True):
-    ax.loglog(sizes, 1e6 * np.array(values), marker=marker, markeredgecolor="#fcfcfb", label=name)
+    ax.loglog(sizes, 1e6 * np.array(values), marker=marker, markeredgecolor=BACKGROUND, label=name)
 ax.set(
     xlabel="streams $n_t$ ($n_r = 2 n_t$)",
     ylabel="measured time per vector (µs)",

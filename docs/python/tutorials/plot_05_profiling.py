@@ -12,16 +12,14 @@ compares two settings of its carrier recovery, and measures the price of a block
 written in Python.
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import SPECS
 
 import comrs
 from comrs import blocks as B
 
-here = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-spec = next(p / "specs/coherent_link.yaml" for p in [here, *here.parents] if (p / "specs").is_dir())
+spec = SPECS / "coherent_link.yaml"
 link = comrs.Chain.from_spec(spec)
 print(link.names)
 

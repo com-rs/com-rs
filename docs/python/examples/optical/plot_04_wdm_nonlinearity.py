@@ -25,20 +25,16 @@ interference of the channel: the optimum moves about 6 dB higher and the SNR gai
 about 7 dB.
 """
 
-from pathlib import Path
-
 import matplotlib.pyplot as plt
 import numpy as np
+from _gallery_utils import BACKGROUND, GREY, INK, RUST, SPECS
 
 import comrs
 from comrs import blocks as B
 
-here = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-specs = next(p / "specs" for p in [here, *here.parents] if (p / "specs").is_dir())
-
 # %%
 # The SNR of the centre channel against the launch power, simulated and GN model.
-link = comrs.Chain.from_spec(specs / "wdm_gn.yaml")
+link = comrs.Chain.from_spec(SPECS / "wdm_gn.yaml")
 powers = [-8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0]
 res = link.run(grid={"format": ["gaussian", "16-QAM"], "power_dbm": powers}, stop={"max_trials": 4})
 fiber = comrs.FiberParams(alpha_db_km=0.2, d_ps_nm_km=16, gamma_w_km=1.3, span_km=80, n_spans=5)
@@ -50,18 +46,18 @@ closed = np.array([comrs.gn_closed_form(fiber, 5, 32e9, 50e9, p) for p in fine])
 p_w = 1e-3 * 10 ** (fine / 10)
 
 fig, ax = plt.subplots()
-ax.plot(fine, [g["snr_db"] for g in gn], color="#1f1f1d", linewidth=1.6, label="GN model")
+ax.plot(fine, [g["snr_db"] for g in gn], color=INK, linewidth=1.6, label="GN model")
 egn = [
     comrs.gn_model(fiber, freqs, p, 32e9, rolloff=0.1, modulation="16-QAM")["snr_db"] for p in fine
 ]
-ax.plot(fine, egn, color="#d95f02", linewidth=1.6, label="EGN model, 16-QAM")
-ax.plot(fine, 10 * np.log10(p_w / (ase + closed)), "--", color="#1f1f1d", linewidth=1.0,
+ax.plot(fine, egn, color=RUST, linewidth=1.6, label="EGN model, 16-QAM")
+ax.plot(fine, 10 * np.log10(p_w / (ase + closed)), "--", color=INK, linewidth=1.0,
         label="GN closed form (incoherent)")  # fmt: skip
-ax.plot(fine, 10 * np.log10(p_w / ase), ":", color="#8a8984", label="ASE only")
-for fmt, marker, color, label in [("gaussian", "o", "#1f1f1d", "Gaussian symbols"),
-                                  ("16-QAM", "s", "#d95f02", "16-QAM")]:  # fmt: skip
+ax.plot(fine, 10 * np.log10(p_w / ase), ":", color=GREY, label="ASE only")
+for fmt, marker, color, label in [("gaussian", "o", INK, "Gaussian symbols"),
+                                  ("16-QAM", "s", RUST, "16-QAM")]:  # fmt: skip
     snr = [r["metrics"]["snr_db"]["value"] for r in res if r["condition"]["format"] == fmt]
-    ax.plot(powers, snr, marker=marker, color=color, markeredgecolor="#fcfcfb", linestyle="none",
+    ax.plot(powers, snr, marker=marker, color=color, markeredgecolor=BACKGROUND, linestyle="none",
             label=label)  # fmt: skip
 ax.set(
     xlabel="launch power per channel (dBm)", ylabel="SNR (dB)", ylim=(16, 26),
@@ -98,7 +94,7 @@ for comp, marker, label in [
         fiber=long_haul,
     )
     ax.plot(powers, [r["metrics"]["snr_db"]["value"] for r in res], marker=marker,
-            markeredgecolor="#fcfcfb", label=label)  # fmt: skip
+            markeredgecolor=BACKGROUND, label=label)  # fmt: skip
 ax.set(
     xlabel="launch power (dBm)", ylabel="SNR (dB)",
     title="DP-16QAM at 32 GBd, 10 × 80 km, single channel",

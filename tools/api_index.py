@@ -21,7 +21,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from _common import ROOT, write_or_check
+
 OUTPUT = ROOT / "docs" / "API.md"
 RUST_ITEM = re.compile(
     r"^(?P<indent>\s*)pub\s+"
@@ -243,17 +244,7 @@ def main() -> int:
         for name, places in duplicates(index):
             print(f"{name}: {', '.join(sorted(set(places)))}")
         return 0
-    text = render(index)
-    if a.check:
-        if OUTPUT.read_text() != text:
-            print(
-                f"{OUTPUT.relative_to(ROOT)} is out of date: run `just api-index`", file=sys.stderr
-            )
-            return 1
-        return 0
-    OUTPUT.write_text(text)
-    print(f"written {OUTPUT.relative_to(ROOT)}")
-    return 0
+    return write_or_check(OUTPUT, render(index), a.check, fix="`just api-index`")
 
 
 if __name__ == "__main__":

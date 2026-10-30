@@ -18,15 +18,12 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib.util
 import inspect
 import re
-import shutil
-import subprocess
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from _common import ROOT, extension, ruff_format, write_or_check
+
 OUT = ROOT / "python" / "comrs" / "_comrs.pyi"
 
 HEADER = '''"""Type stub of the Rust extension ``comrs._comrs``.
@@ -72,19 +69,6 @@ TOKENS = {
     "tuple": "tuple[Any, ...]",
 }
 TYPE_CHARS = re.compile(r"^[\w\.\[\], |]+$")
-
-
-def extension():
-    """The built extension, loaded without the package."""
-    found = sorted((ROOT / "python" / "comrs").glob("_comrs*.so")) + sorted(
-        (ROOT / "python" / "comrs").glob("_comrs*.pyd")
-    )
-    if not found:
-        raise SystemExit("build the extension first: maturin develop")
-    spec = importlib.util.spec_from_file_location("_comrs", found[0])
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def py_type(text: str | None) -> str:
@@ -234,45 +218,22 @@ def generate() -> str:
             parts.append(f"def {name}{signature(obj, ts, obj.__doc__, method=False)}: ...\n")
     text = "\n".join(parts)
     ast.parse(text)
-    return _format(text)
-
-
-def _format(text: str) -> str:
-    ruff = shutil.which("ruff")
-    if ruff is None:
-        raise SystemExit("gen_stubs.py needs ruff (pip install --group lint)")
-    out = subprocess.run(
-        [
-            ruff,
-            "format",
-            "--config",
-            str(ROOT / "pyproject.toml"),
-            "--stdin-filename",
-            str(OUT),
-            "-",
-        ],
-        input=text,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return out.stdout
+    return ruff_format(text, OUT, "gen_stubs.py")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true", help="fail if the stub is out of date")
     args = ap.parse_args()
-    text = generate()
-    if args.check:
-        if not OUT.exists() or OUT.read_text() != text:
-            print(f"{OUT.relative_to(ROOT)} is out of date: run python tools/gen_stubs.py")
-            return 1
-        print(f"{OUT.relative_to(ROOT)} is up to date")
-        return 0
-    OUT.write_text(text)
-    print(f"wrote {OUT.relative_to(ROOT)}")
-    return 0
+    return write_or_check(
+        OUT,
+        generate(),
+        args.check,
+        fix="python tools/gen_stubs.py",
+        written="wrote {path}",
+        up_to_date=True,
+        stream=sys.stdout,
+    )
 
 
 if __name__ == "__main__":
