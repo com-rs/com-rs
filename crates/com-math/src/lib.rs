@@ -41,7 +41,7 @@
 //!   Simpson's rule), [`gauss_hermite`] (`∫ f(t) e^{-t²} dt`) and [`gauss_legendre`]
 //!   (`∫_{-1}^{1} f(t) dt`);
 //! - physical constants [`PLANCK`], [`BOLTZMANN`], [`ELEMENTARY_CHARGE`],
-//!   [`SPEED_OF_LIGHT`].
+//!   [`SPEED_OF_LIGHT`], and [`ZERO_CELSIUS`], the origin of the Celsius scale in kelvin.
 //!
 //! # Examples
 //! ```
@@ -78,6 +78,8 @@ pub const BOLTZMANN: f64 = 1.380_649e-23;
 pub const ELEMENTARY_CHARGE: f64 = 1.602_176_634e-19;
 /// Speed of light in vacuum (m/s).
 pub const SPEED_OF_LIGHT: f64 = 299_792_458.0;
+/// The temperature of 0 °C (K): $T_{\mathrm{K}} = T_{\mathrm{°C}} + 273.15$.
+pub const ZERO_CELSIUS: f64 = 273.15;
 
 /// `e^{jθ} = cos θ + j sin θ`.
 #[inline]
