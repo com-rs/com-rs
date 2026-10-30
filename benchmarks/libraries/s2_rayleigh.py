@@ -165,40 +165,37 @@ def spec(m: int, ebn0: list[float], bits: int, trials: int, seed: int) -> dict:
     }
 
 
-def run_spec_lib(args, todo: list[str]) -> list[dict]:
-    import comrs
+def spec_points(rows: list[dict], m: int) -> list[dict]:
+    pts = []
+    for row in rows:
+        e = float(row["condition"]["ebn0_db"])
+        ber = row["metrics"]["ber"]
+        pts.append(
+            common.rate_point(
+                ber["count"], ber["total"], float(theory.ber_qam_rayleigh(m, e)), ebn0_db=e
+            )
+        )
+    return pts
 
+
+def run_spec_lib(args, todo: list[str]) -> list[dict]:
     sz = sizes(args.quick)
-    threads = 1 if args.threads == "1" else 0
+    n = sz["timing_bits"]
     out = []
     for case in todo:
         m = ORDERS[case]
-        res = {"case": case, "precision": "float64", "threads_option": threads}
-        if not args.timing_only:
-            t0 = time.perf_counter()
-            r = comrs.run_spec(
-                spec(m, EBN0, sz["bits_per_point"], sz["trials"], args.seed), threads=threads
+        out.append(
+            common.spec_case(
+                args,
+                {"case": case, "precision": "float64"},
+                spec(m, EBN0, sz["bits_per_point"], sz["trials"], args.seed),
+                spec(m, [TIMING_EBN0], n, TIMING_TRIALS, args.seed + 1),
+                lambda rows, m=m: spec_points(rows, m),
+                units=n,
+                unit="bit",
+                workload=f"{n} bits at Eb/N0 = {TIMING_EBN0} dB, {TIMING_TRIALS} trials",
             )
-            res["sweep_s"] = time.perf_counter() - t0
-            pts = []
-            for row in r:
-                e = float(row["condition"]["ebn0_db"])
-                ber = row["metrics"]["ber"]
-                pts.append(
-                    common.rate_point(
-                        ber["count"], ber["total"], float(theory.ber_qam_rayleigh(m, e)), ebn0_db=e
-                    )
-                )
-            res["points"] = pts
-        n = sz["timing_bits"]
-        s = spec(m, [TIMING_EBN0], n, TIMING_TRIALS, args.seed + 1)
-        res["timing"] = common.time_it(lambda s=s: comrs.run_spec(s, threads=threads))
-        res["timing"].update(
-            units=n,
-            unit="bit",
-            workload=f"{n} bits at Eb/N0 = {TIMING_EBN0} dB, {TIMING_TRIALS} trials",
         )
-        out.append(res)
     return out
 
 

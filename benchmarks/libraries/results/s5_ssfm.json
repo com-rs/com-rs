@@ -83,8 +83,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -174,8 +173,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -258,8 +256,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793348086528952000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -320,8 +317,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793348096901406000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -382,8 +378,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -444,8 +439,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -506,8 +500,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -596,8 +589,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",

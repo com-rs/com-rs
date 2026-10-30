@@ -377,67 +377,34 @@ def spec_points(rows: list[dict]) -> list[dict]:
     return pts
 
 
-def run_spec_lib(args, todo: list[str]) -> list[dict]:
-    import comrs
-
+def run_spec_lib(args, todo: list[str], *, rust: bool = False) -> list[dict]:
+    """``comrs-spec`` (``comrs.run_spec``), or with ``rust`` ``comrs-rust`` (the binary)."""
     sz = sizes(args.quick)
-    threads = 1 if args.threads == "1" else 0
+    trials = 20
     out = []
     for case in todo:
-        res = {"case": case, "precision": "float64", "threads_option": threads}
-        trials = 20
-        if not args.timing_only:
-            t0 = time.perf_counter()
-            r = comrs.run_spec(spec(EBN0[case], sz["frames"], trials, args.seed), threads=threads)
-            res["sweep_s"] = time.perf_counter() - t0
-            res["points"] = spec_points(r)
-            res["bits_per_frame"] = K_CONV
         nt, e_t = sz["timing"], TIMING_EBN0[case]
-        s = spec([e_t], nt, trials, args.seed + 1)
-        res["timing_chain"] = common.time_it(lambda s=s: comrs.run_spec(s, threads=threads))
-        res["timing_chain"].update(
+        workload = f"whole chain, {nt} frames at Eb/N0 = {e_t} dB, {trials} trials"
+        res = common.spec_case(
+            args,
+            {"case": case, "precision": "float64"},
+            spec(EBN0[case], sz["frames"], trials, args.seed),
+            spec([e_t], nt, trials, args.seed + 1),
+            spec_points,
+            rust=rust,
+            key="timing_chain",
             units=nt,
             unit="frame",
-            workload=f"whole chain, {nt} frames at Eb/N0 = {e_t} dB, {trials} trials",
+            workload=workload + (" (process wall time)" if rust else ""),
         )
+        if not args.timing_only:
+            res["bits_per_frame"] = K_CONV
         out.append(res)
     return out
 
 
 def run_rust_lib(args, todo: list[str]) -> list[dict]:
-    from pathlib import Path
-
-    from s1_awgn import run_rust_cli, rust_binary
-
-    sz = sizes(args.quick)
-    threads = 1 if args.threads == "1" else 0
-    work = Path(args.work) / "rust"
-    out = []
-    for case in todo:
-        res = {
-            "case": case,
-            "precision": "float64",
-            "threads_option": threads,
-            "binary": str(rust_binary()),
-        }
-        trials = 20
-        if not args.timing_only:
-            report, wall = run_rust_cli(
-                spec(EBN0[case], sz["frames"], trials, args.seed), work, threads
-            )
-            res["sweep_s"] = wall
-            res["points"] = spec_points(report["conditions"])
-            res["bits_per_frame"] = K_CONV
-        nt, e_t = sz["timing"], TIMING_EBN0[case]
-        s = spec([e_t], nt, trials, args.seed + 1)
-        res["timing_chain"] = common.time_it(lambda s=s: run_rust_cli(s, work, threads))
-        res["timing_chain"].update(
-            units=nt,
-            unit="frame",
-            workload=f"whole chain, {nt} frames at Eb/N0 = {e_t} dB, {trials} trials (process wall time)",
-        )
-        out.append(res)
-    return out
+    return run_spec_lib(args, todo, rust=True)
 
 
 def postprocess(merged: dict, work) -> dict:

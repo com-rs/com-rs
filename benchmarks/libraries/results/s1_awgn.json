@@ -105,8 +105,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -435,8 +434,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -517,8 +515,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -845,8 +842,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -925,8 +921,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -948,7 +943,7 @@
      "case": "qpsk",
      "precision": "float64",
      "threads_option": 1,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "sweep_s": 1.4109096250031143,
      "points": [
       {
@@ -1095,7 +1090,7 @@
      "case": "16qam",
      "precision": "float64",
      "threads_option": 1,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "sweep_s": 0.5895681669935584,
      "points": [
       {
@@ -1255,8 +1250,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -1278,7 +1272,7 @@
      "case": "qpsk",
      "precision": "float64",
      "threads_option": 0,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "timing": {
       "warmup_s": 0.005293124995660037,
       "median_s": 0.004570040968246758,
@@ -1301,7 +1295,7 @@
      "case": "16qam",
      "precision": "float64",
      "threads_option": 0,
-     "binary": "/Users/choqueuse/Code/com-rs/target/release/comrs",
+     "binary": "target/release/comrs",
      "timing": {
       "warmup_s": 0.003977500018663704,
       "median_s": 0.0037642079987563193,
@@ -1337,8 +1331,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -1667,8 +1660,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -1749,8 +1741,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793347495130477000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -2081,8 +2072,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": "/Users/choqueuse/Code/com-rs/benchmarks/libraries/results/_work/numba_cache_88197_1793347502965449000"
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -2165,8 +2155,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -2249,8 +2238,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": "1",
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": "1"
    },
    "versions": {
     "comrs": "0.2.0",
@@ -2333,8 +2321,7 @@
     "VECLIB_MAXIMUM_THREADS": "1",
     "NUMBA_NUM_THREADS": "1",
     "RAYON_NUM_THREADS": "1",
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
@@ -2669,8 +2656,7 @@
     "VECLIB_MAXIMUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "RAYON_NUM_THREADS": null,
-    "NUMBA_DISABLE_JIT": null,
-    "NUMBA_CACHE_DIR": null
+    "NUMBA_DISABLE_JIT": null
    },
    "versions": {
     "comrs": "0.2.0",
