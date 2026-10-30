@@ -171,13 +171,6 @@ impl Rng {
         }
     }
 
-    /// A unit-energy QPSK point $e^{j\pi(2i + 1)/4}$, $i$ uniform in `0..4` (pilots and
-    /// preambles drawn from a seed).
-    #[inline]
-    pub fn qpsk(&mut self) -> C64 {
-        C64::from_polar(1.0, std::f64::consts::FRAC_PI_4 * (2 * self.below(4) + 1) as f64)
-    }
-
     /// A uniform random permutation of `v` in place (Fisher–Yates, Durstenfeld's
     /// version): for $i = n - 1, \dots, 1$, swap $v_{i}$ and $v_{j}$ with $j$ uniform in
     /// $\\{0, \dots, i\\}$ ([`Rng::below`]), $n - 1$ draws in all.
