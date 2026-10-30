@@ -268,7 +268,8 @@ impl Metrics {
         let idx = self.window(s, segments)?;
         let x: Vec<C64> = idx.iter().map(|&i| s.symbols[i]).collect();
         let raw: Vec<C64> = idx.iter().map(|&i| s.samples[i]).collect();
-        let tx: Vec<usize> = idx.iter().map(|&i| s.indices[i]).collect();
+        // none for Gaussian symbols: the metrics that need them then fail on the lengths
+        let tx: Vec<usize> = idx.iter().filter_map(|&i| s.indices.get(i).copied()).collect();
         let g = self.gain(&raw, &x)?;
         let z: Vec<C64> = raw.iter().map(|v| v * g).collect();
         let mut shared = Shared::default();
@@ -406,5 +407,16 @@ mod tests {
         assert!(e.contains("report must be one of") && e.contains("coded_ber"), "{e}");
         assert_eq!(Metrics::from_json(&Json::Null).unwrap().names(), ["ber", "ser", "snr_db"]);
         assert_eq!(Metric::ALL.map(Metric::name), METRICS);
+    }
+
+    #[test]
+    fn gaussian_symbols_have_an_snr_and_no_symbol_errors() {
+        let spec = crate::Spec::from_yaml(
+            "name: g\nlink: [{type: source, constellation: gaussian, n_symbols: 256}, {type: awgn, snr_db: 10}]\n\
+             metrics: {report: [snr_db]}\nstop: {max_trials: 2}",
+        )
+        .unwrap();
+        let r = crate::run(&spec, &crate::RunOptions::default()).unwrap();
+        assert!((r[0].metric("snr_db").unwrap().value() - 10.0).abs() < 1.0);
     }
 }

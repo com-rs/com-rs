@@ -138,25 +138,34 @@ impl CsvLogger {
         Ok(())
     }
 
-    /// A cell of the row: a value of the condition as it is, the wall time to the
-    /// microsecond, an estimate or a bound in scientific notation.
-    fn cell(&self, column: &str, v: &Value) -> String {
+    /// A cell of the row: a value of the condition or of the head as it is, the wall
+    /// time to the microsecond, an estimate or a bound in scientific notation.
+    fn cell(column: &str, v: &Value, metric: bool) -> String {
         match v {
-            _ if self.keys.iter().any(|k| k == column) => csv_field(&v.to_string()),
-            Value::F64(x) if column == "wall_s" => format!("{x:.6}"),
-            Value::F64(x) if x.is_finite() => format!("{x:e}"),
-            Value::F64(_) => String::new(),
+            Value::F64(x) if !metric && column == "wall_s" => format!("{x:.6}"),
+            Value::F64(x) if metric && x.is_finite() => format!("{x:e}"),
+            Value::F64(_) if metric => String::new(),
             other => csv_field(&other.to_string()),
         }
     }
 
     fn write_row(&mut self, r: &ConditionResult, confidence: f64) -> Result<()> {
         let cells = r.row(confidence);
-        let row: Vec<String> = self
-            .columns
-            .iter()
-            .map(|c| cells.iter().find(|(k, _)| k == c).map(|(_, v)| self.cell(c, v)).unwrap_or_default())
-            .collect();
+        // the head of the row (index, condition, status, trials, wall_s) by position, the
+        // condition by its keys and the metrics by their names (a metric may have the
+        // name of a variable: snr_db)
+        let (head, metrics) = cells.split_at(4 + r.condition.entries().len());
+        let (columns_head, columns_metrics) = self.columns.split_at(4 + self.keys.len());
+        let condition = &head[1..head.len() - 3];
+        let mut row = vec![Self::cell("index", &head[0].1, false)];
+        row.extend(self.keys.iter().map(|k| {
+            condition.iter().find(|(c, _)| c == k).map(|(_, v)| Self::cell(k, v, false)).unwrap_or_default()
+        }));
+        row.extend(head[head.len() - 3..].iter().map(|(k, v)| Self::cell(k, v, false)));
+        debug_assert_eq!(row.len(), columns_head.len());
+        row.extend(columns_metrics.iter().map(|c| {
+            metrics.iter().find(|(k, _)| k == c).map(|(_, v)| Self::cell(c, v, true)).unwrap_or_default()
+        }));
         if let Some(out) = self.out.as_mut() {
             writeln!(out, "{}", row.join(","))?;
             out.flush()?;

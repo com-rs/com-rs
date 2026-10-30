@@ -579,14 +579,18 @@ impl PyConditionResult {
     #[pyo3(signature = (confidence = 0.95))]
     fn row<'py>(&self, py: Python<'py>, confidence: f64) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
-        for (k, v) in self.inner.row(confidence) {
-            d.set_item(k, crate::spec::value(py, &v)?)?;
-        }
-        // the values of the condition as given, in place of their labels
+        let row = self.inner.row(confidence);
+        // the index, the values of the condition as given (in place of their labels),
+        // then the rest of the row (a metric named like a variable replaces it)
+        let n_condition = self.inner.condition.entries().len();
+        d.set_item(&row[0].0, crate::spec::value(py, &row[0].1)?)?;
         if let Ok(c) = self.condition.bind(py).cast::<PyDict>() {
             for (k, v) in c.iter() {
                 d.set_item(k, v)?;
             }
+        }
+        for (k, v) in &row[1 + n_condition..] {
+            d.set_item(k, crate::spec::value(py, v)?)?;
         }
         Ok(d)
     }
