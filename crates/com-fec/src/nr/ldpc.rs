@@ -189,7 +189,7 @@ impl NrLdpc {
     /// The LLRs of the full codeword: the received LLRs summed over the copies of every
     /// bit, zero on the unsent bits, [`KNOWN_BIT_LLR`] on the filler bits.
     fn full_llr(&self, llr: &[f64]) -> Result<Vec<f64>> {
-        let mut full = self.map.accumulate(llr)?;
+        let mut full = self.map.word_llr(llr)?;
         for v in full.iter_mut().take(self.code.k()).skip(self.k_info) {
             *v = KNOWN_BIT_LLR;
         }

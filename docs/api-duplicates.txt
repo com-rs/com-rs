@@ -18,11 +18,13 @@ bits
 bits_per_symbol
 block_len
 check
+code
 conditions
 config
 constellation
 dbp
 decode
+decoder_mut
 delays
 demodulate
 demodulate_with
@@ -48,6 +50,7 @@ info_positions
 json_schema
 k
 linear
+list
 llr
 load
 m
@@ -59,6 +62,7 @@ mul
 n
 n_clusters
 n_fft
+n_out
 n_rx
 n_samples
 n_states
@@ -94,6 +98,7 @@ subcarrier
 symbols
 t
 taps
+trellis
 trial
 uniform
 value

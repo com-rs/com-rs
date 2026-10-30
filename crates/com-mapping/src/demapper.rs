@@ -58,9 +58,9 @@ use com_math::C64;
 /// ```
 /// use com_mapping::demapper::LabelHalves;
 /// // four labels, bit 1 (the most significant): halves {0, 1} and {2, 3}
-/// let h = LabelHalves::of(&[0.0, -1.0, -3.0, -2.0], 1, false);
+/// let h = LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, false);
 /// assert!((h.log_sum(0) - (1.0 + (-1f64).exp()).ln()).abs() < 1e-15);
-/// assert_eq!(LabelHalves::of(&[0.0, -1.0, -3.0, -2.0], 1, true).llr(), 2.0);
+/// assert_eq!(LabelHalves::new(&[0.0, -1.0, -3.0, -2.0], 1, true).llr(), 2.0);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LabelHalves {
@@ -72,7 +72,7 @@ pub struct LabelHalves {
 impl LabelHalves {
     /// The halves of the metric row `metric` (one value per label) for bit `shift` of
     /// the labels; with `max_log`, the maxima only.
-    pub fn of(metric: &[f64], shift: usize, max_log: bool) -> LabelHalves {
+    pub fn new(metric: &[f64], shift: usize, max_log: bool) -> LabelHalves {
         // the log-sum-exp of the two halves without allocation: maxima, then sums
         let (mut m0, mut m1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         for (i, &v) in metric.iter().enumerate() {
@@ -126,7 +126,7 @@ impl LabelHalves {
 pub fn llr_from_metrics(metric: &[f64], max_log: bool, out: &mut [f64]) {
     let b = metric.len().trailing_zeros() as usize;
     for (o, k) in out[..b].iter_mut().zip((0..b).rev()) {
-        *o = LabelHalves::of(metric, k, max_log).llr();
+        *o = LabelHalves::new(metric, k, max_log).llr();
     }
 }
 

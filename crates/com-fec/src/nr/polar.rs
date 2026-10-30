@@ -308,7 +308,7 @@ impl BlockCode for NrPolar {
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
         expect_len(llr.len(), self.e, "LLRs")?;
-        let mut d = self.map.accumulate(llr)?;
+        let mut d = self.map.word_llr(llr)?;
         for &p in &self.shortened {
             d[p] = KNOWN_BIT_LLR;
         }

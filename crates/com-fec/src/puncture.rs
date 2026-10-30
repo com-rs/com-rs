@@ -166,7 +166,7 @@ impl BitSelection {
     ///
     /// # Errors
     /// As [`BitSelection::accumulate_into`].
-    pub fn accumulate(&self, llr: &[f64]) -> Result<Vec<f64>> {
+    pub fn word_llr(&self, llr: &[f64]) -> Result<Vec<f64>> {
         let mut out = vec![0.0; self.full_len];
         self.accumulate_into(llr, &mut out)?;
         Ok(out)
@@ -358,7 +358,7 @@ impl Puncturer {
     /// [`com_core::Error::Shape`] if `n_coded` is not a multiple of $n$ or `llr` does
     /// not have [`Puncturer::punctured_len`] values.
     pub fn depuncture(&self, llr: &[f64], n_coded: usize) -> Result<Vec<f64>> {
-        self.selection(n_coded)?.accumulate(llr)
+        self.selection(n_coded)?.word_llr(llr)
     }
 }
 
@@ -415,14 +415,14 @@ impl<C: BlockCode> BlockCode for Punctured<C> {
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
-        self.code.decode_block(&self.selection.accumulate(llr)?)
+        self.code.decode_block(&self.selection.word_llr(llr)?)
     }
 }
 
 impl<C: SoftDecode> SoftDecode for Punctured<C> {
     /// The soft output of the mother code, a zero LLR at every punctured position.
     fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
-        self.code.app_into(&self.selection.accumulate(llr)?, apriori, out)
+        self.code.app_into(&self.selection.word_llr(llr)?, apriori, out)
     }
 }
 
@@ -495,14 +495,14 @@ impl BlockCode for PuncturedTurbo {
     }
 
     fn decode_block(&self, llr: &[f64]) -> Result<Vec<u8>> {
-        self.code.decode_block(&self.selection.accumulate(llr)?)
+        self.code.decode_block(&self.selection.word_llr(llr)?)
     }
 }
 
 impl SoftDecode for PuncturedTurbo {
     /// The soft output of the turbo code, a zero LLR at every punctured position.
     fn app_into(&self, llr: &[f64], apriori: Option<&[f64]>, out: &mut [f64]) -> Result<usize> {
-        self.code.app_into(&self.selection.accumulate(llr)?, apriori, out)
+        self.code.app_into(&self.selection.word_llr(llr)?, apriori, out)
     }
 }
 
@@ -646,7 +646,7 @@ mod tests {
         let mut former: Vec<f64> =
             (0..3).flat_map(|s| (0..40).map(move |i| (s, i))).map(|(s, i)| body[3 * i + s]).collect();
         former.extend_from_slice(&llr[80..]);
-        let new = turbo.selection().accumulate(&llr).unwrap();
+        let new = turbo.selection().word_llr(&llr).unwrap();
         assert!(new.iter().zip(&former).all(|(a, b)| a.to_bits() == b.to_bits()));
         assert!(BitSelection::new(vec![0, 4], 4).is_err());
     }

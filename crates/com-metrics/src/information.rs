@@ -316,7 +316,7 @@ pub fn posterior_rates(
                 let own = bits[k * b + bit] as usize;
                 // -log2 P(b = own | z) = log2(1 + e^{L_other - L_own}), L the log-sums
                 // of the halves of the labels (the kernel of the demapper)
-                let halves = LabelHalves::of(&metric, b - 1 - bit, false);
+                let halves = LabelHalves::new(&metric, b - 1 - bit, false);
                 acc += ln_1p_exp(halves.log_sum(1 - own) - halves.log_sum(own));
             }
         }

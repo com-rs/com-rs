@@ -406,7 +406,7 @@ pub(crate) fn bit_expectations(s: &TheorySetup, f: impl Fn(&[f64], f64) -> f64) 
             for (k, ek) in e.iter_mut().enumerate() {
                 let shift = b - 1 - k;
                 let bi = (i >> shift) & 1;
-                let same = LabelHalves::of(&all, shift, false).log_sum(bi);
+                let same = LabelHalves::new(&all, shift, false).log_sum(bi);
                 *ek += a * f(&all, same);
             }
         }
