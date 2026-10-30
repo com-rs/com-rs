@@ -18,10 +18,11 @@ error is a few percent).
 """
 
 import math
-from pathlib import Path
 
 import numpy as np
 import pytest
+from _gallery_utils import bicm_chain, coded_error_rates, mimo_ofdm_ser
+from conftest import SPECS
 
 import comrs
 
@@ -106,7 +107,8 @@ def test_bpsk_over_flat_rayleigh_fading(ebn0_db):
         errors += int((((np.conj(h) * y).real < 0) != (bits == 1)).sum())
         total += BLOCK
         trial += 1
-    assert_rate(errors, total, 0.5 * (1 - math.sqrt(g / (1 + g))), label=f"Rayleigh {ebn0_db} dB")
+    theory = comrs.theory_ber_rayleigh_mrc(ebn0_db, 1)
+    assert_rate(errors, total, theory, label=f"Rayleigh {ebn0_db} dB")
 
 
 def test_required_ebn0_of_bpsk_for_a_ber_of_1e_5():
@@ -465,14 +467,9 @@ def test_digital_predistortion_linearises_the_amplifier():
 # --- channel coding ----------------------------------------------------------------
 
 
-def coded_errors(code, ebn0_db, blocks, seed):
-    """Bit and block error rates of BPSK with `code` over AWGN at `ebn0_db`."""
-    b = comrs.bits(code.k * blocks, comrs.Rng(seed))
-    c = code.encode(b)
-    s2 = 1 / (2 * code.rate * comrs.db2lin(ebn0_db))
-    y = (1.0 - 2.0 * c) + np.sqrt(s2) * comrs.Rng(seed + 1).gaussian(c.size)
-    e = (code.decode(2 * y / s2) != b).reshape(blocks, -1)
-    return e.mean(), e.any(axis=1).mean()
+# the trial of the gallery (coding/plot_01_channel_coding.py): bit and block error
+# rates of BPSK with a code over AWGN
+coded_errors = coded_error_rates
 
 
 def test_shannon_limits_of_bpsk():
@@ -564,8 +561,7 @@ def test_ofdm_turns_multipath_into_flat_rayleigh_subcarriers():
     # Gray QPSK with perfect CSI has the BER of BPSK over Rayleigh (Proakis & Salehi 13.3)
     for eb in [5.0, 10.0]:
         ber, _ = ofdm_link_ber(eb, "perfect", 400, seed=51)
-        g = comrs.db2lin(eb)
-        assert ber == pytest.approx(0.5 * (1 - math.sqrt(g / (1 + g))), rel=0.15)
+        assert ber == pytest.approx(comrs.theory_ber_rayleigh_mrc(eb, 1), rel=0.15)
 
 
 def test_lmmse_channel_estimation_beats_interpolation():
@@ -605,26 +601,14 @@ def test_schmidl_cox_synchronisation():
 
 def test_mimo_ofdm_ml_detection_collects_the_receive_diversity():
     # 2 × 2 spatial multiplexing over EPA: per-subcarrier ML (sphere) beats MMSE
+    # (the curves of receiver/plot_03_sync_mimo_ofdm.py, at 20 dB)
     ofdm = comrs.Ofdm(128, 96, oversampling=1, n_cp=16)
     ch = comrs.TdlChannel("epa", 1.92e6, n_rx=2, n_tx=2)
     c = comrs.Constellation("qam", 4).normalized()
-    ser = {}
-    for method in ["mmse", "sphere"]:
-        err = tot = 0
-        for f in range(150):
-            rng = comrs.Rng.stream(54, "mimo-ofdm", 0, f)
-            idx = rng.integers(4, 2 * 96 * 4).reshape(2, -1)
-            x = np.stack([ofdm.modulate(c.points[i]) for i in idx])
-            y, taps = ch.fade(x, rng)
-            s2 = 2 * 128 / (96 * comrs.db2lin(20.0))
-            y = y + rng.complex_noise(y.size, s2).reshape(y.shape)
-            rx = np.stack([ofdm.demodulate(r) for r in y])  # (n_rx, 4 · 96)
-            h = taps.frequency_response(0, ofdm.bins, 128)  # (96, 2, 2), static
-            hh = np.tile(h, (4, 1, 1))
-            d = comrs.mimo_detect(hh, rx.T, c, s2 * 96 / 128, method)
-            err += int((d != idx.T).sum())
-            tot += idx.size
-        ser[method] = err / tot
+    ser = {
+        m: mimo_ofdm_ser(ofdm, ch, c, 20.0, m, 150, seed=54, condition=0)
+        for m in ["mmse", "sphere"]
+    }
     assert ser["sphere"] < ser["mmse"] / 2, ser
 
 
@@ -701,23 +685,8 @@ def test_ofdm_chain_over_eva_with_estimated_channels():
 
 
 def test_bicm_chain_with_ldpc_over_awgn_and_fast_fading():
-    from comrs import blocks as B
-
-    code = {"type": "ldpc", "n": 1024, "k": 512, "seed": 1}
-
-    def link(fading):
-        blocks = [
-            B.FecEncode(code=code, blocks=4, interleave=True),
-            B.Map(constellation="16-QAM"),
-        ]
-        if fading:
-            blocks.append(B.Rayleigh(coherence=1))
-        blocks += [B.AwgnEbn0(ebn0_db=comrs.var("ebn0_db"))]
-        if fading:
-            blocks.append(B.MimoRx())
-        blocks += [B.Demap(), B.FecDecode(code=code, interleave=True)]
-        return comrs.Chain(*blocks)
-
+    # the chains of simulation/plot_02_wireless_chains.py
+    link = bicm_chain
     stop = {"min_trials": 25, "max_trials": 25}
     # 16-QAM BICM at rate 1/2 (2 information bits per symbol): the BICM limit of the pair
     # is near E_b/N_0 = 2.2 dB; this (3, 6) LDPC code of 1024 bits falls in its
@@ -735,9 +704,6 @@ def test_bicm_chain_with_ldpc_over_awgn_and_fast_fading():
 
 
 # --- specifications that check themselves against the literature --------------------
-
-
-SPECS = Path(__file__).resolve().parents[1] / "specs"
 
 
 @pytest.mark.parametrize(

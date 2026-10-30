@@ -5,11 +5,12 @@ trials."""
 import doctest
 import inspect
 import math
-import pathlib
 import re
+import tomllib
 
 import numpy as np
 import pytest
+from conftest import ROOT
 
 import comrs
 from comrs import _comrs, sim
@@ -178,7 +179,9 @@ def test_every_public_class_is_documented():
 
 
 def test_version():
-    assert comrs.__version__ == "0.2.0"
+    # the version of the crates (the extension is built with CARGO_PKG_VERSION)
+    cargo = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    assert comrs.__version__ == cargo["workspace"]["package"]["version"]
 
 
 def test_all_is_sorted_and_complete():
@@ -195,8 +198,10 @@ def listed_in_the_docstring():
 
 def listed_in_the_api_reference():
     """The names of the API reference, ``docs/python/api/index.rst``, one per theme."""
-    page = pathlib.Path(__file__).parents[1] / "docs" / "python" / "api" / "index.rst"
-    return re.findall(r"^   ([A-Za-z_][A-Za-z0-9_]*)$", page.read_text(), flags=re.M)
+    page = ROOT / "docs" / "python" / "api" / "index.rst"
+    return re.findall(
+        r"^   ([A-Za-z_][A-Za-z0-9_]*)$", page.read_text(encoding="utf-8"), flags=re.M
+    )
 
 
 def test_the_lists_of_names_agree():
@@ -395,34 +400,39 @@ def test_equalizer_accepts_one_mode_and_schedules():
 # ------------------------------------------------------------------------ errors
 
 
-def test_invalid_parameters_raise_value_errors():
-    for seconds in (float("inf"), float("nan"), -1.0):
-        with pytest.raises(ValueError, match="max_time"):
-            comrs.sim.Stop.max_time(seconds)
-    with pytest.raises(ValueError, match="power of two"):
-        comrs.Constellation("qam", 12)
-    with pytest.raises(ValueError):
-        comrs.Constellation("bogus", 4)
-    with pytest.raises(ValueError, match="bits"):
-        comrs.Constellation("qam", 4).modulate([0, 2, 1, 0])
-    with pytest.raises(ValueError):
-        comrs.pulse_shape("sinc", 2)
-    with pytest.raises(ValueError):
-        comrs.ber([0, 1], [0, 1, 1])
-    with pytest.raises(ValueError):
-        comrs.Edfa(gain_db=10.0, nf_db=2.0).apply(np.ones(4), 1e9, comrs.Rng(0))
-    with pytest.raises(ValueError, match="2-D"):
-        comrs.adaptive_equalizer(np.ones((2, 2, 2)), comrs.Constellation("qam", 4))
-    with pytest.raises(ValueError, match="pilot"):
-        comrs.ddpll(np.ones(4), comrs.Constellation("qam", 4), pilot_indices=[0])
-    with pytest.raises(ValueError, match="4 samples"):
-        comrs.interpolate_cubic([1, 2, 3], 0.0)
-    with pytest.raises(ValueError, match="rng"):
-        comrs.Manakov(comrs.FiberParams(), pmd_ps_sqrt_km=0.1)
-    with pytest.raises(ValueError, match="non-negative"):
-        comrs.bits(-1, comrs.Rng(0))
-    with pytest.raises(ValueError, match="at most 24"):
-        comrs.gray_code(40)  # aborted the process on the allocation of 2^40 words
+INVALID = {
+    "max_time_inf": ("max_time", lambda: comrs.sim.Stop.max_time(float("inf"))),
+    "max_time_nan": ("max_time", lambda: comrs.sim.Stop.max_time(float("nan"))),
+    "max_time_negative": ("max_time", lambda: comrs.sim.Stop.max_time(-1.0)),
+    "qam_order": ("power of two", lambda: comrs.Constellation("qam", 12)),
+    "constellation_kind": (None, lambda: comrs.Constellation("bogus", 4)),
+    "bits_not_binary": ("bits", lambda: comrs.Constellation("qam", 4).modulate([0, 2, 1, 0])),
+    "pulse_kind": (None, lambda: comrs.pulse_shape("sinc", 2)),
+    "ber_lengths": (None, lambda: comrs.ber([0, 1], [0, 1, 1])),
+    "edfa_noise_figure": (
+        None,
+        lambda: comrs.Edfa(gain_db=10.0, nf_db=2.0).apply(np.ones(4), 1e9, comrs.Rng(0)),
+    ),
+    "equalizer_shape": (
+        "2-D",
+        lambda: comrs.adaptive_equalizer(np.ones((2, 2, 2)), comrs.Constellation("qam", 4)),
+    ),
+    "ddpll_pilots": (
+        "pilot",
+        lambda: comrs.ddpll(np.ones(4), comrs.Constellation("qam", 4), pilot_indices=[0]),
+    ),
+    "cubic_length": ("4 samples", lambda: comrs.interpolate_cubic([1, 2, 3], 0.0)),
+    "manakov_pmd_rng": ("rng", lambda: comrs.Manakov(comrs.FiberParams(), pmd_ps_sqrt_km=0.1)),
+    "bits_negative": ("non-negative", lambda: comrs.bits(-1, comrs.Rng(0))),
+    # aborted the process on the allocation of 2^40 words
+    "gray_code_size": ("at most 24", lambda: comrs.gray_code(40)),
+}
+
+
+@pytest.mark.parametrize(("match", "call"), INVALID.values(), ids=INVALID.keys())
+def test_invalid_parameters_raise_value_errors(match, call):
+    with pytest.raises(ValueError, match=match):
+        call()
 
 
 def test_tuning_parameters_are_keyword_only():
@@ -434,32 +444,48 @@ def test_tuning_parameters_are_keyword_only():
         comrs.CdlChannel("CDL-A", 1e-7, 1e6, 2, 2)
 
 
-def test_defaults_are_those_of_the_blocks(tmp_path):
-    blocks = comrs.spec_blocks()
-    p = blocks["pulse_shape"]["params"]
+# the defaults of the functions are those of the blocks of the registry
+
+
+def test_pulse_shape_defaults_are_those_of_the_block():
+    p = comrs.spec_blocks()["pulse_shape"]["params"]
     h = comrs.pulse_shape("rrc", 2)
     assert h.size == int(p["n_taps"]["default"])
     np.testing.assert_array_equal(
         h, comrs.pulse_shape("rrc", 2, rolloff=float(p["rolloff"]["default"]))
     )
-    # the K-best detector keeps the paths of the mimo_rx block
+
+
+def test_kbest_keeps_the_paths_of_the_mimo_rx_block():
     rng = comrs.Rng(5)
     c = comrs.Constellation("qam", 16).normalized()
     h4 = comrs.mimo_channel(4, 4, rng, n=50)
     y = np.einsum(
         "nij,nj->ni", h4, c.points[rng.integers(16, 200).reshape(50, 4)]
     ) + 0.3 * rng.complex_noise(200).reshape(50, 4)
-    k = int(blocks["mimo_rx"]["params"]["k"]["default"])
+    k = int(comrs.spec_blocks()["mimo_rx"]["params"]["k"]["default"])
     np.testing.assert_array_equal(
         comrs.mimo_detect(h4, y, c, 0.09, "kbest"), comrs.mimo_detect(h4, y, c, 0.09, "kbest", k=k)
     )
+
+
+def test_fourth_power_foe_is_refined_by_default():
+    rng = comrs.Rng(5)
+    c = comrs.Constellation("qam", 16).normalized()
     x = np.exp(2j * np.pi * 0.01 * np.arange(1024)) * c.points[rng.integers(16, 1024)]
     assert comrs.fourth_power_foe(x, 1.0)[1] == comrs.fourth_power_foe(x, 1.0, refined=True)[1]
+
+
+def test_backpropagation_takes_one_step_per_span_by_default():
     link = comrs.Ssfm(comrs.FiberParams(), step_km=10.0, amplification="ideal")
     z = 1e-2 * np.exp(1j * np.arange(64))
     np.testing.assert_array_equal(
         link.backpropagate(z, 32e9), link.backpropagate(z, 32e9, steps_per_span=1)
     )
+
+
+def test_sigmf_recordings_are_complex_doubles_by_default(tmp_path):
+    z = 1e-2 * np.exp(1j * np.arange(64))
     comrs.write_sigmf(tmp_path / "x", z, 1e6)
     assert comrs.read_sigmf(tmp_path / "x")[2]["global"]["core:datatype"] == "cf64_le"
 
@@ -541,12 +567,12 @@ def test_python_runner_writes_the_reports_and_reports_failures(tmp_path):
         csv_path=path,
         json_path=tmp_path / "r.json",
     )
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
     assert lines[0].startswith(
         "index,p,status,trials,wall_s,draw,draw_lo,draw_hi,draw_count,draw_total,rate"
     )
     assert len(lines) == 3
-    assert '"scenario": "b"' in (tmp_path / "r.json").read_text()
+    assert '"scenario": "b"' in (tmp_path / "r.json").read_text(encoding="utf-8")
 
     def failing(cond, rng, rec):
         raise ArithmeticError("diverged")

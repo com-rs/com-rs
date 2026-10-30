@@ -1,14 +1,10 @@
 """Receiver posteriors (achievable rates with the receiver's own beliefs) and the search
 of operating points, from Python."""
 
-from pathlib import Path
-
 import pytest
-from conftest import qpsk_spec
+from conftest import ROOT, qpsk_spec
 
 import comrs
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_posterior_rates_of_calibrated_and_over_confident_receivers():
@@ -70,7 +66,7 @@ def test_search_finds_the_operating_point_and_its_interval(tmp_path):
     assert r[0]["value"] == pytest.approx(6.79, abs=0.15)
     xs = [e["x"] for e in r[0]["evaluations"]]
     assert xs[:2] == [2.0, 10.0] and len(xs) <= 10
-    assert (tmp_path / "p.csv").read_text().startswith("metric,target,ebn0_db,")
+    assert (tmp_path / "p.csv").read_text(encoding="utf-8").startswith("metric,target,ebn0_db,")
     with pytest.raises(ValueError, match="not between"):
         comrs.search_spec({**spec, "search": {**spec["search"], "range": [9, 10]}})
 

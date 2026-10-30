@@ -13,7 +13,6 @@ from __future__ import annotations
 import importlib
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,11 +23,9 @@ import comrs
 
 yaml = pytest.importorskip("yaml")
 
-CARDS = Path(__file__).resolve().parent.parent / "validation" / "cards"
-
-
-def cards() -> list[dict[str, Any]]:
-    return [yaml.safe_load(p.read_text()) | {"_file": p.name} for p in sorted(CARDS.glob("*.yaml"))]
+# the loader of tools/cards.py (`just card <id>`), which needs PyYAML: one reading of the
+# cards for the tool and the tests
+from cards import CARDS, cards  # noqa: E402
 
 
 def resolve(name: str) -> Any:
@@ -93,11 +90,11 @@ def test_no_number_is_read_as_a_string():
 
 
 def test_every_card_follows_the_schema():
-    schema = json.loads((CARDS / "schema.json").read_text())
+    schema = json.loads((CARDS / "schema.json").read_text(encoding="utf-8"))
     jsonschema = pytest.importorskip("jsonschema")
     for card in cards():
         jsonschema.validate({k: v for k, v in card.items() if k != "_file"}, schema)
-        assert card["_file"] == f"{card['id']}.yaml"
+        assert card["_file"].name == f"{card['id']}.yaml"
 
 
 def test_every_tolerance_that_is_not_exact_says_why():

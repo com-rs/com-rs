@@ -17,6 +17,10 @@ re-recording an unchanged oracle produces no diff. ``tools/record_sionna_vectors
 writes its vectors with the same functions (:func:`archive`, :func:`dumps`), and
 ``tests/test_cards.py`` reads the expected values of the cards with :func:`recorded`.
 
+A missing fixture skips its test on a development machine, and fails it in CI (the
+variable ``CI`` set, as GitHub Actions sets it): a deleted fixture must not turn its
+tests into skips there (:func:`missing`).
+
 The outputs of a program are not covered by its licence: the fixtures are results of
 OptiCommPy (GPL-3.0), GNPy (BSD-3-Clause) and py3gpp (AGPL-3.0), not their code nor their
 data files.
@@ -32,7 +36,7 @@ import platform
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 
@@ -49,7 +53,8 @@ def oracle(name: str, compute: Callable[[], Any], *, tool: str) -> Any:
 
     In recording mode (``COMRS_RECORD_ORACLE=1``), runs ``compute``, writes the result
     to ``tests/oracle/<name>.json`` (and ``.npz``) and returns it as the file gives it;
-    otherwise reads the file, or skips the test with a message naming the missing file.
+    otherwise reads the file, or skips the test (fails it in CI, :func:`missing`) with a
+    message naming the missing file.
     """
     if tool not in DISTRIBUTIONS:
         raise ValueError(f"unknown tool {tool!r}: one of {sorted(DISTRIBUTIONS)}")
@@ -57,14 +62,27 @@ def oracle(name: str, compute: Callable[[], Any], *, tool: str) -> Any:
     if RECORD:
         _record(name, path, compute(), tool)
     elif not path.exists():
-        import pytest
-
-        pytest.skip(
+        missing(
             f"recorded oracle {path.relative_to(DIR.parent.parent)} is missing: "
             f"install {tool} (pip install --group oracle) and record it with "
             "COMRS_RECORD_ORACLE=1 python -m pytest"
         )
     return _load(path)
+
+
+def in_ci() -> bool:
+    """Whether the tests run in continuous integration (the variable ``CI`` set)."""
+    return os.environ.get("CI", "").lower() not in ("", "0", "false")
+
+
+def missing(message: str, *, module: bool = False) -> NoReturn:
+    """Skip the test (or, with ``module``, the module) whose recorded data are missing,
+    or fail it in CI, where every fixture must be present."""
+    import pytest
+
+    if in_ci():
+        pytest.fail(f"{message} (a fixture missing in CI fails)", pytrace=False)
+    pytest.skip(message, allow_module_level=module)
 
 
 def recorded(name: str) -> Any:
@@ -94,8 +112,8 @@ def _record(name: str, path: Path, value: Any, tool: str) -> None:
     doc["recorded"] = _date(path, npz, doc, arrays)
     DIR.mkdir(exist_ok=True)
     text = dumps(doc)
-    if not path.exists() or path.read_text() != text:
-        path.write_text(text)
+    if not path.exists() or path.read_text(encoding="utf-8") != text:
+        path.write_text(text, encoding="utf-8")
     if arrays:
         blob = archive(arrays)
         if not npz.exists() or npz.read_bytes() != blob:
@@ -107,7 +125,7 @@ def _record(name: str, path: Path, value: Any, tool: str) -> None:
 def _date(path: Path, npz: Path, doc: dict, arrays: dict) -> str:
     """Today, unless the same values are already recorded: then their date is kept."""
     if path.exists():
-        old = json.loads(path.read_text())
+        old = json.loads(path.read_text(encoding="utf-8"))
         same = {k: v for k, v in old.items() if k != "recorded"} == doc
         if same and arrays:
             same = npz.exists() and npz.read_bytes() == archive(arrays)
@@ -193,7 +211,7 @@ def _encode(value: Any, key: str, arrays: dict[str, np.ndarray]) -> Any:
 
 
 def _load(path: Path) -> Any:
-    doc = json.loads(path.read_text())
+    doc = json.loads(path.read_text(encoding="utf-8"))
     arrays = np.load(path.with_suffix(".npz")) if "npz" in doc else None
     return _decode(doc["data"], arrays)
 
