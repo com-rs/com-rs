@@ -48,9 +48,12 @@
 //! use com_mapping::theory::ber_rayleigh_mrc;
 //! let g = 100.0;                                          // 20 dB
 //! // a perfect estimate: the BER of flat Rayleigh fading
-//! assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) - ber_rayleigh_mrc(g, 1).unwrap()).abs() < 1e-15);
+//! assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0)? - ber_rayleigh_mrc(g, 1)?).abs() < 1e-15);
 //! // an estimate correlated at 0.999: an error floor
-//! assert!(ber_16qam_imperfect_csi(1e9, 0.999, 0.0, 1.0) > 1e-3);
+//! assert!(ber_16qam_imperfect_csi(1e9, 0.999, 0.0, 1.0)? > 1e-3);
+//! // an estimate correlated above 1 is an error, not a NaN
+//! assert!(ber_bpsk_imperfect_csi(g, 1.1, 0.0).is_err());
+//! # Ok::<(), com_core::Error>(())
 //! ```
 //!
 //! # References
@@ -58,35 +61,72 @@
 //! 1. M.-X. Chang, Y. T. Su, "Performance analysis of equalized OFDM systems in Rayleigh
 //!    fading," *IEEE Trans. Wireless Commun.* 1(4), 721–732, 2002.
 
+use com_core::{Result, ensure};
 use com_math::bessel_j0;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
+/// [`com_core::Error::Config`] unless the mean SNR is positive and the correlations of
+/// the estimate satisfy $\rho_{1}^{2} + \rho_{2}^{2} \le 1$.
+fn check(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> Result<()> {
+    ensure_snr(mean_ebn0_lin)?;
+    ensure(rho1.is_finite() && rho2.is_finite() && rho1 * rho1 + rho2 * rho2 <= 1.0, || {
+        format!("the correlations of the estimate need ρ1² + ρ2² ≤ 1, got ({rho1}, {rho2})")
+    })
+}
+
+/// [`com_core::Error::Config`] unless the mean SNR per bit is positive.
+fn ensure_snr(mean_ebn0_lin: f64) -> Result<()> {
+    ensure(mean_ebn0_lin > 0.0, || format!("the mean SNR per bit must be positive, got {mean_ebn0_lin}"))
+}
+
 /// The BER of BPSK equalised by an estimate of correlations $(\rho_{1}, \rho_{2})$ at the
 /// mean SNR per bit `mean_ebn0_lin` (linear; Chang & Su eq. 31).
-pub fn ber_bpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> f64 {
-    0.5 * (1.0 - rho1 / (1.0 + 1.0 / mean_ebn0_lin - rho2 * rho2).sqrt())
+///
+/// # Errors
+/// [`com_core::Error::Config`] for a mean SNR that is not positive or
+/// $\rho_{1}^{2} + \rho_{2}^{2} > 1$.
+pub fn ber_bpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> Result<f64> {
+    check(mean_ebn0_lin, rho1, rho2)?;
+    Ok(0.5 * (1.0 - rho1 / (1.0 + 1.0 / mean_ebn0_lin - rho2 * rho2).sqrt()))
 }
 
 /// The BER of Gray QPSK equalised by an estimate of correlations $(\rho_{1}, \rho_{2})$
 /// (Chang & Su eq. 32).
-pub fn ber_qpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> f64 {
+///
+/// # Errors
+/// As [`ber_bpsk_imperfect_csi`].
+pub fn ber_qpsk_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64) -> Result<f64> {
+    check(mean_ebn0_lin, rho1, rho2)?;
     let d = 1.0 + 1.0 / (2.0 * mean_ebn0_lin);
     let (s, t) = (rho1 + rho2, rho1 - rho2);
-    0.5 * (1.0
-        - 0.5 * s * FRAC_1_SQRT_2 / (d - t * t / 2.0).sqrt()
-        - 0.5 * t * FRAC_1_SQRT_2 / (d - s * s / 2.0).sqrt())
+    Ok(0.5
+        * (1.0
+            - 0.5 * s * FRAC_1_SQRT_2 / (d - t * t / 2.0).sqrt()
+            - 0.5 * t * FRAC_1_SQRT_2 / (d - s * s / 2.0).sqrt()))
+}
+
+/// One term of Chang & Su's eq. 53: a row of their Table I.
+#[derive(Clone, Copy)]
+struct TableRow {
+    /// $\mathrm{sgn}_{k}$.
+    sign: f64,
+    /// $a_{k}$, $b_{k}$.
+    a: f64,
+    b: f64,
+    /// $\cos\theta_{k}$, $\sin\theta_{k}$.
+    cos: f64,
+    sin: f64,
 }
 
 /// Three rows $(\mathrm{sgn}_{k}, a_{k}, b_{k})$ of Table I sharing $(\cos\theta_{k},
 /// \sin\theta_{k})$.
 type TableGroup = ([(f64, f64, f64); 3], f64, f64);
 
-/// Table I of Chang & Su: $(\mathrm{sgn}_{k}, a_{k}, b_{k}, \cos\theta_{k},
-/// \sin\theta_{k})$ of the 24 terms of their eq. 53.
-fn table_i() -> [(f64, f64, f64, f64, f64); 24] {
+/// Table I of Chang & Su: the 24 terms of their eq. 53, in groups of three rows that
+/// share $(\cos\theta_{k}, \sin\theta_{k})$.
+fn table_i() -> [TableRow; 24] {
     let (r2, r10) = (2f64.sqrt(), 10f64.sqrt());
-    let mut t = [(0.0, 0.0, 0.0, 0.0, 0.0); 24];
-    // groups of three rows sharing (cos θ, sin θ): (sgn, a, b) for each row
+    // (sgn, a, b) of the three rows, then (cos θ, sin θ)
     let groups: [TableGroup; 8] = [
         ([(1.0, 2.0, -r2), (1.0, 0.0, r2), (1.0, 2.0, r2)], 1.0 / r2, 1.0 / r2),
         ([(1.0, 2.0, -r2), (1.0, 0.0, r2), (1.0, 2.0, r2)], 1.0 / r2, -1.0 / r2),
@@ -97,9 +137,10 @@ fn table_i() -> [(f64, f64, f64, f64, f64); 24] {
         ([(1.0, -2.0, 3.0 * r2), (1.0, 0.0, 3.0 * r2), (-1.0, 2.0, 3.0 * r2)], 1.0 / r2, 1.0 / r2),
         ([(1.0, -2.0, 3.0 * r2), (1.0, 0.0, 3.0 * r2), (-1.0, 2.0, 3.0 * r2)], 1.0 / r2, -1.0 / r2),
     ];
-    for (g, (rows, c, s)) in groups.iter().enumerate() {
-        for (i, &(sgn, a, b)) in rows.iter().enumerate() {
-            t[3 * g + i] = (sgn, a, b, *c, *s);
+    let mut t = [TableRow { sign: 0.0, a: 0.0, b: 0.0, cos: 0.0, sin: 0.0 }; 24];
+    for (g, (rows, cos, sin)) in groups.iter().enumerate() {
+        for (i, &(sign, a, b)) in rows.iter().enumerate() {
+            t[3 * g + i] = TableRow { sign, a, b, cos: *cos, sin: *sin };
         }
     }
     t
@@ -109,36 +150,59 @@ fn table_i() -> [(f64, f64, f64, f64, f64); 24] {
 /// \rho_{2})$ and of standard deviation ratio `sigma_ratio` $= \sigma_{2}/\sigma_{1}$
 /// (Chang & Su eq. 53 and Table I; $\bar{\gamma}_{b} = 5\sigma_{1}^{2}/(2\sigma_{n}^{2})$
 /// for the points $\{\pm 1, \pm 3\}^{2}$).
-pub fn ber_16qam_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64, sigma_ratio: f64) -> f64 {
+///
+/// # Errors
+/// As [`ber_bpsk_imperfect_csi`], and [`com_core::Error::Config`] for a ratio that is
+/// not positive.
+pub fn ber_16qam_imperfect_csi(mean_ebn0_lin: f64, rho1: f64, rho2: f64, sigma_ratio: f64) -> Result<f64> {
+    check(mean_ebn0_lin, rho1, rho2)?;
+    ensure(sigma_ratio > 0.0 && sigma_ratio.is_finite(), || {
+        format!("the standard deviation ratio must be positive, got {sigma_ratio}")
+    })?;
     let rho_sq = rho1 * rho1 + rho2 * rho2;
-    table_i()
+    Ok(table_i()
         .iter()
-        .map(|&(sgn, a, b, c, s)| {
-            let u = b * (rho1 * c + rho2 * s) + a * sigma_ratio;
-            sgn * (1.0 - u / (b * b * (1.0 - rho_sq) + u * u + 5.0 / (2.0 * mean_ebn0_lin)).sqrt())
+        .map(|r| {
+            let u = r.b * (rho1 * r.cos + rho2 * r.sin) + r.a * sigma_ratio;
+            r.sign * (1.0 - u / (r.b * r.b * (1.0 - rho_sq) + u * u + 5.0 / (2.0 * mean_ebn0_lin)).sqrt())
         })
         .sum::<f64>()
-        / 32.0
+        / 32.0)
 }
 
-/// The BER of Gray 16-QAM over flat Rayleigh fading with the perfect channel (Chang & Su
-/// eq. 69).
-pub fn ber_16qam_rayleigh(mean_ebn0_lin: f64) -> f64 {
+/// The BER of Gray 16-QAM over flat Rayleigh fading with the perfect channel (Chang &
+/// Su eq. 69).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for a mean SNR that is not positive.
+pub fn ber_16qam_rayleigh(mean_ebn0_lin: f64) -> Result<f64> {
+    ensure_snr(mean_ebn0_lin)?;
     let t = |c: f64| 1.0 / (1.0 + c / mean_ebn0_lin).sqrt();
-    0.5 - 3.0 / 8.0 * t(5.0 / 2.0) - 0.25 * t(5.0 / 18.0) + 0.125 * t(1.0 / 10.0)
+    Ok(0.5 - 3.0 / 8.0 * t(5.0 / 2.0) - 0.25 * t(5.0 / 18.0) + 0.125 * t(1.0 / 10.0))
 }
 
 /// The BER of DBPSK over Jakes' Rayleigh fading of normalised Doppler `fd_ts` (Chang &
 /// Su eq. 40).
-pub fn ber_dbpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> f64 {
-    0.5 * (1.0 - bessel_j0(2.0 * PI * fd_ts) / (1.0 + 1.0 / mean_ebn0_lin))
+///
+/// # Errors
+/// [`com_core::Error::Config`] for a mean SNR that is not positive or a Doppler that is
+/// not finite.
+pub fn ber_dbpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> Result<f64> {
+    ensure_snr(mean_ebn0_lin)?;
+    ensure(fd_ts.is_finite(), || format!("the normalised Doppler must be finite, got {fd_ts}"))?;
+    Ok(0.5 * (1.0 - bessel_j0(2.0 * PI * fd_ts) / (1.0 + 1.0 / mean_ebn0_lin)))
 }
 
 /// The BER of Gray DQPSK over Jakes' Rayleigh fading of normalised Doppler `fd_ts`
 /// (Chang & Su eq. 41).
-pub fn ber_dqpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> f64 {
+///
+/// # Errors
+/// As [`ber_dbpsk_jakes`].
+pub fn ber_dqpsk_jakes(mean_ebn0_lin: f64, fd_ts: f64) -> Result<f64> {
+    ensure_snr(mean_ebn0_lin)?;
+    ensure(fd_ts.is_finite(), || format!("the normalised Doppler must be finite, got {fd_ts}"))?;
     let j = bessel_j0(2.0 * PI * fd_ts);
-    0.5 * (1.0 - j / ((2.0 + 1.0 / mean_ebn0_lin) * (1.0 + 1.0 / (2.0 * mean_ebn0_lin)) - j * j).sqrt())
+    Ok(0.5 * (1.0 - j / ((2.0 + 1.0 / mean_ebn0_lin) * (1.0 + 1.0 / (2.0 * mean_ebn0_lin)) - j * j).sqrt()))
 }
 
 #[cfg(test)]
@@ -151,20 +215,23 @@ mod tests {
         for g in [0.5, 3.0, 10.0, 100.0, 1e4] {
             // eq. 68: BPSK and QPSK have the BER of flat Rayleigh fading
             let r = ber_rayleigh_mrc(g, 1).unwrap();
-            assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) - r).abs() < 1e-15);
-            assert!((ber_qpsk_imperfect_csi(g, 1.0, 0.0) - r).abs() < 1e-15);
+            assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0).unwrap() - r).abs() < 1e-15);
+            assert!((ber_qpsk_imperfect_csi(g, 1.0, 0.0).unwrap() - r).abs() < 1e-15);
             // eq. 53 with ρ1 = 1, ρ2 = 0, σ1 = σ2 is eq. 69: the transcription of Table I
-            assert!((ber_16qam_imperfect_csi(g, 1.0, 0.0, 1.0) - ber_16qam_rayleigh(g)).abs() < 1e-14, "{g}");
+            assert!(
+                (ber_16qam_imperfect_csi(g, 1.0, 0.0, 1.0).unwrap() - ber_16qam_rayleigh(g).unwrap()).abs() < 1e-14,
+                "{g}"
+            );
             // eqs. 42, 43: slow fading
-            assert!((ber_dbpsk_jakes(g, 0.0) - 0.5 / (1.0 + g)).abs() < 1e-15);
+            assert!((ber_dbpsk_jakes(g, 0.0).unwrap() - 0.5 / (1.0 + g)).abs() < 1e-15);
             let dq = 0.5 * (1.0 - 1.0 / (1.0 + 2.0 / g + 1.0 / (2.0 * g * g)).sqrt());
-            assert!((ber_dqpsk_jakes(g, 0.0) - dq).abs() < 1e-15);
+            assert!((ber_dqpsk_jakes(g, 0.0).unwrap() - dq).abs() < 1e-15);
         }
         // the asymptotes of Sec. IV-D3: 1/(4γ) for BPSK; for 16-QAM the expansion of
         // eq. 69 gives (15/32 + 5/144 - 1/160)/γ = 0.49722/γ, where the paper prints
         // 0.4952/γ (a misprint, 0.4 % off)
         let g = 1e6;
-        assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0) * 4.0 * g - 1.0).abs() < 1e-5);
-        assert!((ber_16qam_rayleigh(g) * g - (15.0 / 32.0 + 5.0 / 144.0 - 1.0 / 160.0)).abs() < 1e-5);
+        assert!((ber_bpsk_imperfect_csi(g, 1.0, 0.0).unwrap() * 4.0 * g - 1.0).abs() < 1e-5);
+        assert!((ber_16qam_rayleigh(g).unwrap() * g - (15.0 / 32.0 + 5.0 / 144.0 - 1.0 / 160.0)).abs() < 1e-5);
     }
 }
