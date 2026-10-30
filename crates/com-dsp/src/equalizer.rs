@@ -170,7 +170,7 @@ impl EqualizerOutput {
     ///
     /// near 1 when both outputs converged to the same polarisation (the singularity, see
     /// the module), near 0 when they carry independent streams (0 when an output has no
-    /// energy, [`Correlation::coefficient`]); `None` with another number of outputs.
+    /// energy, [`Correlation::rho`]); `None` with another number of outputs.
     ///
     /// # Examples
     /// ```
@@ -183,7 +183,7 @@ impl EqualizerOutput {
     pub fn output_correlation(&self) -> Option<f64> {
         let [a, b] = self.symbols.as_slice() else { return None };
         let h = a.len() / 2;
-        Some(Correlation::between(&a[h..], &b[h..]).coefficient())
+        Some(Correlation::between(&a[h..], &b[h..]).rho())
     }
 }
 

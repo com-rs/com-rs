@@ -25,7 +25,7 @@
 //! assert_eq!((m.m21, m.m42), (1.0, 1.0));
 //! assert_eq!(m.m20, C64::new(0.0, 0.0)); // 1 and -1
 //! let b: Vec<C64> = a.iter().map(|v| v * C64::new(0.0, 2.0)).collect();
-//! assert!((Correlation::between(&a, &b).coefficient() - 1.0).abs() < 1e-15);
+//! assert!((Correlation::between(&a, &b).rho() - 1.0).abs() < 1e-15);
 //! ```
 
 use crate::C64;
@@ -102,7 +102,7 @@ impl Correlation {
 
     /// The normalised correlation $\rho = |c| / \sqrt{E_{a} E_{b}}$, 0 when a sequence
     /// has no energy.
-    pub fn coefficient(&self) -> f64 {
+    pub fn rho(&self) -> f64 {
         if self.energy_a > 0.0 && self.energy_b > 0.0 {
             self.cross.norm() / (self.energy_a * self.energy_b).sqrt()
         } else {
@@ -111,8 +111,8 @@ impl Correlation {
     }
 
     /// Its square $\rho^{2} = |c|^{2} / (E_{a} E_{b})$ (computed as such, not as the square
-    /// of [`Correlation::coefficient`]), 0 when a sequence has no energy.
-    pub fn coefficient_squared(&self) -> f64 {
+    /// of [`Correlation::rho`]), 0 when a sequence has no energy.
+    pub fn rho_squared(&self) -> f64 {
         if self.energy_a > 0.0 && self.energy_b > 0.0 {
             self.cross.norm_sqr() / (self.energy_a * self.energy_b)
         } else {
@@ -141,8 +141,8 @@ mod tests {
         let a = [C64::new(1.0, 2.0), C64::new(-0.5, 0.1), C64::new(0.0, -1.0)];
         let b: Vec<C64> = a.iter().map(|v| v * C64::new(-1.5, 0.7)).collect();
         let c = Correlation::between(&a, &b);
-        assert!((c.coefficient() - 1.0).abs() < 1e-15 && (c.coefficient_squared() - 1.0).abs() < 1e-15);
+        assert!((c.rho() - 1.0).abs() < 1e-15 && (c.rho_squared() - 1.0).abs() < 1e-15);
         let z = Correlation::between(&a, &[C64::new(0.0, 0.0); 3]);
-        assert_eq!((z.coefficient(), z.coefficient_squared()), (0.0, 0.0));
+        assert_eq!((z.rho(), z.rho_squared()), (0.0, 0.0));
     }
 }

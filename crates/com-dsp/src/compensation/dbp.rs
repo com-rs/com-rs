@@ -33,7 +33,7 @@
 //! let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
 //! let x: Vec<C64> = (0..128).map(|n| C64::new(1e-2 * (n % 3) as f64, 0.0)).collect();
 //! let mut y = x.clone();
-//! let forward = Steps::forward(40, 2.0);                         // one 80 km span
+//! let forward = Steps::new(40, 2.0);                         // one 80 km span
 //! SplitStep::new(&m, forward, 128, 64e9).run(&mut y);
 //! let dbp = Dbp { forward: Some(forward), steps_per_span: 40, ..Dbp::new(m, 80.0, 1, 1.0) };
 //! let z = dbp.run(&y, 64e9).unwrap();
@@ -164,7 +164,7 @@ mod tests {
         // 80 km in 115 steps: 80/115 is not representable, and the floor of 80 over it
         // may be 114
         let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
-        let forward = Steps::forward(115, 80.0 / 115.0);
+        let forward = Steps::new(115, 80.0 / 115.0);
         let x: Vec<C64> = (0..64).map(|n| C64::new(1e-2 * (n % 5) as f64, 1e-3 * (n % 2) as f64)).collect();
         let mut y = x.clone();
         SplitStep::new(&m, forward, 64, 64e9).run(&mut y);

@@ -58,8 +58,8 @@
 //! let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 0.0 };
 //! let x: Vec<C64> = (0..64).map(|n| C64::new((n % 3) as f64, (n % 2) as f64)).collect();
 //! let mut e = x.clone();
-//! SplitStep::new(&m, Steps::forward(8, 10.0), 64, 64e9).run(&mut e);
-//! SplitStep::new(&m.negated(), Steps::forward(8, 10.0), 64, 64e9).run(&mut e);
+//! SplitStep::new(&m, Steps::new(8, 10.0), 64, 64e9).run(&mut e);
+//! SplitStep::new(&m.negated(), Steps::new(8, 10.0), 64, 64e9).run(&mut e);
 //! assert!(x.iter().zip(&e).all(|(a, b)| (a - b).norm() < 1e-9));
 //! ```
 //!
@@ -143,7 +143,7 @@ pub struct Steps {
 impl Steps {
     /// The steps of the forward model: `n_steps` of `step_km`, whose nonlinear length is
     /// the step.
-    pub fn forward(n_steps: usize, step_km: f64) -> Steps {
+    pub fn new(n_steps: usize, step_km: f64) -> Steps {
         Steps { n_steps, step_km, nl_length_km: step_km }
     }
 
@@ -644,7 +644,7 @@ mod tests {
         let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
         let lossless = Medium { alpha_np_km: 0.0, ..m };
         let x: Vec<C64> = (0..256).map(|n| cis(0.3 * n as f64) * (1e-2 * (1 + n % 5) as f64)).collect();
-        let steps = Steps::forward(40, 0.5);
+        let steps = Steps::new(40, 0.5);
         let (mut a, mut b) = (x.clone(), x);
         SplitStep::new(&m, steps, 256, 64e9).run(&mut a);
         let loss = |z0: f64, z1: f64, out: &mut [f64]| out.fill((-(0.046 / 2.0) * (z1 - z0)).exp());
@@ -658,7 +658,7 @@ mod tests {
         let m = Medium { alpha_np_km: 0.0, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
         let mut e: Vec<C64> = (0..256).map(|n| cis(0.1 * n as f64) * (1e-2 * (n % 7) as f64)).collect();
         let e0: f64 = e.iter().map(C64::norm_sqr).sum();
-        SplitStep::new(&m, Steps::forward(80, 1.0), 256, 64e9).run(&mut e);
+        SplitStep::new(&m, Steps::new(80, 1.0), 256, 64e9).run(&mut e);
         let e1: f64 = e.iter().map(C64::norm_sqr).sum();
         assert!((e1 / e0 - 1.0).abs() < 1e-12);
     }
@@ -684,7 +684,7 @@ mod tests {
         s.run(&mut x, &mut y, 20.0, 128e9).unwrap();
         let mut e = x0;
         let scalar = Medium { gamma_w_km: 8.0 / 9.0 * 1.3, ..m };
-        SplitStep::new(&scalar, Steps::forward(2000, 0.01), 512, 128e9).run(&mut e);
+        SplitStep::new(&scalar, Steps::new(2000, 0.01), 512, 128e9).run(&mut e);
         let err = x.iter().zip(&e).map(|(u, v)| (u - v).norm()).fold(0.0, f64::max);
         let peak = e.iter().map(|v| v.norm()).fold(0.0, f64::max);
         assert!(err < 1e-4 * peak, "{}", err / peak);
@@ -751,7 +751,7 @@ mod tests {
         let m = Medium { alpha_np_km: 0.0, beta2_s2_km: b2, gamma_w_km: gamma };
         let mut a = a0.clone();
         // two dispersion lengths (L_D = T0²/|β₂| = 5 km)
-        SplitStep::new(&m, Steps::forward(1000, 0.01), n, fs).run(&mut a);
+        SplitStep::new(&m, Steps::new(1000, 0.01), n, fs).run(&mut a);
         let err = a.iter().zip(&a0).map(|(u, v)| (u.norm() - v.norm()).abs()).fold(0.0, f64::max);
         assert!(err < 1e-3 * p0.sqrt(), "relative envelope error {}", err / p0.sqrt());
     }

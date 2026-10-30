@@ -51,7 +51,7 @@ fn propagate(n_steps: usize) -> (Vec<C64>, usize) {
     let fs = MODES as f64 / WINDOW_S;
     let h = LENGTH_KM / n_steps as f64;
     let mut e = launch();
-    SplitStep::new(&FIBER, Steps::forward(n_steps, h), MODES, fs).run(&mut e);
+    SplitStep::new(&FIBER, Steps::new(n_steps, h), MODES, fs).run(&mut e);
     // a forward and an inverse transform per step, and the two at the ends
     (e, 2 * n_steps + 2)
 }

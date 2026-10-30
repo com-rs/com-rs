@@ -132,7 +132,7 @@ pub fn frame_sync(
             continue;
         }
         let c = Correlation::between(&z[lo as usize..hi as usize], known);
-        let q = c.coefficient();
+        let q = c.rho();
         if !matches!(best, Some(b) if q <= b.2) {
             best = Some((d, c.cross, q));
         }
@@ -228,7 +228,7 @@ pub fn periodic_offset(
     // the correlation of the FFT, with the energies of the window and of its reference
     let energy_a: f64 = a.iter().map(C64::norm_sqr).sum();
     let energy_b: f64 = (0..l).map(|t| reference[(start + t + k) % p].norm_sqr()).sum();
-    let quality = Correlation { cross: ck, energy_a, energy_b }.coefficient();
+    let quality = Correlation { cross: ck, energy_a, energy_b }.rho();
     Ok(PeriodicOffset { offset: k, rotation: derotation(ck, symmetry), quality })
 }
 

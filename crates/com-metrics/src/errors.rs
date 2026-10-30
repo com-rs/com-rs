@@ -172,7 +172,7 @@ pub fn evm_data_aided(rx: &[C64], tx: &[C64]) -> Result<f64> {
 /// ```
 pub fn effective_snr_db(z: &[C64], x: &[C64]) -> Result<f64> {
     same_len(z.len(), x.len(), "effective_snr_db")?;
-    let rho2 = com_math::stats::Correlation::between(z, x).coefficient_squared();
+    let rho2 = com_math::stats::Correlation::between(z, x).rho_squared();
     Ok(com_math::lin2db(rho2 / (1.0 - rho2).max(f64::MIN_POSITIVE)))
 }
 

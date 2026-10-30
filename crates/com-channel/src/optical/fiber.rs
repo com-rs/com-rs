@@ -327,7 +327,7 @@ impl Ssfm {
         }
         let (n_steps, h) = self.steps()?;
         let f = &self.fiber;
-        let steps = SplitStep::new(&f.medium(), Steps::forward(n_steps, h), x.len(), fs);
+        let steps = SplitStep::new(&f.medium(), Steps::new(n_steps, h), x.len(), fs);
         let mut e = x.to_vec();
         for _ in 0..f.n_spans {
             steps.run(&mut e);
@@ -353,7 +353,7 @@ impl Ssfm {
         let (n_steps, h) = self.steps()?;
         let fiber = FiberParams { span_km: n_steps as f64 * h, ..self.fiber.clone() };
         let medium = Medium { alpha_np_km: 0.0, ..fiber.medium() };
-        let steps = SplitStep::new(&medium, Steps::forward(n_steps, h), x.len(), fs);
+        let steps = SplitStep::new(&medium, Steps::new(n_steps, h), x.len(), fs);
         let mut e = x.to_vec();
         for _ in 0..fiber.n_spans {
             let span = raman.field_span(&fiber, &[&e], fs)?;
@@ -371,7 +371,7 @@ impl Ssfm {
     /// of the lumped amplifiers: [`Ssfm::raman`] is ignored.
     pub fn dbp(&self, steps_per_span: usize, xi: f64) -> Dbp {
         let f = &self.fiber;
-        let forward = self.steps().ok().map(|(n, h)| Steps::forward(n, h));
+        let forward = self.steps().ok().map(|(n, h)| Steps::new(n, h));
         let mut dbp = Dbp { steps_per_span, xi, forward, ..Dbp::new(f.medium(), f.span_km, f.n_spans, 1.0) };
         dbp.span_gain = self.amplification.field_gain(f, steps_per_span as f64 * dbp.step_km());
         dbp
@@ -413,7 +413,7 @@ impl Ssfm {
             return Ok(Vec::new());
         }
         let f = &self.fiber;
-        let steps = SplitStepF32::new(&f.medium(), Steps::forward(n_steps, h), n, fs);
+        let steps = SplitStepF32::new(&f.medium(), Steps::new(n_steps, h), n, fs);
         let simulated_km = n_steps as f64 * h;
         let ideal_gain = self.amplification.field_gain(f, simulated_km) as f32;
         let mut e: Vec<C32> = x.iter().map(|v| C32::new(v.re as f32, v.im as f32)).collect();
