@@ -17,7 +17,7 @@
 //! | [`gf2m`] | the Galois fields $\mathrm{GF}(2^{m})$ of the BCH and Reed–Solomon codes |
 //! | [`bigint`] | unsigned integers of arbitrary size, for enumerative coding |
 //! | [`bits`] | the Gray code [`gray`], [`gray_inverse`], and the conversions [`bits_to_index`], [`index_to_bits`] (most significant bit first) |
-//! | [`search`] | [`bisect`], [`golden_max`] and [`gcd`] |
+//! | [`search`] | [`bisect`], [`golden_max`], [`argmax`] and [`gcd`] |
 //! | [`sequences`] | linear-feedback shift registers and the Gold sequence of 3GPP |
 //!
 //! At the root:
@@ -66,7 +66,7 @@ pub mod search;
 pub mod sequences;
 
 pub use bits::{bits_to_index, gray, gray_inverse, index_to_bits};
-pub use search::{bisect, gcd, golden_max};
+pub use search::{argmax, bisect, gcd, golden_max};
 
 pub use com_core::C64;
 
