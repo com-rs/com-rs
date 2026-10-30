@@ -14,7 +14,7 @@
 //! assert!((s.distance2(C64::new(0.5, 0.0)) - 0.25).abs() < 1e-12);
 //! ```
 
-use crate::C64;
+use crate::{C64, SCALE_FLOOR};
 
 /// Nearest-point search in a set of points: by rounding the coordinates on a regular square (QAM) or
 /// linear (PAM) grid, `O(1)` per sample, otherwise by exhaustive search.
@@ -77,7 +77,7 @@ impl Slicer {
     fn levels(v: impl Iterator<Item = f64>) -> Vec<f64> {
         let mut l: Vec<f64> = v.collect();
         l.sort_by(f64::total_cmp);
-        let span = (l[l.len() - 1] - l[0]).abs().max(1e-300);
+        let span = (l[l.len() - 1] - l[0]).abs().max(SCALE_FLOOR);
         l.dedup_by(|a, b| (*a - *b).abs() <= 1e-9 * span);
         l
     }
