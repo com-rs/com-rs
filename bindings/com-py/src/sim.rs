@@ -141,9 +141,14 @@ impl PyStop {
     ///
     /// Returns:
     ///     Stop: the rule.
+    ///
+    /// Raises:
+    ///     ValueError: if ``seconds`` is negative, infinite or NaN.
     #[staticmethod]
-    fn max_time(seconds: f64) -> Self {
-        PyStop { inner: Stop::max_time(Duration::from_secs_f64(seconds.max(0.0))) }
+    fn max_time(seconds: f64) -> PyResult<Self> {
+        let d = Duration::try_from_secs_f64(seconds)
+            .map_err(|_| PyValueError::new_err(format!("max_time needs a finite, non-negative time, got {seconds}")))?;
+        Ok(PyStop { inner: Stop::max_time(d) })
     }
 
     /// The rule of the ``stop`` mapping of a specification, parsed as the Rust runner

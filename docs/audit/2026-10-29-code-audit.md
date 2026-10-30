@@ -145,3 +145,29 @@ checker in CI (fixed today: the stubs of the OWC methods said `-> None`).
 | com-sim, com-spec | 11 700 | 22 | com-sim correct on determinism; com-spec repeats parameter lists and metrics, `verify` can pass with nothing checked |
 | bindings/com-py | 13 000 | 22 | disciplined (helpers, error mapping, GIL release); API surface uneven, logic leaked from the crates |
 | python/comrs, tests, tools, gallery | 16 000 | 22 | well above average; logic copied from Rust has diverged, guard checks that check nothing, duplicated tools |
+
+## Status — 30 October 2026
+
+Sections 1 and 2 are fixed, each item with a regression test, except two that stay open:
+a nested `Chain.from_spec` loses its `base_dir` (the outer chain flattens it), and the
+Python bindings do not expose the drop counts of `Record` yet. Choices made on the way:
+
+- `Tdl`, `Cdl` and the delay–Doppler channel return `Error::Config` when the signal has
+  another sample rate (their delays are rounded to samples at construction); their
+  rate and delay-spread fields are private, with getters.
+- `Ssfm` divides each span into $\lceil L/h \rceil$ equal steps: unchanged results when
+  $h$ divides $L$, the whole span otherwise; `dbp` stays its exact inverse.
+- `ReedSolomon::n()`/`k()` count bits (as `BlockCode`); the symbol counts are
+  `n_symbols()`/`k_symbols()`. `PolarCode::with_crc` refuses the fixed positions of a
+  table.
+- Infallible kernels (`matvec`, `fft::filter`, `map_streams`, `energy_with`,
+  `frequency_correlation`) panic on a length mismatch, documented; the fallible ones
+  (`ls`, `derotate`, `bit_errors`, `symbol_errors`, `fourth_power_foe`, the Manakov
+  solver) return `Result`.
+- `max_trials` is met exactly whatever the batch; a stopping target on a metric that is
+  not recorded, `min_errors` on a mean, an expectation that checks nothing and an empty
+  `expect` list are errors; values dropped by `Record` are counted in the JSON report.
+- `spec.load` and `$var` substitution of Python call the Rust loader; `gray_code`
+  refuses more than 24 bits; `Stop.max_time` refuses an infinite or negative time.
+
+Sections 3 to 6 are not started.

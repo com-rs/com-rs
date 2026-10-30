@@ -2,7 +2,7 @@
 //! (`comrs::waveform::ofdm::correction`), by simulation of the system of L. J. Cimini,
 //! Jr., "Analysis and simulation of a digital mobile channel using orthogonal frequency
 //! division multiplexing," *IEEE Trans. Commun.* 33(7), 1985
-//! (`references/1985_cimini_ofdm-digital-mobile-channel_tcom.pdf`): QPSK on N
+//! (`references/multicarrier/1985_cimini_ofdm-digital-mobile-channel_tcom.pdf`): QPSK on N
 //! subchannels at 7.5 kHz, the desired and the cochannel OFDM signals in independent
 //! flat Jakes fading at 850 MHz, an ideal pilot (Sec. II-E) or one decorrelated by a
 //! two-ray delay spread (Sec. II-F), BER compared at 1e-2 as in the paper (footnote 4).

@@ -2,9 +2,9 @@
 //! `comrs::channel::multipath::DelayDoppler` against P. Raviteja, Y. Hong, E. Viterbo and
 //! E. Biglieri, "Practical pulse-shaping waveforms for reduced-cyclic-prefix OTFS," *IEEE
 //! Trans. Veh. Technol.* 68(1), 2019
-//! (`references/2019_raviteja_pulse-shaping-reduced-cp-otfs_tvt.pdf`) and R. Hadani et
+//! (`references/multicarrier/2019_raviteja_pulse-shaping-reduced-cp-otfs_tvt.pdf`) and R. Hadani et
 //! al., "Orthogonal time frequency space modulation," *Proc. IEEE WCNC*, 2017
-//! (`references/2017_hadani_orthogonal-time-frequency-space-modulation_wcnc_arxiv.pdf`):
+//! (`references/multicarrier/2017_hadani_orthogonal-time-frequency-space-modulation_wcnc_arxiv.pdf`):
 //!
 //! - Theorem 1 (eq. (12)): a frame with one prefix through a channel of integer delays and
 //!   Doppler shifts, demodulated, is $H_{\mathrm{eff}} \mathbf{x}$ to $10^{-10}$; with

@@ -1,7 +1,7 @@
 //! Coded modulation (CM) and bit-interleaved coded modulation (BICM) with square QAM
 //! against G. Caire, G. Taricco and E. Biglieri, "Bit-interleaved coded modulation,"
 //! *IEEE Trans. Inf. Theory* 44(3), 1998
-//! (`references/1998_caire_bit-interleaved-coded-modulation_it.pdf`), Sec. III-C and
+//! (`references/coding/1998_caire_bit-interleaved-coded-modulation_it.pdf`), Sec. III-C and
 //! Figs. 6–7 (`comrs::mapping::bicm`; the capacities of Figs. 4–5 are checked by
 //! `crates/com-mapping/src/bicm.rs::literature`):
 //!

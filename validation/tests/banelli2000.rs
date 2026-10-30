@@ -1,7 +1,7 @@
 //! OFDM through a nonlinear amplifier (`comrs::dsp::nonlinear`) against P.
 //! Banelli and S. Cacopardi, "Theoretical analysis and performance of OFDM signals in
 //! nonlinear AWGN channels," *IEEE Trans. Commun.* 48(3), 430–441, 2000
-//! (`references/2000_banelli_ofdm-nonlinear-awgn_tcom.pdf`):
+//! (`references/multicarrier/2000_banelli_ofdm-nonlinear-awgn_tcom.pdf`):
 //!
 //! - eq. 7 (the series of the output autocorrelation, computed by quadrature for any
 //!   nonlinearity) against the closed forms of eq. 28 for the soft envelope limiter of an

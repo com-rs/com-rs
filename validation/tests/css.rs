@@ -3,7 +3,7 @@
 //!
 //! - L. Vangelista, "Frequency shift chirp modulation: the LoRa modulation," *IEEE
 //!   Signal Process. Lett.* 24(12), 2017
-//!   (`references/2017_vangelista_frequency-shift-chirp-modulation-lora_spl.pdf`), Fig.
+//!   (`references/modulation/2017_vangelista_frequency-shift-chirp-modulation-lora_spl.pdf`), Fig.
 //!   1, SF 7 over the channel √0.8 δ[n] + √0.2 δ[n - 1]: the FSK points of the figure
 //!   (read 1.2e-2 at -5 dB, 1.5e-3 at -3 dB) are reproduced within 30 %; the simulated
 //!   FSCM is 1.4 to 2.2 times above the points read (2.4e-2, 4e-3, 6.5e-4, 5e-5 at -9,
@@ -13,14 +13,14 @@
 //!   the figure;
 //! - O. Afisiadis, M. Cotting, A. Burg and A. Balatsoukas-Stimming, "On the error rate of
 //!   the LoRa modulation with interference," *IEEE Trans. Wireless Commun.* 19(2), 2020
-//!   (`references/2020_afisiadis_lora-error-rate-interference_twc_arxiv.pdf`): Fig. 2
+//!   (`references/modulation/2020_afisiadis_lora-error-rate-interference_twc_arxiv.pdf`): Fig. 2
 //!   (the simulated SER for SF 7 to 12 against the exact eq. (16)) and Fig. 7 (an
 //!   interferer of -3 dB, neither chip- nor phase-aligned: the approximation (63) with
 //!   the strongest bin at $[-\lfloor\tau\rceil]_{M}$ against the simulation; the
 //!   chip- and phase-aligned model is pessimistic, as in the figure);
 //! - M. Chiani and A. Elzanaty, "On the LoRa modulation for IoT: waveform properties and
 //!   spectral analysis," *IEEE Internet Things J.* 6(5), 2019
-//!   (`references/2019_chiani_lora-waveform-spectral-analysis_iotj_arxiv.pdf`), Table I
+//!   (`references/modulation/2019_chiani_lora-waveform-spectral-analysis_iotj_arxiv.pdf`), Table I
 //!   for M = 2^10 and 2^12 (the 99 % band 0.990 B and 0.986 B, the maximum
 //!   cross-correlation 0.0075 for 2^12).
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]

@@ -3,13 +3,13 @@
 //!
 //! - J. Guerreiro, R. Dinis and P. Montezuma, "On the detection of CE-OFDM signals,"
 //!   *IEEE Commun. Lett.* 20(11), 2165–2168, 2016
-//!   (`references/2016_guerreiro_ce-ofdm-detection_comml.pdf`), Sec. III-A and Fig. 1:
+//!   (`references/multicarrier/2016_guerreiro_ce-ofdm-detection_comml.pdf`), Sec. III-A and Fig. 1:
 //!   the phase detector (no unwrapping) with QPSK, N = 512 and M = 4 needs 10.8 dB at a
 //!   BER of 1e-3 for 2πh = 0.75 and 11.6 dB for 2πh = 1.0, and floors near 1.4e-2 at
 //!   2πh = 1.25. The simulation needs 0.2 and 0.4 dB more and floors at 1.5e-2;
 //! - M. J. López Morales, R. Dinis and A. García Armada, "Near-optimal detection of
 //!   CE-OFDM signals with high power efficiency via GAMP-based receivers," *Proc. IEEE
-//!   Globecom Workshops*, 2022 (`references/2022_lopez_ce-ofdm-gamp-receiver_globecomw.pdf`),
+//!   Globecom Workshops*, 2022 (`references/multicarrier/2022_lopez_ce-ofdm-gamp-receiver_globecomw.pdf`),
 //!   Fig. 3: at 2πb = 1.4 GAMP approaches the optimum BER $Q(\sqrt{(2\pi b)^{2}
 //!   2E_{b}/N_{0}})$ of Guerreiro et al. (eq. (8)) while the phase detector stays above
 //!   4e-2. The paper's GAMP is 2.4 dB from that optimum at 1e-3; the library's, which
@@ -20,12 +20,12 @@
 //!   so only the gaps between curves are compared;
 //! - R. A. Pacheco and D. Hatzinakos, "Error rate analysis of phase-modulated OFDM
 //!   (OFDM-PM) in AWGN channels," *Proc. IEEE ICASSP*, 2006
-//!   (`references/2006_pacheco_ofdm-pm-error-rate_icassp.pdf`), Fig. 1: the 99 %
+//!   (`references/multicarrier/2006_pacheco_ofdm-pm-error-rate_icassp.pdf`), Fig. 1: the 99 %
 //!   bandwidth of simulated OFDM-PM (104 subcarriers) against the analysis, here
 //!   `theory::occupied_bandwidth`;
 //! - A. U. Ahmed and J. R. Zeidler, "Novel low-complexity receivers for constant envelope
 //!   OFDM," *IEEE Trans. Signal Process.* 63(17), 4572–4582, 2015
-//!   (`references/2015_ahmed_ce-ofdm-low-complexity-receivers_tsp.pdf`), Sec. V and Fig. 6
+//!   (`references/multicarrier/2015_ahmed_ce-ofdm-low-complexity-receivers_tsp.pdf`), Sec. V and Fig. 6
 //!   (N = 64, 2X sampling): the basic linear receiver is within 0.5 dB of the arctangent
 //!   receiver at 2πh = 0.3 (about 0.4 dB in the figure); the enhanced receiver beats the basic one at 2πh = 0.5 and 0.7; at 0.7 the
 //!   arctangent receiver is better at low BERs (down to 1e-4; the wraps of the phase floor

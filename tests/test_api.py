@@ -323,6 +323,9 @@ def test_equalizer_accepts_one_mode_and_schedules():
 
 
 def test_invalid_parameters_raise_value_errors():
+    for seconds in (float("inf"), float("nan"), -1.0):
+        with pytest.raises(ValueError, match="max_time"):
+            comrs.sim.Stop.max_time(seconds)
     with pytest.raises(ValueError, match="power of two"):
         comrs.Constellation("qam", 12)
     with pytest.raises(ValueError):

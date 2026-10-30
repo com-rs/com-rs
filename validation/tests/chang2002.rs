@@ -1,7 +1,7 @@
 //! Bit error rates of equalised OFDM over Rayleigh fading with an imperfect channel
 //! estimate (`comrs::mapping::imperfect_csi`) against M.-X. Chang and Y. T. Su,
 //! "Performance analysis of equalized OFDM systems in Rayleigh fading," *IEEE Trans.
-//! Wireless Commun.* 1(4), 721–732, 2002 (`references/2002_chang_equalized-ofdm-rayleigh_twc.pdf`):
+//! Wireless Commun.* 1(4), 721–732, 2002 (`references/multicarrier/2002_chang_equalized-ofdm-rayleigh_twc.pdf`):
 //!
 //! - eqs. 31, 32 and 53 (BPSK, Gray QPSK and Gray 16-QAM equalised by an estimate jointly
 //!   Gaussian with the channel, of correlations $\rho_{1}$, $\rho_{2}$) against a Monte

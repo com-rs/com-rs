@@ -3,7 +3,7 @@
 //! nonlinear::bussgang}`) against H. Bouhadda, H. Shaiek, D. Roviras, R. Zayani,
 //! Y. Medjahdi and R. Bouallegue, "Theoretical analysis of BER performance of nonlinearly
 //! amplified FBMC/OQAM and OFDM signals," *EURASIP J. Adv. Signal Process.* 2014:60
-//! (`references/2014_bouhadda_ber-nonlinear-fbmc-oqam-ofdm_jasp.pdf`): 64 subcarriers
+//! (`references/multicarrier/2014_bouhadda_ber-nonlinear-fbmc-oqam-ofdm_jasp.pdf`): 64 subcarriers
 //! (PHYDYAS, $K = 4$, for FBMC), the TWTA of eq. (13) with $A_{\mathrm{sat}} = 1$ at the
 //! input back-off of eq. (14), AWGN; $E_{b}$ is that of the useful output
 //! $|K|^{2}\sigma^{2}$, which puts the curves where the paper has them.

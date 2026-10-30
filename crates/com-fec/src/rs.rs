@@ -759,5 +759,4 @@ mod literature {
         let tol = 4.0 * (p_w * (1.0 - p_w) / trials as f64).sqrt();
         assert!((measured - p_w).abs() < tol, "measured {measured}, closed form {p_w}, tolerance {tol}");
     }
-
 }

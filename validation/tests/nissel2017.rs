@@ -1,7 +1,7 @@
 //! OFDM, CP-OFDM and FBMC/OQAM in doubly-selective channels against R. Nissel and M.
 //! Rupp, "OFDM and FBMC-OQAM in doubly-selective channels: calculating the bit error
 //! probability," *IEEE Commun. Lett.* 21(6), 2017
-//! (`references/2017_nissel_ofdm-fbmc-oqam-doubly-selective-bep_comml.pdf`), with the
+//! (`references/multicarrier/2017_nissel_ofdm-fbmc-oqam-doubly-selective-bep_comml.pdf`), with the
 //! channels of `comrs::channel::multipath` (ITU-R M.1225 Vehicular A, Jakes Doppler) and
 //! the one-tap equaliser on the exact diagonal of $Q^{H} H G$ (eq. (8)):
 //!

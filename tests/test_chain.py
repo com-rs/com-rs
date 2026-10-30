@@ -122,7 +122,7 @@ def test_python_block_and_recorded_values():
 
 def test_python_stop_rule():
     res = qpsk_link().run(grid={"ebn0_db": [4.0]}, stop=comrs.sim.Stop.max_trials(10), seed=1)
-    assert res[0]["trials"] == 32  # one batch
+    assert res[0]["trials"] == 10  # the limit, whatever the batch
 
 
 def test_from_spec_round_trip():

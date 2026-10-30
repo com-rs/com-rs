@@ -1,7 +1,7 @@
 //! The comb-type pilot interpolations of S. Coleri, M. Ergen, A. Puri and A. Bahai,
 //! "Channel estimation techniques based on pilot arrangement in OFDM systems," *IEEE
 //! Trans. Broadcast.* 48(3), 2002
-//! (`references/2002_coleri_ofdm-pilot-channel-estimation_tbc.pdf`), Sec. V and VI
+//! (`references/synchronisation/2002_coleri_ofdm-pilot-channel-estimation_tbc.pdf`), Sec. V and VI
 //! (`comrs::waveform::ofdm::estimation::FrequencyInterpolation`): LS estimates on a comb
 //! of one pilot in $L$ over 128 subcarriers of a 1024-point FFT, then linear,
 //! second-order (eq. (19)), cubic spline, low-pass (MATLAB `interp`) and time-domain

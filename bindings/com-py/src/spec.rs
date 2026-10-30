@@ -130,7 +130,7 @@ pub(crate) fn result_with<'py>(
 ///     ... stop: {max_trials: 50}
 ///     ... ''')
 ///     >>> res[0]["trials"], res[0]["metrics"]["ber"]["kind"]
-///     (64, 'rate')
+///     (50, 'rate')
 #[pyfunction]
 #[pyo3(signature = (spec, *, threads = None, batch = None, fast_dev_run = false, progress = false, profile = None, csv_path = None, json_path = None, base_dir = None))]
 #[allow(clippy::too_many_arguments)]
