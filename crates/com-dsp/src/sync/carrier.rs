@@ -15,10 +15,13 @@
 //! - [`viterbi_viterbi`]: `θ̂[n] = -unwrap(arg(Σ_window y^M)/M, 2π/M) - π/M`
 //!   (OptiCommPy `viterbi`, a centred moving average of `N` samples, written there for
 //!   QPSK and square QAM with `π/4`): the reference is a constellation whose `M`-th
-//!   power is negative, $s^{M} < 0$ (QPSK and square QAM, $M = 4$; the $M$-PSK
-//!   $e^{j\pi(2i+1)/M}$; BPSK $\pm j$ with $M = 2$), so that the estimate removes the
-//!   rotation up to a multiple of `2π/M`; for a constellation whose `M`-th power is
-//!   positive (BPSK $\pm 1$, the $M$-PSK $e^{j 2\pi i/M}$) add `π/M`;
+//!   moment is negative, $\sum_{i} s_{i}^{M} < 0$ (QPSK and square QAM, $M = 4$; the
+//!   $M$-PSK $e^{j\pi(2i+1)/M}$; BPSK $\pm j$ with $M = 2$), so that the estimate removes
+//!   the rotation up to a multiple of `2π/M`;
+//! - [`viterbi_viterbi_for`]: the same estimate with the reference phase of the
+//!   constellation given, `φ = -arg(Σ_i s_i^M)/M` taken in `[0, 2π/M)` in place of
+//!   `π/M`: `π/M` for QPSK and square QAM, `0` for BPSK $\pm 1$ and the $M$-PSK
+//!   $e^{j 2\pi i/M}$ of `com_mapping`;
 //! - [`bps`]: blind phase search (Pfau, Hoffmann and Noé, JLT 27(8), 2009): every test
 //!   phase `φ_b = b (π/2)/B`, `b = 0..B-1`, rotates the samples, the squared distances
 //!   to the nearest constellation points are summed over a window of `2N + 1` samples,
@@ -190,18 +193,53 @@ pub fn tone_frequency_rms(n: usize, snr: f64, fs: f64) -> f64 {
 
 /// Viterbi–Viterbi phase estimates (radians, to be applied with `derotate(…, +1)`) over
 /// a centred window of `n` samples, for a constellation of symmetry `m` whose `m`-th
-/// power is negative (see the module: `-π/M` is the reference phase; OptiCommPy's `π/4`
-/// for $M = 4$).
+/// moment is negative (see the module: `-π/M` is the reference phase; OptiCommPy's `π/4`
+/// for $M = 4$): QPSK and square QAM. Another constellation (BPSK $\pm 1$) takes
+/// [`viterbi_viterbi_for`].
 ///
 /// # Errors
 /// [`com_core::Error::Config`] for $M = 0$.
 pub fn viterbi_viterbi(x: &[C64], n: usize, m: u32) -> Result<Vec<f64>> {
     ensure(m >= 1, || "viterbi_viterbi: the symmetry M must be at least 1".into())?;
+    Ok(viterbi_viterbi_from(x, n, m, PI / m as f64))
+}
+
+/// The smallest $|\sum_{i} s_{i}^{M}|$, relative to $\sum_{i} |s_{i}|^{M}$, of a
+/// constellation whose `M`-th power removes the modulation in [`viterbi_viterbi_for`]
+/// (below it the reference phase is that of rounding errors: 8-PSK with $M = 4$).
+const VV_MIN_MOMENT: f64 = 1e-9;
+
+/// Viterbi–Viterbi phase estimates with the reference phase of the constellation `points`
+/// (radians, to be applied with `derotate(…, +1)`), over a centred window of `n` samples
+/// and for the symmetry `m`: the reference phase is $\varphi = -\arg(\mu)/M$ in $[0, 2\pi/M)$ with
+/// $\mu = \sum_{i} s_{i}^{M}$, so that a sample $s e^{j\theta}$ gives
+/// $-\theta$ up to a multiple of $2\pi/M$ (OptiCommPy's convention). $\varphi = \pi/M$,
+/// the offset of [`viterbi_viterbi`], for QPSK and square QAM ($\mu < 0$), and
+/// $\varphi = 0$ for BPSK $\pm 1$ and the $M$-PSK $e^{j 2\pi i/M}$ ($\mu > 0$).
+///
+/// # Errors
+/// [`com_core::Error::Config`] for $M = 0$, no point, or a constellation whose `M`-th
+/// moment vanishes ($|\mu| \le 10^{-9} \sum_{i} |s_{i}|^{M}$: the `M`-th power does not
+/// remove the modulation, as 8-PSK with $M = 4$).
+pub fn viterbi_viterbi_for(x: &[C64], n: usize, m: u32, points: &[C64]) -> Result<Vec<f64>> {
+    ensure(m >= 1, || "viterbi_viterbi_for: the symmetry M must be at least 1".into())?;
+    ensure(!points.is_empty(), || "viterbi_viterbi_for needs the constellation points".into())?;
+    let mu: C64 = points.iter().map(|s| s.powu(m)).sum();
+    let scale: f64 = points.iter().map(|s| s.norm().powi(m as i32)).sum();
+    ensure(mu.norm() > VV_MIN_MOMENT * scale, || {
+        format!("viterbi_viterbi_for: the {m}-th power of the constellation does not remove the modulation")
+    })?;
+    let mf = m as f64;
+    Ok(viterbi_viterbi_from(x, n, m, (-mu.arg() / mf).rem_euclid(2.0 * PI / mf)))
+}
+
+/// The estimates of [`viterbi_viterbi`] with the reference phase `offset` (radians).
+fn viterbi_viterbi_from(x: &[C64], n: usize, m: u32, offset: f64) -> Vec<f64> {
     let xm: Vec<C64> = x.iter().map(|v| v.powu(m)).collect();
     let avg = moving_average(&xm, n);
     let mf = m as f64;
     let ang: Vec<f64> = avg.iter().map(|v| v.arg() / mf).collect();
-    Ok(unwrap(&ang, 2.0 * PI / mf).into_iter().map(|p| -p - PI / mf).collect())
+    unwrap(&ang, 2.0 * PI / mf).into_iter().map(|p| -p - offset).collect()
 }
 
 /// Blind phase search with `b` test phases in `[0, π/2)` and a window of `2n + 1`
@@ -360,6 +398,46 @@ mod tests {
         let res = (th[250] + 0.2).rem_euclid(PI);
         assert!(res < 1e-9 || PI - res < 1e-9, "{}", th[250]);
         assert!(matches!(viterbi_viterbi(&y, 21, 0), Err(com_core::Error::Config(_))));
+    }
+
+    #[test]
+    fn viterbi_viterbi_for_bpsk_follows_the_phase_convention() {
+        // BPSK on ±1 rotated by 0.2: the correction is -0.2 (OptiCommPy's convention,
+        // applied with derotate(…, +1)), up to a multiple of π
+        let mut r = com_core::rng::Rng::new(4);
+        let s: Vec<C64> = (0..500).map(|_| C64::new(if r.bit() == 1 { 1.0 } else { -1.0 }, 0.0)).collect();
+        let y: Vec<C64> = s.iter().map(|v| v * cis(0.2)).collect();
+        let bpsk = [C64::new(1.0, 0.0), C64::new(-1.0, 0.0)];
+        let th = viterbi_viterbi_for(&y, 21, 2, &bpsk).unwrap();
+        assert!((th[250] + 0.2).abs() < 1e-12, "{}", th[250]);
+        assert!((derotate(&y, &th, 1.0).unwrap()[250] - s[250]).norm() < 1e-12);
+        // the reference of QPSK leaves BPSK on ±1 a quarter turn away
+        let res = (viterbi_viterbi(&y, 21, 2).unwrap()[250] + 0.2).rem_euclid(PI);
+        assert!((res - PI / 2.0).abs() < 1e-9, "{res}");
+    }
+
+    #[test]
+    fn viterbi_viterbi_for_qam_is_viterbi_viterbi() {
+        // square QAM: the reference phase π/M of viterbi_viterbi, to rounding
+        let qam16: Vec<C64> =
+            (0..16).map(|i| C64::new(f64::from(2 * (i % 4) - 3), f64::from(2 * (i / 4) - 3))).collect();
+        let qpsk: Vec<C64> = (0..4).map(|k| cis(PI / 4.0 + f64::from(k) * PI / 2.0)).collect();
+        let mut r = com_core::rng::Rng::new(5);
+        let y: Vec<C64> = (0..800).map(|n| qam16[r.below(16)] * cis(0.3 + 1e-3 * n as f64)).collect();
+        let reference = viterbi_viterbi(&y, 35, 4).unwrap();
+        for points in [&qam16, &qpsk] {
+            let th = viterbi_viterbi_for(&y, 35, 4, points).unwrap();
+            assert!(th.iter().zip(&reference).all(|(a, b)| (a - b).abs() < 1e-12));
+        }
+        // the 4-PSK e^{j2πi/4} of com_mapping: the reference phase 0
+        let psk4: Vec<C64> = (0..4).map(|k| cis(f64::from(k) * PI / 2.0)).collect();
+        let z: Vec<C64> = (0..400).map(|_| psk4[r.below(4)] * cis(0.3)).collect();
+        assert!((viterbi_viterbi_for(&z, 21, 4, &psk4).unwrap()[200] + 0.3).abs() < 1e-12);
+        // 8-PSK has no fourth moment; no point, no M
+        let psk8: Vec<C64> = (0..8).map(|k| cis(f64::from(k) * PI / 4.0)).collect();
+        assert!(matches!(viterbi_viterbi_for(&z, 21, 4, &psk8), Err(com_core::Error::Config(_))));
+        assert!(matches!(viterbi_viterbi_for(&z, 21, 4, &[]), Err(com_core::Error::Config(_))));
+        assert!(matches!(viterbi_viterbi_for(&z, 21, 0, &psk4), Err(com_core::Error::Config(_))));
     }
 
     #[test]
