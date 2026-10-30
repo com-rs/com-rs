@@ -20,7 +20,8 @@ crate does. It depends on layers 0 to 3 and nothing depends on it but the facade
 
 ## Consequences
 
-- `serde`, `serde_yaml` and `toml` stay out of the lower layers.
+- `serde`, `serde_json`, `serde_norway` (the YAML reader, a fork of `serde_yaml`, which
+  is no longer maintained) and `toml` stay out of the lower layers.
 - A block becomes available to specifications by an entry of
   `com_spec::blocks::registry`; the algorithm itself is placed by the placement rules.
 - The recordings I/O lives here because the specifications are its only user; it moves

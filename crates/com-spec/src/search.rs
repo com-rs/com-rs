@@ -2,7 +2,7 @@
 //! target, with its confidence interval.
 //!
 //! A sweep answers "what is the BER at 12 dB?"; a link budget asks the converse, "which
-//! SNR gives a BER of 10⁻³?". The `search` section of a specification answers it
+//! SNR gives a BER of $10^{-3}$?". The `search` section of a specification answers it
 //! directly:
 //!
 //! ```yaml

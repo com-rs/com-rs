@@ -90,7 +90,7 @@ impl ChannelState {
 pub struct ReceiverState {
     /// The noise variance the receiver believes in, on the scale of the unit-energy
     /// constellation: with the samples, the receiver's posterior
-    /// `q(x|z) ∝ e^{-|z - x|²/σ̂²}` (declared by `noise_estimate`, or by a learned
+    /// $q(x \mid z) \propto e^{-\lvert z - x \rvert^{2} / \hat{\sigma}^{2}}$ (declared by `noise_estimate`, or by a learned
     /// receiver).
     pub sigma2: Option<f64>,
     /// Noise variance of every received symbol after equalisation or detection (empty:
