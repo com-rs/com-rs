@@ -120,9 +120,11 @@ impl Ofdm {
         if self.dc_null && k >= 0 { k + 1 } else { k }
     }
 
-    /// FFT bin of the active subcarrier `i`.
+    /// FFT bin of the active subcarrier `i` ([`fft::centred_bin`], one bin further from
+    /// the subcarrier 0 on with `dc_null`).
     pub fn bin(&self, i: usize) -> usize {
-        self.subcarrier(i).rem_euclid(self.fft_len() as isize) as usize
+        let skip = usize::from(self.dc_null && i >= self.n_active / 2);
+        fft::centred_bin(i + skip, self.n_active, self.fft_len())
     }
 
     /// Whether an FFT bin carries an active subcarrier.
@@ -332,6 +334,26 @@ impl Demodulate for Ofdm {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    /// The bins were computed from the signed subcarrier index before they came from
+    /// `fft::centred_bin`: the same bins.
+    #[test]
+    fn the_bins_are_the_subcarriers_modulo_the_fft_size() {
+        for (n_fft, n_active) in [(8, 4), (16, 7), (64, 64), (64, 63), (256, 200), (12, 1)] {
+            for dc_null in [false, true] {
+                for oversampling in [1, 4] {
+                    let ofdm = Ofdm { oversampling, dc_null, ..Ofdm::new(n_fft, n_active).unwrap() };
+                    if ofdm.check().is_err() {
+                        continue;
+                    }
+                    for i in 0..n_active {
+                        let old = ofdm.subcarrier(i).rem_euclid(ofdm.fft_len() as isize) as usize;
+                        assert_eq!(ofdm.bin(i), old, "{n_fft} {n_active} {dc_null} {oversampling} {i}");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn round_trip_unit_power_and_band_occupancy() {

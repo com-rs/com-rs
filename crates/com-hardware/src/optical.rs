@@ -48,6 +48,7 @@ use crate::oscillator::{PhaseOrigin, increment_sd, phase_noise, wiener_phase};
 use com_core::rng::Rng;
 use com_core::{Result, ensure, same_len};
 use com_dsp::filter::{LowPass, fir_filter, low_pass_fir};
+use com_dsp::signal::freq_shift;
 use com_math::{BOLTZMANN, C64, ELEMENTARY_CHARGE, cis, db2lin, dbm2w};
 use std::f64::consts::PI;
 
@@ -509,8 +510,7 @@ impl WdmTransmitter {
 /// baseband and band-limited by resampling to `n_out` samples (an ideal coherent
 /// receiver with its local oscillator on the channel).
 pub fn wdm_demultiplex(x: &[C64], f: f64, fs: f64, n_out: usize) -> Vec<C64> {
-    let shifted: Vec<C64> = x.iter().enumerate().map(|(k, v)| v * cis(-2.0 * PI * f * k as f64 / fs)).collect();
-    com_dsp::resample::resample_fft(&shifted, n_out)
+    com_dsp::resample::resample_fft(&freq_shift(x, -f, fs), n_out)
 }
 
 /// The centre frequencies of `n` WDM channels spaced by `spacing` (Hz), relative to the
@@ -554,5 +554,22 @@ mod wdm_tests {
         let err: f64 = y.iter().zip(&reference).map(|(a, b)| (a / 1e-3f64.sqrt() - b).norm_sqr()).sum::<f64>();
         let sig: f64 = reference.iter().map(C64::norm_sqr).sum();
         assert!(err / sig < 1e-3, "{}", err / sig);
+    }
+
+    /// The demultiplexer shifted the multiplex itself, with the phase `-2π f k / fs`,
+    /// before it called `com_dsp::signal::freq_shift`, whose phase `(-2π f / fs) k`
+    /// rounds differently: the outputs differ by the rounding of phases up to `2π f n / fs`.
+    #[test]
+    fn the_demultiplexer_shifts_as_before_to_the_rounding_of_the_phase() {
+        let mut rng = Rng::new(5);
+        let x: Vec<C64> = (0..8192).map(|_| rng.complex_gaussian()).collect();
+        let (fs, f) = (256e9, 75e9);
+        let shifted: Vec<C64> = x.iter().enumerate().map(|(k, v)| v * cis(-2.0 * PI * f * k as f64 / fs)).collect();
+        let old = com_dsp::resample::resample_fft(&shifted, 2048);
+        let new = wdm_demultiplex(&x, f, fs, 2048);
+        let err = old.iter().zip(&new).map(|(a, b)| (a - b).norm_sqr()).sum::<f64>().sqrt();
+        let sig = old.iter().map(C64::norm_sqr).sum::<f64>().sqrt();
+        // the phase reaches 2π · 75/256 · 8192 ≈ 1.5·10⁴ rad, rounded to about 2·10⁻¹² rad
+        assert!(err / sig < 1e-11, "{}", err / sig);
     }
 }

@@ -96,7 +96,7 @@ pub fn welch(x: &[C64], fs: f64, nfft: usize, window: Option<&[f64]>, hop: usize
     let scale = 1.0 / (k as f64 * fs * u);
     let half = nfft / 2;
     let freqs = (0..nfft).map(|i| (i as f64 - half as f64) * fs / nfft as f64).collect();
-    let dens = (0..nfft).map(|i| acc[(i + nfft - half) % nfft] * scale).collect();
+    let dens = fft::fftshift(&acc).into_iter().map(|a| a * scale).collect();
     Ok((freqs, dens))
 }
 
