@@ -5,7 +5,8 @@ The source is `validation/literature.yaml`: one entry per document (paper, stand
 reference implementation), with what is compared, the tests that compare it, a badge
 and the inconsistencies found in the document. `just literature` regenerates the page;
 `--check` (run by `just check` and CI) fails if the page is out of date or if a test
-named in the file does not exist (`path` must exist, `path::name` must contain `name`).
+named in the file does not exist (`path` must exist, `path::name` must define the
+test `name`: `fn name(` in Rust, `def name(` in Python).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 import yaml
+from cited_tests import defines
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "validation" / "literature.yaml"
@@ -48,7 +50,7 @@ def check_tests(entries: list[dict]) -> list[str]:
             file = ROOT / path
             if not file.exists():
                 missing.append(f"{e['id']}: no file {path}")
-            elif name and name not in file.read_text(encoding="utf-8"):
+            elif name and not defines(file, name):
                 missing.append(f"{e['id']}: no {name} in {path}")
     return missing
 

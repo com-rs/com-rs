@@ -19,8 +19,6 @@ Example:
 from __future__ import annotations
 
 import copy
-import json
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -29,15 +27,16 @@ from comrs.block import Native, var
 
 __all__ = ["chain_blocks", "load", "settings"]
 
-_VAR = re.compile(r"\$(?:([A-Za-z_]\w*)|\{([A-Za-z_]\w*)\})")
-
 
 def _from_spec_value(value: Any) -> Any:
     """A parameter value of a specification, ``"$name"`` and ``"${name}"`` as
-    variables."""
+    variables (as the Rust runner reads them; other strings are substituted when the
+    block is built)."""
+    from comrs._comrs import _spec_variable
+
     if isinstance(value, str):
-        m = _VAR.fullmatch(value)
-        return var(m.group(1) or m.group(2)) if m else value
+        name = _spec_variable(value)
+        return var(name) if name is not None else value
     if isinstance(value, dict):
         return {k: _from_spec_value(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -45,32 +44,32 @@ def _from_spec_value(value: Any) -> Any:
     return value
 
 
-def _yaml(text: str) -> dict[str, Any]:
-    """Parse a YAML text with the Rust parser of the specifications (no Python
-    dependency)."""
-    from comrs._comrs import _yaml_to_json
+def _load(spec: str | Path | Mapping[str, Any]) -> tuple[dict[str, Any], Path | None]:
+    """A specification read by the Rust parser, and the directory of its file (the
+    relative paths of its blocks are resolved against it)."""
+    from comrs._comrs import _load_spec
 
-    return json.loads(_yaml_to_json(text))
+    d, base_dir = _load_spec(dict(spec) if isinstance(spec, Mapping) else spec)
+    return d, None if base_dir is None else Path(base_dir).absolute()
 
 
 def load(spec: str | Path | Mapping[str, Any]) -> dict[str, Any]:
-    """A specification as a dict.
+    """A specification as a dict, read and checked by the Rust parser (as
+    :func:`comrs.run_spec` and the ``comrs`` command read it).
 
     Args:
         spec (str | os.PathLike | dict): a mapping (copied), a YAML or JSON text, or a
-            file.
+            file (YAML, JSON or TOML).
 
     Returns:
         dict: the specification.
+
+    Raises:
+        FileNotFoundError: for a string that is neither a file nor a specification (a
+            misspelt path).
+        ValueError: for an invalid specification.
     """
-    if isinstance(spec, Mapping):
-        return copy.deepcopy(dict(spec))
-    path = Path(spec)
-    text = path.read_text() if "\n" not in str(spec) and path.is_file() else str(spec)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return _yaml(text)
+    return _load(spec)[0]
 
 
 def chain_blocks(spec: Mapping[str, Any]) -> tuple[dict[str, Native], dict[str, Any]]:

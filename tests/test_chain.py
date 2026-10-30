@@ -183,6 +183,21 @@ def test_results_are_tables_that_round_trip(tmp_path):
     assert len(comrs.Results(comrs.run_spec(res.spec))) == 2
 
 
+def test_where_compares_reals_to_a_relative_tolerance():
+    res = comrs.Results(
+        [
+            {"condition": {"noise_var": v, "x": x}, "metrics": {}}
+            for v, x in [(1e-12, 2.2e-16), (2e-12, 1.0)]
+        ]
+    )
+    assert [r["condition"]["noise_var"] for r in res.where(noise_var=1e-12)] == [1e-12]
+    assert [r["condition"]["noise_var"] for r in res.where(noise_var=2e-12 * (1 + 1e-12))] == [
+        2e-12
+    ]
+    assert len(res.where(x=0)) == 1  # a grid step that lands near zero
+    assert len(res.where(x=1.0 + 1e-6)) == 0
+
+
 def test_compare_gathers_variants():
     base = awgn_link()
     res = comrs.compare(

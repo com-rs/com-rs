@@ -4,12 +4,15 @@ use crate::{IntoPy, from_json, json};
 use comrs::sim::runner::ConditionResult;
 use comrs::sim::stats::Estimate;
 use comrs::spec::{Format, RunOptions, Spec, blocks, run, search, verify};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 use std::path::PathBuf;
 
 /// A specification from a path, a YAML/JSON text or a mapping.
+///
+/// A string of one line that is neither a file nor a mapping (a misspelt path) raises
+/// `FileNotFoundError`.
 pub(crate) fn load(py: Python<'_>, spec: &Bound<'_, PyAny>) -> PyResult<Spec> {
     if let Ok(p) = spec.extract::<PathBuf>() {
         if !spec.is_instance_of::<PyString>() || p.is_file() {
@@ -17,6 +20,12 @@ pub(crate) fn load(py: Python<'_>, spec: &Bound<'_, PyAny>) -> PyResult<Spec> {
         }
     }
     if let Ok(text) = spec.extract::<String>() {
+        let scalar = || matches!(serde_norway::from_str::<serde_json::Value>(&text), Ok(v) if !v.is_object());
+        if !text.contains('\n') && scalar() {
+            return Err(PyFileNotFoundError::new_err(format!(
+                "no specification file {text:?} (and the text is not a specification)"
+            )));
+        }
         return Spec::parse(&text, Format::Yaml).py();
     }
     if spec.is_instance_of::<PyDict>() {
@@ -97,6 +106,9 @@ pub(crate) fn result_with<'py>(
 ///         specification's).
 ///     json_path (str | os.PathLike, optional): JSON report (default: the
 ///         specification's).
+///     base_dir (str | os.PathLike, optional): the directory the relative paths of the
+///         blocks are resolved against (default: the directory of the specification
+///         file, else the working directory).
 ///
 /// Returns:
 ///     Results: one dict per condition with ``index``, ``condition``, ``status``,
@@ -120,7 +132,7 @@ pub(crate) fn result_with<'py>(
 ///     >>> res[0]["trials"], res[0]["metrics"]["ber"]["kind"]
 ///     (64, 'rate')
 #[pyfunction]
-#[pyo3(signature = (spec, *, threads = None, batch = None, fast_dev_run = false, progress = false, profile = None, csv_path = None, json_path = None))]
+#[pyo3(signature = (spec, *, threads = None, batch = None, fast_dev_run = false, progress = false, profile = None, csv_path = None, json_path = None, base_dir = None))]
 #[allow(clippy::too_many_arguments)]
 fn run_spec<'py>(
     py: Python<'py>,
@@ -132,8 +144,12 @@ fn run_spec<'py>(
     profile: Option<bool>,
     csv_path: Option<PathBuf>,
     json_path: Option<PathBuf>,
+    base_dir: Option<PathBuf>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let spec = load(py, spec)?;
+    let mut spec = load(py, spec)?;
+    if base_dir.is_some() {
+        spec.base_dir = base_dir;
+    }
     let opts =
         RunOptions { threads, batch, fast_dev_run, progress: Some(progress), profile, csv: csv_path, json: json_path };
     let results = py.detach(|| run(&spec, &opts)).py()?;
@@ -148,6 +164,27 @@ pub(crate) fn results_of<'py>(
     spec: &serde_json::Value,
 ) -> PyResult<Bound<'py, PyAny>> {
     py.import("comrs.results")?.getattr("Results")?.call1((items, from_json(py, spec)?))
+}
+
+/// A specification read by the Rust parser, as `spec.load` returns it, and the
+/// directory of its file.
+///
+/// Args:
+///     spec (str | os.PathLike | dict): as for `run_spec`.
+///
+/// Returns:
+///     tuple[dict, os.PathLike | None]: the specification as parsed (checked), and the directory
+///     that the relative paths of its blocks are resolved against (None for a text or a
+///     dict).
+///
+/// Raises:
+///     FileNotFoundError: for a string that is neither a file nor a specification.
+///     ValueError: for an invalid specification.
+#[pyfunction]
+#[pyo3(name = "_load_spec")]
+fn load_spec<'py>(py: Python<'py>, spec: &Bound<'py, PyAny>) -> PyResult<(Bound<'py, PyAny>, Option<PathBuf>)> {
+    let spec = load(py, spec)?;
+    Ok((from_json(py, &spec.source)?, spec.base_dir))
 }
 
 /// The conditions of a specification, in order, as dicts.
@@ -502,6 +539,7 @@ fn write_sigmf(
 /// Register the declarative functions.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_spec, m)?)?;
+    m.add_function(wrap_pyfunction!(load_spec, m)?)?;
     m.add_function(wrap_pyfunction!(spec_conditions, m)?)?;
     m.add_function(wrap_pyfunction!(spec_blocks, m)?)?;
     m.add_function(wrap_pyfunction!(spec_schema, m)?)?;

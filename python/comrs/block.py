@@ -23,6 +23,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 import warnings
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -71,11 +72,16 @@ def var(name: str) -> Var:
 
 
 def _resolve(value: Any, condition: Mapping[str, Any] | None) -> Any:
-    """Substitute the variables of a parameter value."""
+    """Substitute the variables of a parameter value: a :class:`Var` by its value, and
+    the variables of a string (``"${a}_${b}"``, ``"$$"``) as the Rust runner does."""
     if isinstance(value, Var):
         if condition is None or value.name not in condition:
             raise KeyError(f"the condition has no variable {value.name!r}")
         return condition[value.name]
+    if isinstance(value, str) and "$" in value:
+        from comrs._comrs import _substitute
+
+        return _substitute(value, dict(condition or {}))
     if isinstance(value, dict):
         return {k: _resolve(v, condition) for k, v in value.items()}
     if isinstance(value, list | tuple):
@@ -185,6 +191,7 @@ class Native(Block):
         name: str | None = None,
         label: str | None = None,
         profile: bool = False,
+        base_dir: str | os.PathLike[str] | None = None,
     ) -> Callable[[Frame, Rng], None]:
         """The block of a condition, built by the Rust registry (see
         :meth:`Block.bind`): ``label`` is its name in the chain, ``name`` the
@@ -197,6 +204,8 @@ class Native(Block):
             name (str | None): the name of the campaign.
             label (str | None): the name of the block in the chain.
             profile (bool): unused (a single block).
+            base_dir (str | os.PathLike | None): the directory the relative paths of
+                the block are resolved against (that of its specification file).
 
         Returns:
             Callable[[Frame, Rng], None]: the ``apply`` method of a :class:`LinkBlock`.
@@ -213,7 +222,7 @@ class Native(Block):
         if label is not None:
             spec.setdefault("label", label)
         cond = dict(condition) if name is not None and condition else None
-        block = LinkBlock(spec, fiber=fiber, name=name, condition=cond)
+        block = LinkBlock(spec, fiber=fiber, name=name, condition=cond, base_dir=base_dir)
         return block.apply
 
     def __call__(self, frame: Frame, rng: Rng) -> None:

@@ -115,6 +115,7 @@ mod spec;
 pub mod verify;
 
 pub use link::{Link, SpecScenario, link_labels, number_labels};
+pub use params::{substitute, variable};
 pub use run::{ProfileRow, RunOptions, profile, profile_of, run};
 pub use spec::{Format, Spec};
 

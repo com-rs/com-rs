@@ -77,3 +77,63 @@ def test_invalid_specifications_raise_value_errors():
         comrs.run_spec(
             "name: x\nlink: [source, {type: pulse_shape, sps: 2}]\nstop: {max_trials: 1}"
         )
+
+
+# --- spec.load and the variables are those of the Rust parser ------------------------
+
+
+def test_a_misspelt_path_is_an_error_not_a_specification():
+    for p in ["specs/no_such_spec.yaml", "no_such_spec"]:
+        with pytest.raises(FileNotFoundError, match="no_such_spec"):
+            comrs.spec.load(p)
+        with pytest.raises(FileNotFoundError):
+            comrs.Chain.from_spec(p)
+    with pytest.raises(ValueError, match="link"):
+        comrs.spec.load({"name": "x", "link": []})
+    path = SPECS / "qam_awgn.yaml"
+    assert comrs.spec.load(path) == comrs.spec.load(path.read_text())
+
+
+def test_the_relative_paths_of_a_file_are_relative_to_its_directory(tmp_path, monkeypatch):
+    # capture_16qam.yaml reads ../data/…, relative to specs/, from any working directory
+    monkeypatch.chdir(tmp_path)
+    chain = comrs.Chain.from_spec(SPECS / "capture_16qam.yaml")
+    assert chain.base_dir == SPECS
+    frame = chain(None, comrs.Rng(1))  # the blocks bound one by one
+    assert frame.samples.size > 0
+    stop = {"max_trials": 8}
+    res = chain.run(stop=stop)  # the Rust runner
+    ref = comrs.run_spec(chain.to_spec(stop=stop), base_dir=SPECS)
+    assert [r["metrics"] for r in res] == [r["metrics"] for r in ref]
+    with pytest.raises(OSError):
+        comrs.run_spec(chain.to_spec(stop=stop))  # ../data/ from tmp_path
+
+
+def test_variables_inside_strings_are_substituted_on_both_runners():
+    spec = {
+        "name": "interpolation",
+        "grid": {"m": [4, 16]},
+        "link": [
+            {"type": "source", "constellation": "${m}-QAM", "n_symbols": 400},
+            {"type": "awgn", "snr_db": 30},
+        ],
+        "metrics": {"report": ["ser"]},
+        "stop": {"max_trials": 4},
+    }
+    chain = comrs.Chain.from_spec(spec)
+    assert chain["source"].params["constellation"] == "${m}-QAM"
+    assert chain({"m": 16}, comrs.Rng(0)).constellation.order == 16
+    python = chain.run(stop=comrs.sim.Stop.max_trials(4))  # the Python runner
+    rust = comrs.run_spec(spec)
+    assert [r["metrics"]["ser"]["count"] for r in python] == [
+        r["metrics"]["ser"]["count"] for r in rust
+    ]
+    # whole variables keep their type, dotted names are variables, $$ is a dollar
+    blocks, _ = comrs.spec.chain_blocks(
+        {"link": [{"type": "x", "a": "${snr_db}", "b": "$fiber.span_km", "c": "$$5"}]}
+    )
+    p = blocks["x"].params
+    assert (p["a"], p["b"], p["c"]) == (comrs.var("snr_db"), comrs.var("fiber.span_km"), "$$5")
+    assert comrs.block._resolve(p["c"], {}) == "$5"
+    with pytest.raises(ValueError, match="unknown variable"):
+        comrs.block._resolve("${a}_${b}", {"a": 1})

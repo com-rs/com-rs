@@ -25,6 +25,7 @@ Example:
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -70,7 +71,8 @@ class Results(list):
         """The conditions whose variables have the given values.
 
         Args:
-            **condition: the values (reals compared to a relative tolerance of 1e-9).
+            **condition: the values (reals compared to a relative tolerance of 1e-9,
+                zero to an absolute tolerance of 1e-12).
 
         Returns:
             Results: the selection, with the specification.
@@ -314,8 +316,11 @@ def _block_labels(spec: Mapping[str, Any] | None) -> list[str]:
 
 
 def _same(a: Any, b: Any) -> bool:
+    """Whether two values of a variable are the same: reals within a relative tolerance
+    of 1e-9 (1e-12 and 2e-12 differ), a real and zero within 1e-12 (a grid step that
+    lands near zero)."""
     if isinstance(a, int | float) and isinstance(b, int | float):
-        return abs(a - b) <= 1e-9 * max(1.0, abs(b))
+        return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12 if 0 in (a, b) else 0.0)
     return a == b
 
 
