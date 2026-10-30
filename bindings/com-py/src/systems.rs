@@ -67,7 +67,7 @@ impl PyDvbs2 {
     /// int: The MODCOD field of the PLHEADER (1 to 28, Table 12).
     #[getter]
     fn modcod(&self) -> PyResult<u8> {
-        self.inner.modcod().number().py()
+        Ok(self.inner.modcod().number())
     }
 
     /// float: The ideal Es/N0 (dB) at a PER of 1e-7 of the normal frame (Table 13).
@@ -178,7 +178,8 @@ fn dvbs2_bbframe_data<'py>(py: Python<'py>, bbframe: &Bound<'py, PyAny>) -> PyRe
 ///     tuple[int, bool, bool]: the MODCOD, the short-frame flag and the pilot flag.
 #[pyfunction]
 fn dvbs2_decode_plheader(rx: &Bound<'_, PyAny>) -> PyResult<(u8, bool, bool)> {
-    dvbs2::decode_plheader(&cvec(rx)?).py()
+    let code = dvbs2::decode_plheader(&cvec(rx)?).py()?;
+    Ok((code.modcod, code.short, code.pilots))
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
