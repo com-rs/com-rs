@@ -123,19 +123,16 @@ fn pacheco2006_fig1_simulated_bandwidth() {
         let blocks = 1000;
         let (_, d) = comrs::mapping::source::symbols(&c, k * blocks, None, &mut Rng::new(3)).unwrap();
         let s = ce.modulate(&d).unwrap();
-        let mut p = vec![0.0; n];
-        for block in s.chunks(n) {
-            for (acc, v) in p.iter_mut().zip(comrs::math::fft::fft(block)) {
-                *acc += v.norm_sqr();
-            }
-        }
+        // the periodogram of the blocks, centred: the carrier line in bin n/2
+        let (_, p) = comrs::dsp::spectrum::periodogram(&s, 1.0, n).unwrap();
+        let dc = n / 2;
         // the power within ±z bins, z = 1 … n/2, without the line
-        let total: f64 = p[1..].iter().sum();
+        let total: f64 = p.iter().enumerate().filter(|(i, _)| *i != dc).map(|(_, v)| v).sum();
         let mut inside = 0.0;
         let mut z = 0;
         while inside < 0.99 * total {
             z += 1;
-            inside += p[z] + p[n - z];
+            inside += p[dc + z] + p[dc - z];
         }
         let simulated = z as f64 / k as f64;
         let analysis = theory::occupied_bandwidth(sigma, 0.99).unwrap();
