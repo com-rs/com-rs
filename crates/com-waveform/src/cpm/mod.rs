@@ -303,6 +303,14 @@ mod tests {
     }
 
     #[test]
+    fn edge_cases_return_instead_of_panicking() {
+        // one symbol with a pulse of three symbols: the reference sample is the last one
+        let g = CpmConfig::gmsk(0.3, 3, 4).build().unwrap();
+        assert_eq!(g.differential_detect(&[C64::new(1.0, 0.0); 4], None).unwrap().len(), 1);
+        assert_eq!(CpmConfig::msk(4).build().unwrap().min_distance2(0), f64::INFINITY);
+    }
+
+    #[test]
     fn constant_envelope_and_continuous_phase() {
         // the instantaneous frequency is 2πh Σ_k a_k g(t - kT), and the shifted pulses
         // sum to Σ_j g(t + jT) = 1/(2T) (LREC and LRC exactly, the truncated Gaussian

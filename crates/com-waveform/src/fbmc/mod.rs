@@ -200,8 +200,12 @@ impl Fbmc {
     /// \sum_{k} g_{m+\Delta m,n+\Delta n}\[k\]\, g_{m,n}^{*}\[k\]$ that the symbol
     /// $(m + \Delta m, n + \Delta n)$ leaves on the estimate of $(m, n)$: 1 for
     /// $\Delta m = \Delta n = 0$, purely imaginary otherwise (Bouhadda et al. 2014, eq. (7)
-    /// and Table 1). The subcarrier index is taken modulo $M$.
+    /// and Table 1). The subcarrier index is taken modulo $M$; pulses $|\Delta n| \ge 2K$
+    /// half-symbols apart do not overlap and give 0.
     pub fn interference(&self, m: usize, n: usize, dm: isize, dn: isize) -> C64 {
+        if dn.unsigned_abs() >= 2 * self.overlap {
+            return C64::new(0.0, 0.0);
+        }
         let mm = self.n_fft as isize;
         let m2 = (m as isize + dm).rem_euclid(mm) as usize;
         // a common time origin far enough for negative shifts
@@ -316,6 +320,14 @@ pub fn oqam_destagger(a: &[f64], m: usize) -> Result<Vec<C64>> {
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn distant_pulses_do_not_interfere() {
+        let f = Fbmc::new(8, 4).unwrap();
+        assert_eq!(f.interference(0, 0, 1, -1000), C64::new(0.0, 0.0));
+        assert_eq!(f.interference(0, 0, 1, isize::MAX), C64::new(0.0, 0.0));
+        assert!(f.interference(0, 0, 1, 7).norm() > 0.0);
+    }
 
     #[test]
     fn the_pulses_are_real_orthogonal_and_of_unit_energy() {

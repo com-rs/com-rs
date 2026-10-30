@@ -200,11 +200,9 @@ impl Cpm {
             None => r,
         };
         let offset = (l + 1) * sps / 2;
-        let sample = |n: usize| -> C64 {
-            let k = n * sps + offset;
-            if k < r.len() { r[k] } else { r[r.len() - 1] }
-        };
-        let mut prev = r[offset - sps];
+        let at = |k: usize| r[k.min(r.len() - 1)];
+        let sample = |n: usize| at(n * sps + offset);
+        let mut prev = at(offset - sps);
         let mut out = Vec::with_capacity(n_sym);
         for n in 0..n_sym {
             let cur = sample(n);
@@ -228,7 +226,9 @@ impl Cpm {
     /// \dots, \pm 2(M-1)\\}$ with $\gamma_{0} \ne 0$ and $\pi h \sum_{k} \gamma_{k}
     /// \equiv 0 \pmod{2 \pi}$ (the merge). The integral is evaluated with 256 points per
     /// symbol; it is infinite if no sequence merges within `max_len` symbols. With this
-    /// normalisation antipodal signalling has $d^{2} = 2$.
+    /// normalisation antipodal signalling has $d^{2} = 2$. The search visits
+    /// $(2M - 1)^{N}$ difference sequences for `max_len` $= N$; with `max_len` $= 0$ it
+    /// visits none and returns infinity.
     ///
     /// # Examples
     /// ```
@@ -244,8 +244,12 @@ impl Cpm {
         let h = self.h();
         let unit = i64::from(self.cfg.h_den) * 2;
         let mut best = f64::INFINITY;
+        if max_len == 0 {
+            return best;
+        }
         let mut gamma = vec![0i64; max_len];
-        for code in 0..n_diff.pow(max_len as u32) {
+        let n_codes = u32::try_from(max_len).ok().and_then(|e| n_diff.checked_pow(e)).unwrap_or(usize::MAX);
+        for code in 0..n_codes {
             let mut c = code;
             for g in &mut gamma {
                 *g = (c % n_diff) as i64 - (m as i64 - 1);

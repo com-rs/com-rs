@@ -53,7 +53,7 @@ mod tables;
 
 pub use fec::{CodeRate, Dvbs2Fec, FrameSize};
 
-use com_core::{Error, Result, ensure};
+use com_core::{Error, Result, ensure, ensure_shape};
 use com_fec::crc::Crc;
 use com_fec::interleaving::Interleaver;
 use com_mapping::constellation::Constellation;
@@ -367,7 +367,7 @@ pub fn pi2_bpsk(bits: &[u8]) -> Vec<C64> {
 /// # Errors
 /// [`Error::Shape`] for fewer than 90 symbols.
 pub fn decode_plheader(rx: &[C64]) -> Result<(u8, bool, bool)> {
-    ensure(rx.len() >= 90, || format!("a PLHEADER has 90 symbols, got {}", rx.len()))?;
+    ensure_shape(rx.len() >= 90, || format!("a PLHEADER has 90 symbols, got {}", rx.len()))?;
     // back to real BPSK values: undo the π/2 rotation
     let soft: Vec<f64> = rx
         .iter()
@@ -424,10 +424,14 @@ pub fn bbheader_crc() -> Crc {
 /// $K_{\mathrm{bch}} - 80$, CRC-8) and the $K_{\mathrm{bch}} - 80$ data bits, randomised.
 ///
 /// # Errors
+/// [`Error::Config`] unless $80 \le K_{\mathrm{bch}} \le 65\,615$ (DFL holds on 16 bits),
 /// [`Error::Shape`] for another number of data bits.
 pub fn bbframe(data: &[u8], k_bch: usize, rolloff: u8) -> Result<Vec<u8>> {
-    ensure(data.len() + 80 == k_bch, || format!("a BBFRAME of {k_bch} bits carries {} data bits", k_bch - 80))?;
-    let dfl = (k_bch - 80) as u16;
+    let dfl = k_bch.checked_sub(80).and_then(|d| u16::try_from(d).ok());
+    let dfl = dfl.ok_or_else(|| Error::Config(format!("K_bch = {k_bch} is not between 80 and 65 615 bits")))?;
+    ensure_shape(data.len() + 80 == k_bch, || {
+        format!("a BBFRAME of {k_bch} bits carries {dfl} data bits, got {}", data.len())
+    })?;
     // MATYPE-1: TS/GS 01, SIS 1, CCM 1, ISSYI 0, NPD 0, RO
     let matype1: u8 = 0b0111_0000 | (rolloff & 3);
     let bytes = [matype1, 0, 0, 0, (dfl >> 8) as u8, dfl as u8, 0, 0, 0];
@@ -442,7 +446,9 @@ pub fn bbframe(data: &[u8], k_bch: usize, rolloff: u8) -> Result<Vec<u8>> {
 /// # Errors
 /// [`Error::Shape`] for fewer than the 80 bits of the BBHEADER.
 pub fn bbframe_data(bbframe: &[u8]) -> Result<(Vec<u8>, bool)> {
-    ensure(bbframe.len() >= 80, || format!("a BBFRAME starts with an 80-bit BBHEADER, got {} bits", bbframe.len()))?;
+    ensure_shape(bbframe.len() >= 80, || {
+        format!("a BBFRAME starts with an 80-bit BBHEADER, got {} bits", bbframe.len())
+    })?;
     let clear = bb_scramble(bbframe);
     Ok((clear[80..].to_vec(), bbheader_crc().check(&clear[..80])))
 }
@@ -541,7 +547,7 @@ impl Dvbs2 {
         let pilot = C64::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
         let positions = self.data_positions();
         let n_data = positions.iter().filter(|d| **d).count();
-        ensure(symbols.len() == n_data, || format!("{} symbols for {n_data} data slots", symbols.len()))?;
+        ensure_shape(symbols.len() == n_data, || format!("{} symbols for {n_data} data slots", symbols.len()))?;
         let mut data = symbols.into_iter();
         for (is_data, c) in positions.into_iter().zip(&self.scrambler) {
             let v = if is_data { data.next().unwrap_or(pilot) } else { pilot };
@@ -557,7 +563,7 @@ impl Dvbs2 {
     /// # Errors
     /// [`Error::Shape`] if `rx` is not one PLFRAME.
     pub fn llr(&self, rx: &[C64], noise_var: f64, max_log: bool) -> Result<Vec<f64>> {
-        ensure(rx.len() == self.plframe_len(), || {
+        ensure_shape(rx.len() == self.plframe_len(), || {
             format!("a PLFRAME has {} symbols, got {}", self.plframe_len(), rx.len())
         })?;
         let data: Vec<C64> = rx[90..]
@@ -662,7 +668,11 @@ mod tests {
         assert_eq!(prbs, [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0]);
         let data: Vec<u8> = (0..7032 - 80).map(|i| (i % 5 == 1) as u8).collect();
         let bb = bbframe(&data, 7032, 0).unwrap();
-        assert_eq!(bbframe_data(&bb).unwrap(), (data, true));
+        assert_eq!(bbframe_data(&bb).unwrap(), (data.clone(), true));
+        assert!(matches!(bbframe(&[], 10, 0), Err(Error::Config(_))));
+        assert!(matches!(bbframe(&[], 70_000, 0), Err(Error::Config(_))));
+        assert!(matches!(bbframe(&data[1..], 7032, 0), Err(Error::Shape(_))));
+        assert!(matches!(bbframe_data(&data[..79]), Err(Error::Shape(_))));
         // the Gold sequence n = 0 is the published one: R_0 takes the four values
         let s = scrambling_sequence(0, 1000);
         assert!(s.iter().all(|c| (c.norm() - 1.0).abs() < 1e-12));
