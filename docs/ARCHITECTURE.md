@@ -249,6 +249,97 @@ for a channel matrix is acceptable inside a function body, not as a field name).
 Python API shares one vocabulary with the block parameters of the specifications
 (`fs`, `fc_hz`, `doppler_hz`, `noise_var`, `esn0_db`, `n_rx`, `n_tx`).
 
+### Units in names
+
+A public `f64` that has a unit carries it, in its type (`Hertz`, `Db`, `EbN0`) or in a
+suffix. This covers struct fields, methods that return a quantity, block parameters of
+the specifications, Python parameters and Rust parameters.
+
+| Suffix | Unit |
+| --- | --- |
+| `_hz` | Hz |
+| `_s` | s |
+| `_m`, `_km` | m, km |
+| `_mps` | m/s |
+| `_rad` | rad |
+| `_db`, `_dbm` | dB, dBm |
+| `_w` | W |
+| `_a` | A |
+| `_k` | K |
+| `_lin` | a linear ratio that could be mistaken for dB, such as a linear SNR |
+
+Names that stay bare: the vocabulary documented below (`fs` in Hz, `rolloff`, `beta2`,
+`gamma`, `noise_var`, linear by its name), counts and dimensionless quantities. A
+quantity in another unit says so too (`spacing_wavelengths`, `coherence_samples`).
+A function of the sampling grid names its argument by what it is: `fftfreq(n, spacing_s)`
+takes the sample spacing $1/f_s$ (s), `angular_frequencies(n, fs)` the rate (Hz).
+
+### One word per notion
+
+| Notion | Word | Not |
+| --- | --- | --- |
+| samples per symbol of a pulse | `sps` | `samples_per_symbol` |
+| FFT oversampling factor (OFDM, CE-OFDM) | `oversampling` | |
+| roll-off | `rolloff` | `alpha` |
+| noise variance | `noise_var` | `sigma2` |
+| fixed iteration count | `iterations` | |
+| iteration cap with early stopping | `max_iterations` | |
+| subcarriers | `n_subcarriers` | `n_data` |
+| data resource elements | `n_data` | |
+| symbols per antenna of a frame | `n_symbols` | `n_data` |
+
+`iterations` and `max_iterations` are chosen by meaning: a decoder that stops when its
+syndrome is zero has a cap (`LdpcCode`, the NR LDPC code). CPM keeps `sps`, its shaping
+rate.
+
+### Code dimensions
+
+Arguments keep the order of the reference: (n, k) for an (n, k) block code; (K, E) for
+the 3GPP rate-matched codes, named `k` and `e`, never `n`. Swapping two integers would
+break callers silently, so an order is never changed to make two families agree;
+instead every name says what it is.
+
+### One choice, one enum
+
+A choice between two algorithms is an enum, never a boolean whose polarity differs
+from one function to the next: `com_math::Jacobian { Exact, MaxLog }` is the choice of
+the Jacobian logarithm in `max_star`, the BCJR, the turbo decoder and
+`Constellation::llr`. A specification may keep a boolean key (`max_log`) mapped to the
+enum.
+
+### Constructors
+
+- At most three positional arguments.
+- Beyond that, a parameter struct with public fields, a `Default` and a
+  `check -> Result`; building is `new(params) -> Result`, or struct update followed by
+  `check` for a block whose fields are its parameters (`Rapp`, `Saleh`, `Mzm`).
+- A boolean argument becomes an enum or a field.
+
+### Container accessors
+
+- `stream(i)` returns a slice on every container, `stream_view(i)` the `ndarray` view.
+- The length of a stream is `len()`, and the resize is `resize(..)`, everywhere.
+
+### Verbs
+
+The names of the verb traits (`modulate`, `demodulate`, `map`, `demap`, `encode`,
+`decode`, `detect`, `propagate`, `impair`) are reserved for their meaning. Bits to
+symbols outside the trait is `map_bits`, symbols to bits by hard decision
+`demap_bits`; a second meaning of a name gets another name
+(`CeOfdm::demodulate_with_receiver`, `Ccdm::match_bits`). A closed form says its SNR
+convention in its name when it is not Eb/N0 (`theory::ser_esn0`).
+
+### Python
+
+- Signals and multi-antenna arrays are stream-major, `(n_streams, n)`, everywhere; a
+  channel matrix is `(n_rx, n_tx)`.
+- The random generator is the last parameter, named `rng`.
+- Tuning parameters are keyword-only.
+- A function returns one type, whatever its arguments.
+- A closed form is named `theory_*` and accepts arrays for its SNR argument.
+- Each item has the name of its Rust item, unless the Python idiom requires otherwise
+  (`__repr__`, `n_streams` properties).
+
 ## Core types and traits
 
 `com-core` defines the vocabulary every other crate speaks: typed containers, verb
@@ -558,8 +649,12 @@ allow_attributes_without_reason = "warn"
 - One error type, `com_core::Error` (`thiserror`, `#[non_exhaustive]`: `Config`,
   `Shape`, `Numerical`, `Condition`, `Io`), shared by every crate and re-exported as
   `comrs::Error` (ADR 0003). No `String` errors, no `Box<dyn Error>` in public
-  signatures. The length checks return `Error::Shape` with the lengths received
-  (`com_core::ensure_shape`).
+  signatures.
+- `Error::Shape` is for lengths: two inputs that disagree, or an input empty where
+  samples are needed; it gives the lengths received (`com_core::ensure_shape`,
+  `same_len`). `Error::Config` is for values: outside their domain, not finite, or an
+  unknown name. Every function follows this rule, and its `# Errors` documentation
+  says the same.
 - Invalid user input returns an error; it never panics. Panics are reserved for broken
   internal invariants and are documented under `# Panics`.
 - A configuration is checked when the block is built or used, once; hot loops never
