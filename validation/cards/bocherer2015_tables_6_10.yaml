@@ -1,0 +1,74 @@
+id: bocherer2015_tables_6_10
+title: Probabilistic amplitude shaping on the DVB-S2 LDPC codes at the operating points of the paper
+literature: bocherer2015
+source:
+  kind: paper
+  reference: "G. Böcherer, F. Steiner, P. Schulte, Bandwidth efficient and rate-matched low-density parity-check coded modulation, IEEE Trans. Commun. 63(12), 4651-4665, 2015 (arXiv:1502.02733v2, the numbering of its tables)"
+  locator: "Tables VI-X of arXiv:1502.02733v2: the first row (practical operating point) of each, and the adapted point of 2.50 bits of Table VIII"
+  file: coding/2015_bocherer_pas-ldpc_tcom_arxiv.pdf
+description: >
+  PAS (comrs::systems::pas) on the DVB-S2 LDPC code of 64 800 bits alone (no BCH),
+  layered sum-product decoding with 100 iterations, bit-metric decoding with the priors
+  of the amplitudes, the bit mapper pi of the table (Sec. VII-B), the Maxwell-Boltzmann
+  amplitudes whose constant-composition matcher gives the spectral efficiency of the
+  table (the effective rate of Sec. IX-3). The FER is simulated at the SNR of the table
+  and at +-0.05 dB (and between them while fewer than two points have 5 errors), each
+  point until 30 frame errors or 6000 frames; the SNR at which a least-squares line
+  through (SNR, ln FER) reaches the FER of the table.
+run:
+  test: validation/tests/bocherer2015.rs
+tier: campaign
+duration: "20 to 52 min per table on an Apple M6, the five tests run together (VIII 39 min for its two points, VI 52 min)"
+why: "the tables give the SNR to 0.01 dB with the FER and its 95 % confidence interval (+-50 %), worth about 0.05 dB on these waterfalls; the labels differ from the paper's by a fixed codeword and a reflection, which leave the FER unchanged; 0.2 dB is the tolerance of the test"
+findings:
+  - "the compositions of the matcher are those of Ccdm::from_distribution (largest remainders), which can differ from eq. (10) of Schulte & Böcherer (2016) by one amplitude"
+  - "Sec. IX does not give the schedule of the sum-product decoder; the test uses the layered one"
+cases:
+  - inputs: {table: "X", row: practical, quantity: rate_bits}
+    expected: 1.13
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "4-ASK, the DVB-S2 code of rate 2/3, pi = (2, 1); FER 5.2e-3 +- 2.6e-3"
+  - inputs: {table: "X", row: practical, quantity: snr_db_at_fer}
+    expected: 6.70
+    tolerance: {atol: 0.2}
+  - inputs: {table: "IX", row: practical, quantity: rate_bits}
+    expected: 1.85
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "8-ASK, rate 3/4, pi = (3, 2, 1); FER 1.5e-3 +- 8e-4"
+  - inputs: {table: "IX", row: practical, quantity: snr_db_at_fer}
+    expected: 11.45
+    tolerance: {atol: 0.2}
+  - inputs: {table: "VIII", row: practical, quantity: rate_bits}
+    expected: 2.96
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "16-ASK, rate 5/6, pi = (4, 3, 2, 1); FER 2.0e-2 +- 9.8e-3"
+  - inputs: {table: "VIII", row: practical, quantity: snr_db_at_fer}
+    expected: 18.40
+    tolerance: {atol: 0.2}
+  - inputs: {table: "VIII", row: adapted, quantity: rate_bits}
+    expected: 2.50
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "16-ASK, rate 5/6, the rate adaption of eq. (62); FER 7.2e-3 +- 3.6e-3"
+  - inputs: {table: "VIII", row: adapted, quantity: snr_db_at_fer}
+    expected: 15.51
+    tolerance: {atol: 0.2}
+  - inputs: {table: "VII", row: practical, quantity: rate_bits}
+    expected: 3.62
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "32-ASK, rate 5/6, pi = (4, 5, 2, 3, 1); FER 2.1e-3 +- 1.1e-3"
+  - inputs: {table: "VII", row: practical, quantity: snr_db_at_fer}
+    expected: 22.60
+    tolerance: {atol: 0.2}
+  - inputs: {table: "VI", row: practical, quantity: rate_bits}
+    expected: 5.09
+    tolerance: {atol: 0.005}
+    why: "printed to two decimals; the compositions of the matcher are integers"
+    note: "64-ASK, rate 9/10, pi = (4, 2, 5, 3, 6, 1); FER 4.1e-3 +- 2.1e-3"
+  - inputs: {table: "VI", row: practical, quantity: snr_db_at_fer}
+    expected: 31.80
+    tolerance: {atol: 0.2}

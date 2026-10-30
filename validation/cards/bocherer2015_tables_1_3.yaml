@@ -1,0 +1,50 @@
+id: bocherer2015_tables_1_3
+title: The SNRs at which shaped and uniform ASK, the capacity and bit-metric decoding reach m - 1 bits
+literature: bocherer2015
+source:
+  kind: paper
+  reference: "G. Böcherer, F. Steiner, P. Schulte, Bandwidth efficient and rate-matched low-density parity-check coded modulation, IEEE Trans. Commun. 63(12), 4651-4665, 2015 (arXiv:1502.02733v2, the numbering of its tables)"
+  locator: "Tables I and III of arXiv:1502.02733v2"
+  file: coding/2015_bocherer_pas-ldpc_tcom_arxiv.pdf
+description: >
+  For 2^m-ASK (m = 2 to 6) at the rate m - 1 bits per channel use: the SNR at which the
+  mutual information of the optimised Maxwell-Boltzmann input (eqs. 8-10), of the
+  uniform input and the capacity 1/2 log2(1 + P) (eq. 1) reach the rate, the shaping
+  gaps, and (Table III) the SNR at which the rate of bit-metric decoding with the BRGC
+  labelling (eq. 50, the labels of Table II) of the Maxwell-Boltzmann input reaches it
+  (com_validation::shaping: mi_ask, bmd_ask, snr_for, snr_mb).
+run:
+  test: validation/tests/bocherer2015.rs::bocherer_2015_table_i_and_iii_shaping_gaps_of_ask
+tier: ci
+why: "printed to four decimals; the SNRs are found by bisection on the quadratures of the rates, which agree within 2e-4 dB"
+cases:
+  - {inputs: {ask: 4, quantity: snr_capacity_db}, expected: 4.7712, tolerance: {atol: 6.0e-5}, why: "printed to four decimals: the rounding of the closed form 10 log10(2^(2R) - 1)"}
+  - {inputs: {ask: 4, quantity: snr_mb_db}, expected: 4.8180, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 4, quantity: snr_uniform_db}, expected: 5.1181, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 4, quantity: gap_mb_uniform_db}, expected: -0.3001, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 4, quantity: gap_mb_capacity_db}, expected: 0.0468, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 4, quantity: snr_bmd_db}, expected: 4.8313, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 8, quantity: snr_capacity_db}, expected: 11.7609, tolerance: {atol: 6.0e-5}, why: "printed to four decimals: the rounding of the closed form 10 log10(2^(2R) - 1)"}
+  - {inputs: {ask: 8, quantity: snr_mb_db}, expected: 11.8425, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 8, quantity: snr_uniform_db}, expected: 12.6187, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 8, quantity: gap_mb_uniform_db}, expected: -0.7761, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 8, quantity: gap_mb_capacity_db}, expected: 0.0816, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 8, quantity: snr_bmd_db}, expected: 11.8481, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 16, quantity: snr_capacity_db}, expected: 17.9934, tolerance: {atol: 6.0e-5}, why: "printed to four decimals: the rounding of the closed form 10 log10(2^(2R) - 1)"}
+  - {inputs: {ask: 16, quantity: snr_mb_db}, expected: 18.0910, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 16, quantity: snr_uniform_db}, expected: 19.1681, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 16, quantity: gap_mb_uniform_db}, expected: -1.0772, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 16, quantity: gap_mb_capacity_db}, expected: 0.0975, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 16, quantity: snr_bmd_db}, expected: 18.0951, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 32, quantity: snr_capacity_db}, expected: 24.0654, tolerance: {atol: 6.0e-5}, why: "printed to four decimals: the rounding of the closed form 10 log10(2^(2R) - 1)"}
+  - {inputs: {ask: 32, quantity: snr_mb_db}, expected: 24.1706, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 32, quantity: snr_uniform_db}, expected: 25.4140, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 32, quantity: gap_mb_uniform_db}, expected: -1.2434, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 32, quantity: gap_mb_capacity_db}, expected: 0.1052, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 32, quantity: snr_bmd_db}, expected: 24.1742, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 64, quantity: snr_capacity_db}, expected: 30.0988, tolerance: {atol: 6.0e-5}, why: "printed to four decimals: the rounding of the closed form 10 log10(2^(2R) - 1)"}
+  - {inputs: {ask: 64, quantity: snr_mb_db}, expected: 30.2078, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 64, quantity: snr_uniform_db}, expected: 31.5384, tolerance: {atol: 5.0e-4}}
+  - {inputs: {ask: 64, quantity: gap_mb_uniform_db}, expected: -1.3307, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 64, quantity: gap_mb_capacity_db}, expected: 0.1090, tolerance: {atol: 1.0e-3}, why: "the difference of two printed SNRs"}
+  - {inputs: {ask: 64, quantity: snr_bmd_db}, expected: 30.2110, tolerance: {atol: 5.0e-4}}

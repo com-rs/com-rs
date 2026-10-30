@@ -9,8 +9,12 @@
 //! - Tables VI–X: the frame error rates of PAS on the DVB-S2 LDPC codes, `#[ignore]`d
 //!   (`cargo test --release -p com-validation --test bocherer2015 -- --ignored
 //!   --nocapture`).
+//!
+//! The printed values and their tolerances are in the cards
+//! `validation/cards/bocherer2015_tables_1_3.yaml` and `bocherer2015_tables_6_10.yaml`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
+use com_validation::card::Card;
 use com_validation::shaping::{bmd_ask, mi_ask, snr_for, snr_mb};
 use com_validation::until_errors;
 use comrs::fec::block::BlockCode;
@@ -19,6 +23,7 @@ use comrs::mapping::source;
 use comrs::math::{db2lin, lin2db};
 use comrs::systems::dvbs2::fec::{CodeRate, Dvbs2Fec, FrameSize};
 use comrs::systems::pas::Pas;
+use serde_json::json;
 use std::time::Instant;
 
 /// Table I of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: the SNR (dB) at
@@ -30,39 +35,32 @@ use std::time::Instant;
 /// the same rates.
 #[test]
 fn bocherer_2015_table_i_and_iii_shaping_gaps_of_ask() {
-    // (M, rate, SNR(X♣), SNR(uniform), gap, SNR(capacity), gap, SNR(R_BMD) of Table III)
-    let table = [
-        (4, 1.0, 4.8180, 5.1181, -0.3001, 4.7712, 0.0468, 4.8313),
-        (8, 2.0, 11.8425, 12.6187, -0.7761, 11.7609, 0.0816, 11.8481),
-        (16, 3.0, 18.0910, 19.1681, -1.0772, 17.9934, 0.0975, 18.0951),
-        (32, 4.0, 24.1706, 25.4140, -1.2434, 24.0654, 0.1052, 24.1742),
-        (64, 5.0, 30.2078, 31.5384, -1.3307, 30.0988, 0.1090, 30.2110),
-    ];
-    for (m, r, s_mb, s_unif, gap_unif, s_cap, gap_cap, s_bmd) in table {
+    let mut card = Card::load("bocherer2015_tables_1_3").unwrap();
+    // 2^m-ASK at m - 1 bits per channel use
+    for (m, r) in [(4, 1.0), (8, 2.0), (16, 3.0), (32, 4.0), (64, 5.0)] {
         let (snr, nu) = snr_mb(m, r, &|nu, s| mi_ask(m, nu, s));
         let unif = snr_for(&|s| mi_ask(m, 0.0, s), r).unwrap();
         let cap = lin2db(2f64.powf(2.0 * r) - 1.0);
         let bmd = snr_for(&|s| bmd_ask(m, nu, s), r).unwrap();
-        println!(
-            "{m}-ASK, {r} bit: X♣ {snr:.4} dB (paper {s_mb}), uniform {unif:.4} ({s_unif}), capacity {cap:.4} \
-             ({s_cap}), BMD {bmd:.4} ({s_bmd}), nu = {nu:.6}"
-        );
-        assert!((cap - s_cap).abs() < 6e-5, "{m}-ASK: capacity {cap} vs {s_cap}");
-        assert!((snr - s_mb).abs() < 5e-4, "{m}-ASK: X♣ {snr} vs {s_mb}");
-        assert!((unif - s_unif).abs() < 5e-4, "{m}-ASK: uniform {unif} vs {s_unif}");
-        assert!((snr - unif - gap_unif).abs() < 1e-3, "{m}-ASK: shaping gap {} vs {gap_unif}", snr - unif);
-        assert!((snr - cap - gap_cap).abs() < 1e-3, "{m}-ASK: gap to capacity {} vs {gap_cap}", snr - cap);
-        assert!((bmd - s_bmd).abs() < 5e-4, "{m}-ASK: BMD {bmd} vs {s_bmd}");
+        println!("{m}-ASK, {r} bit: X♣ {snr:.4} dB, uniform {unif:.4}, capacity {cap:.4}, BMD {bmd:.4}, nu = {nu:.6}");
+        card.check(&json!({"ask": m, "quantity": "snr_capacity_db"}), cap);
+        card.check(&json!({"ask": m, "quantity": "snr_mb_db"}), snr);
+        card.check(&json!({"ask": m, "quantity": "snr_uniform_db"}), unif);
+        card.check(&json!({"ask": m, "quantity": "gap_mb_uniform_db"}), snr - unif);
+        card.check(&json!({"ask": m, "quantity": "gap_mb_capacity_db"}), snr - cap);
+        card.check(&json!({"ask": m, "quantity": "snr_bmd_db"}), bmd);
     }
+    card.finish().unwrap();
 }
 
 /// One operating point of Tables VI–X of Böcherer, Steiner & Schulte (2015),
 /// arXiv:1502.02733v2: $2^{m}$-ASK, the DVB-S2 code (64 800 bits), the bit mapper $\pi$
 /// without its final 1 (the signs), the spectral efficiency (bits per channel use), the
 /// SNR (dB) and the frame error rate with its 95 % confidence interval; the seed of the
-/// simulation.
+/// simulation. `table` and `row` name its cases in the card `bocherer2015_tables_6_10`.
 struct Point {
     table: &'static str,
+    row: &'static str,
     m: usize,
     code: CodeRate,
     levels: &'static [usize],
@@ -150,8 +148,7 @@ fn snr_at_fer(points: &[(f64, u64, u64)], target: f64) -> Option<f64> {
 /// PAS on the DVB-S2 LDPC codes against one point of Tables VI–X of Böcherer, Steiner &
 /// Schulte (2015): the FER of com-rs at the SNR of the table and at ±0.05 dB (and
 /// between them while fewer than two points have 5 errors), and the SNR at which it
-/// reaches the FER of the table (log-linear fit). Returns the difference in dB from the
-/// SNR of the table.
+/// reaches the FER of the table (log-linear fit), recorded in `card` with the rate.
 ///
 /// The system is that of the paper: the DVB-S2 LDPC code alone (no BCH), sum-product
 /// decoding with 100 iterations (layered here, Sec. IX does not give the schedule),
@@ -164,11 +161,11 @@ fn snr_at_fer(points: &[(f64, u64, u64)], target: f64) -> Option<f64> {
 /// compositions of the matcher are those of `Ccdm::from_distribution` (largest
 /// remainders), which can differ from eq. (10) of Schulte & Böcherer (2016) by one
 /// amplitude.
-fn check_pas_point(p: &Point) -> f64 {
+fn check_pas_point(p: &Point, card: &mut Card) {
     let start = Instant::now();
     let pas = pas_of(p);
     let rate = pas.rate();
-    assert!((rate - p.rate).abs() < 0.005, "Table {}: rate {rate} vs {}", p.table, p.rate);
+    card.check(&json!({"table": p.table, "row": p.row, "quantity": "rate_bits"}), rate);
     let label = format!("Table {} ({}-ASK, {}, R = {rate:.4})", p.table, 1 << p.m, p.code.name());
     let mut points: Vec<(f64, u64, u64)> = Vec::new();
     let run = |s: f64, points: &mut Vec<(f64, u64, u64)>| {
@@ -203,7 +200,12 @@ fn check_pas_point(p: &Point) -> f64 {
         snr.unwrap_or(f64::NAN),
         start.elapsed().as_secs_f64()
     );
-    delta
+    card.check(&json!({"table": p.table, "row": p.row, "quantity": "snr_db_at_fer"}), snr.unwrap_or(f64::NAN));
+}
+
+/// The cases of `table` in the card of Tables VI–X.
+fn table_card(table: &str) -> Card {
+    Card::load("bocherer2015_tables_6_10").unwrap().part(&json!({ "table": table })).unwrap()
 }
 
 /// Table X of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: 4-ASK, the
@@ -214,6 +216,7 @@ fn check_pas_point(p: &Point) -> f64 {
 fn bocherer_2015_table_x_pas_dvbs2() {
     let p = Point {
         table: "X",
+        row: "practical",
         m: 2,
         code: CodeRate::R2_3,
         levels: &[2],
@@ -223,8 +226,9 @@ fn bocherer_2015_table_x_pas_dvbs2() {
         ci: 2.6e-3,
         seed: 100,
     };
-    let delta = check_pas_point(&p);
-    assert!(delta.abs() < 0.2, "{delta} dB");
+    let mut card = table_card("X");
+    check_pas_point(&p, &mut card);
+    card.finish().unwrap();
 }
 
 /// Table IX of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: 8-ASK, the
@@ -236,6 +240,7 @@ fn bocherer_2015_table_x_pas_dvbs2() {
 fn bocherer_2015_table_ix_pas_dvbs2() {
     let p = Point {
         table: "IX",
+        row: "practical",
         m: 3,
         code: CodeRate::R3_4,
         levels: &[3, 2],
@@ -245,8 +250,9 @@ fn bocherer_2015_table_ix_pas_dvbs2() {
         ci: 8.0e-4,
         seed: 101,
     };
-    let delta = check_pas_point(&p);
-    assert!(delta.abs() < 0.2, "{delta} dB");
+    let mut card = table_card("IX");
+    check_pas_point(&p, &mut card);
+    card.finish().unwrap();
 }
 
 /// Table VIII of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: 16-ASK, the
@@ -259,6 +265,7 @@ fn bocherer_2015_table_ix_pas_dvbs2() {
 fn bocherer_2015_table_viii_pas_dvbs2() {
     let first = Point {
         table: "VIII",
+        row: "practical",
         m: 4,
         code: CodeRate::R5_6,
         levels: &[4, 3, 2],
@@ -268,11 +275,12 @@ fn bocherer_2015_table_viii_pas_dvbs2() {
         ci: 9.8e-3,
         seed: 102,
     };
-    let adapted = Point { rate: 2.50, snr_db: 15.51, fer: 7.2e-3, ci: 3.6e-3, seed: 103, ..first };
+    let adapted = Point { row: "adapted", rate: 2.50, snr_db: 15.51, fer: 7.2e-3, ci: 3.6e-3, seed: 103, ..first };
+    let mut card = table_card("VIII");
     for p in [first, adapted] {
-        let delta = check_pas_point(&p);
-        assert!(delta.abs() < 0.2, "{} bits: {delta} dB", p.rate);
+        check_pas_point(&p, &mut card);
     }
+    card.finish().unwrap();
 }
 
 /// Table VII of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: 32-ASK, the
@@ -284,6 +292,7 @@ fn bocherer_2015_table_viii_pas_dvbs2() {
 fn bocherer_2015_table_vii_pas_dvbs2() {
     let p = Point {
         table: "VII",
+        row: "practical",
         m: 5,
         code: CodeRate::R5_6,
         levels: &[4, 5, 2, 3],
@@ -293,8 +302,9 @@ fn bocherer_2015_table_vii_pas_dvbs2() {
         ci: 1.1e-3,
         seed: 104,
     };
-    let delta = check_pas_point(&p);
-    assert!(delta.abs() < 0.2, "{delta} dB");
+    let mut card = table_card("VII");
+    check_pas_point(&p, &mut card);
+    card.finish().unwrap();
 }
 
 /// Table VI of Böcherer, Steiner & Schulte (2015), arXiv:1502.02733v2: 64-ASK, the
@@ -306,6 +316,7 @@ fn bocherer_2015_table_vii_pas_dvbs2() {
 fn bocherer_2015_table_vi_pas_dvbs2() {
     let p = Point {
         table: "VI",
+        row: "practical",
         m: 6,
         code: CodeRate::R9_10,
         levels: &[4, 2, 5, 3, 6],
@@ -315,6 +326,7 @@ fn bocherer_2015_table_vi_pas_dvbs2() {
         ci: 2.1e-3,
         seed: 105,
     };
-    let delta = check_pas_point(&p);
-    assert!(delta.abs() < 0.2, "{delta} dB");
+    let mut card = table_card("VI");
+    check_pas_point(&p, &mut card);
+    card.finish().unwrap();
 }
