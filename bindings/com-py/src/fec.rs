@@ -14,7 +14,7 @@ use comrs::fec::ldpc::{self, CheckRule, LdpcCode};
 use comrs::fec::polar::PolarCode;
 use comrs::fec::puncture::{Punctured, PuncturedTurbo, Puncturer};
 use comrs::fec::scrambling::Scrambler;
-use comrs::fec::turbo::TurboCode;
+use comrs::fec::turbo::{TurboCode, TurboDecoder};
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -220,7 +220,7 @@ impl PyInterleaver {
     /// numpy.ndarray: The permutation (int64): output `i` is input `perm[i]`.
     #[getter]
     fn perm<'py>(&self, py: Python<'py>) -> IArr<'py> {
-        iarr(py, self.inner.perm.clone())
+        iarr(py, self.inner.perm().to_vec())
     }
 
     /// int: The block length.
@@ -238,7 +238,7 @@ impl PyInterleaver {
     ///     numpy.ndarray: the permuted block, of the dtype of `x`.
     fn interleave<'py>(&self, py: Python<'py>, x: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let x = self.one_block(py, x)?;
-        x.get_item(iarr(py, self.inner.perm.clone()))
+        x.get_item(iarr(py, self.inner.perm().to_vec()))
     }
 
     /// The inverse permutation: `x[perm[i]] = y[i]`.
@@ -251,7 +251,7 @@ impl PyInterleaver {
     fn deinterleave<'py>(&self, py: Python<'py>, y: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let y = self.one_block(py, y)?;
         let out = py.import("numpy")?.call_method1("empty_like", (&y,))?;
-        out.set_item(iarr(py, self.inner.perm.clone()), &y)?;
+        out.set_item(iarr(py, self.inner.perm().to_vec()), &y)?;
         Ok(out)
     }
 
@@ -328,10 +328,11 @@ impl PyConv {
         if !(2..=16).contains(&constraint) || generators.is_empty() {
             return Err(PyValueError::new_err("constraint length 2 to 16 and at least one generator"));
         }
-        let code = ConvolutionalCode { trellis: Trellis::feedforward(constraint, &generators).py()?, k, hard_decision };
+        let mut code = ConvolutionalCode::new(Trellis::feedforward(constraint, &generators).py()?, k).py()?;
+        code.hard_decision = hard_decision;
         let p = match puncture {
             Some(p) => puncturer(p)?,
-            None => Puncturer::identity(code.trellis.n_out).py()?,
+            None => Puncturer::identity(code.trellis().n_out()).py()?,
         };
         Ok(PyConv { inner: Punctured::new(code, p).py()?, punctured: puncture.is_some() })
     }
@@ -358,7 +359,7 @@ impl PyConv {
     /// `i`), `None` without puncturing.
     #[getter]
     fn puncture(&self) -> Option<Vec<Vec<u32>>> {
-        self.punctured.then(|| pattern_rows(&self.inner.puncturer))
+        self.punctured.then(|| pattern_rows(self.inner.puncturer()))
     }
 
     /// The free distance of the (punctured) code (see :func:`free_distance`).
@@ -366,7 +367,7 @@ impl PyConv {
     /// Returns:
     ///     int: the free distance.
     fn free_distance(&self) -> PyResult<u32> {
-        comrs::fec::puncture::free_distance(&self.inner.code.trellis, &self.inner.puncturer).py()
+        comrs::fec::puncture::free_distance(self.inner.code().trellis(), self.inner.puncturer()).py()
     }
 
     /// Encode whole blocks.
@@ -442,14 +443,14 @@ impl Turbo {
     fn code(&self) -> &TurboCode {
         match self {
             Turbo::Plain(c) => c,
-            Turbo::Punctured(p) => &p.code,
+            Turbo::Punctured(p) => p.code(),
         }
     }
 
-    fn code_mut(&mut self) -> &mut TurboCode {
+    fn decoder_mut(&mut self) -> &mut TurboDecoder {
         match self {
-            Turbo::Plain(c) => c,
-            Turbo::Punctured(p) => &mut p.code,
+            Turbo::Plain(c) => &mut c.decoder,
+            Turbo::Punctured(p) => p.decoder_mut(),
         }
     }
 
@@ -487,9 +488,9 @@ impl PyTurbo {
             }
             None => Interleaver::random(k, seed),
         };
-        let mut code = TurboCode::with_interleaver(il);
-        code.iterations = iterations;
-        code.exact = exact;
+        let mut code = TurboCode::with_interleaver(il).py()?;
+        code.decoder.iterations = iterations;
+        code.decoder.exact = exact;
         let inner = match puncture {
             Some(p) => Turbo::Punctured(PuncturedTurbo::new(code, puncturer(p)?).py()?),
             None => Turbo::Plain(code),
@@ -521,19 +522,19 @@ impl PyTurbo {
     fn puncture(&self) -> Option<Vec<Vec<u32>>> {
         match &self.inner {
             Turbo::Plain(_) => None,
-            Turbo::Punctured(p) => Some(pattern_rows(&p.puncturer)),
+            Turbo::Punctured(p) => Some(pattern_rows(p.puncturer())),
         }
     }
 
     /// int: Decoding iterations (read and write).
     #[getter]
     fn get_iterations(&self) -> usize {
-        self.inner.code().iterations
+        self.inner.code().decoder.iterations
     }
 
     #[setter]
     fn set_iterations(&mut self, n: usize) {
-        self.inner.code_mut().iterations = n;
+        self.inner.decoder_mut().iterations = n;
     }
 
     /// Encode whole blocks.
@@ -639,9 +640,9 @@ impl PyLdpc {
         max_iterations=ldpc::DEFAULT_MAX_ITERATIONS,
     ))]
     fn set_decoder(&mut self, rule: &str, alpha: f64, layered: bool, max_iterations: usize) -> PyResult<()> {
-        self.inner.rule = CheckRule::from_name(rule, alpha).py()?;
-        self.inner.layered = layered;
-        self.inner.max_iterations = max_iterations;
+        self.inner.decoder.rule = CheckRule::from_name(rule, alpha).py()?;
+        self.inner.decoder.layered = layered;
+        self.inner.decoder.max_iterations = max_iterations;
         Ok(())
     }
 
@@ -759,7 +760,7 @@ impl PyPolar {
         if let Some(c) = crc {
             code = code.with_crc(Crc::from_name(c).py()?).py()?;
         }
-        Ok(PyPolar { inner: code.with_list(list_size) })
+        Ok(PyPolar { inner: code.with_list(list_size).py()? })
     }
 
     /// int: Information bits per block.
@@ -868,9 +869,9 @@ impl PyNrLdpc {
         layered: bool,
     ) -> PyResult<Self> {
         let mut code = comrs::fec::nr::NrLdpc::with_options(k, n, base_graph, rv, qm).py()?;
-        code.code.rule = CheckRule::from_name(rule, ldpc::DEFAULT_ALPHA).py()?;
-        code.code.max_iterations = iterations;
-        code.code.layered = layered;
+        code.decoder_mut().rule = CheckRule::from_name(rule, ldpc::DEFAULT_ALPHA).py()?;
+        code.decoder_mut().max_iterations = iterations;
+        code.decoder_mut().layered = layered;
         Ok(PyNrLdpc { inner: code })
     }
 
@@ -961,7 +962,7 @@ impl PyNrPolar {
             other => return Err(PyValueError::new_err(format!("link is \"uplink\" or \"downlink\", got {other:?}"))),
         }
         .py()?;
-        Ok(PyNrPolar { inner: code.with_list(list_size) })
+        Ok(PyNrPolar { inner: code.with_list(list_size).py()? })
     }
 
     /// int: Payload bits per block.

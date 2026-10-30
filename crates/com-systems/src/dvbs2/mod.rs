@@ -316,7 +316,11 @@ pub fn bit_interleaver(modcod: Modcod, n: usize) -> Option<Interleaver> {
     let rows = n / c;
     let reverse = modcod.modulation == Modulation::Psk8 && modcod.rate == CodeRate::R3_5;
     let col = |j: usize| if reverse { c - 1 - j } else { j };
-    Some(Interleaver { perm: (0..rows * c).map(|i| col(i % c) * rows + i / c).collect() })
+    let perm = (0..rows * c).map(|i| col(i % c) * rows + i / c).collect();
+    Some(
+        Interleaver::from_permutation(perm)
+            .unwrap_or_else(|_| unreachable!("a column-row interleaver is a permutation")),
+    )
 }
 
 /// The Start Of Frame, 26 bits (§ 5.5.2.1).

@@ -510,7 +510,7 @@ fn monte_carlo_gmi(
     px: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<(f64, f64)> {
     let px = px.map(crate::fvec).transpose()?;
-    metrics::monte_carlo_gmi(&cvec(rx)?, &cvec(tx)?, &constellation.inner, px.as_deref()).py()
+    metrics::monte_carlo_gmi(&cvec(rx)?, &cvec(tx)?, &constellation.inner, px.as_deref()).map(|g| (g.gmi, g.ngmi)).py()
 }
 
 /// Symbol-wise mutual information for a Gaussian channel of the measured noise

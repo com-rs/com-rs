@@ -132,7 +132,7 @@ fn nissel_2017_eqs_16_17_are_the_rayleigh_closed_forms() {
         let eq17 = 0.5 - 3.0 / 8.0 / (1.0 + 10.0 / snr).sqrt() - 6.0 / 8.0 / (9.0 + 10.0 / snr).sqrt()
             + 5.0 / 8.0 / (25.0 + 10.0 / snr).sqrt();
         assert!((eq16 - ber_rayleigh_mrc(snr / 2.0, 1).unwrap()).abs() < 1e-15);
-        assert!((eq17 - ber_16qam_rayleigh(snr / 4.0)).abs() < 1e-15);
+        assert!((eq17 - ber_16qam_rayleigh(snr / 4.0).unwrap()).abs() < 1e-15);
     }
 }
 
@@ -162,7 +162,7 @@ fn nissel_2017_fig_2_fbmc_in_doubly_flat_fading() {
             errors += rx.iter().zip(&bits).filter(|(a, b)| a != b).count();
             total += bits.len();
         }
-        let want = ber_16qam_rayleigh(db2lin(snr_db) / 4.0);
+        let want = ber_16qam_rayleigh(db2lin(snr_db) / 4.0).unwrap();
         let got = errors as f64 / total as f64;
         assert!((got / want - 1.0).abs() < 0.1, "{snr_db} dB: {got} against {want}");
     }

@@ -58,9 +58,9 @@ fn chang2002_eqs_31_32_53_against_monte_carlo() {
     for (db, r1, r2, sr) in cases {
         let g = db2lin(db);
         let checks: [(Constellation, f64); 3] = [
-            (Constellation::psk(2).unwrap(), ber_bpsk_imperfect_csi(g, r1, r2)),
-            (Constellation::qam(4).unwrap(), ber_qpsk_imperfect_csi(g, r1, r2)),
-            (Constellation::qam(16).unwrap(), ber_16qam_imperfect_csi(g, r1, r2, sr)),
+            (Constellation::psk(2).unwrap(), ber_bpsk_imperfect_csi(g, r1, r2).unwrap()),
+            (Constellation::qam(4).unwrap(), ber_qpsk_imperfect_csi(g, r1, r2).unwrap()),
+            (Constellation::qam(16).unwrap(), ber_16qam_imperfect_csi(g, r1, r2, sr).unwrap()),
         ];
         for (c, theory) in checks {
             // BPSK and QPSK do not depend on |Ĥ| (σ2/σ1)
@@ -102,7 +102,7 @@ fn chang2002_eqs_40_41_differential_detection_over_jakes_fading() {
                 let decided = (0..m).find(|&x| gray(x) == q).unwrap();
                 errors += u64::from((decided ^ d).count_ones());
             }
-            let theory = if m == 2 { ber_dbpsk_jakes(g, fd_ts) } else { ber_dqpsk_jakes(g, fd_ts) };
+            let theory = if m == 2 { ber_dbpsk_jakes(g, fd_ts) } else { ber_dqpsk_jakes(g, fd_ts) }.unwrap();
             assert!(
                 within_three_sigma(errors, (n * k as usize) as u64, theory),
                 "{m}-DPSK at {db} dB, fD Ts = {fd_ts}: {} vs {theory}",
@@ -117,14 +117,14 @@ fn chang2002_figs_3_and_4_read_on_the_figures() {
     // Fig. 4, 16-QAM at 50 dB: ρ1 → BER read on the figure (±30 %)
     let g = db2lin(50.0);
     for (rho1, read) in [(1.0, 5e-6), (0.999_999, 9e-6), (0.999_99, 4e-5), (0.9999, 3.5e-4), (0.999, 3.5e-3)] {
-        let v = ber_16qam_imperfect_csi(g, rho1, 0.0, 1.0);
+        let v = ber_16qam_imperfect_csi(g, rho1, 0.0, 1.0).unwrap();
         assert!((v / read - 1.0).abs() < 0.3, "ρ1 = {rho1}: {v} vs {read}");
     }
     // Fig. 3, DBPSK at 50 dB: fD Ts = 0.01 → 5e-4, 0.001 → 1.3e-5, and the curve
     // labelled 0.05 → 1.3e-4, which is fD Ts = 0.005
     for (fd_ts, read) in [(0.01, 5e-4), (0.001, 1.3e-5), (0.005, 1.3e-4)] {
-        let v = ber_dbpsk_jakes(g, fd_ts);
+        let v = ber_dbpsk_jakes(g, fd_ts).unwrap();
         assert!((v / read - 1.0).abs() < 0.3, "fD Ts = {fd_ts}: {v} vs {read}");
     }
-    assert!(ber_dbpsk_jakes(g, 0.05) > 1e-2);
+    assert!(ber_dbpsk_jakes(g, 0.05).unwrap() > 1e-2);
 }

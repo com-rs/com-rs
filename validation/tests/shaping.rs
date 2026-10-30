@@ -386,7 +386,7 @@ fn amplitudes(m: usize, nu: f64) -> Vec<f64> {
 /// in the MB family).
 fn pas_of(p: &Point) -> Pas {
     let mut code = Dvbs2Fec::new(FrameSize::Normal, p.code).unwrap().ldpc().clone();
-    code.max_iterations = 100;
+    code.decoder.max_iterations = 100;
     let n_c = code.n() / p.m;
     let extra = code.k() - n_c * (p.m - 1);
     let rate = |nu: f64| (Ccdm::from_distribution(&amplitudes(p.m, nu), n_c).unwrap().k() + extra) as f64 / n_c as f64;

@@ -40,7 +40,7 @@ fn lu_2014_eq_13() {
             // det(I + rho H H^H) = det(I + rho H^H H): the K x K form of Sylvester's identity
             capacity += equal_power(&hermitian(&h.view()).view(), antennas as f64 * RHO).unwrap();
             for (detector, rate) in [(&zf, &mut rate_zf), (&mmse, &mut rate_mmse)] {
-                let (_, var) = detector.estimate(&h.view(), &y, 1.0 / RHO).unwrap();
+                let var = detector.estimate(&h.view(), &y, 1.0 / RHO).unwrap().noise_var;
                 *rate += var.iter().map(|v| (1.0 + 1.0 / v).log2()).sum::<f64>();
             }
         }

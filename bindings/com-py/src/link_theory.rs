@@ -3,7 +3,7 @@
 //! fading, and the distortion of a nonlinear amplifier driven by an OFDM signal
 //! (Banelli & Cacopardi 2000).
 
-use crate::{FArr, cvec, farr, fvec, map_real};
+use crate::{FArr, IntoPy, cvec, farr, fvec, map_real};
 use comrs::dsp::nonlinear;
 use comrs::mapping::imperfect_csi as csi;
 use num_complex::Complex64 as C64;
@@ -43,9 +43,9 @@ fn theory_ber_imperfect_csi(
 ) -> PyResult<Py<PyAny>> {
     let g = |e: f64| comrs::math::db2lin(e);
     match modulation {
-        "bpsk" => map_real(ebn0_db, |e| Ok(csi::ber_bpsk_imperfect_csi(g(e), rho1, rho2))),
-        "qpsk" => map_real(ebn0_db, |e| Ok(csi::ber_qpsk_imperfect_csi(g(e), rho1, rho2))),
-        "16qam" => map_real(ebn0_db, |e| Ok(csi::ber_16qam_imperfect_csi(g(e), rho1, rho2, sigma_ratio))),
+        "bpsk" => map_real(ebn0_db, |e| csi::ber_bpsk_imperfect_csi(g(e), rho1, rho2).py()),
+        "qpsk" => map_real(ebn0_db, |e| csi::ber_qpsk_imperfect_csi(g(e), rho1, rho2).py()),
+        "16qam" => map_real(ebn0_db, |e| csi::ber_16qam_imperfect_csi(g(e), rho1, rho2, sigma_ratio).py()),
         other => Err(PyValueError::new_err(format!("modulation is bpsk, qpsk or 16qam, got {other:?}"))),
     }
 }
@@ -65,8 +65,8 @@ fn theory_ber_imperfect_csi(
 fn theory_ber_dpsk_jakes(m: usize, ebn0_db: &Bound<'_, PyAny>, fd_ts: f64) -> PyResult<Py<PyAny>> {
     let g = |e: f64| comrs::math::db2lin(e);
     match m {
-        2 => map_real(ebn0_db, |e| Ok(csi::ber_dbpsk_jakes(g(e), fd_ts))),
-        4 => map_real(ebn0_db, |e| Ok(csi::ber_dqpsk_jakes(g(e), fd_ts))),
+        2 => map_real(ebn0_db, |e| csi::ber_dbpsk_jakes(g(e), fd_ts).py()),
+        4 => map_real(ebn0_db, |e| csi::ber_dqpsk_jakes(g(e), fd_ts).py()),
         _ => Err(PyValueError::new_err(format!("m is 2 or 4, got {m}"))),
     }
 }
