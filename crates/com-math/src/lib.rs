@@ -15,6 +15,7 @@
 //! | [`special`] | special functions: the error function, the Gaussian tail, Fresnel, Bessel, gamma, the exponential integral |
 //! | [`quadrature`] | Simpson's rule, the Gauss–Hermite and Gauss–Legendre rules |
 //! | [`log_domain`] | `ln(1 + e^x)`, `max*` and the log-sum-exp without overflow |
+//! | [`stats`] | the moments of order two and four of a complex sequence, the normalised correlation of two |
 //! | [`nlse`] | the symmetric split-step Fourier solvers of the scalar NLSE and of the Manakov equation |
 //! | [`gf2`] | polynomials and matrices over GF(2) |
 //! | [`gf2m`] | the Galois fields $\mathrm{GF}(2^{m})$ of the BCH and Reed–Solomon codes |
@@ -72,6 +73,7 @@ pub mod quadrature;
 pub mod search;
 pub mod sequences;
 pub mod special;
+pub mod stats;
 
 pub use bits::{bits_to_index, gray, gray_inverse, index_to_bits};
 pub use com_core::units::{amp2db, db2amp, db2lin, db2np, dbm2w, lin2db, np2db, w2dbm};
