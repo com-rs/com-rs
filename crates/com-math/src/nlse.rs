@@ -368,13 +368,49 @@ pub enum StepRule {
     NonlinearPhase(f64),
 }
 
+/// The nonlinear step of [`ManakovSplitStep`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NonlinearStep {
+    /// OptiCommPy's `manakovSSF`: the phase of the trapezoidal mean of the power at the
+    /// two ends of the step, iterated until the field converges. When channels walk off
+    /// within a step, the mean smooths the intensity that drives the cross-phase
+    /// modulation (see [`ManakovSplitStep`]).
+    #[default]
+    Trapezoidal,
+    /// The phase of the power at the middle of the step, after the first half of the
+    /// dispersion, as [`SplitStep`] (eq. (3) of Sinkin et al. 2003): no iteration.
+    Midpoint,
+}
+
+impl std::str::FromStr for NonlinearStep {
+    type Err = Error;
+
+    /// `trapezoidal` or `midpoint` (case-insensitive).
+    fn from_str(s: &str) -> Result<NonlinearStep> {
+        match s.to_ascii_lowercase().as_str() {
+            "trapezoidal" => Ok(NonlinearStep::Trapezoidal),
+            "midpoint" => Ok(NonlinearStep::Midpoint),
+            _ => Err(Error::Config(format!("the nonlinear step must be trapezoidal or midpoint, got {s:?}"))),
+        }
+    }
+}
+
 /// The symmetric split-step solver of the Manakov equation (see the module).
+///
+/// With [`NonlinearStep::Trapezoidal`] (OptiCommPy's scheme, the default) the solver is
+/// second order but its error on a collision of two solitons 800 GHz apart is 6.4 times
+/// that of [`NonlinearStep::Midpoint`] at the same steps (`validation/tests/sinkin2003.rs`),
+/// and it underestimates the cross-channel interference of a WDM link whose channels
+/// walk off within a step.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ManakovSplitStep {
     /// The fibre.
     pub medium: Medium,
     /// The step size.
     pub rule: StepRule,
+    /// The nonlinear step.
+    pub nonlinear: NonlinearStep,
     /// Largest number of trapezoidal iterations per step.
     pub max_iterations: usize,
     /// Convergence tolerance of the iterations: the relative change of the fields.
@@ -406,10 +442,16 @@ struct ManakovWork {
 }
 
 impl ManakovSplitStep {
-    /// The solver of OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, at
-    /// most 10 iterations, tolerance $10^{-5}$.
+    /// The solver of OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
+    /// trapezoidal nonlinear step, at most 10 iterations, tolerance $10^{-5}$.
     pub fn new(medium: Medium) -> ManakovSplitStep {
-        ManakovSplitStep { medium, rule: StepRule::NonlinearPhase(2e-2), max_iterations: 10, tolerance: 1e-5 }
+        ManakovSplitStep {
+            medium,
+            rule: StepRule::NonlinearPhase(2e-2),
+            nonlinear: NonlinearStep::Trapezoidal,
+            max_iterations: 10,
+            tolerance: 1e-5,
+        }
     }
 
     /// Propagate the two polarisations (√W, time domain, equal lengths) over
@@ -530,6 +572,22 @@ impl ManakovSplitStep {
                 p.forward(u);
                 mul(u, lin1);
                 p.inverse(u);
+            }
+            if self.nonlinear == NonlinearStep::Midpoint {
+                // the phase of the power after the first half of the dispersion
+                manakov_rotation(&mut w.xh, &mut w.yh, k * h);
+                for u in [&mut w.xh, &mut w.yh] {
+                    p.forward(u);
+                    mul(u, lin2);
+                    p.inverse(u);
+                }
+                x.copy_from_slice(&w.xh);
+                y.copy_from_slice(&w.yh);
+                w.xc.copy_from_slice(x);
+                w.yc.copy_from_slice(y);
+                z += h;
+                steps += 1;
+                continue;
             }
             for it in 0..self.max_iterations.max(1) {
                 for (o, (v, f)) in w.xf.iter_mut().zip(w.xh.iter().zip(&w.phi)) {
@@ -680,7 +738,12 @@ mod tests {
         let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
         let (x0, _) = dual_field(512);
         let (mut x, mut y) = (x0.clone(), vec![C64::new(0.0, 0.0); 512]);
-        let s = ManakovSplitStep { rule: StepRule::Fixed(0.01), max_iterations: 20, tolerance: 1e-12, medium: m };
+        let s = ManakovSplitStep {
+            rule: StepRule::Fixed(0.01),
+            max_iterations: 20,
+            tolerance: 1e-12,
+            ..ManakovSplitStep::new(m)
+        };
         s.run(&mut x, &mut y, 20.0, 128e9).unwrap();
         let mut e = x0;
         let scalar = Medium { gamma_w_km: 8.0 / 9.0 * 1.3, ..m };
@@ -734,6 +797,29 @@ mod tests {
         // second order: the error of the coarse solution is small against the fine one
         let err: f64 = xa.iter().zip(&xb).chain(ya.iter().zip(&yb)).map(|(u, v)| (u - v).norm_sqr()).sum();
         assert!((err / e0).sqrt() < 1e-3, "{}", (err / e0).sqrt());
+    }
+
+    #[test]
+    fn the_midpoint_manakov_step_is_the_scalar_split_step() {
+        // one polarisation, gamma scaled by 9/8: the same scheme as SplitStep
+        let m = Medium { alpha_np_km: 0.046, beta2_s2_km: -2.17e-23, gamma_w_km: 1.3 };
+        let (x0, _) = dual_field(1024);
+        let (h, n_steps, fs) = (0.5, 160, 256e9);
+        let mut scalar = x0.clone();
+        SplitStep::new(&m, Steps::new(n_steps, h), 1024, fs).run(&mut scalar);
+        let solver = ManakovSplitStep {
+            rule: StepRule::Fixed(h),
+            nonlinear: NonlinearStep::Midpoint,
+            ..ManakovSplitStep::new(Medium { gamma_w_km: 9.0 / 8.0 * m.gamma_w_km, ..m })
+        };
+        let (mut x, mut y) = (x0, vec![C64::new(0.0, 0.0); 1024]);
+        assert_eq!(solver.run(&mut x, &mut y, n_steps as f64 * h, fs).unwrap(), n_steps);
+        let e: f64 = scalar.iter().map(C64::norm_sqr).sum();
+        let d: f64 = x.iter().zip(&scalar).map(|(u, v)| (u - v).norm_sqr()).sum();
+        assert!((d / e).sqrt() < 1e-12, "{}", (d / e).sqrt());
+        assert!(y.iter().all(|v| v.norm() == 0.0));
+        assert_eq!("Midpoint".parse::<NonlinearStep>().unwrap(), NonlinearStep::Midpoint);
+        assert!("euler".parse::<NonlinearStep>().is_err());
     }
 
     #[test]

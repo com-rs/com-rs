@@ -184,7 +184,12 @@ mod tests {
         let x0: Vec<C64> = (0..n).map(|k| C64::new(w(k, 31.0, 0.2), w(k, 17.0, 1.0)) * 0.1).collect();
         let y0: Vec<C64> = (0..n).map(|k| C64::new(w(k, 23.0, 2.0), w(k, 41.0, 0.5)) * 0.1).collect();
         let (mut x, mut y) = (x0.clone(), y0.clone());
-        let fwd = ManakovSplitStep { rule: StepRule::Fixed(0.1), max_iterations: 20, tolerance: 1e-12, medium: m };
+        let fwd = ManakovSplitStep {
+            rule: StepRule::Fixed(0.1),
+            max_iterations: 20,
+            tolerance: 1e-12,
+            ..ManakovSplitStep::new(m)
+        };
         let fs = 128e9;
         let g = (m.alpha_np_km / 2.0 * 80.0).exp();
         for _ in 0..2 {

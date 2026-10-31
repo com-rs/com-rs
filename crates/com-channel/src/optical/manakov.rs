@@ -17,9 +17,11 @@
 //! 32 GBd spaced by 50 GHz over 500 km of lossless SMF give 0.7 dB too little NLI with
 //! steps of 0.5 km, 0.04 dB with 0.1 km, against the scalar split-step method of
 //! [`super::fiber::Ssfm`] (the power at the middle of the step), which is converged at
-//! 0.5 km (`validation/tests/dar2014.rs`). The step must keep the walk-off of the outer
-//! channels small against the symbol period; the adaptive rule of the nonlinear phase
-//! lengthens the steps at low power, where this matters most.
+//! 0.5 km (`validation/tests/dar2014.rs`). With the trapezoidal step, the step must keep
+//! the walk-off of the outer channels small against the symbol period; the adaptive rule
+//! of the nonlinear phase lengthens the steps at low power, where this matters most.
+//! [`NonlinearStep::Midpoint`] takes the power at the middle of the step, as the scalar
+//! solver, without iterations.
 //!
 //! [`ManakovSsfm::dbp`] is its digital back-propagation. [`ManakovSsfm`] neglects
 //! polarisation-mode dispersion; `pmd::ManakovPmd` adds it with a
@@ -57,7 +59,7 @@ use com_core::ensure;
 use com_core::prelude::*;
 use com_core::signal::DualPol;
 use com_dsp::compensation::dbp::Dbp;
-use com_math::nlse::{ManakovSplitStep, Medium, StepRule};
+use com_math::nlse::{ManakovSplitStep, Medium, NonlinearStep, StepRule};
 
 /// A dual-polarisation multi-span link (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -66,6 +68,9 @@ pub struct ManakovSsfm {
     pub fiber: FiberParams,
     /// The step size.
     pub rule: StepRule,
+    /// The nonlinear step: OptiCommPy's trapezoidal mean (the default) or the power at
+    /// the middle of the step (see the module).
+    pub nonlinear: NonlinearStep,
     /// Largest number of trapezoidal iterations per step.
     pub max_iterations: usize,
     /// Convergence tolerance of the iterations.
@@ -78,12 +83,13 @@ pub struct ManakovSsfm {
 }
 
 impl ManakovSsfm {
-    /// The link with OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, 10
-    /// iterations at most, tolerance $10^{-5}$, EDFAs.
+    /// The link with OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
+    /// trapezoidal nonlinear step, 10 iterations at most, tolerance $10^{-5}$, EDFAs.
     pub fn new(fiber: FiberParams) -> ManakovSsfm {
         ManakovSsfm {
             fiber,
             rule: StepRule::NonlinearPhase(2e-2),
+            nonlinear: NonlinearStep::Trapezoidal,
             max_iterations: 10,
             tolerance: 1e-5,
             amplification: Amplification::Edfa,
@@ -107,6 +113,7 @@ impl ManakovSsfm {
         let solver = ManakovSplitStep {
             medium: f.medium(),
             rule: self.rule,
+            nonlinear: self.nonlinear,
             max_iterations: self.max_iterations,
             tolerance: self.tolerance,
         };
@@ -163,6 +170,7 @@ mod tests {
         let solver = ManakovSplitStep {
             medium: f.medium(),
             rule: link.rule,
+            nonlinear: link.nonlinear,
             max_iterations: link.max_iterations,
             tolerance: link.tolerance,
         };

@@ -546,6 +546,7 @@ class ManakovSsfm:
         *,
         max_nl_phase: float = ...,
         step_km: float | None = ...,
+        nonlinear_step: str = ...,
         max_iterations: int = ...,
         tolerance: float = ...,
         amplification: str = ...,

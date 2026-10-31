@@ -32,13 +32,14 @@
 //! differences, and the split step with steps of 1 m reaches it within $10^{-8}$ after
 //! 400 km. Both solvers are then measured against it (card
 //! `validation/cards/sinkin2003_exact.yaml`): the scalar split step of eq. (3) and the
-//! Manakov solver (`ManakovSplitStep`, the trapezoidal phase of OptiCommPy) with the
-//! second polarisation empty and $\gamma$ scaled by 9/8.
+//! Manakov solver (`ManakovSplitStep`, the trapezoidal phase of OptiCommPy, and the phase
+//! at the middle of the step) with the second polarisation empty and $\gamma$ scaled by
+//! 9/8.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
 use comrs::C64;
-use comrs::math::nlse::{ManakovSplitStep, Medium, SplitStep, StepRule, Steps};
+use comrs::math::nlse::{ManakovSplitStep, Medium, NonlinearStep, SplitStep, StepRule, Steps};
 use comrs::metrics::evm_data_aided;
 use serde_json::json;
 
@@ -172,9 +173,10 @@ fn both_solvers_converge_to_the_exact_collision() {
         SplitStep::new(&FIBER, Steps::new(n_steps, LENGTH_KM / n_steps as f64), MODES, fs).run(&mut e);
         global_error(&e, &target)
     };
-    let manakov = |n_steps: usize| {
+    let manakov = |n_steps: usize, nonlinear: NonlinearStep| {
         let solver = ManakovSplitStep {
             rule: StepRule::Fixed(LENGTH_KM / n_steps as f64),
+            nonlinear,
             ..ManakovSplitStep::new(Medium { gamma_w_km: 9.0 / 8.0 * FIBER.gamma_w_km, ..FIBER })
         };
         let (mut x, mut y) = (launch.clone(), vec![C64::new(0.0, 0.0); MODES]);
@@ -183,8 +185,13 @@ fn both_solvers_converge_to_the_exact_collision() {
     };
     let mut card = Card::load("sinkin2003_exact").unwrap();
     card.check(&json!({"solver": "scalar", "steps": 400_000}), scalar(400_000));
-    let (s1, s2, m1, m2) = (scalar(1600), scalar(800), manakov(1600), manakov(800));
-    println!("1600 steps: scalar {s1:.3e}, Manakov {m1:.3e}; 800 steps: scalar {s2:.3e}, Manakov {m2:.3e}");
+    let (s1, s2) = (scalar(1600), scalar(800));
+    let (m1, m2) = (manakov(1600, NonlinearStep::Trapezoidal), manakov(800, NonlinearStep::Trapezoidal));
+    let mid = manakov(1600, NonlinearStep::Midpoint);
+    println!(
+        "1600 steps: scalar {s1:.3e}, Manakov {m1:.3e} (midpoint {mid:.3e}); 800 steps: scalar {s2:.3e}, Manakov {m2:.3e}"
+    );
+    card.check(&json!({"solver": "manakov_midpoint", "claim": "error_over_scalar"}), mid / s1);
     card.check(&json!({"solver": "scalar", "claim": "order"}), (s2 / s1).log2());
     card.check(&json!({"solver": "manakov", "claim": "order"}), (m2 / m1).log2());
     card.check(&json!({"solver": "manakov", "claim": "error_over_scalar"}), m1 / s1);

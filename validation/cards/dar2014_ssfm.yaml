@@ -29,7 +29,7 @@ findings:
   - "the error of the GN model with QPSK is 9.95 dB and QPSK against 16-QAM 5.78 dB (standard errors of the NLI 2.2 % Gaussian, 1.2 % QPSK, 2.2 % 16-QAM): the paper's 10 and 6 dB; the EGN model gives 9.36 and 5.32 dB (card dar2014_sec3), 0.6 and 0.46 dB short"
   - "Gaussian symbols give 0.16 dB less NLI than GnModel scaled to one polarisation, within the standard error"
   - "two runs are not enough: the first two seeds give 5.3 dB of GN error, the lowest of the 64 runs"
-  - "the Manakov solver (ManakovSsfm, the trapezoidal phase of OptiCommPy) with the second polarisation empty and the same steps of 0.5 km gives 0.7 dB less NLI with Gaussian symbols than this scalar solver with gamma 8/9; it agrees with steps of 0.02 km (documented in com_channel::optical::manakov)"
+  - "the Manakov solver (ManakovSsfm, the trapezoidal phase of OptiCommPy) with the second polarisation empty and the same steps of 0.5 km gives 0.7 dB less NLI with Gaussian symbols than this scalar solver with gamma 8/9; it agrees with steps of 0.02 km (documented in com_channel::optical::manakov). With the phase at the middle of the step (NonlinearStep::Midpoint) it is this solver, and the two-polarisation link follows the GN model within 0.17 dB (card dar2014_manakov)"
 cases:
   - {inputs: {quantity: gn_error_qpsk}, expected: 10.0}
   - {inputs: {quantity: qpsk_vs_16qam}, expected: 6.0}

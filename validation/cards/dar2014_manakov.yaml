@@ -1,0 +1,32 @@
+id: dar2014_manakov
+title: The Manakov solver against the GN and EGN models on the link of Dar et al.
+literature: dar2014
+source:
+  kind: paper
+  reference: "R. Dar, M. Feder, A. Mecozzi, M. Shtaif, Accumulation of nonlinear interference noise in fiber-optic systems, Opt. Express, 2014 (arXiv 1310.6137)"
+  locator: "the link of Sec. 3 (distributed amplification, 500 km) with two polarisations"
+  file: fiber/2014_dar_accumulation-nonlinear-interference-noise_oe_arxiv.pdf
+description: >
+  The link of card dar2014_ssfm with two polarisations of -19 dBm each (-16 dBm per
+  channel), propagated by comrs::channel::optical::manakov::ManakovSsfm with steps of
+  0.5 km, the nonlinear phase at the middle of the step or the trapezoidal mean of
+  OptiCommPy; 64 runs per format. The cross-channel interference of both polarisations
+  of the centre channel is compared with GnModel (Gaussian symbols) and with its EGN
+  correction for QPSK, both dual-polarisation: no conversion between polarisations.
+run:
+  test: validation/tests/dar2014.rs::the_manakov_simulation_follows_the_gn_and_egn_models
+tier: campaign
+duration: "8 min on an Apple M6 (release, the runs on every core; the trapezoidal step iterates)"
+why: >
+  the Gaussian case is the GN model itself, to the standard error of 64 runs (about
+  3 %, 0.15 dB): 0.3 dB; the EGN model keeps the X1 domain only, which the one-polarisation
+  simulation finds 0.6 dB short on the GN error of QPSK, hence 1 dB for QPSK; the
+  trapezoidal step is recorded, not expected to pass
+findings:
+  - "with the phase at the middle of the step, Gaussian symbols give 0.17 dB less NLI than GnModel (standard error 1.5 %), as the scalar solver in one polarisation (0.16 dB, card dar2014_ssfm); QPSK gives 0.35 dB less than the EGN model"
+  - "with OptiCommPy's trapezoidal step at the same steps of 0.5 km, the NLI is 0.90 dB (Gaussian) and 1.29 dB (QPSK) below the models: the dual-polarisation gap of 1 dB came from the solver, not from the GN model"
+cases:
+  - {inputs: {nonlinear_step: midpoint, quantity: gaussian_against_gn_model}, expected: 0.0, tolerance: {atol: 0.3}}
+  - {inputs: {nonlinear_step: midpoint, quantity: qpsk_against_egn_model}, expected: 0.0, tolerance: {atol: 1.0}}
+  - {inputs: {nonlinear_step: trapezoidal, quantity: gaussian_against_gn_model}, expected: {max: 0.3}}
+  - {inputs: {nonlinear_step: trapezoidal, quantity: qpsk_against_egn_model}, expected: {max: 1.0}}

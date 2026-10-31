@@ -234,6 +234,11 @@ PyPI and the command line `comrs`.
   differentially encoded and whose points inside a quadrant are Gray-labelled (Pfau et
   al. 2009, Sec. III-A), decoded whatever multiple of $\pi/2$ the carrier recovery
   leaves.
+- `com_math::nlse::NonlinearStep`: the Manakov solver takes the nonlinear phase at the
+  middle of the step (`Midpoint`, the scheme of the scalar solver) or, by default, the
+  trapezoidal mean of OptiCommPy, which smooths the cross-phase modulation of channels
+  that walk off within a step; `ManakovSsfm::nonlinear`, the parameter
+  `nonlinear_step` of the block `manakov` and of `comrs.ManakovSsfm`.
 - `com_fec::bounds::gaussian_limit_ebn0_db`: the Shannon limit on $E_{b}/N_{0}$ with
   Gaussian inputs, $(2^{\eta} - 1)/\eta$, $-1.59$ dB as $\eta \to 0$.
 - The GN integral of a lossless span (distributed amplification) takes the limit $L^{2}$

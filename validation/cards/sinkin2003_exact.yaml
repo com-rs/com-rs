@@ -12,8 +12,9 @@ description: >
   3072 modes over 400 ps), launched with the exact two-soliton solution at z = 0 and
   compared with it at 400 km (the global relative error of eq. (12)): the scalar split
   step of eq. (3) (com_math::nlse::SplitStep, the solver of Ssfm) and the Manakov solver
-  (com_math::nlse::ManakovSplitStep, the trapezoidal nonlinear phase of OptiCommPy,
-  iterated) with the second polarisation empty and gamma scaled by 9/8, constant steps.
+  (com_math::nlse::ManakovSplitStep: the trapezoidal nonlinear phase of OptiCommPy,
+  iterated, and the phase at the middle of the step, NonlinearStep::Midpoint) with the
+  second polarisation empty and gamma scaled by 9/8, constant steps.
 run:
   test: validation/tests/sinkin2003.rs::both_solvers_converge_to_the_exact_collision
 tier: campaign
@@ -25,7 +26,7 @@ why: >
   the exact solution and against the solution of 1 m steps agree within 1 %
 findings:
   - "the scalar split step reaches the exact solution within 2.95e-9 with steps of 1 m, and its errors against the exact solution and against its own solution of 1 m steps are the same (ratio 1.0000): the reference of the Fig. 2 test is not the cause of its factor 1.5 to 2 against the figure, and the scheme is that of eq. (3), D/2, N at the midpoint, D/2"
-  - "the Manakov solver is second order too (1.997), but its error is 6.4 times that of the scalar solver at the same steps (1.09e-3 against 1.70e-4 at 1600 steps): it needs about 2.5 times more steps for the same error. Its trapezoidal phase averages the power at the ends of the step instead of taking it at the middle; in WDM this smooths the cross-phase modulation of channels that walk off (card dar2014_ssfm)"
+  - "the Manakov solver is second order too (1.997), but its error is 6.4 times that of the scalar solver at the same steps (1.09e-3 against 1.70e-4 at 1600 steps): it needs about 2.5 times more steps for the same error. Its trapezoidal phase averages the power at the ends of the step instead of taking it at the middle; in WDM this smooths the cross-phase modulation of channels that walk off (card dar2014_ssfm). With NonlinearStep::Midpoint the Manakov solver has the error of the scalar one (ratio 1.0000)"
   - "the two-soliton formula is checked against the equation itself: the residual of fourth-order finite differences falls by 16 when the step halves, to 1.2e-6 of |u_tt| near the collision"
 cases:
   - {inputs: {solver: scalar, steps: 400000}, expected: {max: 1.0e-8}}
@@ -33,3 +34,4 @@ cases:
   - {inputs: {solver: manakov, claim: order}, expected: {min: 1.8, max: 2.2}}
   - {inputs: {solver: manakov, claim: error_over_scalar}, expected: {min: 1.0}, note: "measured, not a value of the paper: the factor is recorded in the findings"}
   - {inputs: {claim: exact_over_numerical_reference}, expected: 1.0, tolerance: {rtol: 0.01}}
+  - {inputs: {solver: manakov_midpoint, claim: error_over_scalar}, expected: 1.0, tolerance: {rtol: 1.0e-6}, note: "with the phase at the middle of the step, the Manakov solver is the scheme of eq. (3)"}

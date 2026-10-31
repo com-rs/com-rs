@@ -460,6 +460,30 @@ def test_manakov_split_step_with_wdm(amp, gamma, step):
     np.testing.assert_allclose(y, ref[:, 1], rtol=1e-8, atol=1e-10 * scale)
 
 
+def test_the_midpoint_manakov_step_converges_faster_than_opticommpy():
+    # the same WDM field over 160 km: steps of 1 km against a solution of 20 m steps
+    sig = wdm_tx_field()
+    fs = WDM_TX["Rs"] * WDM_TX["SpS"]
+    f = comrs.FiberParams(alpha_db_km=0.2, d_ps_nm_km=16.0, gamma_w_km=1.3, span_km=80.0, n_spans=2)
+
+    def run(step, nonlinear):
+        link = comrs.ManakovSsfm(f, step_km=step, nonlinear_step=nonlinear, amplification="ideal")
+        x, y = link.propagate(sig.T, fs)
+        return np.concatenate([x, y])
+
+    ref = run(0.02, "midpoint")
+    err = {
+        n: np.linalg.norm(run(1.0, n) - ref) / np.linalg.norm(ref)
+        for n in ("trapezoidal", "midpoint")
+    }
+    # 7.9e-3 against 1.22e-2 (three channels with loss; 6.4 times on the lossless soliton
+    # collision of validation/tests/sinkin2003.rs)
+    assert err["midpoint"] < 0.75 * err["trapezoidal"], err
+    assert "nonlinear_step='midpoint'" in repr(comrs.ManakovSsfm(f, nonlinear_step="midpoint"))
+    with pytest.raises(ValueError, match="midpoint"):
+        comrs.ManakovSsfm(f, nonlinear_step="euler")
+
+
 @pytest.mark.parametrize("n", [1, 4, 5])
 def test_wdm_grid(n):
     def compute():

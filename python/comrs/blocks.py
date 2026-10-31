@@ -1093,6 +1093,7 @@ class Manakov(Native):
         fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
         max_nl_phase_rad (float): largest nonlinear phase rotation per step [rad]; default 2e-2
         step_km (float): a fixed step instead of the adaptive one [km]; default none
+        nonlinear_step (str): the nonlinear phase of a step: the trapezoidal mean of the power at its ends (OptiCommPy, iterated) or the power at its middle (the scalar solver; more accurate in WDM); one of trapezoidal, midpoint; default trapezoidal
         max_iterations (int): trapezoidal iterations per step at most; default 10
         tolerance (float): convergence tolerance of the iterations; default 1e-5
         amplification (str): edfa (gain αL, ASE), ideal (noiseless gain) or none; with fiber.raman, the amplifier restores every frequency; one of edfa, ideal, none; default edfa
@@ -1105,6 +1106,7 @@ class Manakov(Native):
         "fiber",
         "max_nl_phase_rad",
         "step_km",
+        "nonlinear_step",
         "max_iterations",
         "tolerance",
         "amplification",
@@ -1117,6 +1119,7 @@ class Manakov(Native):
         fiber: dict | Var | None = None,
         max_nl_phase_rad: float | Var = 0.02,
         step_km: float | Var | None = None,
+        nonlinear_step: str | Var = "trapezoidal",
         max_iterations: int | Var = 10,
         tolerance: float | Var = 1e-05,
         amplification: str | Var = "edfa",
@@ -1128,6 +1131,7 @@ class Manakov(Native):
             fiber=fiber,
             max_nl_phase_rad=max_nl_phase_rad,
             step_km=step_km,
+            nonlinear_step=nonlinear_step,
             max_iterations=max_iterations,
             tolerance=tolerance,
             amplification=amplification,

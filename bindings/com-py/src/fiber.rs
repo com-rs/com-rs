@@ -10,7 +10,7 @@ use comrs::channel::optical::manakov::ManakovSsfm;
 use comrs::channel::optical::pmd::{ManakovPmd, PmdLink};
 use comrs::channel::optical::raman::Raman;
 use comrs::core::signal::DualPol;
-use comrs::math::nlse::StepRule;
+use comrs::math::nlse::{NonlinearStep, StepRule};
 use comrs::spec::blocks::BuildContext;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -581,6 +581,10 @@ impl PyManakov {
 ///     fiber (FiberParams): the link.
 ///     max_nl_phase (float): largest nonlinear phase rotation per step (rad).
 ///     step_km (float, optional): a fixed step (km) instead of the adaptive one.
+///     nonlinear_step (str): ``"trapezoidal"``, the mean of the power at the two ends of
+///         a step, iterated (OptiCommPy), or ``"midpoint"``, the power at its middle (the
+///         scalar solver): the trapezoidal mean smooths the cross-phase modulation of
+///         channels that walk off within a step.
 ///     max_iterations (int): trapezoidal iterations per step at most.
 ///     tolerance (float): convergence tolerance of the iterations.
 ///     amplification (str): ``"edfa"``, ``"ideal"`` or ``"none"``.
@@ -600,9 +604,10 @@ impl PyManakovSsfm {
     fn __repr__(&self) -> String {
         let m = &self.inner;
         format!(
-            "ManakovSsfm(n_spans={}, rule={:?}, max_iterations={}, tolerance={:e}, amplification='{}')",
+            "ManakovSsfm(n_spans={}, rule={:?}, nonlinear_step='{}', max_iterations={}, tolerance={:e}, amplification='{}')",
             m.fiber.n_spans,
             m.rule,
+            format!("{:?}", m.nonlinear).to_lowercase(),
             m.max_iterations,
             m.tolerance,
             format!("{:?}", m.amplification).to_lowercase()
@@ -610,13 +615,14 @@ impl PyManakovSsfm {
     }
 
     #[new]
-    #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
+    #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, nonlinear_step = "trapezoidal", max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
     #[allow(clippy::too_many_arguments, reason = "the settings of the solver, by keyword")]
     fn new(
         py: Python<'_>,
         fiber: &PyFiber,
         max_nl_phase: f64,
         step_km: Option<f64>,
+        nonlinear_step: &str,
         max_iterations: usize,
         tolerance: f64,
         amplification: &str,
@@ -627,6 +633,7 @@ impl PyManakovSsfm {
             inner: ManakovSsfm {
                 fiber: fiber.inner.clone(),
                 rule,
+                nonlinear: nonlinear_step.parse::<NonlinearStep>().py()?,
                 max_iterations,
                 tolerance,
                 amplification: amplification.parse::<Amplification>().py()?,

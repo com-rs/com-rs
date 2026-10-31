@@ -40,9 +40,12 @@ use com_validation::card::Card;
 use comrs::C64;
 use comrs::channel::optical::fiber::{Amplification, FiberParams, Ssfm};
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
+use comrs::channel::optical::manakov::ManakovSsfm;
 use comrs::core::rng::Rng;
+use comrs::core::signal::DualPol;
 use comrs::mapping::constellation::Constellation;
 use comrs::math::fft::{fft, ifft};
+use comrs::math::nlse::{NonlinearStep, StepRule};
 use comrs::math::quadrature::try_simpson;
 use serde_json::json;
 
@@ -158,19 +161,60 @@ fn xci_run(fiber: &FiberParams, points: Option<&[C64]>, p: f64, seed: u64) -> f6
     var * p / p.powi(3)
 }
 
-/// The mean of [`xci_run`] over the runs of seeds `first..first + runs`, the runs spread
-/// over the threads and summed in order.
-fn xci(fiber: &FiberParams, points: Option<&[C64]>, p: f64, first: u64, runs: u64) -> (f64, f64) {
+/// [`xci_run`] for two polarisations of power `p/2` each, propagated by the Manakov
+/// solver with the nonlinear step `nonlinear`: the interference of both polarisations.
+fn xci_run_dual(fiber: &FiberParams, points: Option<&[C64]>, p: f64, seed: u64, nonlinear: NonlinearStep) -> f64 {
+    let fs = RS * SPS as f64;
+    let step = 0.5;
+    let link = ManakovSsfm {
+        rule: StepRule::Fixed(step),
+        nonlinear,
+        amplification: Amplification::Ideal,
+        ..ManakovSsfm::new(fiber.clone())
+    };
+    let linear = Ssfm::new(fiber.clone(), step);
+    let steps = (fiber.span_km / step).round() as usize;
+    let mut rng = Rng::new(seed);
+    let symbols: Vec<[Vec<C64>; 2]> = (0..5).map(|_| [draw(points, &mut rng), draw(points, &mut rng)]).collect();
+    let field = |slots: &[usize]| {
+        let zero = vec![C64::new(0.0, 0.0); SYMBOLS * SPS];
+        let mut u = DualPol { x: zero.clone(), y: zero };
+        for &i in slots {
+            for (pol, out) in [&mut u.x, &mut u.y].into_iter().enumerate() {
+                for (v, w) in out.iter_mut().zip(nyquist_channel(&symbols[i][pol], i as i64 - 2, p / 2.0)) {
+                    *v += w;
+                }
+            }
+        }
+        u
+    };
+    let (mut u5, mut u1) = (field(&[0, 1, 2, 3, 4]), field(&[2]));
+    link.propagate(&mut u5, fs, None).unwrap();
+    link.propagate(&mut u1, fs, None).unwrap();
+    let mut nli = 0.0;
+    for (a5, a1) in [(&u5.x, &u1.x), (&u5.y, &u1.y)] {
+        let received = |x: &[C64]| matched_filter(&linear.backpropagate_scaled(x, fs, steps, 0.0).unwrap(), p / 2.0);
+        let (r5, r1) = (received(a5), received(a1));
+        let c: C64 =
+            r5.iter().zip(&r1).map(|(a, b)| a * b.conj()).sum::<C64>() / r1.iter().map(C64::norm_sqr).sum::<f64>();
+        nli += r5.iter().zip(&r1).map(|(a, b)| (a - c * b).norm_sqr()).sum::<f64>() / SYMBOLS as f64 * p / 2.0;
+    }
+    nli / p.powi(3)
+}
+
+/// The mean of `run(seed)` over the seeds `first..first + runs`, the runs spread over the
+/// threads and summed in order, and its relative standard error.
+fn mean_over_runs(first: u64, runs: u64, run: impl Fn(u64) -> f64 + Sync) -> (f64, f64) {
     let threads = std::thread::available_parallelism().map_or(1, usize::from);
     let seeds: Vec<u64> = (first..first + runs).collect();
     let mut values = vec![0.0; seeds.len()];
+    let chunk = seeds.len().div_ceil(threads);
     std::thread::scope(|scope| {
-        for (chunk_seeds, chunk_values) in
-            seeds.chunks(seeds.len().div_ceil(threads)).zip(values.chunks_mut(seeds.len().div_ceil(threads)))
-        {
+        for (chunk_seeds, chunk_values) in seeds.chunks(chunk).zip(values.chunks_mut(chunk)) {
+            let run = &run;
             scope.spawn(move || {
                 for (s, v) in chunk_seeds.iter().zip(chunk_values.iter_mut()) {
-                    *v = xci_run(fiber, points, p, *s);
+                    *v = run(*s);
                 }
             });
         }
@@ -179,6 +223,12 @@ fn xci(fiber: &FiberParams, points: Option<&[C64]>, p: f64, first: u64, runs: u6
     let mean = values.iter().sum::<f64>() / n;
     let sem = (values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0) / n).sqrt();
     (mean, sem / mean)
+}
+
+/// The mean of [`xci_run`] over the runs of seeds `first..first + runs`, the runs spread
+/// over the threads and summed in order.
+fn xci(fiber: &FiberParams, points: Option<&[C64]>, p: f64, first: u64, runs: u64) -> (f64, f64) {
+    mean_over_runs(first, runs, |seed| xci_run(fiber, points, p, seed))
 }
 
 #[test]
@@ -207,5 +257,33 @@ fn the_split_step_simulation_confirms_sec_3_of_dar_2014() {
     card.check(&json!({"quantity": "gn_error_qpsk"}), db(g / q));
     card.check(&json!({"quantity": "qpsk_vs_16qam"}), db(m / q));
     card.check(&json!({"quantity": "gaussian_against_gn_model"}), db(g / (27.0 / 8.0 * gn)));
+    card.finish().unwrap();
+}
+
+#[test]
+#[ignore = "validation against the literature: run with --release --ignored"]
+fn the_manakov_simulation_follows_the_gn_and_egn_models() {
+    // the link of Sec. 3 with two polarisations: the Manakov solver against GnModel, which
+    // is dual-polarisation, directly
+    let fiber = smf(500.0, 1, 0.0);
+    let p = comrs::math::dbm2w(-16.0);
+    let runs = 64;
+    let qpsk = Constellation::qam(4).unwrap().normalized();
+    let gn = eta(&smf(10.0, 50, 0.0), 5, None) - eta(&smf(10.0, 50, 0.0), 1, None);
+    let qpsk_moments = FormatMoments { phi: -1.0, psi: 4.0 };
+    let egn = eta(&smf(10.0, 50, 0.0), 5, Some(qpsk_moments)) - eta(&smf(10.0, 50, 0.0), 1, Some(qpsk_moments));
+    let db = comrs::math::lin2db;
+    let mut card = Card::load("dar2014_manakov").unwrap();
+    for (name, nonlinear) in [("midpoint", NonlinearStep::Midpoint), ("trapezoidal", NonlinearStep::Trapezoidal)] {
+        let (g, eg) = mean_over_runs(2000, runs, |seed| xci_run_dual(&fiber, None, p, seed, nonlinear));
+        let (q, eq) = mean_over_runs(2000, runs, |seed| xci_run_dual(&fiber, Some(qpsk.points()), p, seed, nonlinear));
+        println!(
+            "{name}: Gaussian {g:.4e} ({:.1} %) against GN {gn:.4e}; QPSK {q:.4e} ({:.1} %) against EGN {egn:.4e}",
+            100.0 * eg,
+            100.0 * eq
+        );
+        card.check(&json!({"nonlinear_step": name, "quantity": "gaussian_against_gn_model"}), db(g / gn));
+        card.check(&json!({"nonlinear_step": name, "quantity": "qpsk_against_egn_model"}), db(q / egn));
+    }
     card.finish().unwrap();
 }
