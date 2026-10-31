@@ -9,8 +9,8 @@ claimed: the numbers below are recomputed by ``tools/highlights.py`` and checked
 
 - **Lightweight**: one run-time dependency in Python (numpy), 9 direct crates in Rust and no C, C++ or Fortran library to build; 27 MB installed with its dependencies (the benchmark's environment: komm 22 MB, OptiCommPy 321 MB, Sionna 1004 MB).
 - **Fast**: compiled Rust, Monte Carlo runs on every core; on one CPU thread, the links of the benchmark take 2.1 to 33 times as long with komm, 2.3 to 4.7 times as long with OptiCommPy and 1.1 to 7.4 times as long with Sionna as with com-rs.
-- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 569 unit tests, 146 validation tests, 235 Python tests.
-- **Validated**: compared with 103 papers, standards and reference tools (65 fully reproduced, 32 partly), 58 inconsistencies found in them; 56 validation cards rerun a comparison without the paper.
+- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 570 unit tests, 148 validation tests, 235 Python tests.
+- **Validated**: compared with 104 papers, standards and reference tools (66 fully reproduced, 32 partly), 58 inconsistencies found in them; 57 validation cards rerun a comparison without the paper.
 
 Lightweight
 -----------
@@ -126,9 +126,9 @@ Rust checks memory safety at compile time, and ``unsafe`` code is forbidden in e
    * - Tests
      - Count
    * - Unit tests of the crates
-     - 569
+     - 570
    * - Validation tests (against papers, standards and tools)
-     - 146
+     - 148
    * - Python tests (functions; many are parametrised)
      - 235
 
@@ -147,9 +147,9 @@ are written as :doc:`validation cards <comparisons>` (``just card <id>``).
    * - Evidence
      - Count
    * - Documents and tools compared
-     - 103
+     - 104
    * - — fully reproduced
-     - 65
+     - 66
    * - — partly reproduced
      - 32
    * - — implemented, not yet compared
@@ -157,7 +157,7 @@ are written as :doc:`validation cards <comparisons>` (``just card <id>``).
    * - Inconsistencies found in the documents
      - 58
    * - Validation cards
-     - 56
+     - 57
    * - Modules at maturity A / B / C
      - 54 / 4 / 4
 

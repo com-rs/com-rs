@@ -211,7 +211,8 @@ PyPI and the command line `comrs`.
   against Carena et al. 2014, Fig. 1(a), and against the fourth-order noise of Dar et
   al. 2014, Sec. 3 (the EGN correction of the cross-channel interference gives 0.07 to
   0.72 dB less); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
-  and 4; the RIS against Basar et al. 2019, Figs. 6 and 7.
+  and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
+  against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I.
 - The Python tests compare the blocks with the recorded outputs of OptiCommPy 0.11 and
   GNPy 3.0 (`tests/oracle/`) and reproduce the classical results of the textbooks.
 - `docs/MATURITY.md` grades the evidence of every module.
@@ -226,6 +227,10 @@ PyPI and the command line `comrs`.
   of the co-phased elements in the Gaussian approximation), the co-phasing
   `com_mimo::precoding::ris_co_phasing`, and the SER of PSK and square QAM from the MGF
   of the SNR, `com_mapping::theory::ser_mgf` (Basar et al. 2019).
+- `com_mapping::differential::QuadrantQam`: square QAM whose quadrant is
+  differentially encoded and whose points inside a quadrant are Gray-labelled (Pfau et
+  al. 2009, Sec. III-A), decoded whatever multiple of $\pi/2$ the carrier recovery
+  leaves.
 - The GN integral of a lossless span (distributed amplification) takes the limit $L^{2}$
   where its link function is 0/0, instead of NaN.
 

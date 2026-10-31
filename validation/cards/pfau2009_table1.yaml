@@ -1,0 +1,39 @@
+id: pfau2009_table1
+title: Linewidth tolerance of the blind phase search with a differential quadrant code
+literature: pfau2009
+source:
+  kind: paper
+  reference: "T. Pfau, S. Hoffmann, R. Noé, Hardware-efficient coherent digital receiver concept with feedforward carrier recovery for M-QAM constellations, J. Lightw. Technol. 27(8), 2009"
+  locator: "Sec. V: eq. (17), Fig. 6 (penalty without phase noise) and Table I (linewidth times symbol duration of a 1 dB penalty at a BER of 1e-3)"
+  file: fiber/2009_pfau_blind-phase-search_jlt.pdf
+description: >
+  Unit-energy square 4-, 16-, 64- and 256-QAM whose quadrant is differentially encoded
+  (comrs::mapping::differential::QuadrantQam), Wiener phase noise of increments of
+  variance 2 pi df Ts, white Gaussian noise, the blind phase search
+  (comrs::dsp::sync::carrier::bps) over 19 symbols (N = 9) with B = 32 test phases (4-
+  and 16-QAM) or 64 (64- and 256-QAM), the phase unwrapped with a period of pi/2, hard
+  decisions and the differential decoding of the quadrants; 10^6 symbols per point.
+  The penalty is the Es/N0 at a BER of 1e-3 above eq. (17), the Gray QAM of the paper.
+run:
+  test: validation/tests/pfau2009.rs::the_linewidth_tolerance_follows_table_i_of_pfau_2009
+tier: campaign
+duration: "8 s on an Apple M6 (release)"
+tolerance: {atol: 0.25}
+why: >
+  the penalties of Fig. 6 read to 0.05 dB and the Monte Carlo error of a crossing
+  interpolated at 1e-3 (about 0.03 dB with 10^6 symbols); at the linewidth of Table I,
+  given to two digits, the penalty grows by about 0.3 dB when the linewidth grows by a
+  third (Fig. 7)
+findings:
+  - "at the linewidths of Table I the penalty is 0.95, 1.09, 1.02 and 0.87 dB (4- to 256-QAM): the 1 dB of the paper, 256-QAM 0.13 dB below"
+  - "without phase noise the penalty is 0.67, 0.58, 0.46 and 0.34 dB against 0.7, 0.6, 0.5 and 0.55 dB in the text of Sec. V-A: 256-QAM is 0.21 dB below, about the 0.2 dB the paper attributes to its algorithm against an ideal carrier recovery (0.35 dB); the paper's receiver also quantises its samples (Sec. VI), which this link does not"
+  - "the paper's eq. (12) detects the quadrant jumps from the index of the selected test phase; unwrapping the selected phase with a period of pi/2 is the same rule"
+cases:
+  - {inputs: {m: 4, quantity: penalty_without_phase_noise}, expected: 0.7}
+  - {inputs: {m: 4, quantity: penalty_at_table_i}, expected: 1.0}
+  - {inputs: {m: 16, quantity: penalty_without_phase_noise}, expected: 0.6}
+  - {inputs: {m: 16, quantity: penalty_at_table_i}, expected: 1.0}
+  - {inputs: {m: 64, quantity: penalty_without_phase_noise}, expected: 0.5}
+  - {inputs: {m: 64, quantity: penalty_at_table_i}, expected: 1.0}
+  - {inputs: {m: 256, quantity: penalty_without_phase_noise}, expected: 0.55}
+  - {inputs: {m: 256, quantity: penalty_at_table_i}, expected: 1.0}

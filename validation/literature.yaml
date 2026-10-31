@@ -997,6 +997,17 @@
     - validation/tests/fatadin2009.rs::fatadin_2009_figs_7_8_carrier_recovery
   badge: orange
   not_covered: "the cycle slips at dnu Ts >= 1e-4 and the DD-LMS beyond 500 ps/nm differ (card findings); the RLS-CMA (not implemented); the Bessel anti-aliasing and 50-GHz optical filters; Figs. 4-5, 9-17"
+- id: pfau2009
+  area: Receiver DSP
+  ref: "T. Pfau, S. Hoffmann, R. Noé, Hardware-efficient coherent digital receiver concept with feedforward carrier recovery for M-QAM constellations, JLT 27(8), 2009"
+  module: com_dsp::sync::carrier, com_mapping::differential
+  tested: "Sec. V: the blind phase search (N = 9, B = 32 or 64) with the differential quadrant code of Sec. III-A, eq. (17); the penalty at the linewidths of Table I (1 dB) within 0.13 dB for 4- to 256-QAM, and without phase noise (Fig. 6) within 0.05 dB for 4- to 64-QAM"
+  tests:
+    - validation/tests/pfau2009.rs::the_linewidth_tolerance_follows_table_i_of_pfau_2009
+    - validation/tests/pfau2009.rs::eq_17_is_the_gray_ber_of_square_qam
+    - crates/com-mapping/src/differential.rs::quadrant_qam_survives_every_rotation_by_a_multiple_of_pi_2
+  badge: green
+  not_covered: "256-QAM without phase noise is 0.21 dB below Fig. 6 (card findings); the ADC and internal resolutions of Sec. VI (Figs. 10-12, Table II), the hardware structure, the phase estimator efficiency of Fig. 9, the dual-polarisation estimator of eq. (15)"
 - id: savory2010
   area: Receiver DSP
   ref: "S. J. Savory, Digital coherent optical receivers: algorithms and subsystems, JSTQE 16(5), 2010"

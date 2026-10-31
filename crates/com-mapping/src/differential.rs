@@ -29,8 +29,21 @@
 //!
 //! [`Dpsk`] maps bits to differential phase indices with the Gray labelling of
 //! [`crate::constellation`] (the bits of a symbol are the Gray label of its phase
-//! transition), so that the nearest wrong transitions differ by one bit. The quadrant
-//! (rotation-invariant) differential coding of QAM is not implemented.
+//! transition), so that the nearest wrong transitions differ by one bit.
+//!
+//! # Square QAM with a differential quadrant
+//!
+//! A carrier recovery of square QAM, such as the blind phase search, leaves an ambiguity
+//! of a multiple of $\pi/2$. [`QuadrantQam`] removes it as Pfau, Hoffmann and Noé (2009,
+//! Sec. III-A, Fig. 5): the two bits that select the quadrant are the Gray label of a
+//! differential quadrant index ([`encode`] with $M = 4$), and the other $\log_{2} M - 2$
+//! bits select the point inside the quadrant, Gray-labelled along each axis, the pattern
+//! of the first quadrant rotated with the quadrant. A rotation of the received symbols by
+//! $j$ moves every symbol to the next quadrant with the same inner label, so the
+//! differential decoding of the quadrants returns the same bits. The labelling is no
+//! longer Gray across the axes, which costs about 3 dB of SNR for QPSK at a given bit
+//! error rate (every symbol error spoils two quadrant differences), and less and less
+//! for larger constellations.
 //!
 //! # Examples
 //! ```
@@ -58,8 +71,11 @@
 //! 2. R. F. Pawula, S. O. Rice and J. H. Roberts, "Distribution of the phase angle
 //!    between two vectors perturbed by Gaussian noise," *IEEE Trans. Commun.*, 30(8),
 //!    1828–1841, 1982.
+//! 3. T. Pfau, S. Hoffmann and R. Noé, "Hardware-efficient coherent digital receiver
+//!    concept with feedforward carrier recovery for M-QAM constellations," *J. Lightw.
+//!    Technol.*, 27(8), 2009.
 
-use crate::constellation::indices_to_bits;
+use crate::constellation::{indices_to_bits, qam_side};
 use com_core::{Error, Result, ensure};
 use com_math::bits::bits_to_indices;
 use com_math::{C64, cis, gray, gray_inverse};
@@ -251,6 +267,101 @@ impl Dpsk {
     }
 }
 
+/// Square M-QAM whose quadrant is differentially encoded and whose points inside a
+/// quadrant are Gray-labelled (Pfau et al. 2009, Sec. III-A; see the module): the bits
+/// are read by a coherent receiver after a carrier recovery with an ambiguity of a
+/// multiple of $\pi/2$.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuadrantQam {
+    m: usize,
+    side: usize,
+    axis_bits: usize,
+    scale: f64,
+}
+
+impl QuadrantQam {
+    /// Square QAM of order `m` (4, 16, 64, …), of unit average energy.
+    ///
+    /// # Errors
+    /// [`Error::Config`] unless `m` is an even power of two ≥ 4.
+    pub fn new(m: usize) -> Result<QuadrantQam> {
+        let side = qam_side(m).filter(|s| m >= 4 && s.is_power_of_two());
+        let side = side.ok_or_else(|| Error::Config(format!("the order must be 4, 16, 64, …, got {m}")))?;
+        let axis_bits = (side / 2).trailing_zeros() as usize;
+        Ok(QuadrantQam { m, side, axis_bits, scale: (1.5 / (m as f64 - 1.0)).sqrt() })
+    }
+
+    /// The order $M$.
+    pub fn order(&self) -> usize {
+        self.m
+    }
+
+    /// Bits per symbol, $\log_{2} M$.
+    pub fn bits_per_symbol(&self) -> usize {
+        2 + 2 * self.axis_bits
+    }
+
+    /// The point of the quadrant `q` with the inner label `inner`: the point
+    /// $(2i + 1) + j (2k + 1)$ of the first quadrant, $i$ and $k$ the Gray-decoded halves
+    /// of the label, rotated by $j^{q}$.
+    fn point(&self, q: usize, inner: usize) -> C64 {
+        let i = gray_inverse(inner >> self.axis_bits);
+        let k = gray_inverse(inner & ((1 << self.axis_bits) - 1));
+        C64::new((2 * i + 1) as f64, (2 * k + 1) as f64) * C64::new(0.0, 1.0).powu(q as u32) * self.scale
+    }
+
+    /// The $M$ points (for the decisions of a carrier recovery).
+    pub fn points(&self) -> Vec<C64> {
+        let inner = self.m / 4;
+        (0..self.m).map(|n| self.point(n / inner, n % inner)).collect()
+    }
+
+    /// The `n / log2 M + 1` symbols carrying `n` bits, the reference first (quadrant 0,
+    /// inner label 0); the first two bits of every symbol select the quadrant transition.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] if the number of bits is not a multiple of $\log_{2} M$.
+    pub fn map_bits(&self, bits: &[u8]) -> Result<Vec<C64>> {
+        let labels = bits_to_indices(bits, self.bits_per_symbol())?;
+        let inner_mask = (1 << (2 * self.axis_bits)) - 1;
+        let shift = 2 * self.axis_bits;
+        let quadrants = encode(&labels.iter().map(|&l| gray_inverse(l >> shift)).collect::<Vec<_>>(), 4)?;
+        let inner = std::iter::once(0).chain(labels.iter().map(|&l| l & inner_mask));
+        Ok(quadrants.into_iter().zip(inner).map(|(q, i)| self.point(q, i)).collect())
+    }
+
+    /// The hard decision of a received symbol: its quadrant and its inner label.
+    fn decide(&self, r: C64) -> (usize, usize) {
+        let edge = (self.side - 1) as f64;
+        let level = |x: f64| (2.0 * (x / 2.0).floor() + 1.0).clamp(-edge, edge);
+        let z = C64::new(level(r.re / self.scale), level(r.im / self.scale));
+        let q = match (z.re > 0.0, z.im > 0.0) {
+            (true, true) => 0,
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, false) => 3,
+        };
+        // back to the first quadrant
+        let w = z * C64::new(0.0, -1.0).powu(q as u32);
+        let (i, k) = (((w.re.round() as usize) - 1) / 2, ((w.im.round() as usize) - 1) / 2);
+        (q, (gray(i) << self.axis_bits) | gray(k))
+    }
+
+    /// Hard decisions on `n + 1` received symbols and differential decoding of their
+    /// quadrants: `n log2 M` bits, whatever multiple of $\pi/2$ rotates the symbols.
+    ///
+    /// # Errors
+    /// [`Error::Shape`] for an empty input.
+    pub fn demap_bits(&self, r: &[C64]) -> Result<Vec<u8>> {
+        ensure_reference(r.len())?;
+        let (quadrants, inner): (Vec<usize>, Vec<usize>) = r.iter().map(|&z| self.decide(z)).unzip();
+        let shift = 2 * self.axis_bits;
+        let labels: Vec<usize> =
+            decode(&quadrants, 4)?.into_iter().zip(&inner[1..]).map(|(a, &i)| (gray(a) << shift) | i).collect();
+        Ok(indices_to_bits(&labels, self.bits_per_symbol()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +401,44 @@ mod tests {
         assert!(detect(&[], 4).is_err());
         assert!(Dpsk::new(6).is_err());
         assert!(Dpsk::new(4).unwrap().map_bits(&[1, 0, 1]).is_err());
+    }
+
+    #[test]
+    fn quadrant_qam_survives_every_rotation_by_a_multiple_of_pi_2() {
+        let mut rng = Rng::new(9);
+        for m in [4usize, 16, 64, 256] {
+            let qq = QuadrantQam::new(m).unwrap();
+            let pts = qq.points();
+            assert_eq!(pts.len(), m);
+            let energy: f64 = pts.iter().map(C64::norm_sqr).sum::<f64>() / m as f64;
+            assert!((energy - 1.0).abs() < 1e-12);
+            // the points are those of square QAM
+            let qam = crate::constellation::Constellation::qam(m).unwrap().normalized();
+            for p in &pts {
+                assert!(qam.points().iter().any(|v| (v - p).norm() < 1e-12));
+            }
+            let bits = crate::source::bits(400 * qq.bits_per_symbol(), &mut rng);
+            let x = qq.map_bits(&bits).unwrap();
+            assert_eq!(x.len(), 401);
+            for q in 0..4u32 {
+                let rot: Vec<C64> = x.iter().map(|v| v * C64::new(0.0, 1.0).powu(q)).collect();
+                assert_eq!(qq.demap_bits(&rot).unwrap(), bits, "M = {m}, rotation {q}");
+            }
+            // Gray inside a quadrant: horizontal and vertical neighbours differ by one bit
+            for n in 0..m / 4 {
+                let a = qq.point(0, n);
+                for d in [C64::new(2.0, 0.0), C64::new(0.0, 2.0)] {
+                    let b = a + d * qq.scale;
+                    if let Some(j) = (0..m / 4).find(|&j| (qq.point(0, j) - b).norm() < 1e-9) {
+                        assert_eq!((n ^ j).count_ones(), 1, "M = {m}");
+                    }
+                }
+            }
+        }
+        assert!(QuadrantQam::new(8).is_err());
+        assert!(QuadrantQam::new(2).is_err());
+        assert!(QuadrantQam::new(16).unwrap().map_bits(&[1, 0, 1]).is_err());
+        assert!(QuadrantQam::new(16).unwrap().demap_bits(&[]).is_err());
     }
 
     #[test]
