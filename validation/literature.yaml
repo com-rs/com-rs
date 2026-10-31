@@ -652,6 +652,15 @@
   badge: green
   remarks:
     - "between 2 and 5 spans the EGN curve of Fig. 1(a) lies up to 0.9 dB below the formulas of the same paper"
+- id: chiang1996
+  area: Optical
+  ref: "T.-K. Chiang, N. Kagi, M. E. Marhic, L. G. Kazovsky, Cross-phase modulation in fiber links with multiple optical amplifiers and dispersion compensators, JLT 14(3), 249-260, 1996"
+  module: com_channel::optical::fiber, com_channel::optical::manakov, com_math::nlse
+  tested: "eqs. (8)-(9), the XPM-induced phase modulation of a continuous probe by a sinusoidally modulated pump 125 GHz away over 80 km, 0.125 to 2 GHz: the scalar solver and the Manakov solver (midpoint) within 0.25 %, the trapezoidal phase of OptiCommPy within 0.1 % with steps of 0.02 km but at 0.447 of the XPM with steps of 0.5 km"
+  tests:
+    - validation/tests/chiang1996.rs::the_xpm_of_the_solvers_follows_eq_9_of_chiang_1996
+  badge: green
+  not_covered: "the multi-segment links with amplifiers and dispersion compensators of Sec. III (eqs. (12)-(20)) and the measurements of Figs. 3-10"
 - id: dar2014
   area: Optical
   ref: "R. Dar, M. Feder, A. Mecozzi, M. Shtaif, Accumulation of nonlinear interference noise in fiber-optic systems, Opt. Express, 2014 (arXiv 1310.6137)"

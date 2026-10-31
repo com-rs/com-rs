@@ -1,0 +1,46 @@
+id: chiang1996_eq9
+title: The cross-phase modulation of the split-step solvers against the walk-off theory
+literature: chiang1996
+source:
+  kind: paper
+  reference: "T.-K. Chiang, N. Kagi, M. E. Marhic, L. G. Kazovsky, Cross-phase modulation in fiber links with multiple optical amplifiers and dispersion compensators, J. Lightw. Technol. 14(3), 249-260, 1996"
+  locator: "Sec. II-A, eqs. (8)-(9): the amplitude of the XPM-induced phase modulation of a continuous probe by a sinusoidally modulated pump in one segment"
+  file: fiber/1996_chiang_xpm-amplified-links_jlt.pdf
+description: >
+  A continuous probe (0.1 mW) and a pump 125 GHz above it whose power is 1 + 0.5 cos(w t)
+  mW, copolarised, over 80 km of SMF without amplifier, propagated by the scalar
+  split-step solver (Ssfm) and by the Manakov solver (both waves in one polarisation,
+  the phase at the middle of the step and OptiCommPy's trapezoidal phase), steps of
+  0.5 km (0.02 km for the trapezoidal phase); the index of the phase modulation of the probe, (|X(w)| + |X(-w)|)/|X(0)|,
+  divided by eqs. (8)-(9) with gamma (scalar) or 8/9 gamma (Manakov), at 0.125 to 2 GHz.
+run:
+  test: validation/tests/chiang1996.rs::the_xpm_of_the_solvers_follows_eq_9_of_chiang_1996
+tier: campaign
+duration: "45 s on an Apple M6 (release; the trapezoidal phase with steps of 0.02 km)"
+tolerance: {rtol: 0.03}
+why: >
+  the theory neglects the change of the shapes by the dispersion, beta2 w^2 L / 2 = 0.14
+  rad at 2 GHz (about 1 % on the modulation), and the second order of the small-signal
+  expansion (a phase of 0.03 rad): 3 %
+findings:
+  - "the scalar solver and the Manakov solver with the phase at the middle of the step follow eq. (9) within 0.25 % from 0.125 to 2 GHz, where the walk-off filter divides the XPM by 4.5: the XPM and the walk-off are exact"
+  - "OptiCommPy's trapezoidal phase gives 0.447 of the XPM at every frequency with steps of 0.5 km (-7 dB in power), 0.972 with 0.1 km, 0.993 with 0.05 km and 0.999 with 0.02 km: half of the XPM of a probe comes from its beat with the pump in the power, which turns by beta2 (2 pi 125 GHz)^2 h = 6.7 rad over a step of 0.5 km, and the mean of the power at the two ends of the step averages it out"
+cases:
+  - {inputs: {solver: scalar, fm_ghz: 0.125}, expected: 1.0}
+  - {inputs: {solver: scalar, fm_ghz: 0.25}, expected: 1.0}
+  - {inputs: {solver: scalar, fm_ghz: 0.5}, expected: 1.0}
+  - {inputs: {solver: scalar, fm_ghz: 1.0}, expected: 1.0}
+  - {inputs: {solver: scalar, fm_ghz: 1.5}, expected: 1.0}
+  - {inputs: {solver: scalar, fm_ghz: 2.0}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 0.125}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 0.25}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 0.5}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 1.0}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 1.5}, expected: 1.0}
+  - {inputs: {solver: midpoint, fm_ghz: 2.0}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 0.125}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 0.25}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 0.5}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 1.0}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 1.5}, expected: 1.0}
+  - {inputs: {solver: trapezoidal, fm_ghz: 2.0}, expected: 1.0}

@@ -17,7 +17,10 @@
 //! 32 GBd spaced by 50 GHz over 500 km of lossless SMF give 0.7 dB too little NLI with
 //! steps of 0.5 km, 0.04 dB with 0.1 km, against the scalar split-step method of
 //! [`super::fiber::Ssfm`] (the power at the middle of the step), which is converged at
-//! 0.5 km (`validation/tests/dar2014.rs`). With the trapezoidal step, the step must keep
+//! 0.5 km (`validation/tests/dar2014.rs`); a continuous probe 125 GHz from a modulated
+//! pump receives 0.447 of its cross-phase modulation with steps of 0.5 km, 0.999 with
+//! 0.02 km, where the midpoint step follows the theory of Chiang et al. (1996) within
+//! 0.25 % at 0.5 km (`validation/tests/chiang1996.rs`). With the trapezoidal step, the step must keep
 //! the walk-off of the outer channels small against the symbol period; the adaptive rule
 //! of the nonlinear phase lengthens the steps at low power, where this matters most.
 //! [`NonlinearStep::Midpoint`], the default, takes the power at the middle of the step, as
