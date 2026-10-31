@@ -10,7 +10,7 @@ use comrs::channel::optical::manakov::ManakovSsfm;
 use comrs::channel::optical::pmd::{ManakovPmd, PmdLink};
 use comrs::channel::optical::raman::Raman;
 use comrs::core::signal::DualPol;
-use comrs::math::nlse::{NonlinearStep, StepRule};
+use comrs::math::nlse::{NonlinearStep, StepRule, StepUpdate};
 use comrs::spec::blocks::BuildContext;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -574,13 +574,21 @@ impl PyManakov {
 /// Each step is a half linear step, the nonlinear phase ``(8/9) γ h P`` (``P = |A_x|² +
 /// |A_y|²`` at the middle of the step; with ``nonlinear_step="trapezoidal"``, OptiCommPy's
 /// ``(P(z) + P(z+h))/2``, iterated until the relative change of the fields falls below
-/// ``tolerance``) and a half linear step. The step is fixed (``step_km``) or adapted so that the largest nonlinear
-/// phase of a step is ``max_nl_phase`` (Sinkin et al. 2003). An amplifier follows every
-/// span. Polarisation-mode dispersion is neglected (see :class:`ManakovPmd`).
+/// ``tolerance``) and a half linear step. The step is fixed (``step_km``) or adaptive
+/// (``step_rule``). An amplifier follows every span. Polarisation-mode dispersion is neglected (see :class:`ManakovPmd`).
 ///
 /// Args:
 ///     fiber (FiberParams): the link.
-///     max_nl_phase (float): largest nonlinear phase rotation per step (rad).
+///     step_rule (str): ``"fwm"``, the rule of Musetti et al. (2018): the first step of a
+///         span bounds the four-wave-mixing phase across the signal bandwidth to
+///         ``fwm_phase``, the next ones grow with the loss (about 0.01 dB of error on the
+///         SNR at 20 rad, whatever the power); or ``"nonlinear_phase"``, OptiCommPy's
+///         ``max_nl_phase`` per step.
+///     fwm_phase (float): the four-wave-mixing phase of the first step (rad).
+///     bandwidth_hz (float, optional): the signal bandwidth of the rule ``"fwm"``
+///         (measured on the launched field if None).
+///     max_nl_phase (float): largest nonlinear phase rotation per step (rad), with
+///         ``step_rule="nonlinear_phase"``.
 ///     step_km (float, optional): a fixed step (km) instead of the adaptive one.
 ///     nonlinear_step (str): ``"midpoint"``, the power at the middle of a step (the
 ///         scalar solver), or ``"trapezoidal"``, the mean of the power at its two ends,
@@ -616,11 +624,14 @@ impl PyManakovSsfm {
     }
 
     #[new]
-    #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, nonlinear_step = "midpoint", max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
+    #[pyo3(signature = (fiber, *, step_rule = "fwm", fwm_phase = 20.0, bandwidth_hz = None, max_nl_phase = 2e-2, step_km = None, nonlinear_step = "midpoint", max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
     #[allow(clippy::too_many_arguments, reason = "the settings of the solver, by keyword")]
     fn new(
         py: Python<'_>,
         fiber: &PyFiber,
+        step_rule: &str,
+        fwm_phase: f64,
+        bandwidth_hz: Option<f64>,
         max_nl_phase: f64,
         step_km: Option<f64>,
         nonlinear_step: &str,
@@ -629,7 +640,21 @@ impl PyManakovSsfm {
         amplification: &str,
         raman: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let rule = step_km.map_or(StepRule::NonlinearPhase(max_nl_phase), StepRule::Fixed);
+        let rule = match (step_km, step_rule) {
+            (Some(h), _) => StepRule::Fixed(h),
+            (None, "fwm") => StepRule::Fwm {
+                phase_rad: fwm_phase,
+                bandwidth_hz,
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: Some(max_nl_phase),
+            },
+            (None, "nonlinear_phase") => StepRule::NonlinearPhase(max_nl_phase),
+            (None, other) => {
+                return Err(PyValueError::new_err(format!(
+                    "step_rule must be 'fwm' or 'nonlinear_phase', got {other:?}"
+                )));
+            }
+        };
         Ok(PyManakovSsfm {
             inner: ManakovSsfm {
                 fiber: fiber.inner.clone(),

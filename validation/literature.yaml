@@ -720,6 +720,16 @@
   tests: []
   badge: red
   not_covered: "the coarse-step PMD model is checked for unitarity only"
+- id: musetti2018
+  area: Optical
+  ref: "S. Musetti, P. Serena, A. Bononi, On the accuracy of split-step Fourier simulations for wideband nonlinear optical communications, JLT 36(23), 5669-5677, 2018"
+  module: com_math::nlse::StepRule, com_channel::optical::manakov
+  tested: "the four-wave-mixing-aware step rule (eq. (13)) with the constant local error (eq. (10)) and the nonlinear-phase update (eq. (9)): the accuracy a_SSFM / a_NL of Fig. 7 (7 channels, one span, symmetric step) within 2.4 dB from -72 to -7 dB"
+  tests:
+    - validation/tests/musetti2018.rs::the_accuracy_of_the_fwm_rule_follows_fig_7_of_musetti_2018
+    - crates/com-math/src/nlse.rs::the_fwm_rule_follows_eq_13_of_musetti_and_grows_with_the_loss
+  badge: green
+  not_covered: "Figs. 3-6 and 8 (27 to 101 channels over 20 spans, the power and bandwidth independence, the complexity); the third-order dispersion. A single channel at high power needs a bound on the nonlinear phase as well (card findings)"
 - id: radhakrishnan1997
   area: Optical
   ref: "R. Radhakrishnan, M. Lakshmanan, J. Hietarinta, Inelastic collision and switching of coupled bright solitons in optical fibers, Phys. Rev. E 56(2), 2213-2216, 1997 (arXiv solv-int/9703008)"

@@ -1091,7 +1091,10 @@ class Manakov(Native):
 
     Args:
         fiber (dict): fibre parameters, merged over the `fiber` of the specification (see FiberParams); its `raman` mapping adds Raman pumps and ISRS; keys alpha_db_km, d_ps_nm_km, gamma_w_km, span_km, n_spans, fc_hz, nf_db, raman; default spec fiber
-        max_nl_phase_rad (float): largest nonlinear phase rotation per step [rad]; default 2e-2
+        step_rule (str): the adaptive steps: the four-wave-mixing phase of Musetti et al. 2018 (power independent) or OptiCommPy's nonlinear phase per step; one of fwm, nonlinear_phase; default fwm
+        fwm_phase_rad (float): four-wave-mixing phase across the bandwidth in the first step of a span (step_rule fwm) [rad]; default 20.0
+        bandwidth_hz (float): signal bandwidth of the rule fwm (measured on the launched field if absent) [Hz]; default none
+        max_nl_phase_rad (float): largest nonlinear phase rotation per step (step_rule nonlinear_phase) [rad]; default 2e-2
         step_km (float): a fixed step instead of the adaptive one [km]; default none
         nonlinear_step (str): the nonlinear phase of a step: the power at its middle (the scalar solver) or the trapezoidal mean of the power at its ends (OptiCommPy, iterated; less accurate in WDM); one of midpoint, trapezoidal; default midpoint
         max_iterations (int): trapezoidal iterations per step at most; default 10
@@ -1104,6 +1107,9 @@ class Manakov(Native):
     gives = ()
     param_names = (
         "fiber",
+        "step_rule",
+        "fwm_phase_rad",
+        "bandwidth_hz",
         "max_nl_phase_rad",
         "step_km",
         "nonlinear_step",
@@ -1117,6 +1123,9 @@ class Manakov(Native):
         self,
         *,
         fiber: dict | Var | None = None,
+        step_rule: str | Var = "fwm",
+        fwm_phase_rad: float | Var = 20.0,
+        bandwidth_hz: float | Var | None = None,
         max_nl_phase_rad: float | Var = 0.02,
         step_km: float | Var | None = None,
         nonlinear_step: str | Var = "midpoint",
@@ -1129,6 +1138,9 @@ class Manakov(Native):
             self,
             "manakov",
             fiber=fiber,
+            step_rule=step_rule,
+            fwm_phase_rad=fwm_phase_rad,
+            bandwidth_hz=bandwidth_hz,
             max_nl_phase_rad=max_nl_phase_rad,
             step_km=step_km,
             nonlinear_step=nonlinear_step,

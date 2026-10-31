@@ -214,7 +214,8 @@ PyPI and the command line `comrs`.
   and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
   against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
   uncoded baselines and the 64-state convolutional code against Costello & Forney 2007;
-  the scalar and Manakov split-step solvers against the exact two-soliton collision
+  the step rule of the Manakov solver against Fig. 7 of Musetti et al. 2018; the scalar
+  and Manakov split-step solvers against the exact two-soliton collision
   (Hirota 1973) of Sinkin et al. 2003, and the Manakov solver against the exact
   inelastic collision of two Manakov solitons of Radhakrishnan et al. 1997, and their
   cross-phase modulation against the walk-off theory of Chiang et al. 1996.
@@ -236,6 +237,15 @@ PyPI and the command line `comrs`.
   differentially encoded and whose points inside a quadrant are Gray-labelled (Pfau et
   al. 2009, Sec. III-A), decoded whatever multiple of $\pi/2$ the carrier recovery
   leaves.
+- `com_math::nlse::StepRule::Fwm`: the step rule of Musetti, Serena & Bononi (2018),
+  the first step of a span bounding the four-wave-mixing phase across the signal
+  bandwidth (measured by `signal_bandwidth`), the next ones growing with the loss
+  (`StepUpdate`), with an optional bound on the nonlinear phase. The Manakov solver
+  takes by default 20 rad and 0.02 rad (`StepRule::FWM_DEFAULT`) instead of OptiCommPy's
+  0.02 rad of nonlinear phase alone, which leaves 0.45 dB of error on `wdm_gn` and
+  `raman_wdm`; the parameters `step_rule`, `fwm_phase_rad` and `bandwidth_hz` of the
+  block `manakov` and `step_rule`, `fwm_phase`, `bandwidth_hz` of `comrs.ManakovSsfm`
+  (`docs/adr/0013-manakov-defaults.md`).
 - `com_math::nlse::NonlinearStep`: the Manakov solver takes, by default, the nonlinear
   phase at the middle of the step (`Midpoint`, the scheme of the scalar solver), or the
   trapezoidal mean of OptiCommPy (`Trapezoidal`, the former default), which smooths

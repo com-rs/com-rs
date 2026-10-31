@@ -25,11 +25,22 @@
 //! of the nonlinear phase lengthens the steps at low power, where this matters most.
 //! [`NonlinearStep::Midpoint`], the default, takes the power at the middle of the step, as
 //! the scalar solver, without iterations: 0.17 dB from the GN model on the same link
-//! with steps of 0.5 km (`validation/cards/dar2014_manakov.yaml`). The default rule of
-//! 0.02 rad of nonlinear phase per step is not converged in every link: with the
-//! counter-pumped Raman link of `specs/raman_wdm.yaml` at 2 dBm per channel it leaves
-//! 0.4 dB of error on the SNR with either nonlinear step, where steps of 0.5 km are
-//! converged.
+//! with steps of 0.5 km (`validation/cards/dar2014_manakov.yaml`).
+//!
+//! # Step rule
+//!
+//! The defaults depart from OptiCommPy's `manakovSSF` (`docs/adr/0013-manakov-defaults.md`):
+//! the nonlinear phase at the middle of the step, and the step rule below. By default the
+//! steps follow the rule of Musetti, Serena and Bononi (2018,
+//! [`StepRule::FWM_DEFAULT`]): the first step of every span bounds the four-wave-mixing
+//! phase across the bandwidth of the launched signal to 20 rad, the next ones grow with
+//! the loss; the error on the SNR is then about 0.01 dB whatever the power
+//! (`validation/tests/musetti2018.rs` reproduces their Fig. 7). The steps are also kept
+//! below 0.02 rad of nonlinear phase, which a single channel at high power needs. With
+//! Raman amplification the loss is in the power profile of the span, so the steps keep
+//! the first one (shorter, hence safer, than the growth with the loss). OptiCommPy's rule, 0.02 rad
+//! of nonlinear phase per step (`StepRule::NonlinearPhase(2e-2)`), depends on the power:
+//! with the counter-pumped Raman link of `specs/raman_wdm.yaml` it leaves 0.4 dB of error.
 //!
 //! [`ManakovSsfm::dbp`] is its digital back-propagation. [`ManakovSsfm`] neglects
 //! polarisation-mode dispersion; `pmd::ManakovPmd` adds it with a
@@ -67,7 +78,7 @@ use com_core::ensure;
 use com_core::prelude::*;
 use com_core::signal::DualPol;
 use com_dsp::compensation::dbp::Dbp;
-use com_math::nlse::{ManakovSplitStep, Medium, NonlinearStep, StepRule};
+use com_math::nlse::{ManakovSplitStep, Medium, NonlinearStep, StepRule, signal_bandwidth};
 
 /// A dual-polarisation multi-span link (see the module).
 #[derive(Clone, Debug, PartialEq)]
@@ -91,14 +102,14 @@ pub struct ManakovSsfm {
 }
 
 impl ManakovSsfm {
-    /// The link with steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the
-    /// nonlinear phase at the middle of the step, EDFAs; with
-    /// [`NonlinearStep::Trapezoidal`], OptiCommPy's iterations (10 at most, tolerance
-    /// $10^{-5}$).
+    /// The link with the step rule of Musetti et al. ([`StepRule::FWM_DEFAULT`], the
+    /// bandwidth measured on the launched field), the nonlinear phase at the middle of the
+    /// step, EDFAs; with [`NonlinearStep::Trapezoidal`], OptiCommPy's iterations (10 at
+    /// most, tolerance $10^{-5}$).
     pub fn new(fiber: FiberParams) -> ManakovSsfm {
         ManakovSsfm {
             fiber,
-            rule: StepRule::NonlinearPhase(2e-2),
+            rule: StepRule::FWM_DEFAULT,
             nonlinear: NonlinearStep::Midpoint,
             max_iterations: 10,
             tolerance: 1e-5,
@@ -120,9 +131,20 @@ impl ManakovSsfm {
             _ => {}
         }
         let f = &self.fiber;
+        // the bandwidth of the rule of Musetti et al. is measured once, on the launched
+        // field: after an amplifier its white noise would fill the whole band
+        let rule = match self.rule {
+            StepRule::Fwm { phase_rad, bandwidth_hz: None, update, max_nl_phase_rad } => StepRule::Fwm {
+                phase_rad,
+                bandwidth_hz: Some(signal_bandwidth(&[&u.x, &u.y], fs)),
+                update,
+                max_nl_phase_rad,
+            },
+            rule => rule,
+        };
         let solver = ManakovSplitStep {
             medium: f.medium(),
-            rule: self.rule,
+            rule,
             nonlinear: self.nonlinear,
             max_iterations: self.max_iterations,
             tolerance: self.tolerance,

@@ -78,7 +78,7 @@ use com_core::rng::Rng;
 use com_core::signal::DualPol;
 use com_core::{Error, Result, ensure};
 use com_dsp::signal::{wdm_demultiplex, wdm_grid};
-use com_math::nlse::StepRule;
+use com_math::nlse::{StepRule, StepUpdate};
 use com_math::{C64, dbm2w};
 use com_systems::wdm::WdmTransmitter;
 use serde_json::Value as Json;
@@ -219,7 +219,11 @@ impl Block for WdmTx {
 block_params! {
     struct ManakovSpec {
         fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
-        max_nl_phase_rad: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
+        step_rule: String ["fwm"] one_of ["fwm", "nonlinear_phase"],
+            "the adaptive steps: the four-wave-mixing phase of Musetti et al. 2018 (power independent) or OptiCommPy's nonlinear phase per step";
+        fwm_phase_rad: f64 [20.0] "rad" > 0, "four-wave-mixing phase across the bandwidth in the first step of a span (step_rule fwm)";
+        bandwidth_hz: Option<f64> [absent] "Hz" > 0, "signal bandwidth of the rule fwm (measured on the launched field if absent)";
+        max_nl_phase_rad: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step (step_rule nonlinear_phase)";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
         nonlinear_step: String ["midpoint"] one_of ["midpoint", "trapezoidal"],
             "the nonlinear phase of a step: the power at its middle (the scalar solver) or the trapezoidal mean of the power at its ends (OptiCommPy, iterated; less accurate in WDM)";
@@ -238,7 +242,16 @@ struct ManakovBlock {
 impl ManakovBlock {
     fn new(p: &ManakovSpec, ctx: &BuildContext, label: String) -> Result<ManakovBlock> {
         let fiber = ctx.fiber(fiber_json(p.fiber.as_ref()))?;
-        let rule = p.step_km.map_or(StepRule::NonlinearPhase(p.max_nl_phase_rad), StepRule::Fixed);
+        let rule = match (p.step_km, p.step_rule.as_str()) {
+            (Some(h), _) => StepRule::Fixed(h),
+            (None, "nonlinear_phase") => StepRule::NonlinearPhase(p.max_nl_phase_rad),
+            (None, _) => StepRule::Fwm {
+                phase_rad: p.fwm_phase_rad,
+                bandwidth_hz: p.bandwidth_hz,
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: Some(p.max_nl_phase_rad),
+            },
+        };
         Ok(ManakovBlock {
             link: ManakovSsfm {
                 fiber,

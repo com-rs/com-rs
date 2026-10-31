@@ -70,6 +70,7 @@ fn example(b: &str, p: &str) -> Option<Json> {
         ("dump", "dir") => json!("results/signals"),
         ("dump", "datatype") => json!("cf64"),
         ("manakov", "nonlinear_step") => json!("trapezoidal"),
+        ("manakov", "step_rule") => json!("nonlinear_phase"),
         ("dump", "trials") => json!(2),
         ("cpm_tx" | "cpm_rx", "h") => json!("1/2"),
         ("cpm_tx" | "cpm_rx", "pulse") => json!("gmsk"),

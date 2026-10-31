@@ -37,6 +37,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
+use com_validation::wdm::NyquistGrid;
 use comrs::C64;
 use comrs::channel::optical::fiber::{Amplification, FiberParams, Ssfm};
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
@@ -44,7 +45,6 @@ use comrs::channel::optical::manakov::ManakovSsfm;
 use comrs::core::rng::Rng;
 use comrs::core::signal::DualPol;
 use comrs::mapping::constellation::Constellation;
-use comrs::math::fft::{fft, ifft};
 use comrs::math::nlse::{NonlinearStep, StepRule};
 use comrs::math::quadrature::try_simpson;
 use serde_json::json;
@@ -96,32 +96,8 @@ const SYMBOLS: usize = 4096;
 /// Samples per symbol.
 const SPS: usize = 16;
 
-/// The field (√W) of a channel of Nyquist pulses carrying `a` at `slot` × 50 GHz with
-/// the power `p` (W): the spectrum of the symbols placed in the band of the channel.
-fn nyquist_channel(a: &[C64], slot: i64, p: f64) -> Vec<C64> {
-    let (n, l) = (SYMBOLS as i64, (SYMBOLS * SPS) as i64);
-    let spectrum = fft(a);
-    // 50 GHz is 50/32 of the symbol rate, an integer number of bins
-    let offset = slot * n * 50 / 32;
-    let mut x = vec![C64::new(0.0, 0.0); l as usize];
-    for j in -n / 2..n / 2 {
-        x[(j + offset).rem_euclid(l) as usize] = spectrum[j.rem_euclid(n) as usize];
-    }
-    let scale = p.sqrt() * SPS as f64;
-    ifft(&x).into_iter().map(|v| v * scale).collect()
-}
-
-/// The symbols of the centre channel of the field `y`, normalised by the amplitude of a
-/// channel of power `p`: the matched filter of a Nyquist pulse keeps the band of the
-/// channel, sampled at the symbol rate.
-fn matched_filter(y: &[C64], p: f64) -> Vec<C64> {
-    let (n, l) = (SYMBOLS as i64, y.len() as i64);
-    let spectrum = fft(y);
-    let band: Vec<C64> =
-        (0..n).map(|i| if i < n / 2 { i } else { i - n }).map(|j| spectrum[j.rem_euclid(l) as usize]).collect();
-    let scale = 1.0 / (p.sqrt() * SPS as f64);
-    ifft(&band).into_iter().map(|v| v * scale).collect()
-}
+/// The grid of the simulation: 50 GHz is 50/32 of the symbol rate, 6400 bins.
+const GRID: NyquistGrid = NyquistGrid { symbols: SYMBOLS, sps: SPS, slot_bins: SYMBOLS as i64 * 50 / 32 };
 
 /// The symbols of a format: `None` for Gaussian symbols, else the points of the
 /// constellation, drawn uniformly.
@@ -143,17 +119,17 @@ fn xci_run(fiber: &FiberParams, points: Option<&[C64]>, p: f64, seed: u64) -> f6
     let steps = (fiber.span_km / step).round() as usize;
     let mut rng = Rng::new(seed);
     let symbols: Vec<Vec<C64>> = (0..5).map(|_| draw(points, &mut rng)).collect();
-    let alone = nyquist_channel(&symbols[2], 0, p);
+    let alone = GRID.channel(&symbols[2], 0, p);
     let mut all = alone.clone();
     for (slot, s) in [(-2, &symbols[0]), (-1, &symbols[1]), (1, &symbols[3]), (2, &symbols[4])] {
-        for (v, w) in all.iter_mut().zip(nyquist_channel(s, slot, p)) {
+        for (v, w) in all.iter_mut().zip(GRID.channel(s, slot, p)) {
             *v += w;
         }
     }
     let received = |mut x: Vec<C64>| {
         ssfm.propagate(&mut x, fs, None).unwrap();
         // the dispersion undone by a linear back-propagation
-        matched_filter(&ssfm.backpropagate_scaled(&x, fs, steps, 0.0).unwrap(), p)
+        GRID.matched_filter(&ssfm.backpropagate_scaled(&x, fs, steps, 0.0).unwrap(), p)
     };
     let (r5, r1) = (received(all), received(alone));
     let c: C64 = r5.iter().zip(&r1).map(|(a, b)| a * b.conj()).sum::<C64>() / r1.iter().map(C64::norm_sqr).sum::<f64>();
@@ -181,7 +157,7 @@ fn xci_run_dual(fiber: &FiberParams, points: Option<&[C64]>, p: f64, seed: u64, 
         let mut u = DualPol { x: zero.clone(), y: zero };
         for &i in slots {
             for (pol, out) in [&mut u.x, &mut u.y].into_iter().enumerate() {
-                for (v, w) in out.iter_mut().zip(nyquist_channel(&symbols[i][pol], i as i64 - 2, p / 2.0)) {
+                for (v, w) in out.iter_mut().zip(GRID.channel(&symbols[i][pol], i as i64 - 2, p / 2.0)) {
                     *v += w;
                 }
             }
@@ -193,7 +169,8 @@ fn xci_run_dual(fiber: &FiberParams, points: Option<&[C64]>, p: f64, seed: u64, 
     link.propagate(&mut u1, fs, None).unwrap();
     let mut nli = 0.0;
     for (a5, a1) in [(&u5.x, &u1.x), (&u5.y, &u1.y)] {
-        let received = |x: &[C64]| matched_filter(&linear.backpropagate_scaled(x, fs, steps, 0.0).unwrap(), p / 2.0);
+        let received =
+            |x: &[C64]| GRID.matched_filter(&linear.backpropagate_scaled(x, fs, steps, 0.0).unwrap(), p / 2.0);
         let (r5, r1) = (received(a5), received(a1));
         let c: C64 =
             r5.iter().zip(&r1).map(|(a, b)| a * b.conj()).sum::<C64>() / r1.iter().map(C64::norm_sqr).sum::<f64>();

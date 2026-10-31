@@ -34,7 +34,11 @@ standard or the paper, and documented.
        propagated fields); statistically for the Monte Carlo estimators
      - the BER of BPSK from ``theoryBER`` is twice the exact value; its ``edc``
        limits the SNR of a noiseless link to 23 dB; its ``edfa`` re-seeds its
-       generator on every call
+       generator on every call; the trapezoidal nonlinear phase of ``manakovSSF``
+       smooths the cross-phase modulation of channels that walk off within a step (45 %
+       of the XPM of Chiang et al. 1996 with steps of 0.5 km) and its 0.02 rad per step
+       leaves 0.45 dB of error on WDM links, so the Manakov solver of com-rs uses other
+       defaults (``docs/adr/0013-manakov-defaults.md``)
    * - `GNPy <https://github.com/Telecominfraproject/oopt-gnpy>`_ 3.0
        (BSD-3-Clause)
      - Raman power profiles with co- and counter-propagating pumps, their spontaneous

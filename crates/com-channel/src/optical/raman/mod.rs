@@ -581,6 +581,7 @@ mod tests {
         use super::super::fiber::Ssfm;
         use super::super::manakov::ManakovSsfm;
         use com_core::signal::DualPol;
+        use com_math::nlse::StepRule;
         let fiber = FiberParams { n_spans: 2, span_km: 50.0, ..FiberParams::default() };
         let (fs, n) = (64e9, 1024);
         let mut r = Rng::new(3);
@@ -594,7 +595,13 @@ mod tests {
         );
         let err = ya.iter().zip(&yb).map(|(u, v)| (u - v).norm()).fold(0.0, f64::max);
         assert!(err < 1e-9 * 0.03, "{err}");
-        let a = ManakovSsfm { amplification: Amplification::Ideal, ..ManakovSsfm::new(fiber.clone()) };
+        // the same steps in both: with Raman amplification the loss is in the profile, so the
+        // steps of the four-wave-mixing rule would not grow with it
+        let a = ManakovSsfm {
+            amplification: Amplification::Ideal,
+            rule: StepRule::NonlinearPhase(2e-2),
+            ..ManakovSsfm::new(fiber.clone())
+        };
         let b = ManakovSsfm { raman: none.clone(), ..a.clone() };
         let mut ua = DualPol::new(x.clone(), x.iter().map(|v| v * 0.5).collect()).unwrap();
         let mut ub = ua.clone();

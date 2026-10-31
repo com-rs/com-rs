@@ -368,6 +368,86 @@ pub enum StepRule {
     Fixed(f64),
     /// Steps whose largest nonlinear phase $\max_{t} \phi(t)$ is this rotation (rad).
     NonlinearPhase(f64),
+    /// The four-wave-mixing-aware rule of Musetti, Serena and Bononi (2018): the first step
+    /// of every span bounds the phase mismatch of the four-wave mixing across the signal
+    /// bandwidth $B$ (eq. (13)),
+    ///
+    /// $$
+    /// h_{1} = \frac{\Phi_{\mathrm{FWM}}}{|\beta_{2}| (2\pi B)^{2}},
+    /// $$
+    ///
+    /// and the next steps grow with the attenuation by `update`. The rule does not depend on
+    /// the power: the error it leaves on the SNR is fixed by $\Phi_{\mathrm{FWM}}$ (about
+    /// 0.01 dB for 20 rad with the constant local error, 4 rad with the nonlinear-phase
+    /// update, Sec. IV-B).
+    Fwm {
+        /// $\Phi_{\mathrm{FWM}}$ (rad).
+        phase_rad: f64,
+        /// $B$ (Hz): the bandwidth of the signal; `None` measures it on the fields at the
+        /// start of the propagation ([`signal_bandwidth`]).
+        bandwidth_hz: Option<f64>,
+        /// The growth of the steps along a span.
+        update: StepUpdate,
+        /// Also bound the largest nonlinear phase of a step to this rotation (rad), the
+        /// rule of [`StepRule::NonlinearPhase`]: the four-wave-mixing rule alone lets the
+        /// steps of a single channel exceed its dispersion length at high power.
+        max_nl_phase_rad: Option<f64>,
+    },
+}
+
+/// The growth of the steps of [`StepRule::Fwm`] along a span, with the power attenuation
+/// $\alpha$ (Musetti et al. 2018, eqs. (9)–(10)).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StepUpdate {
+    /// The constant local error of Zhang and Hayee for the symmetric step,
+    /// $h_{k+1} = h_{k} e^{\alpha h_{k} / 3}$ (eq. (10)).
+    #[default]
+    ConstantLocalError,
+    /// The update of the nonlinear-phase criterion without the fluctuations of the peak
+    /// power, $L_{\mathrm{eff}}(h_{k+1}) = L_{\mathrm{eff}}(h_{k}) e^{\alpha h_{k}}$ (eq. (9), the
+    /// logarithmic step of Bosco et al. 2000).
+    NonlinearPhase,
+}
+
+impl StepRule {
+    /// The default rule: Musetti et al. for an SNR error of about 0.01 dB in WDM
+    /// ($\Phi_{\mathrm{FWM}}$ = 20 rad, the constant local error, the bandwidth measured on
+    /// the fields), and at most 0.02 rad of nonlinear phase per step, which a single
+    /// channel at high power needs: one DP-16QAM channel of 32 GBd over 10 × 80 km at
+    /// 2 to 8 dBm gets 0.3 to 0.7 dB too much SNR with the four-wave-mixing rule alone,
+    /// the converged values with both (`validation/cards/musetti2018_fig7.yaml`).
+    pub const FWM_DEFAULT: StepRule = StepRule::Fwm {
+        phase_rad: 20.0,
+        bandwidth_hz: None,
+        update: StepUpdate::ConstantLocalError,
+        max_nl_phase_rad: Some(2e-2),
+    };
+}
+
+/// The bandwidth (Hz) of the fields `fields` sampled at `fs`: the span of the frequencies
+/// whose power spectral density, summed over the fields, exceeds $10^{-4}$ of its peak
+/// ($-40$ dB). Measured on a clean signal (before any amplifier noise, which is white).
+pub fn signal_bandwidth(fields: &[&[C64]], fs: f64) -> f64 {
+    let Some(n) = fields.first().map(|f| f.len()) else { return 0.0 };
+    if n == 0 {
+        return 0.0;
+    }
+    let mut psd = vec![0.0; n];
+    for f in fields {
+        for (p, v) in psd.iter_mut().zip(fft::fft(f)) {
+            *p += v.norm_sqr();
+        }
+    }
+    let peak = psd.iter().copied().fold(0.0, f64::max);
+    if peak == 0.0 {
+        return 0.0;
+    }
+    // the bins in increasing frequency, from -fs/2
+    let signed = |k: usize| if k < n.div_ceil(2) { k as f64 } else { k as f64 - n as f64 };
+    let above: Vec<f64> = psd.iter().enumerate().filter(|(_, p)| **p > 1e-4 * peak).map(|(k, _)| signed(k)).collect();
+    let (lo, hi) = above.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &k| (a.min(k), b.max(k)));
+    (hi - lo + 1.0) * fs / n as f64
 }
 
 /// The nonlinear step of [`ManakovSplitStep`].
@@ -444,13 +524,16 @@ struct ManakovWork {
 }
 
 impl ManakovSplitStep {
-    /// Steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the nonlinear phase
-    /// at the middle of the step; with [`NonlinearStep::Trapezoidal`], OptiCommPy's
-    /// iterations: at most 10, tolerance $10^{-5}$.
+    /// The step rule of Musetti et al. ([`StepRule::FWM_DEFAULT`]: about 0.01 dB of error
+    /// on the SNR whatever the power), the nonlinear phase at the middle of the step; with
+    /// [`NonlinearStep::Trapezoidal`], OptiCommPy's iterations: at most 10, tolerance
+    /// $10^{-5}$. OptiCommPy's own step, 0.02 rad of nonlinear phase, is
+    /// `StepRule::NonlinearPhase(2e-2)`: it depends on the power and is not converged in
+    /// every WDM link (`specs/raman_wdm.yaml`).
     pub fn new(medium: Medium) -> ManakovSplitStep {
         ManakovSplitStep {
             medium,
-            rule: StepRule::NonlinearPhase(2e-2),
+            rule: StepRule::FWM_DEFAULT,
             nonlinear: NonlinearStep::Midpoint,
             max_iterations: 10,
             tolerance: 1e-5,
@@ -486,14 +569,32 @@ impl ManakovSplitStep {
         self.run_inner(x, y, length_km, fs, Some(gain))
     }
 
-    /// The parameter of the step rule, checked: the fixed step (km) or the rotation (rad).
+    /// The parameter of the step rule, checked: the fixed step (km), the rotation or the
+    /// phase of the four-wave mixing (rad).
     fn rule_parameter(&self) -> Result<f64> {
         let (step, what) = match self.rule {
             StepRule::Fixed(h) => (h, "fixed step (km)"),
             StepRule::NonlinearPhase(r) => (r, "nonlinear rotation (rad)"),
+            StepRule::Fwm { phase_rad, bandwidth_hz, max_nl_phase_rad, .. } => {
+                if let Some(b) = bandwidth_hz {
+                    ensure(b > 0.0 && b.is_finite(), || format!("the bandwidth must be positive, got {b} Hz"))?;
+                }
+                if let Some(r) = max_nl_phase_rad {
+                    ensure(r > 0.0, || format!("the nonlinear rotation must be positive, got {r}"))?;
+                }
+                (phase_rad, "four-wave-mixing phase (rad)")
+            }
         };
         ensure(step > 0.0, || format!("the {what} must be positive, got {step}"))?;
         Ok(step)
+    }
+
+    /// The first step (km) of [`StepRule::Fwm`] for the bandwidth `b` (Hz), eq. (13) of
+    /// Musetti et al. (the whole length without dispersion or bandwidth).
+    fn fwm_first_step(&self, phase_rad: f64, b: f64) -> f64 {
+        let w = 2.0 * std::f64::consts::PI * b;
+        let h = phase_rad / (self.medium.beta2_s2_km.abs() * w * w);
+        if h.is_finite() { h } else { f64::INFINITY }
     }
 
     /// The length of the next step at `z` with `rest` km left and the phase `phi`
@@ -501,12 +602,33 @@ impl ManakovSplitStep {
     ///
     /// # Errors
     /// [`Error::Numerical`] for a step that does not advance `z`.
-    fn step_length(&self, phi: &[f64], z: f64, rest: f64) -> Result<f64> {
+    fn step_length(&self, phi: &[f64], z: f64, rest: f64, previous: Option<f64>, bandwidth: f64) -> Result<f64> {
         let h = match self.rule {
             StepRule::Fixed(hf) => hf.min(rest),
             StepRule::NonlinearPhase(rot) => {
                 let m = phi.iter().copied().fold(0.0, f64::max);
                 if m > 0.0 && rest >= rot / m { rot / m } else { rest }
+            }
+            StepRule::Fwm { phase_rad, update, max_nl_phase_rad, .. } => {
+                let a = self.medium.alpha_np_km;
+                let h = match previous {
+                    None => self.fwm_first_step(phase_rad, bandwidth),
+                    Some(hk) if a <= 0.0 => hk,
+                    Some(hk) => match update {
+                        StepUpdate::ConstantLocalError => hk * (a * hk / 3.0).exp(),
+                        StepUpdate::NonlinearPhase => {
+                            // L_eff(h') = L_eff(h) e^{α h}, h' = -ln(1 - α L_eff(h')) / α
+                            let l = (1.0 - (-a * hk).exp()) / a * (a * hk).exp();
+                            if a * l < 1.0 { -(1.0 - a * l).ln() / a } else { f64::INFINITY }
+                        }
+                    },
+                };
+                let m = phi.iter().copied().fold(0.0, f64::max);
+                let nl = match max_nl_phase_rad {
+                    Some(rot) if m > 0.0 => rot / m,
+                    _ => f64::INFINITY,
+                };
+                h.min(nl).min(rest)
             }
         };
         // a step that does not advance (an infinite power, a step below the precision
@@ -551,13 +673,20 @@ impl ManakovSplitStep {
             yc: y.to_vec(),
         };
         let k = 8.0 / 9.0 * self.medium.gamma_w_km;
+        let bandwidth = match self.rule {
+            StepRule::Fwm { bandwidth_hz: Some(b), .. } => b,
+            StepRule::Fwm { bandwidth_hz: None, .. } => signal_bandwidth(&[x, y], fs),
+            _ => 0.0,
+        };
         let mut z = 0.0;
         let mut steps = 0;
+        let mut previous = None;
         while z < length_km {
             total_power(x, y, &mut w.p0);
             total_power(&w.xc, &w.yc, &mut w.p1);
             trapezoid(&w.p0, &w.p1, k, &mut w.phi);
-            let h = self.step_length(&w.phi, z, length_km - z)?;
+            let h = self.step_length(&w.phi, z, length_km - z, previous, bandwidth)?;
+            previous = Some(h);
             self.medium.half_step_into(&w.omega, h, &mut w.lin);
             // the two half steps differ only with a distributed gain
             if let Some(g) = gain {
@@ -800,6 +929,75 @@ mod tests {
         // second order: the error of the coarse solution is small against the fine one
         let err: f64 = xa.iter().zip(&xb).chain(ya.iter().zip(&yb)).map(|(u, v)| (u - v).norm_sqr()).sum();
         assert!((err / e0).sqrt() < 1e-3, "{}", (err / e0).sqrt());
+    }
+
+    #[test]
+    fn the_fwm_rule_follows_eq_13_of_musetti_and_grows_with_the_loss() {
+        // two tones 200 GHz apart: a bandwidth of 200 GHz plus one bin
+        let (n, fs) = (1024, 1.024e12);
+        let tone =
+            |f: f64| -> Vec<C64> { (0..n).map(|k| cis(2.0 * std::f64::consts::PI * f * k as f64 / fs)).collect() };
+        let x: Vec<C64> = tone(-100e9).iter().zip(tone(100e9)).map(|(a, b)| a + b).collect();
+        let y = vec![C64::new(0.0, 0.0); n];
+        assert!((signal_bandwidth(&[&x, &y], fs) - 201e9).abs() < 1.0);
+        assert_eq!(signal_bandwidth(&[&y], fs), 0.0);
+        // the first step of eq. (13): 20 rad over 350 GHz of SMF is 190 m
+        let m = Medium { alpha_np_km: 0.2 / 10.0 * std::f64::consts::LN_10, beta2_s2_km: -2.1683e-23, gamma_w_km: 1.3 };
+        let s = ManakovSplitStep {
+            rule: StepRule::Fwm {
+                phase_rad: 20.0,
+                bandwidth_hz: Some(350e9),
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: None,
+            },
+            ..ManakovSplitStep::new(m)
+        };
+        let h1 = s.step_length(&[0.0], 0.0, 100.0, None, 350e9).unwrap();
+        assert!((h1 - 20.0 / (2.1683e-23 * (2.0 * std::f64::consts::PI * 350e9).powi(2))).abs() < 1e-12);
+        assert!((h1 - 0.190).abs() < 0.001, "{h1}");
+        // the constant local error stretches the step by e^{α h / 3}; without loss it stays
+        let h2 = s.step_length(&[0.0], h1, 100.0, Some(h1), 350e9).unwrap();
+        assert!((h2 / h1 - (m.alpha_np_km * h1 / 3.0).exp()).abs() < 1e-12);
+        let lossless = ManakovSplitStep { medium: Medium { alpha_np_km: 0.0, ..m }, ..s };
+        assert_eq!(lossless.step_length(&[0.0], h1, 100.0, Some(h1), 350e9).unwrap(), h1);
+        // the nonlinear-phase update keeps L_eff(h) e^{-α z}: it grows faster
+        let nlp = ManakovSplitStep {
+            rule: StepRule::Fwm {
+                phase_rad: 20.0,
+                bandwidth_hz: Some(350e9),
+                update: StepUpdate::NonlinearPhase,
+                max_nl_phase_rad: None,
+            },
+            ..s
+        };
+        let h2n = nlp.step_length(&[0.0], h1, 100.0, Some(h1), 350e9).unwrap();
+        let leff = |h: f64| (1.0 - (-m.alpha_np_km * h).exp()) / m.alpha_np_km;
+        assert!((leff(h2n) / leff(h1) - (m.alpha_np_km * h1).exp()).abs() < 1e-12);
+        assert!(h2n > h2);
+        // a non-positive phase or bandwidth is refused
+        for rule in [
+            StepRule::Fwm {
+                phase_rad: 0.0,
+                bandwidth_hz: None,
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: None,
+            },
+            StepRule::Fwm {
+                phase_rad: 20.0,
+                bandwidth_hz: Some(0.0),
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: None,
+            },
+            StepRule::Fwm {
+                phase_rad: 20.0,
+                bandwidth_hz: None,
+                update: StepUpdate::ConstantLocalError,
+                max_nl_phase_rad: Some(0.0),
+            },
+        ] {
+            let (mut a, mut b) = (x.clone(), y.clone());
+            assert!(ManakovSplitStep { rule, ..s }.run(&mut a, &mut b, 1.0, fs).is_err());
+        }
     }
 
     #[test]

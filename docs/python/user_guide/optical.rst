@@ -37,12 +37,91 @@ butterfly, and the metrics pool both.
 The propagation
 ---------------
 
-``Manakov`` solves the Manakov equation by the symmetric split-step method of
-OptiCommPy's ``manakovSSF`` (the nonlinear phase integrated by the trapezoidal rule,
-iterated to convergence, and steps adapted to a nonlinear phase rotation of 0.02 rad):
-on the same field, the two implementations agree to :math:`10^{-13}`
-(``tests/test_oracle.py``), and the same WDM link simulated end to end by both gives the
-same SNR. :class:`comrs.ManakovSsfm` runs it on arrays.
+``Manakov`` solves the Manakov equation by the symmetric split-step method:
+:class:`comrs.ManakovSsfm` runs it on arrays. Two numerical choices fix its accuracy,
+and its defaults differ from OptiCommPy's ``manakovSSF`` on both
+(``docs/adr/0013-manakov-defaults.md``):
+
+- **the nonlinear step** (``nonlinear_step``): ``"midpoint"`` (the default) takes the
+  phase of the power at the middle of the step, as the scalar solver ``Ssfm``;
+  ``"trapezoidal"`` is OptiCommPy's mean of the power at the two ends of the step,
+  iterated. When channels walk off within a step the mean smooths the intensity that
+  drives the cross-phase modulation: with steps of 0.5 km, a probe 125 GHz from a
+  modulated pump receives 45 % of its XPM, and a five-channel link 0.9 dB too little
+  interference;
+- **the step rule** (``step_rule``): ``"fwm"`` (the default) is the rule of Musetti,
+  Serena and Bononi (2018): the first step of every span bounds the phase mismatch of
+  the four-wave mixing across the signal bandwidth to ``fwm_phase`` (20 rad, about
+  0.01 dB of error on the SNR whatever the power), the next ones grow with the loss, and
+  no step exceeds ``max_nl_phase`` (0.02 rad) of nonlinear phase, which a single channel
+  at high power needs. The bandwidth is measured on the launched field, or given
+  (``bandwidth_hz``). ``"nonlinear_phase"`` is OptiCommPy's rule, ``max_nl_phase`` alone:
+  it depends on the power and ignores the bandwidth. ``step_km`` fixes the step.
+
+``Manakov(step_rule="nonlinear_phase", nonlinear_step="trapezoidal")`` is OptiCommPy's
+solver: on the same field the two implementations agree to :math:`10^{-8}`
+(``tests/test_oracle.py``).
+
+The solvers are checked against references that do not come from a simulator:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 26 40
+
+   * - Reference
+     - What it checks
+     - Result
+   * - the exact collision of two solitons (Hirota 1973; the case of Sinkin et al.
+       2003)
+     - the scheme, the walk-off
+     - exact to :math:`3 \cdot 10^{-9}` with steps of 1 m, second order
+   * - the exact collision of two Manakov solitons (Radhakrishnan et al. 1997, Fig. 1)
+     - the coupling of the polarisations
+     - the energy switched between them by eq. (16): 0.40 % against 0.39 %
+   * - the XPM of a probe by a modulated pump (Chiang et al. 1996, eq. (9))
+     - the cross-phase modulation with walk-off
+     - within 0.25 % from 0.125 to 2 GHz with steps of 0.5 km
+   * - the simulation of Dar et al. 2014, Sec. 3
+     - the interference of a five-channel link
+     - 9.95 and 5.78 dB against 10 and 6 dB
+   * - the accuracy of the step rule (Musetti et al. 2018, Fig. 7)
+     - the error left by the steps
+     - within 2.4 dB from −72 to −7 dB
+   * - the GN model with Gaussian symbols
+     - the level of the interference
+     - within 0.17 dB
+
+Accuracy and time against fixed steps of 0.25 km (the reference), the same Rust code:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 19 19 19 19
+
+   * - Case
+     - OptiCommPy's choices
+     - OptiCommPy's scheme, steps of 0.1 km
+     - Defaults
+     - Reference (0.25 km)
+   * - ``specs/wdm_gn.yaml`` (5 channels, 5 × 80 km)
+     - 0.44 dB, 18 s
+     - 0.02 dB, 291 s
+     - 0.02 dB, 27 s
+     - 61 s
+   * - ``specs/raman_wdm.yaml`` (counter-pumped Raman, 3 × 100 km)
+     - 0.45 dB, 7 s
+     - 0.02 dB, 135 s
+     - 0.00 dB, 21 s
+     - 31 s
+   * - one DP-16QAM channel, 10 × 80 km, 2 to 8 dBm
+     - 0.03 dB, 1.7 s
+     -
+     - 0.00 dB, 1.4 s
+     - 7.4 s
+
+At equal accuracy the defaults are 6 to 11 times faster than OptiCommPy's scheme: its
+trapezoidal phase needs steps of 0.1 km to reach 0.02 dB on these links (about 25 times
+more steps than the midpoint one for the same XPM, ``validation/tests/chiang1996.rs``),
+and each step iterates. Times on an Apple M6, the whole specification.
 
 The GN model
 ------------

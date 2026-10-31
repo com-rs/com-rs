@@ -1,0 +1,36 @@
+id: musetti2018_fig7
+title: Accuracy of the four-wave-mixing-aware step rule of the split-step method
+literature: musetti2018
+source:
+  kind: paper
+  reference: "S. Musetti, P. Serena, A. Bononi, On the accuracy of split-step Fourier simulations for wideband nonlinear optical communications, J. Lightw. Technol. 36(23), 5669-5677, 2018"
+  locator: "eqs. (7), (9), (10), (13); Fig. 7 (7 channels, one SMF span, symmetric step: FWM-CLE and FWM-NLP)"
+  file: fiber/2018_musetti_split-step-accuracy-wideband_jlt.pdf
+description: >
+  Seven dual-polarisation 16-QAM channels of 49 GBd spaced by 50 GHz, 0 dBm per channel,
+  one span of 100 km of SMF, propagated by com_math::nlse::ManakovSplitStep with the rule
+  StepRule::Fwm (the first step of eq. (13) for B = 350 GHz, then the constant local error
+  of eq. (10) or the update of eq. (9)) and the phase at the middle of the step; the ratio
+  a_SSFM / a_NL in dB on the received centre channel, against a reference at 1 rad.
+  Nyquist pulses and no third-order dispersion (the paper: roll-off 0.01 and 0.057
+  ps/(nm2 km)).
+run:
+  test: validation/tests/musetti2018.rs::the_accuracy_of_the_fwm_rule_follows_fig_7_of_musetti_2018
+tier: campaign
+duration: "63 s on an Apple M6 (release)"
+tolerance: {atol: 3.0}
+why: >
+  the markers read to about 2 dB on the axis of 20 dB per division; one realisation of
+  4116 symbols per channel, the pulses and the third-order dispersion differ from the
+  paper's
+findings:
+  - "the accuracy follows Fig. 7 within 2.4 dB from -72 to -7 dB: FWM-CLE -70.5, -40.2, -21.3 and -7.3 dB at 4.5, 9, 18 and 36 rad (figure -72, -40, -21, -7); FWM-NLP -36.2, -21.6 and -13.1 dB at 1, 4 and 10 rad (figure -36, -24, -15); 300 steps at 18 rad"
+  - "the rule alone is not enough for a single channel at high power: one DP-16QAM channel of 32 GBd over 10 x 80 km gets 0.28, 0.40, 0.50 and 0.66 dB too much SNR at 2, 4, 6 and 8 dBm with 20 rad (steps of 19 to 87 km, beyond its dispersion length), 0.06 dB at most with 5 rad; bounding the nonlinear phase of a step to 0.02 rad as well gives the values of steps of 0.1 km (20.03, 17.20, 13.36, 9.24 dB). The default rule of the Manakov solver (StepRule::FWM_DEFAULT) takes both bounds: within 0.02 dB of fixed steps of 0.25 km on specs/wdm_gn.yaml (2.3 times faster) and identical on specs/raman_wdm.yaml (1.5 times faster)"
+cases:
+  - {inputs: {update: fwm_cle, phase_rad: 4.5}, expected: -72.0}
+  - {inputs: {update: fwm_cle, phase_rad: 9.0}, expected: -40.0}
+  - {inputs: {update: fwm_cle, phase_rad: 18.0}, expected: -21.0}
+  - {inputs: {update: fwm_cle, phase_rad: 36.0}, expected: -7.0}
+  - {inputs: {update: fwm_nlp, phase_rad: 1.0}, expected: -36.0}
+  - {inputs: {update: fwm_nlp, phase_rad: 4.0}, expected: -24.0}
+  - {inputs: {update: fwm_nlp, phase_rad: 10.0}, expected: -15.0}
