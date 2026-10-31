@@ -1,0 +1,30 @@
+id: basar2019_fig7
+title: SER of BPSK through a RIS against the Gaussian approximation
+literature: basar2019
+source:
+  kind: paper
+  reference: "E. Basar, M. Di Renzo, J. de Rosny, M. Debbah, M.-S. Alouini, R. Zhang, Wireless communications through reconfigurable intelligent surfaces, IEEE Access, 2019 (arXiv 1906.09490)"
+  locator: "Sec. IV, Fig. 7 and its text: eq. (17) accurate for N >= 32, about 6 dB per doubling of N in the waterfall region"
+description: >
+  BPSK through a RIS of N co-phased elements, both hops i.i.d. Rayleigh, one channel
+  per symbol (comrs::channel::ris::Ris, comrs::mimo::precoding::ris_co_phasing): the
+  Es/N0 (dB) at which the simulated SER crosses 1e-3 (at least 400 errors per point,
+  log interpolation on a grid of 0.5 dB) minus that of eq. (17)
+  (comrs::mapping::theory::ser_mgf with Ris::clt_snr_mgf), for N = 32 to 256; and the
+  decrease of the crossing of eq. (17) when N doubles.
+run:
+  test: validation/tests/basar2019.rs::the_simulated_ser_follows_eq_17_as_in_fig_7_of_basar_2019
+tier: campaign
+duration: "about 8 s on an Apple M6"
+why: "accurate means within the Monte Carlo spread of the crossing, about 0.1 dB: 0.3 dB; the paper says approximately 6 dB, 6.1 to 6.5 dB are obtained: 0.6 dB"
+findings:
+  - "below 32 elements the approximation is pessimistic: the simulated crossing lies 0.5 dB (N = 16), 2.5 dB (N = 8) and 11.3 dB (N = 4) below eq. (17)"
+  - "the gain of a doubling of N is 7.1 dB from 16 to 32 elements and 6.5, 6.2 and 6.1 dB from 32 to 256: 6 dB is the limit of eq. (19)"
+cases:
+  - {inputs: {elements: 32, quantity: simulation_minus_eq17_db}, expected: 0.0, tolerance: {atol: 0.3}}
+  - {inputs: {elements: 64, quantity: simulation_minus_eq17_db}, expected: 0.0, tolerance: {atol: 0.3}}
+  - {inputs: {elements: 128, quantity: simulation_minus_eq17_db}, expected: 0.0, tolerance: {atol: 0.3}}
+  - {inputs: {elements: 256, quantity: simulation_minus_eq17_db}, expected: 0.0, tolerance: {atol: 0.3}}
+  - {inputs: {elements: 32, quantity: doubling_gain_db}, expected: 6.0, tolerance: {atol: 0.6}}
+  - {inputs: {elements: 64, quantity: doubling_gain_db}, expected: 6.0, tolerance: {atol: 0.6}}
+  - {inputs: {elements: 128, quantity: doubling_gain_db}, expected: 6.0, tolerance: {atol: 0.6}}

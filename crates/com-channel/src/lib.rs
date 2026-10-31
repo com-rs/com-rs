@@ -10,6 +10,7 @@
 //! | [`fading`] | flat fading: single-antenna Rayleigh ([`fading::Rayleigh`]) and MIMO Rayleigh or Rician, block or fast ([`fading::Mimo`]) |
 //! | [`multipath`] | frequency-selective fading: tapped delay lines (EPA, EVA, ETU of 3GPP TS 36.101 Annex B, ITU-R Pedestrian/Vehicular A, exponential) with the Clarke spectrum by sums of sinusoids (Zheng & Xiao), SISO or MIMO; the delay–Doppler channel of discrete paths ([`multipath::DelayDoppler`]) and its random model |
 //! | [`owc`] | optical wireless: the indoor room channel of visible-light and infrared links (Lambertian LEDs, reflections of every order, illuminance) and the free-space optical channel (turbulence, pointing errors, weather) |
+//! | [`ris`] | a reconfigurable intelligent surface between two terminals without line of sight: the two Rayleigh hops, the gain of a configuration of the phases, the SNR of the co-phased elements in the Gaussian approximation (Basar et al. 2019) |
 //! | [`spatial`] | antenna correlation: the Kronecker model, exponential correlation |
 //! | [`optical`] | fibre parameters, the linear fibre channel, the split-step Fourier method (scalar) and the Manakov-PMD equation (two polarisations), the EDFA, Raman amplification and ISRS, the GN model (feature `optical`) |
 //!
@@ -27,4 +28,5 @@ pub mod multipath;
 #[cfg(feature = "optical")]
 pub mod optical;
 pub mod owc;
+pub mod ris;
 pub mod spatial;

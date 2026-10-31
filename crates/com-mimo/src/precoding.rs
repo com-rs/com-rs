@@ -21,6 +21,13 @@
 //! $\alpha = K \sigma^{2} / P$ for $K$ users, maximises the signal-to-leakage ratio. Both
 //! are scaled to the total power $\lVert W \rVert_{F}^{2} = P$.
 //!
+//! # Reconfigurable intelligent surface
+//!
+//! A RIS of $N$ elements reflects $\sum_{i} g_{i} e^{j\phi_{i}} h_{i}$ (`com_channel::ris`):
+//! [`ris_co_phasing`] gives the phases $\phi_{i} = -\arg(h_{i} g_{i})$ that align every
+//! product, which maximise the SNR to $(\sum_{i} |h_{i}| |g_{i}|)^{2} E_{s}/N_{0}$
+//! (Basar et al. 2019, eqs. (11)–(13), as maximal-ratio combining).
+//!
 //! # Examples
 //! ```
 //! use com_mimo::precoding::water_filling_powers;
@@ -37,6 +44,9 @@
 //! 2. C. B. Peel, B. M. Hochwald and A. L. Swindlehurst, "A vector-perturbation
 //!    technique for near-capacity multiantenna multiuser communication — Part I:
 //!    channel inversion and regularization," *IEEE Trans. Commun.*, 53(1), 2005.
+//! 3. E. Basar, M. Di Renzo, J. de Rosny, M. Debbah, M.-S. Alouini and R. Zhang,
+//!    "Wireless communications through reconfigurable intelligent surfaces," *IEEE
+//!    Access*, 2019 (arXiv 1906.09490).
 
 use crate::detection::FLOOR;
 use com_core::signal::Symbols;
@@ -179,10 +189,32 @@ impl Precode for LinearPrecoder {
     }
 }
 
+/// The phases $\phi_{i} = -\arg(h_{i} g_{i})$ (rad) of the elements of a RIS that align
+/// the products of its hops `h` (source to element) and `g` (element to destination):
+/// the gain $\sum_{i} g_{i} e^{j\phi_{i}} h_{i}$ is then $\sum_{i} |h_{i}| |g_{i}|$.
+///
+/// # Errors
+/// [`com_core::Error::Shape`] for hops of different lengths.
+pub fn ris_co_phasing(h: &[C64], g: &[C64]) -> Result<Vec<f64>> {
+    com_core::ensure_shape(h.len() == g.len(), || format!("hops of {} and {} elements", h.len(), g.len()))?;
+    Ok(h.iter().zip(g).map(|(a, b)| -(a * b).arg()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use com_core::rng::Rng;
+
+    #[test]
+    fn co_phased_elements_add_in_amplitude() {
+        let mut r = Rng::new(3);
+        let (h, g): (Vec<C64>, Vec<C64>) = (0..32).map(|_| (r.complex_gaussian(), r.complex_gaussian())).unzip();
+        let phases = ris_co_phasing(&h, &g).unwrap();
+        let gain: C64 = h.iter().zip(&g).zip(&phases).map(|((a, b), p)| b * C64::from_polar(1.0, *p) * a).sum();
+        let amplitude: f64 = h.iter().zip(&g).map(|(a, b)| a.norm() * b.norm()).sum();
+        assert!((gain - amplitude).norm() < 1e-12 * amplitude);
+        assert!(ris_co_phasing(&h, &g[1..]).is_err());
+    }
 
     fn channel(nr: usize, nt: usize, seed: u64) -> CMat {
         let mut r = Rng::new(seed);

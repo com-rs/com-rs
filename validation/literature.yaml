@@ -562,6 +562,19 @@
     - crates/com-channel/src/multipath.rs::itu_r_m1225_tables_4_and_5
     - crates/com-channel/src/multipath.rs::itu_r_m1225_table_2_delay_spreads
   badge: green
+- id: basar2019
+  area: Wireless channels
+  ref: "E. Basar, M. Di Renzo, J. de Rosny, M. Debbah, M.-S. Alouini, R. Zhang, Wireless communications through reconfigurable intelligent surfaces, IEEE Access, 2019 (arXiv 1906.09490)"
+  module: com_channel::ris, com_mimo::precoding::ris_co_phasing, com_mapping::theory::ser_mgf
+  tested: "eqs. (14), (15): the MGF and the mean SNR of the co-phased elements; eqs. (17), (18) and Fig. 6; Fig. 7: the simulated SER of BPSK within 0.1 dB of eq. (17) for N = 32 to 256, and 6.1 to 6.5 dB per doubling of N"
+  tests:
+    - validation/tests/basar2019.rs::eq_17_lies_below_its_bound_and_awgn_as_in_fig_6_of_basar_2019
+    - validation/tests/basar2019.rs::the_simulated_ser_follows_eq_17_as_in_fig_7_of_basar_2019
+    - crates/com-channel/src/ris.rs::the_mean_snr_of_co_phased_elements_is_eq_15
+  badge: green
+  remarks:
+    - "below 32 elements eq. (17) is pessimistic: the simulated SER crosses 1e-3 0.5, 2.5 and 11.3 dB earlier for N = 16, 8 and 4"
+  not_covered: "the QAM SER of eq. (21) is implemented (ser_mgf) but not compared with a figure; the RIS with a line of sight, as a transmitter (Fig. 8) and in the multi-user downlink (Fig. 9)"
 - id: barry1993
   area: Optical
   ref: "J. R. Barry, J. M. Kahn, W. J. Krause, E. A. Lee, D. G. Messerschmitt, Simulation of multipath impulse response for indoor wireless optical channels, JSAC 11(3), 1993"

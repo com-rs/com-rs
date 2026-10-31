@@ -144,6 +144,61 @@ fn ser_at(kind: ConstellationKind, m: usize, es: f64) -> Result<f64> {
     }
 }
 
+/// The average SER of `m`-PSK or square `m`-QAM over a fading channel whose SNR per
+/// symbol $\gamma$ has the moment generating function `mgf` $(s) = \mathbb{E}\,
+/// e^{s\gamma}$, $s \le 0$, by the MGF approach with Craig's form of the $Q$ function
+/// (E. Basar et al., "Wireless communications through reconfigurable intelligent
+/// surfaces," *IEEE Access*, 2019, eqs. (16) and (21)): with
+/// $g = \sin^{2}(\pi/M)$,
+///
+/// $$
+/// P_{e}^{\mathrm{PSK}} = \frac{1}{\pi} \int_{0}^{(M-1)\pi/M} M_{\gamma}\Bigl(-\frac{g}{\sin^{2}\eta}\Bigr) d\eta ,
+/// $$
+///
+/// and with $c = 3/(2(M-1))$ and $q = 1 - 1/\sqrt{M}$,
+///
+/// $$
+/// P_{e}^{\mathrm{QAM}} = \frac{4q}{\pi} \int_{0}^{\pi/2} M_{\gamma}\Bigl(-\frac{c}{\sin^{2}\eta}\Bigr) d\eta -
+///   \frac{4q^{2}}{\pi} \int_{0}^{\pi/4} M_{\gamma}\Bigl(-\frac{c}{\sin^{2}\eta}\Bigr) d\eta ,
+/// $$
+///
+/// by Gauss–Legendre quadrature of 96 nodes on every interval. With the MGF
+/// $e^{s\gamma_{0}}$ of a constant SNR, these are the SERs of [`ser_esn0`] over AWGN.
+///
+/// # Errors
+/// [`Error::Config`] for another family or an order that is not a power of two (and,
+/// for QAM, not a square).
+///
+/// # Examples
+/// ```
+/// use com_mapping::{theory, constellation::ConstellationKind};
+/// // BPSK over Rayleigh fading of mean SNR 10: M(s) = 1/(1 - 10 s)
+/// let p = theory::ser_mgf(ConstellationKind::Psk, 2, |s| 1.0 / (1.0 - 10.0 * s))?;
+/// assert!((p - 0.5 * (1.0 - (10.0f64 / 11.0).sqrt())).abs() < 1e-12);
+/// # Ok::<(), com_core::Error>(())
+/// ```
+pub fn ser_mgf(kind: ConstellationKind, m: usize, mgf: impl Fn(f64) -> f64) -> Result<f64> {
+    ensure_order(kind, m)?;
+    let mf = m as f64;
+    let (x, w) = com_math::gauss_legendre(96);
+    // ∫_0^b M(-c / sin² η) dη
+    let integral = |c: f64, b: f64| -> f64 {
+        x.iter().zip(&w).map(|(t, wt)| wt * mgf(-c / (b / 2.0 * (t + 1.0)).sin().powi(2))).sum::<f64>() * b / 2.0
+    };
+    match kind {
+        ConstellationKind::Psk => {
+            let g = (std::f64::consts::PI / mf).sin().powi(2);
+            Ok(integral(g, (mf - 1.0) * std::f64::consts::PI / mf) / std::f64::consts::PI)
+        }
+        ConstellationKind::Qam => {
+            let (c, q) = (1.5 / (mf - 1.0), 1.0 - 1.0 / mf.sqrt());
+            let pi = std::f64::consts::PI;
+            Ok(4.0 * q / pi * integral(c, pi / 2.0) - 4.0 * q * q / pi * integral(c, pi / 4.0))
+        }
+        other => Err(Error::Config(format!("no SER by the MGF for {other:?}"))),
+    }
+}
+
 /// The $E_{b}/N_{0}$ (dB) at which the BER of [`ber`] equals `target`: the bisection
 /// (200 steps) of $[-10, 60]$ dB, where the BER decreases.
 ///
@@ -807,6 +862,30 @@ pub fn ber_orthogonal_noncoherent(m: usize, esn0_db: f64) -> Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ser_of_a_constant_snr_is_that_of_awgn() {
+        // the SERs of BPSK and square QAM are exact (below 10⁻¹² the 1 - (1 - p)² of
+        // ser_esn0 loses digits)
+        for (kind, m) in [(ConstellationKind::Psk, 2), (ConstellationKind::Qam, 4), (ConstellationKind::Qam, 64)] {
+            for es_db in [0.0, 6.0, 12.0] {
+                let g = db2lin(es_db);
+                let by_mgf = ser_mgf(kind, m, |s| (s * g).exp()).unwrap();
+                let awgn = ser_esn0(kind, m, es_db).unwrap();
+                assert!((by_mgf / awgn - 1.0).abs() < 1e-9, "{kind:?} {m} at {es_db} dB: {by_mgf} against {awgn}");
+            }
+        }
+        // that of 8-PSK is the bound 2 Q(·), tight at high SNR
+        for (es_db, rel) in [(0.0, 0.05), (18.0, 1e-6)] {
+            let by_mgf = ser_mgf(ConstellationKind::Psk, 8, |s| (s * db2lin(es_db)).exp()).unwrap();
+            let bound = ser_esn0(ConstellationKind::Psk, 8, es_db).unwrap();
+            assert!(
+                by_mgf <= bound * (1.0 + 1e-12) && bound / by_mgf - 1.0 < rel,
+                "8-PSK at {es_db} dB: {by_mgf} against {bound}"
+            );
+        }
+        assert!(ser_mgf(ConstellationKind::Pam, 4, f64::exp).is_err());
+    }
 
     /// The bitwise expectations as written before the shared halves: the log-sum of the
     /// labels sharing the bit of `i`, by `log_sum_exp_iter`.

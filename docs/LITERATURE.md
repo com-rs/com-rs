@@ -18,7 +18,7 @@ The last column lists the inconsistencies found in the documents (misprints, fig
 that contradict the text); they do not lower the badge when the corrected result is
 reproduced.
 
-Summary: 102 documents, 64 🟢, 32 🟠, 6 🔴; 57 inconsistencies found.
+Summary: 103 documents, 65 🟢, 32 🟠, 6 🔴; 58 inconsistencies found.
 
 ## Foundations
 
@@ -99,6 +99,7 @@ Summary: 102 documents, 64 🟢, 32 🟠, 6 🔴; 57 inconsistencies found.
 | 🟢 | S. L. Loyka, Channel capacity of MIMO architecture using the exponential correlation matrix, IEEE Commun. Lett. 5(9), 2001 | `com_channel::spatial, com_mimo::capacity` | eq. (3) with the correlation (10): eq. (16) without correlation, independence of the phase of r, the approximation (13) within 3.5 % up to r = 0.8, Fig. 1 (30 dB, n = 10 and 50) within 5 %; the bound (5) on the mean capacity of the Rayleigh channel | `validation/tests/loyka2001.rs::loyka_2001_eqs_3_to_16_and_fig_1`<br>`validation/tests/loyka2001.rs::loyka_2001_eq_5_mean_capacity_of_the_rayleigh_channel` | the uniform correlation model of Fig. 1 | • the text finds the mean capacity of the Rayleigh channel about 20-40 % below the deterministic one; with rows of unit mean power it is 17.5 % below for n = 10 (Telatar's closed form at r = 0) and 20.5 % for n = 50: the simulation is not described |
 | 🟢 | 3GPP TR 38.901 V17.0.0, channel model from 0.5 to 100 GHz | `com_channel::cdl` | the CDL-A to CDL-E tables 7.7.1-1 to 7.7.1-5, the delay scaling of Sec. 7.7.3, the K-factors | `crates/com-channel/src/cdl/mod.rs::tr_38901_tables_7_7_1_1_to_5_entries`<br>`crates/com-channel/src/cdl/mod.rs::tr_38901_section_7_7_3_unit_delay_spread_and_its_scaling` | the TDL profiles of Table 7.7.2 are not implemented | — |
 | 🟢 | ITU-R M.1225 (1997), evaluation of IMT-2000 radio technologies | `com_channel::multipath::Profile` | the pedestrian and vehicular profiles A and B (Tables 4 and 5) and their delay spreads (Table 2) | `crates/com-channel/src/multipath.rs::itu_r_m1225_tables_4_and_5`<br>`crates/com-channel/src/multipath.rs::itu_r_m1225_table_2_delay_spreads` | — | — |
+| 🟢 | E. Basar, M. Di Renzo, J. de Rosny, M. Debbah, M.-S. Alouini, R. Zhang, Wireless communications through reconfigurable intelligent surfaces, IEEE Access, 2019 (arXiv 1906.09490) | `com_channel::ris, com_mimo::precoding::ris_co_phasing, com_mapping::theory::ser_mgf` | eqs. (14), (15): the MGF and the mean SNR of the co-phased elements; eqs. (17), (18) and Fig. 6; Fig. 7: the simulated SER of BPSK within 0.1 dB of eq. (17) for N = 32 to 256, and 6.1 to 6.5 dB per doubling of N | `validation/tests/basar2019.rs::eq_17_lies_below_its_bound_and_awgn_as_in_fig_6_of_basar_2019`<br>`validation/tests/basar2019.rs::the_simulated_ser_follows_eq_17_as_in_fig_7_of_basar_2019`<br>`crates/com-channel/src/ris.rs::the_mean_snr_of_co_phased_elements_is_eq_15`<br>card [`basar2019_fig7`](../validation/cards/basar2019_fig7.yaml) | the QAM SER of eq. (21) is implemented (ser_mgf) but not compared with a figure; the RIS with a line of sight, as a transmitter (Fig. 8) and in the multi-user downlink (Fig. 9) | • below 32 elements eq. (17) is pessimistic: the simulated SER crosses 1e-3 0.5, 2.5 and 11.3 dB earlier for N = 16, 8 and 4 |
 
 ## Optical
 
