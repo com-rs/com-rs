@@ -1,0 +1,40 @@
+id: poggiolini2012_band
+title: The GN integral against the Manakov solver, self- and cross-channel interference
+literature: poggiolini2012
+source:
+  kind: paper
+  reference: "P. Poggiolini, The GN model of non-linear propagation in uncompensated coherent optical systems, J. Lightw. Technol. 30(24), 2012"
+  locator: "the GN reference formula (the NLI PSD of a Gaussian signal, coherent accumulation over the spans)"
+  file: fiber/2012_poggiolini_gn-model_jlt.pdf
+description: >
+  One and five dual-polarisation Nyquist channels of Gaussian symbols at 32 GBd spaced
+  by 50 GHz over 5 x 80 km of SMF, ideal amplifiers, no noise, the Manakov solver with
+  its defaults, 16 samples per symbol, 32 runs of 4096 symbols; the interference of the
+  centre channel (its matched filter, less the projection on the transmitted symbols)
+  over P^3, in dB against the PSD of GnModel integrated over the band of the channel:
+  the self-channel interference (one channel), the total (five) and their difference
+  (the cross- and multi-channel interference). The ratio of the centre PSD times the
+  symbol rate (GnModel::snr) to the band integral is recorded too.
+run:
+  test: validation/tests/poggiolini2012.rs::the_simulated_interference_follows_the_band_integral_of_the_gn_model
+tier: campaign
+duration: "25 s on an Apple M6 (release, the runs on every core)"
+tolerance: {atol: 0.3}
+why: >
+  32 runs leave 1.2 % of standard error (0.05 dB) on each interference; the GN model is
+  the first-order perturbation of a Gaussian signal, which the Gaussian symbols on
+  Nyquist pulses are; 0.3 dB covers the difference of two such estimates and the
+  remaining second order at 2 dBm
+findings:
+  - "the self-channel interference follows the band integral within 0.08 dB, the total within 0.08 dB, their difference (cross- and multi-channel) within 0.25 dB, at -4 and 2 dBm: the solver and the GN integral agree"
+  - "the locally-white approximation of GnModel::snr (the PSD at the centre times the symbol rate) gives 0.56 dB (one channel) and 0.35 dB (five) more NLI than the band integral of Nyquist channels"
+  - "with 8 samples per symbol (256 GHz, below the 370 GHz of Musetti et al. Table I for this comb with roll-off 0.1) the four-wave mixing aliases onto the centre channel: specs/wdm_gn.yaml measured 0.3 dB more NLI than with 12 or 16 samples, which agree; the WDM specifications use 12"
+cases:
+  - {inputs: {quantity: centre_over_band, channels: 1}, expected: {min: 0.0}, note: "the locally-white approximation of GnModel::snr overestimates the NLI"}
+  - {inputs: {quantity: centre_over_band, channels: 5}, expected: {min: 0.0}}
+  - {inputs: {quantity: sci, power_dbm: -4.0}, expected: 0.0}
+  - {inputs: {quantity: sci, power_dbm: 2.0}, expected: 0.0}
+  - {inputs: {quantity: total, power_dbm: -4.0}, expected: 0.0}
+  - {inputs: {quantity: total, power_dbm: 2.0}, expected: 0.0}
+  - {inputs: {quantity: xci_mci, power_dbm: -4.0}, expected: 0.0}
+  - {inputs: {quantity: xci_mci, power_dbm: 2.0}, expected: 0.0}

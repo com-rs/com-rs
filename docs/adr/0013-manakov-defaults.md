@@ -72,6 +72,10 @@ Option 3:
   `specs/wdm_gn.yaml` (27 s against 291 s) and 6.4 times on `specs/raman_wdm.yaml`
   (21 s against 135 s); on one channel they are faster and as accurate
   (`docs/python/user_guide/optical.rst`).
+- The comparisons above were run with 8 samples per symbol; the WDM specifications then
+  moved to 12, which keeps the four-wave mixing from aliasing onto the centre channel
+  (Musetti et al. 2018, Table I; 0.3 dB of NLI on `specs/wdm_gn.yaml`,
+  `validation/cards/poggiolini2012_band.yaml`).
 - The step rule needs the bandwidth of the signal: measured on the launched field
   (`signal_bandwidth`, before any amplifier noise) or given (`bandwidth_hz`).
 - The scalar `Ssfm` keeps OptiCommPy's constant steps (`ssfm`), its scheme being already

@@ -4,6 +4,9 @@
 # figure 4.5 dB, propagated together by the Manakov equation (the phase at the middle
 # of the step, the step rule of Musetti et al. 2018: within 0.04 dB of fixed steps of
 # 0.25 km; OptiCommPy's 0.02 rad of nonlinear phase per step gives 0.1 to 0.2 dB less).
+# 12 samples per symbol (384 GHz) keep the four-wave mixing from aliasing onto the centre
+# channel (at least 1.5 B_WDM + 0.5 B_CUT = 370 GHz, Musetti et al. 2018, Table I); 8
+# added 0.3 dB of NLI.
 # The centre channel is received by an ideal coherent receiver, dispersion
 # compensation and a matched filter; frame synchronisation removes the delay and the
 # mean nonlinear phase only (no carrier recovery, which would also remove a part of the
@@ -25,7 +28,7 @@ grid:
   power_dbm: [-8, -6, -4, -2, 0, 2, 4]
 link:
   - {type: source, constellation: $format, n_symbols: 4096, symbol_rate: 32e9, pols: 2}
-  - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 8, power_dbm: $power_dbm, rolloff: 0.1}
+  - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 12, power_dbm: $power_dbm, rolloff: 0.1}
   - manakov
   - {type: wdm_rx, sps: 2}
   - cdc

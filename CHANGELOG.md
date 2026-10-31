@@ -214,7 +214,9 @@ PyPI and the command line `comrs`.
   and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
   against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
   uncoded baselines and the 64-state convolutional code against Costello & Forney 2007;
-  the step rule of the Manakov solver against Fig. 7 of Musetti et al. 2018; the scalar
+  the step rule of the Manakov solver against Fig. 7 of Musetti et al. 2018; the
+  self- and cross-channel interference of the Manakov solver against the band integral of
+  the GN model (Poggiolini 2012); the scalar
   and Manakov split-step solvers against the exact two-soliton collision
   (Hirota 1973) of Sinkin et al. 2003, and the Manakov solver against the exact
   inelastic collision of two Manakov solitons of Radhakrishnan et al. 1997, and their

@@ -58,6 +58,14 @@ and its defaults differ from OptiCommPy's ``manakovSSF`` on both
   (``bandwidth_hz``). ``"nonlinear_phase"`` is OptiCommPy's rule, ``max_nl_phase`` alone:
   it depends on the power and ignores the bandwidth. ``step_km`` fixes the step.
 
+**The sampling rate** must hold the four-wave mixing that falls on the channel under
+test: at least :math:`\frac{3}{2} B_{\mathrm{WDM}} + \frac{1}{2} B_{\mathrm{CUT}}`, the
+bandwidth of the comb and of the channel (Musetti et al. 2018, Table I; :math:`2
+B_{\mathrm{WDM}}` for every channel, :math:`3 B_{\mathrm{WDM}}` for all the first-order
+mixing). Five channels of 32 GBd on 50 GHz with roll-off 0.1 need 370 GHz: with 8
+samples per symbol (256 GHz) the aliased mixing adds 0.3 dB of NLI to the centre
+channel; the WDM specifications use 12.
+
 ``Manakov(step_rule="nonlinear_phase", nonlinear_step="trapezoidal")`` is OptiCommPy's
 solver: on the same field the two implementations agree to :math:`10^{-8}`
 (``tests/test_oracle.py``).
@@ -87,9 +95,9 @@ The solvers are checked against references that do not come from a simulator:
    * - the accuracy of the step rule (Musetti et al. 2018, Fig. 7)
      - the error left by the steps
      - within 2.4 dB from −72 to −7 dB
-   * - the GN model with Gaussian symbols
-     - the level of the interference
-     - within 0.17 dB
+   * - the GN model with Gaussian symbols (Poggiolini 2012), integrated over the band
+     - the self- and cross-channel interference of a lumped link
+     - within 0.08 dB (self, total), 0.25 dB (cross)
 
 Accuracy and time against fixed steps of 0.25 km (the reference), the same Rust code:
 
@@ -121,7 +129,9 @@ Accuracy and time against fixed steps of 0.25 km (the reference), the same Rust 
 At equal accuracy the defaults are 6 to 11 times faster than OptiCommPy's scheme: its
 trapezoidal phase needs steps of 0.1 km to reach 0.02 dB on these links (about 25 times
 more steps than the midpoint one for the same XPM, ``validation/tests/chiang1996.rs``),
-and each step iterates. Times on an Apple M6, the whole specification.
+and each step iterates. Times on an Apple M6, the whole specification, measured with 8
+samples per symbol (before the specifications moved to 12, which concerns every column
+alike).
 
 The GN model
 ------------

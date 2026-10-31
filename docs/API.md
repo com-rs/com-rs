@@ -176,7 +176,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `fn GnModel::ase_psd_channel(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64>` — The noise power spectral density at the receiver at channel `ch`, both
 - `fn GnModel::profile(&self, spectrum: &WdmSpectrum) -> Result<Option<RamanProfile>>` — The Raman profile of the channels of `spectrum` over one span.
 - `fn GnModel::nli_psd(&self, spectrum: &WdmSpectrum, f: f64) -> Result<f64>` — The NLI power spectral density $G_{\mathrm{NLI}}(f)$ at the receiver (W/Hz).
-- `fn GnModel::snr(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64>` — The SNR of channel `ch` after a matched filter, ASE and NLI (linear).
+- `fn GnModel::snr(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64>` — The SNR of channel `ch` after a matched filter, ASE and NLI (linear), with the NLI
 - `fn GnModel::eta(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64>` — The NLI coefficient $\eta = G_{\mathrm{NLI}}/P^{3}$ of channel `ch` of the grid, symbol
 - `fn GnModel::summary(&self, spectrum: &WdmSpectrum, channel: Option<usize>) -> Result<GnSummary>` — The figures of channel `channel` of `spectrum` (the middle one, $\lfloor N/2
 - `fn GnModel::optimal_power(&self, spectrum: &WdmSpectrum, ch: usize) -> Result<f64>` — The optimal launch power per channel $(G_{\mathrm{ASE}}/(2\eta))^{1/3}$ (W) on the

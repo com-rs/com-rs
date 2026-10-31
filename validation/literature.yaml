@@ -636,8 +636,9 @@
   area: Optical
   ref: "P. Poggiolini, The GN model of non-linear propagation in uncompensated coherent optical systems, JLT 30(24), 2012"
   module: com_channel::optical::gn
-  tested: "the GN integral and the closed form, against a Manakov split-step simulation"
+  tested: "the GN integral and the closed form, against a Manakov split-step simulation; the self-channel, total and cross-channel interference of Gaussian symbols within 0.08, 0.08 and 0.25 dB of the GN PSD integrated over the band of the channel"
   tests:
+    - validation/tests/poggiolini2012.rs::the_simulated_interference_follows_the_band_integral_of_the_gn_model
     - specs/wdm_gn.yaml
   badge: orange
   not_covered: "no figure of the paper is reproduced"

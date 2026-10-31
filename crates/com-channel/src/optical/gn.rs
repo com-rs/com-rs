@@ -472,7 +472,10 @@ impl GnModel {
         link * nu * fib.gamma_w_km
     }
 
-    /// The SNR of channel `ch` after a matched filter, ASE and NLI (linear).
+    /// The SNR of channel `ch` after a matched filter, ASE and NLI (linear), with the NLI
+    /// PSD at the centre of the channel times the symbol rate (locally white): for
+    /// Nyquist channels it is 0.35 dB (5 channels) to 0.56 dB (1) above the integral over
+    /// the band, which a split-step simulation follows (`validation/tests/poggiolini2012.rs`).
     ///
     /// # Errors
     /// As [`GnModel::nli_psd`], [`com_core::Error::Config`] for a missing channel and

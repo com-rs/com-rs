@@ -9,7 +9,8 @@
 # the input of every span), the spontaneous Raman noise of the pump and the ASE of the
 # EDFA, with the step rule of Musetti et al. 2018 (the same SNR as fixed steps of
 # 0.25 km); OptiCommPy's 0.02 rad of nonlinear phase per step leaves 0.4 dB of error at
-# the highest powers with the pump. The centre channel is received by an ideal coherent receiver, dispersion
+# the highest powers with the pump. 12 samples per symbol keep the four-wave mixing from
+# aliasing onto the centre channel (Musetti et al. 2018, Table I, as specs/wdm_gn.yaml). The centre channel is received by an ideal coherent receiver, dispersion
 # compensation and a matched filter; frame synchronisation removes the delay and the
 # mean nonlinear phase only.
 #
@@ -29,7 +30,7 @@ grid:
   power_dbm: [-10, -6, -2, 2]
 link:
   - {type: source, constellation: gaussian, n_symbols: 4096, symbol_rate: 32e9, pols: 2}
-  - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 8, power_dbm: $power_dbm, rolloff: 0.1}
+  - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 12, power_dbm: $power_dbm, rolloff: 0.1}
   - type: manakov
     fiber: {raman: {pumps: [{wavelength_nm: 1450, power_mw: $pump_mw, direction: counter}]}}
   - {type: wdm_rx, sps: 2}
