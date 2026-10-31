@@ -26,10 +26,12 @@
 //! | [`until_errors_with`] | the same loop, sequential, the trials sharing one generator |
 //! | [`coded_frame`], [`fer`] | one frame of a [`BlockCode`] over BPSK and AWGN ([`bpsk_awgn_llr`] at the variance of `bpsk_noise_variance`), and its frame error rate |
 //! | [`sweep_crossing`] | an error rate on a grid of SNRs, until it falls below a target, and the SNR of the crossing ([`log_interp`]) |
+//! | [`pmd::pmd_vectors`], [`pmd::moments`] | the PMD vectors of a `PmdLink` (Gordon & Kogelnik 2000) and the moments of a pulse, for the PMD tests |
 //! | [`wdm::NyquistGrid`] | the fields of Nyquist WDM channels and the matched filter of the centre channel, for the fibre tests |
 
 #[cfg(feature = "spec")]
 pub mod card;
+pub mod pmd;
 pub mod shaping;
 pub mod wdm;
 

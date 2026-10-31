@@ -1,0 +1,38 @@
+id: sunnerud2000_fig1
+title: The expected pulse broadening by PMD for three input polarisations
+literature: sunnerud2000
+source:
+  kind: paper
+  reference: "H. Sunnerud, M. Karlsson, P. A. Andrekson, Analytical theory for PMD-compensation, IEEE Photon. Technol. Lett. 12(1), 50-52, 2000"
+  locator: "eqs. (7)-(8) and Sec. V (b^2 = 1 + x at the worst input), Fig. 1 (the curves without compensation)"
+  file: fiber/2000_sunnerud_analytical-theory-pmd-compensation_ptl.pdf
+description: >
+  2000 links of 200 sections of PmdLink::with_mean_dgd per mean DGD (0.5, 1, 1.5 and 2
+  times the rms width tau0 = 10 ps of a Gaussian pulse), the pulse launched with a random
+  polarisation, at the principal state of its band and orthogonally to it: the measured
+  excess E{tau^2 / tau0^2} - 1 divided by that of eq. (7), eq. (8) and 1 + x.
+run:
+  test: validation/tests/sunnerud2000.rs::the_expected_broadening_follows_eqs_7_and_8_of_sunnerud_2000
+tier: campaign
+duration: "15 s on an Apple M6 (release)"
+tolerance: {rtol: 0.08}
+why: >
+  2000 links leave 2 to 3 % of standard error on the excess broadening (5 % at the
+  principal state, whose excess is small); the theory assumes strong coupling, which 200
+  sections approach (a section DGD of 0.15 tau0 at most); 8 % is about three standard
+  errors
+findings:
+  - "the excess broadening follows eqs. (7), (8) and 1 + x within 1 to 3 % (the standard error) from 0.5 to 2 times tau0; at a mean DGD equal to tau0, 10.05 %, 1.19 % and 13.94 % of broadening against 9.75 %, 1.21 % and 13.78 % (the paper: about 10 %, 1 % and 14 %)"
+cases:
+  - {inputs: {input: average, mean_dgd_over_tau0: 0.5}, expected: 1.0}
+  - {inputs: {input: principal_state, mean_dgd_over_tau0: 0.5}, expected: 1.0}
+  - {inputs: {input: orthogonal, mean_dgd_over_tau0: 0.5}, expected: 1.0}
+  - {inputs: {input: average, mean_dgd_over_tau0: 1.0}, expected: 1.0}
+  - {inputs: {input: principal_state, mean_dgd_over_tau0: 1.0}, expected: 1.0}
+  - {inputs: {input: orthogonal, mean_dgd_over_tau0: 1.0}, expected: 1.0}
+  - {inputs: {input: average, mean_dgd_over_tau0: 1.5}, expected: 1.0}
+  - {inputs: {input: principal_state, mean_dgd_over_tau0: 1.5}, expected: 1.0}
+  - {inputs: {input: orthogonal, mean_dgd_over_tau0: 1.5}, expected: 1.0}
+  - {inputs: {input: average, mean_dgd_over_tau0: 2.0}, expected: 1.0}
+  - {inputs: {input: principal_state, mean_dgd_over_tau0: 2.0}, expected: 1.0}
+  - {inputs: {input: orthogonal, mean_dgd_over_tau0: 2.0}, expected: 1.0}

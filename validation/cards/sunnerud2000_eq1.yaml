@@ -1,0 +1,22 @@
+id: sunnerud2000_eq1
+title: The rms width of a pulse after PMD, realisation by realisation
+literature: sunnerud2000
+source:
+  kind: paper
+  reference: "H. Sunnerud, M. Karlsson, P. A. Andrekson, Analytical theory for PMD-compensation, IEEE Photon. Technol. Lett. 12(1), 50-52, 2000"
+  locator: "eq. (1): the rms width from the spectral means of the input PMD vector and the input polarisation"
+  file: fiber/2000_sunnerud_analytical-theory-pmd-compensation_ptl.pdf
+description: >
+  Gaussian pulses of rms width 10 ps (256 samples at 200 GHz) of random polarisation
+  through PmdLink::apply, 4 links of 200 sections (mean DGD 15 ps) and 4 polarisations
+  each: the squared rms width of the output against eq. (1), the worst relative error;
+  the rms width of the discretised input against 10 ps.
+run:
+  test: validation/tests/sunnerud2000.rs::eq_1_of_sunnerud_2000_holds_for_every_realisation
+tier: ci
+why: "eq. (1) is exact for a pulse without chromatic dispersion; the frequency derivative is a central difference (1e-9) and the spectrum is discrete (the Gaussian is resolved to 1e-12)"
+findings:
+  - "eq. (1) holds to 2e-9 for 16 realisations and polarisations: PmdLink::apply broadens a pulse as its input PMD vector says"
+cases:
+  - {inputs: {quantity: initial_rms_width_over_tau0}, expected: 1.0, tolerance: {rtol: 1.0e-9}}
+  - {inputs: {quantity: eq_1_relative_error}, expected: {max: 1.0e-6}}

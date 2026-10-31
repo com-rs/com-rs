@@ -25,6 +25,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test code: a failure is a test failure")]
 
 use com_validation::card::Card;
+use com_validation::pmd::{dot, jones_of, moments, pauli, pmd_vectors, stokes, trace_product};
 use comrs::C64;
 use comrs::channel::optical::pmd::{Jones, PmdLink};
 use comrs::core::rng::Rng;
@@ -34,53 +35,6 @@ use serde_json::json;
 const MEAN_DGD: f64 = 10e-12;
 const SECTIONS: usize = 50;
 
-/// The Pauli matrices of the paper (row-major).
-fn pauli() -> [[C64; 4]; 3] {
-    let (o, l, j) = (C64::new(0.0, 0.0), C64::new(1.0, 0.0), C64::new(0.0, 1.0));
-    [[l, o, o, -l], [o, l, l, o], [o, -j, j, o]]
-}
-
-/// The trace of the product of two 2 × 2 matrices.
-fn tr(a: &[C64; 4], b: &[C64; 4]) -> C64 {
-    a[0] * b[0] + a[1] * b[2] + a[2] * b[1] + a[3] * b[3]
-}
-
-/// The vector $\vec{v}$ of a traceless Hermitian matrix $H = \frac{1}{2} \vec{v} \cdot
-/// \vec{\sigma}$, and the largest deviation from Hermitian and traceless.
-fn stokes_of(h: &Jones) -> ([f64; 3], f64) {
-    let m = &h.0;
-    let v = pauli().map(|s| tr(m, &s));
-    let defect = [v[0].im, v[1].im, v[2].im, (m[0] + m[3]).norm(), (m[1] - m[2].conj()).norm()]
-        .iter()
-        .fold(0.0_f64, |a, b| a.max(b.abs()));
-    ([v[0].re, v[1].re, v[2].re], defect)
-}
-
-fn scale(j: &Jones, s: C64) -> Jones {
-    Jones(j.0.map(|v| v * s))
-}
-
-fn sub(a: &Jones, b: &Jones) -> Jones {
-    Jones([a.0[0] - b.0[0], a.0[1] - b.0[1], a.0[2] - b.0[2], a.0[3] - b.0[3]])
-}
-
-/// $U(\omega)$ and $U_{\omega}$ by a central difference.
-fn u_and_derivative(link: &PmdLink, w: f64) -> (Jones, Jones) {
-    let dw = 2.0 * std::f64::consts::PI * 1e6;
-    let r = link.lumped_response(&[w - dw, w, w + dw]);
-    (r[1], scale(&sub(&r[2], &r[0]), C64::new(0.5 / dw, 0.0)))
-}
-
-/// The input and output PMD vectors at `w` (eqs. (5.18)–(5.19)) and the defect of the
-/// Hermitian expansions.
-fn pmd_vectors(link: &PmdLink, w: f64) -> ([f64; 3], [f64; 3], f64) {
-    let j = C64::new(0.0, 1.0);
-    let (u, du) = u_and_derivative(link, w);
-    let (tin, d1) = stokes_of(&scale(&u.adjoint().mul(&du), j));
-    let (tout, d2) = stokes_of(&scale(&du.mul(&u.adjoint()), j));
-    (tin, tout, d1.max(d2))
-}
-
 /// The Müller matrix $R_{ik} = \frac{1}{2} \operatorname{tr}(\sigma_{i} U \sigma_{k} U^{\dagger})$.
 fn muller(u: &Jones) -> [[f64; 3]; 3] {
     let p = pauli();
@@ -88,36 +42,19 @@ fn muller(u: &Jones) -> [[f64; 3]; 3] {
     for (i, si) in p.iter().enumerate() {
         for (k, sk) in p.iter().enumerate() {
             let usu = u.mul(&Jones(*sk)).mul(&u.adjoint());
-            r[i][k] = 0.5 * tr(si, &usu.0).re;
+            r[i][k] = 0.5 * trace_product(si, &usu.0).re;
         }
     }
     r
-}
-
-fn dot(a: &[f64; 3], b: &[f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 fn norm(a: &[f64; 3]) -> f64 {
     dot(a, a).sqrt()
 }
 
-/// The Stokes vector $\hat{s} = \langle s | \vec{\sigma} | s \rangle$ of a unit Jones vector.
-fn stokes(x: C64, y: C64) -> [f64; 3] {
-    pauli().map(|s| (x.conj() * (s[0] * x + s[1] * y) + y.conj() * (s[2] * x + s[3] * y)).re)
-}
-
-/// The centre of gravity (s) of a dual-polarisation field sampled at `fs`, the time of
-/// the samples centred on the middle of the block.
+/// The centre of gravity (s) of a dual-polarisation field.
 fn centre(u: &DualPol, fs: f64) -> f64 {
-    let n = u.x.len();
-    let (mut num, mut den) = (0.0, 0.0);
-    for k in 0..n {
-        let p = u.x[k].norm_sqr() + u.y[k].norm_sqr();
-        num += (k as f64 - n as f64 / 2.0) / fs * p;
-        den += p;
-    }
-    num / den
+    moments(u, fs).0
 }
 
 #[test]
@@ -167,12 +104,7 @@ fn the_pmd_of_the_sections_follows_gordon_and_kogelnik_2000() {
     let dgd = norm(&tin);
     let p = [tin[0] / dgd, tin[1] / dgd, tin[2] / dgd];
     for (sign, name) in [(1.0, "slow"), (-1.0, "fast")] {
-        // the unit Jones vector of the Stokes vector ±p
-        let (s1, s2, s3) = (sign * p[0], sign * p[1], sign * p[2]);
-        let theta = s1.clamp(-1.0, 1.0).acos();
-        let phi = s3.atan2(s2);
-        let (x, y) = (C64::new((theta / 2.0).cos(), 0.0), C64::from_polar((theta / 2.0).sin(), phi));
-        assert!((dot(&stokes(x, y), &[s1, s2, s3]) - 1.0).abs() < 1e-12);
+        let (x, y) = jones_of([sign * p[0], sign * p[1], sign * p[2]]);
         let pulse: Vec<C64> = (0..n)
             .map(|k| {
                 let t = (k as f64 - n as f64 / 2.0) / fs;

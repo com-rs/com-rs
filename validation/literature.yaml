@@ -731,6 +731,16 @@
     - validation/tests/gordon2000.rs::the_concatenation_of_sections_is_a_random_walk
   badge: green
   not_covered: "the second-order PMD vectors and their concatenation rules (Sec. 6), the rms pulse spreading of eq. (5.32); the DGD distribution (Maxwellian, Foschini & Poole 1991; finite number of sections, Karlsson 2001), not in references/"
+- id: sunnerud2000
+  area: Optical
+  ref: "H. Sunnerud, M. Karlsson, P. A. Andrekson, Analytical theory for PMD-compensation, IEEE PTL 12(1), 50-52, 2000"
+  module: com_channel::optical::pmd
+  tested: "eq. (1), the rms width of a pulse after PMD, to 2e-9 per realisation; the expected broadening of eqs. (7), (8) and 1 + x (random, principal and orthogonal input polarisations) within the standard error from 0.5 to 2 times the pulse width (10.05, 1.19 and 13.94 % at a mean DGD equal to the rms width, the paper about 10, 1 and 14 %)"
+  tests:
+    - validation/tests/sunnerud2000.rs::eq_1_of_sunnerud_2000_holds_for_every_realisation
+    - validation/tests/sunnerud2000.rs::the_expected_broadening_follows_eqs_7_and_8_of_sunnerud_2000
+  badge: green
+  not_covered: "the first-order compensation of eq. (9) (a birefringent element is not implemented) and the simulation points of Fig. 1, taken from another paper"
 - id: musetti2018
   area: Optical
   ref: "S. Musetti, P. Serena, A. Bononi, On the accuracy of split-step Fourier simulations for wideband nonlinear optical communications, JLT 36(23), 5669-5677, 2018"
