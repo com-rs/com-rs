@@ -215,7 +215,8 @@ PyPI and the command line `comrs`.
   against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
   uncoded baselines and the 64-state convolutional code against Costello & Forney 2007;
   the scalar and Manakov split-step solvers against the exact two-soliton collision
-  (Hirota 1973) of Sinkin et al. 2003.
+  (Hirota 1973) of Sinkin et al. 2003, and the Manakov solver against the exact
+  inelastic collision of two Manakov solitons of Radhakrishnan et al. 1997.
 - The Python tests compare the blocks with the recorded outputs of OptiCommPy 0.11 and
   GNPy 3.0 (`tests/oracle/`) and reproduce the classical results of the textbooks.
 - `docs/MATURITY.md` grades the evidence of every module.

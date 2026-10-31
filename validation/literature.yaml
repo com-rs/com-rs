@@ -711,6 +711,16 @@
   tests: []
   badge: red
   not_covered: "the coarse-step PMD model is checked for unitarity only"
+- id: radhakrishnan1997
+  area: Optical
+  ref: "R. Radhakrishnan, M. Lakshmanan, J. Hietarinta, Inelastic collision and switching of coupled bright solitons in optical fibers, Phys. Rev. E 56(2), 2213-2216, 1997 (arXiv solv-int/9703008)"
+  module: com_math::nlse::ManakovSplitStep, com_channel::optical::manakov
+  tested: "the exact bright two-soliton solution of the Manakov system (eqs. (7)-(14)) and the inelastic collision of Fig. 1: the share of soliton 1 in component 1 after the collision (0.39 % by eq. (16), 0.40 % and 0.38 % simulated with the midpoint and trapezoidal steps); both schemes second order, no floor down to 2.4e-6"
+  tests:
+    - validation/tests/radhakrishnan1997.rs::the_manakov_solver_follows_the_inelastic_collision_of_fig_1
+    - validation/tests/radhakrishnan1997.rs::the_manakov_two_soliton_solution_satisfies_eq_1
+  badge: green
+  not_covered: "the dark solitons and the general N-soliton solutions; the polarisation vectors of eqs. (22)-(24)"
 - id: sinkin2003
   area: Optical
   ref: "O. V. Sinkin et al., Optimization of the split-step Fourier method, JLT 21(1), 2003"
