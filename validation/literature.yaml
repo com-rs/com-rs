@@ -714,9 +714,11 @@
   area: Optical
   ref: "O. V. Sinkin et al., Optimization of the split-step Fourier method, JLT 21(1), 2003"
   module: com_math::nlse
-  tested: "Fig. 2 (soliton collision, constant steps): the global relative error of eq. (12) against the number of FFTs within a factor 2.1 (1.5 to 2 times the figure, unexplained); second order (slope 2.005)"
+  tested: "Fig. 2 (soliton collision, constant steps): the global relative error of eq. (12) against the number of FFTs within a factor 2.1 (1.5 to 2 times the figure, unexplained); second order (slope 2.005); the same collision against the exact two-soliton solution (Hirota 1973): the scalar solver within 3e-9 at steps of 1 m, second order; the Manakov solver second order with 6.4 times the error"
   tests:
     - validation/tests/sinkin2003.rs::sinkin_2003_fig_2_constant_steps
+    - validation/tests/sinkin2003.rs::both_solvers_converge_to_the_exact_collision
+    - validation/tests/sinkin2003.rs::the_two_soliton_solution_satisfies_the_nlse
   badge: orange
   not_covered: "the local-error, walk-off and logarithmic step rules; the nonlinear-phase rule in the scalar scheme; Figs. 1, 3-7"
   remarks:

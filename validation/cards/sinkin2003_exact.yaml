@@ -1,0 +1,35 @@
+id: sinkin2003_exact
+title: The split-step solvers against the exact two-soliton collision
+literature: sinkin2003
+source:
+  kind: paper
+  reference: "O. V. Sinkin, R. Holzlöhner, J. Zweck, C. R. Menyuk, Optimization of the split-step Fourier method in modeling optical-fiber communications systems, J. Lightw. Technol. 21(1), 61-68, 2003; the exact solution of R. Hirota, Exact envelope-soliton solutions of a nonlinear wave equation, J. Math. Phys., 1973"
+  locator: "the soliton collision of Sec. III-B (eq. (3), the symmetric split step), against the two-soliton solution of the nonlinear Schrodinger equation"
+  file: fiber/2003_sinkin_split-step-fourier-optimization_jlt.pdf
+description: >
+  The collision of Sec. III-B (two first-order solitons of eta = 0.44 /ps, 100 ps and
+  800 GHz apart, 400 km of lossless fibre, beta'' = -0.1 ps2/km, gamma = 2.2 /(W km),
+  3072 modes over 400 ps), launched with the exact two-soliton solution at z = 0 and
+  compared with it at 400 km (the global relative error of eq. (12)): the scalar split
+  step of eq. (3) (com_math::nlse::SplitStep, the solver of Ssfm) and the Manakov solver
+  (com_math::nlse::ManakovSplitStep, the trapezoidal nonlinear phase of OptiCommPy,
+  iterated) with the second polarisation empty and gamma scaled by 9/8, constant steps.
+run:
+  test: validation/tests/sinkin2003.rs::both_solvers_converge_to_the_exact_collision
+tier: campaign
+duration: "19 s on an Apple M6 (release; 9 s for the solution of 1 m steps)"
+why: >
+  the exact solution is a reference without reading error: steps of 1 m leave an error
+  of order 1e-9 (h^2 scaling from 3.5e-7 at 11 m), so 1e-8 is the bound; both schemes are
+  globally second order (Sec. II-A), 1.8 to 2.2 for a step ratio of 2; the error against
+  the exact solution and against the solution of 1 m steps agree within 1 %
+findings:
+  - "the scalar split step reaches the exact solution within 2.95e-9 with steps of 1 m, and its errors against the exact solution and against its own solution of 1 m steps are the same (ratio 1.0000): the reference of the Fig. 2 test is not the cause of its factor 1.5 to 2 against the figure, and the scheme is that of eq. (3), D/2, N at the midpoint, D/2"
+  - "the Manakov solver is second order too (1.997), but its error is 6.4 times that of the scalar solver at the same steps (1.09e-3 against 1.70e-4 at 1600 steps): it needs about 2.5 times more steps for the same error. Its trapezoidal phase averages the power at the ends of the step instead of taking it at the middle; in WDM this smooths the cross-phase modulation of channels that walk off (card dar2014_ssfm)"
+  - "the two-soliton formula is checked against the equation itself: the residual of fourth-order finite differences falls by 16 when the step halves, to 1.2e-6 of |u_tt| near the collision"
+cases:
+  - {inputs: {solver: scalar, steps: 400000}, expected: {max: 1.0e-8}}
+  - {inputs: {solver: scalar, claim: order}, expected: {min: 1.8, max: 2.2}}
+  - {inputs: {solver: manakov, claim: order}, expected: {min: 1.8, max: 2.2}}
+  - {inputs: {solver: manakov, claim: error_over_scalar}, expected: {min: 1.0}, note: "measured, not a value of the paper: the factor is recorded in the findings"}
+  - {inputs: {claim: exact_over_numerical_reference}, expected: 1.0, tolerance: {rtol: 0.01}}

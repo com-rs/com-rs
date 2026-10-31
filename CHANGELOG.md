@@ -213,7 +213,9 @@ PyPI and the command line `comrs`.
   0.72 dB less, and the split-step simulation of the paper's link confirms its values); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
   and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
   against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
-  uncoded baselines and the 64-state convolutional code against Costello & Forney 2007.
+  uncoded baselines and the 64-state convolutional code against Costello & Forney 2007;
+  the scalar and Manakov split-step solvers against the exact two-soliton collision
+  (Hirota 1973) of Sinkin et al. 2003.
 - The Python tests compare the blocks with the recorded outputs of OptiCommPy 0.11 and
   GNPy 3.0 (`tests/oracle/`) and reproduce the classical results of the textbooks.
 - `docs/MATURITY.md` grades the evidence of every module.
