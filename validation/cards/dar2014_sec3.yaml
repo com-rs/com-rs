@@ -19,6 +19,7 @@ duration: "about 35 s on an Apple M6"
 why: "the paper states the values to about 0.1 dB; 0.8 dB covers the agreement obtained, 0.07 to 0.72 dB, recorded in the findings"
 findings:
   - "the EGN model of Carena et al. (2014), whose correction of the cross-channel interference keeps the X1 domain only, gives a FON 0.07 to 0.72 dB smaller than Dar et al.: GN error of QPSK 9.36, 7.88, 5.46 and 3.47 dB, and QPSK against 16-QAM 5.32, 4.20, 2.57 and 1.43 dB (distributed, 25, 50, 100 km); the gap grows where incomplete collisions dominate (distributed amplification and short spans)"
+  - "the split-step simulation of the distributed case (card dar2014_ssfm) gives 9.95 and 5.78 dB, within 0.1 dB of standard error: the values of the paper hold, and the gap is that of the EGN model as implemented (the X1 domain only; the other domains of Carena et al. and their MCI are not implemented, so whether they close it is not checked)"
   - "a grid four times finer moves these values by at most 0.11 dB"
   - "Dar et al. (2013) state a GN error of about 6.5 dB for QPSK in Fig. 5(b), from coefficients computed without the matched filter of the receiver (Dar et al. 2014, Sec. 2): not compared"
 cases:

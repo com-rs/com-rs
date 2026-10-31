@@ -210,7 +210,7 @@ PyPI and the command line `comrs`.
   Böcherer 2016, Böcherer, Steiner & Schulte 2015 and Liang & Kahn 2025; the EGN model
   against Carena et al. 2014, Fig. 1(a), and against the fourth-order noise of Dar et
   al. 2014, Sec. 3 (the EGN correction of the cross-channel interference gives 0.07 to
-  0.72 dB less); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
+  0.72 dB less, and the split-step simulation of the paper's link confirms its values); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
   and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
   against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
   uncoded baselines and the 64-state convolutional code against Costello & Forney 2007.

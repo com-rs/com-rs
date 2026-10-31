@@ -656,12 +656,14 @@
   area: Optical
   ref: "R. Dar, M. Feder, A. Mecozzi, M. Shtaif, Accumulation of nonlinear interference noise in fiber-optic systems, Opt. Express, 2014 (arXiv 1310.6137)"
   module: com_channel::optical::gn
-  tested: "Sec. 3: the GN error of QPSK and the difference QPSK/16-QAM after 500 km, for distributed amplification and spans of 25, 50 and 100 km (within 0.72 dB)"
+  tested: "Sec. 3: the GN error of QPSK and the difference QPSK/16-QAM after 500 km, for distributed amplification and spans of 25, 50 and 100 km, by the EGN model (within 0.72 dB) and, for distributed amplification, by the split-step simulation of the paper (9.95 and 5.78 dB against 10 and 6 dB; Gaussian symbols within 0.16 dB of the GN model)"
   tests:
     - validation/tests/dar2014.rs::fon_of_qpsk_and_16qam_follows_sec_3_of_dar_2014
+    - validation/tests/dar2014.rs::the_split_step_simulation_confirms_sec_3_of_dar_2014
   badge: green
   remarks:
-    - "the EGN correction of the cross-channel interference (X1 domain, Carena et al. 2014) gives a FON 0.07 to 0.72 dB smaller than the paper, the most for distributed amplification and short spans"
+    - "the EGN correction of the cross-channel interference (X1 domain, Carena et al. 2014) gives a FON 0.07 to 0.72 dB smaller than the paper, the most for distributed amplification and short spans; the split-step simulation confirms the paper, so the gap is that of the EGN model as implemented"
+    - "the split-step simulation of the lumped cases is not run"
     - "Fig. 5(b) of Dar et al. (2013) omits the matched filter: not compared"
 - id: serena2020
   area: Optical

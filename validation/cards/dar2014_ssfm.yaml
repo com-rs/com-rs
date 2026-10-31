@@ -1,0 +1,36 @@
+id: dar2014_ssfm
+title: Split-step simulation of the fourth-order noise of QPSK and 16-QAM
+literature: dar2014
+source:
+  kind: paper
+  reference: "R. Dar, M. Feder, A. Mecozzi, M. Shtaif, Accumulation of nonlinear interference noise in fiber-optic systems, Opt. Express, 2014 (arXiv 1310.6137)"
+  locator: "Sec. 3, distributed amplification after 500 km (Figs. 1(a) and 3(a)): the error of the GN model with QPSK, about 10 dB, and the difference between QPSK and 16-QAM, about 6 dB"
+  file: fiber/2014_dar_accumulation-nonlinear-interference-noise_oe_arxiv.pdf
+description: >
+  The simulation of the paper with the scalar split-step method (comrs::channel::optical::fiber::Ssfm):
+  five channels of Nyquist pulses at 32 GBd spaced by 50 GHz, one polarisation, 500 km
+  of lossless SMF (D = 17 ps/(nm km), gamma = 1.3 /(W km)), -16 dBm per channel, no
+  noise, steps of 0.5 km, 4096 symbols per channel and run, 16 samples per symbol, 64
+  runs per format. The cross-channel interference of the centre channel is the
+  difference of the received channel with and without its neighbours, dispersion undone
+  and matched filter applied, less its projection on the channel alone (the average
+  rotation of the neighbours); Gaussian symbols give the GN reference, compared with
+  GnModel scaled to one polarisation (27/8).
+run:
+  test: validation/tests/dar2014.rs::the_split_step_simulation_confirms_sec_3_of_dar_2014
+tier: campaign
+duration: "80 s on an Apple M6 (release, the runs on every core)"
+tolerance: {atol: 0.3}
+why: >
+  the paper states its simulated values as approximate (about 0.1 dB); one run of 4096
+  symbols varies by 13 % (Gaussian, 16-QAM) and 9 % (QPSK), so 64 runs leave about
+  0.1 dB of standard error on each ratio: 0.3 dB is three standard errors
+findings:
+  - "the error of the GN model with QPSK is 9.95 dB and QPSK against 16-QAM 5.78 dB (standard errors of the NLI 2.2 % Gaussian, 1.2 % QPSK, 2.2 % 16-QAM): the paper's 10 and 6 dB; the EGN model gives 9.36 and 5.32 dB (card dar2014_sec3), 0.6 and 0.46 dB short"
+  - "Gaussian symbols give 0.16 dB less NLI than GnModel scaled to one polarisation, within the standard error"
+  - "two runs are not enough: the first two seeds give 5.3 dB of GN error, the lowest of the 64 runs"
+  - "the Manakov solver (ManakovSsfm, the trapezoidal phase of OptiCommPy) with the second polarisation empty and the same steps of 0.5 km gives 0.7 dB less NLI with Gaussian symbols than this scalar solver with gamma 8/9; it agrees with steps of 0.02 km (documented in com_channel::optical::manakov)"
+cases:
+  - {inputs: {quantity: gn_error_qpsk}, expected: 10.0}
+  - {inputs: {quantity: qpsk_vs_16qam}, expected: 6.0}
+  - {inputs: {quantity: gaussian_against_gn_model}, expected: 0.0}

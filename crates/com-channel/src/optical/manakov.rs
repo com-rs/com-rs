@@ -8,6 +8,19 @@
 //! nonlinear phase rotation, the steps are short at the beginning of the spans and
 //! long at their end, where the power has decayed.
 //!
+//! # Step size in WDM
+//!
+//! The nonlinear phase of a step is the trapezoidal mean of the power at the two ends of
+//! the step. When channels walk off from each other within a step, the intensity pattern
+//! that drives the cross-phase modulation moves between the two ends and the mean
+//! smooths it, so the cross-channel interference comes out too small: five channels of
+//! 32 GBd spaced by 50 GHz over 500 km of lossless SMF give 0.7 dB too little NLI with
+//! steps of 0.5 km, 0.04 dB with 0.1 km, against the scalar split-step method of
+//! [`super::fiber::Ssfm`] (the power at the middle of the step), which is converged at
+//! 0.5 km (`validation/tests/dar2014.rs`). The step must keep the walk-off of the outer
+//! channels small against the symbol period; the adaptive rule of the nonlinear phase
+//! lengthens the steps at low power, where this matters most.
+//!
 //! [`ManakovSsfm::dbp`] is its digital back-propagation. [`ManakovSsfm`] neglects
 //! polarisation-mode dispersion; `pmd::ManakovPmd` adds it with a
 //! coarser scheme.
