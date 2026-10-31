@@ -415,8 +415,12 @@ impl GnModel {
                 }
                 let ph = c * (u * (grid.node(j as i64) - f));
                 let rho2 = match &span.half_log {
-                    // |1 - e^{-αL} e^{jφ}|² / (α² + φ²/L²)
-                    None => (1.0 - 2.0 * e * ph.cos() + e * e) / (a * a + (ph / ls) * (ph / ls)),
+                    // |1 - e^{-αL} e^{jφ}|² / (α² + φ²/L²), and its limit L² of a
+                    // lossless span at φ = 0 (as the link function of the EGN model)
+                    None => {
+                        let w2 = a * a + (ph / ls) * (ph / ls);
+                        if w2.sqrt() * ls < 1e-12 { ls * ls } else { (1.0 - 2.0 * e * ph.cos() + e * e) / w2 }
+                    }
                     Some(hl) => link_function(&hl[i], &hl[j], &hl[k3 as usize], &hl[m], ph / ls, ls).norm_sqr(),
                 };
                 let chi = if self.coherent {
@@ -791,6 +795,19 @@ mod tests {
         assert_eq!(got.optimal_power_w, model.optimal_power(&s, 2).unwrap());
         assert_eq!(model.summary(&s, Some(0)).unwrap().ase_psd, model.ase_psd_channel(&s, 0).unwrap());
         assert!(model.summary(&s, Some(5)).is_err());
+    }
+
+    #[test]
+    fn a_lossless_span_is_the_limit_of_a_small_loss() {
+        // at f1 = f or f2 = f the link function of a lossless span is 0/0: its limit L²
+        let model = |alpha_db_km| GnModel {
+            resolution_hz: Some(1e9),
+            ..GnModel::new(FiberParams { n_spans: 3, span_km: 20.0, alpha_db_km, ..FiberParams::default() })
+        };
+        let s = WdmSpectrum::uniform(vec![0.0], 1e-3, 32e9, 0.0);
+        let lossless = model(0.0).nli_psd(&s, 0.0).unwrap();
+        let small = model(1e-4).nli_psd(&s, 0.0).unwrap();
+        assert!(lossless.is_finite() && (lossless / small - 1.0).abs() < 1e-3, "{lossless} against {small}");
     }
 
     #[test]

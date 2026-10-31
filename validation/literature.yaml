@@ -628,6 +628,17 @@
   badge: green
   remarks:
     - "between 2 and 5 spans the EGN curve of Fig. 1(a) lies up to 0.9 dB below the formulas of the same paper"
+- id: dar2014
+  area: Optical
+  ref: "R. Dar, M. Feder, A. Mecozzi, M. Shtaif, Accumulation of nonlinear interference noise in fiber-optic systems, Opt. Express, 2014 (arXiv 1310.6137)"
+  module: com_channel::optical::gn
+  tested: "Sec. 3: the GN error of QPSK and the difference QPSK/16-QAM after 500 km, for distributed amplification and spans of 25, 50 and 100 km (within 0.72 dB)"
+  tests:
+    - validation/tests/dar2014.rs::fon_of_qpsk_and_16qam_follows_sec_3_of_dar_2014
+  badge: green
+  remarks:
+    - "the EGN correction of the cross-channel interference (X1 domain, Carena et al. 2014) gives a FON 0.07 to 0.72 dB smaller than the paper, the most for distributed amplification and short spans"
+    - "Fig. 5(b) of Dar et al. (2013) omits the matched filter: not compared"
 - id: serena2020
   area: Optical
   ref: "P. Serena et al., On numerical simulations of ultra-wideband long-haul optical communication systems, JLT 38(5), 2020"
