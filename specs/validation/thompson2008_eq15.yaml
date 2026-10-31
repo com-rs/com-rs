@@ -23,9 +23,9 @@ cases:
   - {two_pi_h: 0.7, h: 0.1114085}
 link:
   - {type: source, constellation: 16-QAM, n_symbols: 4032}
-  - {type: ce_ofdm_tx, n_data: 126, oversampling: 2, h: $h}
+  - {type: ce_ofdm_tx, n_subcarriers: 126, oversampling: 2, h: $h}
   - {type: awgn, snr_db: $esn0_db}
-  - {type: ce_ofdm_rx, n_data: 126, oversampling: 2, h: $h, unwrap: stream, esn0_db: $esn0_db}
+  - {type: ce_ofdm_rx, n_subcarriers: 126, oversampling: 2, h: $h, unwrap: stream, esn0_db: $esn0_db}
 metrics: {report: [ber, ser], scale: none}
 stop: {min_errors: {ber: 400}, min_trials: 4, max_trials: 400}
 expect:

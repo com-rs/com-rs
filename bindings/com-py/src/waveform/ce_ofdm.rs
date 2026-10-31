@@ -364,7 +364,10 @@ impl PyCeOfdm {
 
     fn __repr__(&self) -> String {
         let c = &self.inner;
-        format!("CeOfdm(n_data={}, h={}, oversampling={}, n_cp={})", c.n_subcarriers, c.h, c.oversampling, c.n_cp)
+        format!(
+            "CeOfdm(n_subcarriers={}, h={}, oversampling={}, n_cp={})",
+            c.n_subcarriers, c.h, c.oversampling, c.n_cp
+        )
     }
 }
 

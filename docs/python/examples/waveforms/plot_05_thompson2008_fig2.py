@@ -48,9 +48,15 @@ results = comrs.run_spec(
         },
         "link": [
             {"type": "source", "constellation": "64-QAM", "n_symbols": 126 * 32},
-            {"type": "ce_ofdm_tx", "n_data": 126, "oversampling": 4, "h": "$h"},
+            {"type": "ce_ofdm_tx", "n_subcarriers": 126, "oversampling": 4, "h": "$h"},
             {"type": "awgn", "snr_db": "$esn0_db"},
-            {"type": "ce_ofdm_rx", "n_data": 126, "oversampling": 4, "h": "$h", "unwrap": "stream"},
+            {
+                "type": "ce_ofdm_rx",
+                "n_subcarriers": 126,
+                "oversampling": 4,
+                "h": "$h",
+                "unwrap": "stream",
+            },
         ],
         "metrics": {"report": ["ber"], "scale": "none"},
         "stop": {"min_errors": {"ber": 300}, "min_trials": 2, "max_trials": 200},

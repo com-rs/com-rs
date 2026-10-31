@@ -35,7 +35,7 @@ pub(super) fn blocks() -> Vec<Extension> {
 
 block_params! {
     struct CeOfdmSpec {
-        n_data: usize [64] >= 1, "data subcarriers K per block";
+        n_subcarriers: usize [64] >= 1, "data subcarriers K per block";
         oversampling: usize [4] >= 1, "oversampling factor J";
         h: f64 [required] > 0, "modulation index (phase standard deviation 2πh)";
         n_cp: usize [0] "samples", "cyclic prefix";
@@ -45,7 +45,7 @@ block_params! {
 impl CeOfdmSpec {
     fn link(&self) -> CeOfdm {
         CeOfdm {
-            n_subcarriers: self.n_data,
+            n_subcarriers: self.n_subcarriers,
             oversampling: self.oversampling,
             h: self.h,
             n_cp: self.n_cp,
@@ -68,7 +68,7 @@ impl Block for CeOfdmTx {
 
 block_params! {
     struct CeOfdmRxSpec {
-        n_data: usize [64] >= 1, "data subcarriers K (as the modulator)";
+        n_subcarriers: usize [64] >= 1, "data subcarriers K (as the modulator)";
         oversampling: usize [4] >= 1, "oversampling factor J (as the modulator)";
         h: f64 [required] > 0, "modulation index (as the modulator)";
         n_cp: usize [0] "samples", "cyclic prefix (as the modulator)";
@@ -91,7 +91,8 @@ struct CeOfdmRx {
 
 impl CeOfdmRx {
     fn new(p: &CeOfdmRxSpec, label: String) -> Result<CeOfdmRx> {
-        let ce = CeOfdmSpec { n_data: p.n_data, oversampling: p.oversampling, h: p.h, n_cp: p.n_cp }.link();
+        let ce =
+            CeOfdmSpec { n_subcarriers: p.n_subcarriers, oversampling: p.oversampling, h: p.h, n_cp: p.n_cp }.link();
         let receiver = match p.receiver.as_str() {
             "gamp" => {
                 if p.esn0_db.is_none() {

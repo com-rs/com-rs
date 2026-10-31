@@ -24,8 +24,8 @@ pub(super) fn run(link: &[Json], seed: u64) -> Frame {
 fn ce_ofdm_blocks_round_trip_and_record_the_theory() {
     let blocks = link(&[
         json!({"type": "source", "constellation": "16-QAM", "n_symbols": 640}),
-        json!({"type": "ce_ofdm_tx", "n_data": 64, "oversampling": 2, "h": 0.1, "n_cp": 4}),
-        json!({"type": "ce_ofdm_rx", "n_data": 64, "oversampling": 2, "h": 0.1, "n_cp": 4, "esn0_db": 20.0}),
+        json!({"type": "ce_ofdm_tx", "n_subcarriers": 64, "oversampling": 2, "h": 0.1, "n_cp": 4}),
+        json!({"type": "ce_ofdm_rx", "n_subcarriers": 64, "oversampling": 2, "h": 0.1, "n_cp": 4, "esn0_db": 20.0}),
     ]);
     let mut s = Frame::default();
     let mut rng = Rng::new(1);
@@ -129,9 +129,9 @@ fn example(b: &str, p: &str) -> Option<Json> {
         (
             _,
             "n_symbols" | "sps" | "n_taps" | "sps_out" | "offset" | "passes" | "n" | "b" | "m" | "steps_per_span"
-            | "start" | "length" | "max_delay" | "symmetry" | "window" | "n_data" | "oversampling" | "n_cp" | "n_tx"
-            | "n_rx" | "coherence_samples" | "k" | "seed" | "blocks" | "skip_start" | "skip_end" | "n_channels"
-            | "max_iterations" | "iterations" | "pols" | "kikuchi" | "sections" | "bits",
+            | "start" | "length" | "max_delay" | "symmetry" | "window" | "n_subcarriers" | "oversampling" | "n_cp"
+            | "n_tx" | "n_rx" | "coherence_samples" | "k" | "seed" | "blocks" | "skip_start" | "skip_end"
+            | "n_channels" | "max_iterations" | "iterations" | "pols" | "kikuchi" | "sections" | "bits",
         ) => json!(2),
         _ => json!(1.0),
     })

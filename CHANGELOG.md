@@ -314,7 +314,8 @@ package (0.2.0 is unreleased: the former names are not kept).
 
 - Names of the crates: `Constellation.map_bits`/`demap_bits` and the same for `Dpsk`
   (were `modulate`/`demodulate`), `Ccdm.match_bits` (`matched`), `ManakovPmd`
-  (`Manakov`), `CeOfdm(n_subcarriers)` and `CeOfdm.n_subcarriers` (`n_data`),
+  (`Manakov`), `CeOfdm(n_subcarriers)`, `CeOfdm.n_subcarriers` and the parameter
+  `n_subcarriers` of the blocks `ce_ofdm_tx` and `ce_ofdm_rx` (`n_data`),
   `CeOfdm.ser_esn0`/`ber_esn0` (`ser`/`ber`), `theory_ser_esn0` (new), `lagrange_cubic`
   (`interpolate_cubic`), `snr_crb_nmse(sps=)` (`samples_per_symbol`),
   `CdlChannel(spacing_wavelengths=)` (`spacing`), `TurboCode(max_log=False)`

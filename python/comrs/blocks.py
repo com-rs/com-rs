@@ -786,7 +786,7 @@ class CeOfdmTx(Native):
     Needs: samples. Gives: nothing.
 
     Args:
-        n_data (int): data subcarriers K per block; default 64
+        n_subcarriers (int): data subcarriers K per block; default 64
         oversampling (int): oversampling factor J; default 4
         h (float): modulation index (phase standard deviation 2πh); required
         n_cp (int): cyclic prefix [samples]; default 0
@@ -794,17 +794,24 @@ class CeOfdmTx(Native):
 
     needs = ("samples",)
     gives = ()
-    param_names = ("n_data", "oversampling", "h", "n_cp")
+    param_names = ("n_subcarriers", "oversampling", "h", "n_cp")
 
     def __init__(
         self,
         *,
-        n_data: int | Var = 64,
+        n_subcarriers: int | Var = 64,
         oversampling: int | Var = 4,
         h: float | Var,
         n_cp: int | Var = 0,
     ) -> None:
-        _init(self, "ce_ofdm_tx", n_data=n_data, oversampling=oversampling, h=h, n_cp=n_cp)
+        _init(
+            self,
+            "ce_ofdm_tx",
+            n_subcarriers=n_subcarriers,
+            oversampling=oversampling,
+            h=h,
+            n_cp=n_cp,
+        )
 
 
 class CeOfdmRx(Native):
@@ -813,7 +820,7 @@ class CeOfdmRx(Native):
     Needs: samples, constellation. Gives: nothing.
 
     Args:
-        n_data (int): data subcarriers K (as the modulator); default 64
+        n_subcarriers (int): data subcarriers K (as the modulator); default 64
         oversampling (int): oversampling factor J (as the modulator); default 4
         h (float): modulation index (as the modulator); required
         n_cp (int): cyclic prefix (as the modulator) [samples]; default 0
@@ -824,12 +831,12 @@ class CeOfdmRx(Native):
 
     needs = ("samples", "constellation")
     gives = ()
-    param_names = ("n_data", "oversampling", "h", "n_cp", "unwrap", "receiver", "esn0_db")
+    param_names = ("n_subcarriers", "oversampling", "h", "n_cp", "unwrap", "receiver", "esn0_db")
 
     def __init__(
         self,
         *,
-        n_data: int | Var = 64,
+        n_subcarriers: int | Var = 64,
         oversampling: int | Var = 4,
         h: float | Var,
         n_cp: int | Var = 0,
@@ -840,7 +847,7 @@ class CeOfdmRx(Native):
         _init(
             self,
             "ce_ofdm_rx",
-            n_data=n_data,
+            n_subcarriers=n_subcarriers,
             oversampling=oversampling,
             h=h,
             n_cp=n_cp,

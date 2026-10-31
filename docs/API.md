@@ -2574,9 +2574,9 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `class FrameSync(Native)` — Delay and rotation on known symbols, output aligned on the transmitted symbols; records delay and quality.
 - `def FrameSync.__init__(self, *, start: int | Var = 0, length: int | Var = 512, max_delay: int | Var = 64, symmetry: int | Var = 4, exclude: bool | Var = True) -> None`
 - `class CeOfdmTx(Native)` — Constant-envelope OFDM modulator (Thompson et al. 2008): K symbols per block on the bins 1..K of an N = 2J(K + 1) DFT, exp(j2πh x).
-- `def CeOfdmTx.__init__(self, *, n_data: int | Var = 64, oversampling: int | Var = 4, h: float | Var, n_cp: int | Var = 0) -> None`
+- `def CeOfdmTx.__init__(self, *, n_subcarriers: int | Var = 64, oversampling: int | Var = 4, h: float | Var, n_cp: int | Var = 0) -> None`
 - `class CeOfdmRx(Native)` — CE-OFDM receiver back to the symbols: the arctangent phase demodulator, the linear and enhanced receivers of Ahmed and Zeidler (2015) or GAMP (López Morales et al. 2022); records ser_theory and ber_theory when esn0_db is given.
-- `def CeOfdmRx.__init__(self, *, n_data: int | Var = 64, oversampling: int | Var = 4, h: float | Var, n_cp: int | Var = 0, unwrap: str | Var | None = None, receiver: str | Var = "arctangent", esn0_db: float | Var | None = None) -> None`
+- `def CeOfdmRx.__init__(self, *, n_subcarriers: int | Var = 64, oversampling: int | Var = 4, h: float | Var, n_cp: int | Var = 0, unwrap: str | Var | None = None, receiver: str | Var = "arctangent", esn0_db: float | Var | None = None) -> None`
 - `class CpmTx(Native)` — Continuous-phase modulator of the symbols of a real constellation (CPFSK, MSK, GMSK, raised-cosine CPM): a unit-envelope signal at sps samples per symbol.
 - `def CpmTx.__init__(self, *, h: str | Var = "1/2", pulse: str | Var = "rec", length: int | Var = 1, bt: float | Var = 0.3, sps: int | Var = 4, precode: bool | Var = False) -> None`
 - `class CpmRx(Native)` — CPM detector (maximum-likelihood sequence detection over the phase trellis, or one-symbol differential detection) back to the symbols.
