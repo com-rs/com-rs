@@ -295,6 +295,19 @@ def test_the_lists_of_names_agree():
         assert len(listed) == len(set(listed)), f"listed twice in {where}"
 
 
+def test_the_readme_names_exist():
+    """The column *Python names* of the table of the crates of ``README.md`` is written
+    by hand too: every name it lists is exported."""
+    rows = [
+        line.split("|")
+        for line in (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+        if re.match(r"\| \d \| `com-", line)
+    ]
+    assert rows, "the table of the crates of README.md"
+    names = {n for cells in rows for n in re.findall(r"`([A-Za-z_]\w*)`", cells[3])}
+    assert sorted(n for n in names if not hasattr(comrs, n)) == []
+
+
 # ---------------------------------------------------------------- reproducibility
 
 
