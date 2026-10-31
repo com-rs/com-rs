@@ -9,8 +9,8 @@ claimed: the numbers below are recomputed by ``tools/highlights.py`` and checked
 
 - **Lightweight**: one run-time dependency in Python (numpy), 9 direct crates in Rust and no C, C++ or Fortran library to build; 27 MB installed with its dependencies (the benchmark's environment: komm 22 MB, OptiCommPy 321 MB, Sionna 1004 MB).
 - **Fast**: compiled Rust, Monte Carlo runs on every core; on one CPU thread, the links of the benchmark take 2.1 to 33 times as long with komm, 2.3 to 4.7 times as long with OptiCommPy and 1.1 to 7.4 times as long with Sionna as with com-rs.
-- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 559 unit tests, 142 validation tests, 235 Python tests.
-- **Validated**: compared with 101 papers, standards and reference tools (63 fully reproduced, 32 partly), 56 inconsistencies found in them; 53 validation cards rerun a comparison without the paper.
+- **Safe**: ``unsafe`` code forbidden in every crate, invalid inputs are errors (one error type), results independent of the thread count; 564 unit tests, 144 validation tests, 235 Python tests.
+- **Validated**: compared with 102 papers, standards and reference tools (64 fully reproduced, 32 partly), 57 inconsistencies found in them; 55 validation cards rerun a comparison without the paper.
 
 Lightweight
 -----------
@@ -126,9 +126,9 @@ Rust checks memory safety at compile time, and ``unsafe`` code is forbidden in e
    * - Tests
      - Count
    * - Unit tests of the crates
-     - 559
+     - 564
    * - Validation tests (against papers, standards and tools)
-     - 142
+     - 144
    * - Python tests (functions; many are parametrised)
      - 235
 
@@ -147,19 +147,19 @@ are written as :doc:`validation cards <comparisons>` (``just card <id>``).
    * - Evidence
      - Count
    * - Documents and tools compared
-     - 101
+     - 102
    * - — fully reproduced
-     - 63
+     - 64
    * - — partly reproduced
      - 32
    * - — implemented, not yet compared
      - 6
    * - Inconsistencies found in the documents
-     - 56
+     - 57
    * - Validation cards
-     - 53
+     - 55
    * - Modules at maturity A / B / C
-     - 52 / 4 / 4
+     - 53 / 4 / 4
 
 The comparisons, paper by paper, are in ``docs/LITERATURE.md`` and the evidence
 per module in :doc:`maturity`.

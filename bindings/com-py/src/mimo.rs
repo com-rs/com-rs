@@ -265,7 +265,7 @@ fn exponential_correlation<'py>(py: Python<'py>, n: i64, rho: C64) -> PyResult<B
 
 /// Detect the transmitted symbols of a MIMO link `y = H x + w`.
 ///
-/// Methods: `"zf"`, `"mmse"` (linear, unbiased), `"zf_sic"`, `"mmse_sic"` (ordered
+/// Methods: `"mr"` (matched filter), `"zf"`, `"mmse"` (linear, unbiased), `"zf_sic"`, `"mmse_sic"` (ordered
 /// successive interference cancellation, V-BLAST), `"ml"` (exhaustive search),
 /// `"sphere"` (exact ML by the Schnorr–Euchner sphere decoder), `"kbest"` (K-best tree
 /// search keeping `k` paths), `"amp"` (LAMA, the complex Bayesian AMP of Jeon et al.)
@@ -317,7 +317,7 @@ fn mimo_detect(
 
 /// Bit log-likelihood ratios of a MIMO link (positive for a 0, most significant bit
 /// first), the LLR sequence of every transmitted stream: exact per-stream LLRs after the unbiased linear filter
-/// for `"zf"` and `"mmse"`, max-log over all hypotheses for `"ml"`, over the final
+/// for `"mr"`, `"zf"` and `"mmse"`, max-log over all hypotheses for `"ml"`, over the final
 /// list for `"kbest"`, exact LLRs of the decoupled channel for `"amp"` and `"oamp"`.
 ///
 /// Args:
@@ -325,7 +325,7 @@ fn mimo_detect(
 ///     y (array_like): the received streams, `(n_rx, n)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
-///     method (str): `"zf"`, `"mmse"`, `"ml"`, `"kbest"`, `"amp"` or `"oamp"` (the SIC
+///     method (str): `"mr"`, `"zf"`, `"mmse"`, `"ml"`, `"kbest"`, `"amp"` or `"oamp"` (the SIC
 ///         and sphere detectors have no soft output).
 ///     k (int): paths kept by `"kbest"`.
 ///     iterations (int): iterations of `"amp"` and `"oamp"`.
@@ -591,7 +591,7 @@ fn oamp_state_evolution<'py>(
 ///     y (array_like): the received streams, `(n_rx, n)` (or one vector `(n_rx,)`).
 ///     constellation (Constellation): the alphabet of every stream.
 ///     noise_var (float): noise variance per receive antenna `E|w_i|²`.
-///     method (str): `"zf"` or `"mmse"`.
+///     method (str): `"mr"`, `"zf"` or `"mmse"`.
 ///
 /// Returns:
 ///     tuple[numpy.ndarray, numpy.ndarray]: the estimates and their variances, both
@@ -611,9 +611,10 @@ fn mimo_estimate(
 ) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     let (hs, (ys, single)) = (channels(h)?, received(y)?);
     let lin = match method.parse::<DetectorKind>().py()? {
+        DetectorKind::Mr => Linear::mr(constellation.inner.clone()),
         DetectorKind::Zf => Linear::zf(constellation.inner.clone()),
         DetectorKind::Mmse => Linear::mmse(constellation.inner.clone()),
-        _ => return Err(PyValueError::new_err(format!("method must be zf or mmse, got {method:?}"))),
+        _ => return Err(PyValueError::new_err(format!("method must be mr, zf or mmse, got {method:?}"))),
     };
     let rows = py
         .detach(|| {

@@ -949,7 +949,20 @@
   tests:
     - validation/tests/lu2014.rs::lu_2014_eq_13
   badge: orange
-  not_covered: "the matched filter of eqs. (14), (17)-(18), (44), (46) (no multi-user MRC/MRT); pilot contamination (Fig. 5); single-carrier transmission (Fig. 6); the paper gives no sum-rate figure"
+  not_covered: "the matched filter of eqs. (14), (17)-(18), (44), (46) (MR detection is checked against Ngo et al. 2013; no MRT precoder); pilot contamination (Fig. 5); single-carrier transmission (Fig. 6); the paper gives no sum-rate figure"
+- id: ngo2013
+  area: MIMO
+  ref: "H. Q. Ngo, E. G. Larsson, T. L. Marzetta, Energy and spectral efficiency of very large multiuser MIMO systems, IEEE Trans. Commun., 2013 (arXiv 1112.3810)"
+  module: com_mimo::{massive, detection}
+  tested: "Propositions 2, 3, 6, 7: the bounds of MR and ZF below the Monte Carlo rates of eqs. (13), (37) and within 2 % at M = 500 (Fig. 1); Propositions 1 and 5: the power scaling laws; Fig. 4: 3 dB and 1.5 dB saved per doubling of M"
+  tests:
+    - validation/tests/ngo2013.rs::the_bounds_are_tight_lower_bounds_as_in_fig_1_of_ngo_2013
+    - validation/tests/ngo2013.rs::doubling_the_antennas_saves_the_power_of_fig_4_of_ngo_2013
+    - crates/com-mimo/src/massive.rs::the_power_scaling_laws_hold
+  badge: green
+  remarks:
+    - "with estimated CSI the 1.5 dB of Fig. 4 is the limit of Proposition 5: 2 dB at M = 400 for the drop of the test, 1.55 dB at M = 102400"
+  not_covered: "the MMSE bounds (Propositions 4, 8), the multi-cell results (Sec. IV-C, Fig. 8), the energy efficiency (Figs. 6-7)"
 - id: eun1997
   area: Hardware impairments
   ref: "C. Eun, E. J. Powers, A new Volterra predistorter based on the indirect learning architecture, TSP 45(1), 1997"

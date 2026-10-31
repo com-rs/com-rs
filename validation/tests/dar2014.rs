@@ -26,6 +26,7 @@ use com_validation::card::Card;
 use comrs::channel::optical::fiber::FiberParams;
 use comrs::channel::optical::gn::{FormatMoments, GnModel, WdmSpectrum};
 use comrs::mapping::constellation::Constellation;
+use comrs::math::quadrature::try_simpson;
 use serde_json::json;
 
 const RS: f64 = 32e9;
@@ -41,20 +42,7 @@ fn eta(fiber: &FiberParams, n_channels: usize, egn: Option<FormatMoments>) -> f6
     let freqs = (0..n_channels).map(|k| (k as f64 - half) * 50e9).collect();
     let s = WdmSpectrum::uniform(freqs, 1.0, RS, 0.0);
     let m = GnModel { egn, ..GnModel::new(fiber.clone()) };
-    let k = 16;
-    let acc: f64 = (0..=k)
-        .map(|i| {
-            let w = if i == 0 || i == k {
-                1.0
-            } else if i % 2 == 1 {
-                4.0
-            } else {
-                2.0
-            };
-            w * m.nli_psd(&s, -RS / 2.0 + RS * f64::from(i) / f64::from(k)).unwrap()
-        })
-        .sum();
-    acc * RS / f64::from(k) / 3.0
+    try_simpson(|f| m.nli_psd(&s, f), -RS / 2.0, RS / 2.0, 16).unwrap()
 }
 
 #[test]

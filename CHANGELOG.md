@@ -208,10 +208,21 @@ PyPI and the command line `comrs`.
   diversity orders of the MIMO detectors against Yang & Hanzo 2015, Table X; the CCDM,
   the information rates of shaping and PAS on the DVB-S2 codes against Schulte &
   Böcherer 2016, Böcherer, Steiner & Schulte 2015 and Liang & Kahn 2025; the EGN model
-  against Carena et al. 2014, Fig. 1(a).
+  against Carena et al. 2014, Fig. 1(a), and against the fourth-order noise of Dar et
+  al. 2014, Sec. 3 (the EGN correction of the cross-channel interference gives 0.07 to
+  0.72 dB less); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
+  and 4.
 - The Python tests compare the blocks with the recorded outputs of OptiCommPy 0.11 and
   GNPy 3.0 (`tests/oracle/`) and reproduce the classical results of the textbooks.
 - `docs/MATURITY.md` grades the evidence of every module.
+
+- MIMO: the maximum-ratio (matched-filter) detector, `Linear::mr` and `"mr"` of
+  `DetectorKind`, `mimo_detect`, `mimo_llr` and `mimo_estimate`, with the variance of
+  the interference of the other streams; `com_mimo::massive::Uplink`, the uplink of
+  multi-user massive MIMO with perfect or estimated CSI and the closed-form bounds on
+  the rates of MR and ZF of Ngo, Larsson & Marzetta (2013).
+- The GN integral of a lossless span (distributed amplification) takes the limit $L^{2}$
+  where its link function is 0/0, instead of NaN.
 
 ### Python package
 

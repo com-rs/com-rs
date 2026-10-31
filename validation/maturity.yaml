@@ -225,6 +225,13 @@
   summary: "Telatar 1999 Theorem 2, eqs. (13), (16)–(18), Figs. 1–4"
   evidence: "• `crates/com-mimo/src/capacity.rs::literature` against Telatar, *Eur. Trans. Telecommun.* 10(6), 1999: Remark 3 and Examples 3–4, the contour levels of Fig. 1 ($k\\,C_{\\max}/6$, $C(20, 20) = 76.0$ nats at 20 dB), the limit (13) within 0.5 % at 20 antennas (Fig. 2), the ε-capacities of Fig. 3(c) within 0.15 nat and the crossing of Fig. 4(b)<br>• `crates/com-mimo/src/capacity.rs::the_ergodic_capacity_is_the_mean_of_the_realisations`, `::the_outage_probability_is_that_of_the_realisations` (eq. (8) and (16) against Monte Carlo), `::the_wishart_density_is_normalized_with_the_mean_of_the_trace`<br>• `tests/test_performance.py::test_ergodic_capacity_of_rayleigh_fading`; self-consistency: `crates/com-mimo/src/precoding.rs::water_filling_satisfies_its_conditions`, `::eigenmodes_diagonalise_the_channel`, `::zero_forcing_removes_the_interference_between_users`"
   gaps: "• the outage capacity is in closed form for one antenna on one side only (Telatar's conjecture for the general case is not evaluated)<br>• no published precoding result"
+- theme: MIMO
+  name: "Multi-user massive MIMO"
+  modules: "`com_mimo::massive`; the MR receiver of `com_mimo::detection`"
+  level: A
+  summary: "Ngo, Larsson & Marzetta 2013 Props. 1–3, 5–7, Figs. 1 and 4"
+  evidence: "• `validation/tests/ngo2013.rs::the_bounds_are_tight_lower_bounds_as_in_fig_1_of_ngo_2013` (Ngo, Larsson & Marzetta, *IEEE Trans. Commun.*, 2013, Fig. 1: the bounds of MR and ZF with perfect and estimated CSI below the Monte Carlo rates, within 2 % at M = 500; ignored), `::doubling_the_antennas_saves_the_power_of_fig_4_of_ngo_2013` (Fig. 4: 3 dB and 1.5 dB per doubling of M, within 0.2 dB; ignored)<br>• `crates/com-mimo/src/massive.rs::the_power_scaling_laws_hold` (Propositions 1 and 5)<br>• `crates/com-mimo/src/detection.rs::the_matched_filter_leaves_the_other_streams_as_interference`"
+  gaps: "• the approximate MMSE bounds (Propositions 4 and 8) and the multi-cell bounds with pilot contamination (eqs. (74)–(75), Fig. 8) are not implemented<br>• the drop of users of the paper is not published: its curves are not reproduced point by point<br>• with estimated CSI the saving of 1.5 dB per doubling of M is reached at M = 102400 for the drop of the test (2 dB at M = 400)"
 - theme: Wireless channels
   name: "AWGN"
   modules: "`com_channel::awgn`"

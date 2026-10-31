@@ -1,0 +1,28 @@
+id: ngo2013_fig1
+title: Tightness of the lower bounds on the uplink rates of massive MIMO
+literature: ngo2013
+source:
+  kind: paper
+  reference: "H. Q. Ngo, E. G. Larsson, T. L. Marzetta, Energy and spectral efficiency of very large multiuser MIMO systems, IEEE Trans. Commun., 2013 (arXiv 1112.3810)"
+  locator: "Fig. 1 and Sec. V-A: K = 10 users, p_u = 10 dB, tau = K, all bounds very tight, especially at large M"
+description: >
+  K = 10 users dropped once in the hexagonal cell of Sec. V-A (radius 1000 m, 100 m
+  from the base station, path-loss exponent 3.8, shadowing 8 dB): the relative gap
+  (rate - bound) / rate, in percent, between the achievable sum rate of eqs. (13) and
+  (37) (400 Monte Carlo channels, the estimates of comrs::mimo::detection::Linear) and
+  the sum of the closed-form bounds of Propositions 2, 3, 6 and 7
+  (comrs::mimo::massive::Uplink::sum_rate_bound) at M = 500 antennas. The test also
+  asserts, for M = 20, 50, 100, 200 and 500, that every bound lies below the rate and
+  that the gap does not grow with M, both to three standard errors.
+run:
+  test: validation/tests/ngo2013.rs::the_bounds_are_tight_lower_bounds_as_in_fig_1_of_ngo_2013
+tier: campaign
+duration: "under 1 s"
+why: "the paper states the tightness, not a value: a gap below 2 % at M = 500 is that tightness; 0.06 to 1.3 % are obtained"
+findings:
+  - "the gap at M = 500 is 1.3 % (MR) and 0.06 % (ZF) with perfect CSI, 0.7 % (MR) and below the Monte Carlo error (ZF) with estimated CSI; at M = 20 it is 3 to 4 %"
+cases:
+  - {inputs: {receiver: mr, csi: perfect}, expected: 0.0, tolerance: {atol: 2.0}}
+  - {inputs: {receiver: zf, csi: perfect}, expected: 0.0, tolerance: {atol: 2.0}}
+  - {inputs: {receiver: mr, csi: estimated}, expected: 0.0, tolerance: {atol: 2.0}}
+  - {inputs: {receiver: zf, csi: estimated}, expected: 0.0, tolerance: {atol: 2.0}}

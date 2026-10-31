@@ -1404,10 +1404,10 @@ class OfdmRx(Native):
 
     Args:
         estimation (str): perfect (the channel of the channel block), ls (linear interpolation) or lmmse (uniform delay profile over the prefix); one of perfect, ls, lmmse; default perfect
-        detector (str): zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
+        detector (str): mr (matched filter), zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of mr, zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
         iterations (int): iterations of amp and oamp; default 10
-        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
+        llr (bool): also compute the bit LLRs with the detector (mr, zf, mmse, ml, kbest, amp, oamp); default false
     """
 
     needs = ("samples", "constellation", "ofdm")
@@ -1440,10 +1440,10 @@ class MimoRx(Native):
     Needs: samples, constellation, csi. Gives: noise, llr.
 
     Args:
-        detector (str): zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
+        detector (str): mr (matched filter), zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE); one of mr, zf, mmse, sic, zf_sic, ml, sphere, kbest, amp, oamp; default mmse
         k (int): paths of kbest; default 8
         iterations (int): iterations of amp and oamp; default 10
-        llr (bool): also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp); default false
+        llr (bool): also compute the bit LLRs with the detector (mr, zf, mmse, ml, kbest, amp, oamp); default false
     """
 
     needs = ("samples", "constellation", "csi")

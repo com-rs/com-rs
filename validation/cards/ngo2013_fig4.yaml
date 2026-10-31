@@ -1,0 +1,27 @@
+id: ngo2013_fig4
+title: Transmit power saved by doubling the base-station antennas
+literature: ngo2013
+source:
+  kind: paper
+  reference: "H. Q. Ngo, E. G. Larsson, T. L. Marzetta, Energy and spectral efficiency of very large multiuser MIMO systems, IEEE Trans. Commun., 2013 (arXiv 1112.3810)"
+  locator: "Fig. 4 and its text: doubling M cuts the power by approximately 3 dB (perfect CSI) and 1.5 dB (imperfect CSI)"
+description: >
+  The users of ngo2013_fig1: the transmit power p_u (dB) at which the sum of the
+  closed-form bounds (comrs::mimo::massive::Uplink::sum_rate_bound) reaches 1 bit/s/Hz
+  per user, by bisection; the saving p_u(M) - p_u(2M), in dB, for MR and ZF with
+  perfect and estimated CSI (tau = K), at M = 400 and M = 102400 (the estimated CSI at
+  M = 102400 only: see the findings).
+run:
+  test: validation/tests/ngo2013.rs::doubling_the_antennas_saves_the_power_of_fig_4_of_ngo_2013
+tier: campaign
+duration: "under 1 s"
+why: "the paper states approximate values; 0.2 dB covers the convergence of the perfect CSI at M = 400 and of the estimated CSI at M = 102400"
+findings:
+  - "with estimated CSI the saving is 2.1 (MR) and 1.9 dB (ZF) at M = 400 for this drop: 1.5 dB is the limit of Proposition 5, reached within 0.1 dB at M = 102400, where tau p_u beta_k is small for every user"
+cases:
+  - {inputs: {receiver: mr, csi: perfect, antennas: 400}, expected: 3.0, tolerance: {atol: 0.2}}
+  - {inputs: {receiver: zf, csi: perfect, antennas: 400}, expected: 3.0, tolerance: {atol: 0.2}}
+  - {inputs: {receiver: mr, csi: perfect, antennas: 102400}, expected: 3.0, tolerance: {atol: 0.2}}
+  - {inputs: {receiver: zf, csi: perfect, antennas: 102400}, expected: 3.0, tolerance: {atol: 0.2}}
+  - {inputs: {receiver: mr, csi: estimated, antennas: 102400}, expected: 1.5, tolerance: {atol: 0.2}}
+  - {inputs: {receiver: zf, csi: estimated, antennas: 102400}, expected: 1.5, tolerance: {atol: 0.2}}

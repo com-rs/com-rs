@@ -79,10 +79,10 @@ block_params! {
     /// The detector of a receiver block (`mimo_rx`, `ofdm_rx`), its parameters shared.
     pub(super) struct DetectorSpec {
         detector: String ["mmse"] one_of (DetectorKind::NAMES),
-            "zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
+            "mr (matched filter), zf, mmse, sic (MMSE-SIC), zf_sic (ZF-SIC), ml, sphere, kbest, amp (LAMA) or oamp (OAMP-LMMSE)";
         k: usize [DetectorKind::DEFAULT_PATHS => "8"] >= 1, "paths of kbest";
         iterations: usize [DetectorKind::DEFAULT_ITERATIONS => "10"] >= 1, "iterations of amp and oamp";
-        llr: bool [false], "also compute the bit LLRs with the detector (zf, mmse, ml, kbest, amp, oamp)";
+        llr: bool [false], "also compute the bit LLRs with the detector (mr, zf, mmse, ml, kbest, amp, oamp)";
     }
 }
 

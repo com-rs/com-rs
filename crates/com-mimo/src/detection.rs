@@ -6,6 +6,7 @@
 //!
 //! | Detector | Principle | Complexity | Diversity ($n_{r} \ge n_{t}$, Rayleigh) |
 //! |---|---|---|---|
+//! | [`Linear::mr`] | $\hat x_{k} = h_{k}^{H} y / \lVert h_{k}\rVert^{2}$ (matched filter) | $n_{r} n_{t}$ per vector | $n_{r}$ without interference; interference-limited |
 //! | [`Linear::zf`] | $\hat x = (H^{H} H)^{-1} H^{H} y$ | cubic in $n_{t}$ | $n_{r} - n_{t} + 1$ |
 //! | [`Linear::mmse`] | $\hat x = (H^{H} H + \frac{\sigma^{2}}{E_{s}} I)^{-1} H^{H} y$, unbiased | cubic | $n_{r} - n_{t} + 1$ at high SNR, better at low SNR |
 //! | [`Sic`] | ordered successive interference cancellation (V-BLAST) | $n_{t}$ linear filters | between linear and ML |
@@ -28,7 +29,11 @@
 //! for ZF, $\sigma^{2}/E_{s}$ for MMSE). With $E = \sigma^{2} (H^{H} H + \lambda I)^{-1}$,
 //! the ZF estimate of stream $k$ has the noise variance $E_{kk}$; the MMSE estimate is
 //! divided by its bias $\beta_{k} = 1 - E_{kk}/E_{s}$, after which its noise variance is
-//! $E_{s} E_{kk} / (E_{s} - E_{kk})$ (the SINR is $E_{s}/E_{kk} - 1$). The soft outputs
+//! $E_{s} E_{kk} / (E_{s} - E_{kk})$ (the SINR is $E_{s}/E_{kk} - 1$). The MR detector
+//! filters with $W = D^{-1} H^{H}$, $D = \mathrm{diag}(\lVert h_{k}\rVert^{2})$: with
+//! $G = H^{H} H$, its estimate of stream $k$ is unbiased and the noise and interference
+//! of the other streams have the variance $(\sigma^{2} G_{kk} + E_{s} \sum_{j \ne k}
+//! |G_{kj}|^{2}) / G_{kk}^{2}$ (Ngo, Larsson and Marzetta 2013, eq. (15)). The soft outputs
 //! treat each estimate as one constellation symbol in Gaussian noise of that variance.
 //!
 //! The max-log LLR of a tree or exhaustive search is
@@ -194,9 +199,13 @@ fn by_column(
     Ok(out)
 }
 
-/// Zero-forcing or MMSE.
+/// Maximum ratio, zero forcing or MMSE.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Criterion {
+    /// Maximum ratio (the matched filter, maximum-ratio combining of every stream):
+    /// $w_{k} = h_{k}^{H} / \lVert h_{k}\rVert^{2}$, the other streams left as
+    /// interference.
+    Mr,
     /// Zero forcing: the pseudo-inverse of the channel.
     Zf,
     /// Minimum mean square error, unbiased.
@@ -214,6 +223,7 @@ struct Filter {
 /// least as many receive as transmit antennas), $\sigma^{2}/E_{s}$ for MMSE.
 fn regularisation(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64) -> Result<f64> {
     match criterion {
+        Criterion::Mr => Ok(0.0),
         Criterion::Zf => tall(h, "zero forcing").map(|()| 0.0),
         Criterion::Mmse => Ok(noise_var / es),
     }
@@ -227,6 +237,9 @@ fn filter(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64
         return Ok(Filter { w: h.t().mapv(|v| v.conj() / s.g), bias: vec![s.bias], var: vec![s.var] });
     }
     let hh = hermitian(h);
+    if criterion == Criterion::Mr {
+        return matched_filter(&hh, h, es, noise_var);
+    }
     let g = hh.dot(h) + identity(n).mapv(|x| x * lambda);
     let ginv = inverse_hpd(&g.view()).map_err(|_| Error::Numerical("the channel is rank deficient".into()))?;
     let w = ginv.dot(&hh);
@@ -239,12 +252,32 @@ fn filter(h: &ArrayView2<'_, C64>, criterion: Criterion, es: f64, noise_var: f64
     Ok(Filter { w, bias, var })
 }
 
+/// The matched filter of several streams: with the Gram matrix $G = H^{H} H$, the row
+/// $w_{k} = h_{k}^{H} / G_{kk}$, unbiased, and the variance of noise and interference
+/// $(\sigma^{2} G_{kk} + E_{s} \sum_{j \ne k} |G_{kj}|^{2}) / G_{kk}^{2}$.
+fn matched_filter(hh: &CMat, h: &ArrayView2<'_, C64>, es: f64, noise_var: f64) -> Result<Filter> {
+    let n = h.ncols();
+    let g = hh.dot(h);
+    let mut w = hh.clone();
+    let mut var = Vec::with_capacity(n);
+    for k in 0..n {
+        let gkk = g[[k, k]].re;
+        if !(gkk > 0.0 && gkk.is_finite()) {
+            return Err(Error::Numerical("a stream has a zero channel".into()));
+        }
+        w.row_mut(k).mapv_inplace(|v| v / gkk);
+        let interference: f64 = (0..n).filter(|j| *j != k).map(|j| g[[k, j]].norm_sqr()).sum();
+        var.push((noise_var * gkk + es * interference) / (gkk * gkk));
+    }
+    Ok(Filter { w, bias: vec![1.0; n], var })
+}
+
 /// The bias and the noise variance of the estimate of a stream whose error variance is
 /// $E_{kk}$: $(1, E_{kk})$ for ZF; for the unbiased MMSE estimate, $\beta_{k} = 1 -
 /// E_{kk}/E_{s}$ and $E_{s} E_{kk} / (E_{s} - E_{kk})$ (both floored).
 fn unbiased(criterion: Criterion, ekk: f64, es: f64) -> (f64, f64) {
     match criterion {
-        Criterion::Zf => (1.0, ekk),
+        Criterion::Mr | Criterion::Zf => (1.0, ekk),
         Criterion::Mmse => ((1.0 - ekk / es).max(FLOOR), es * ekk / (es - ekk).max(FLOOR)),
     }
 }
@@ -281,16 +314,21 @@ impl SingleStream {
     }
 }
 
-/// A linear detector (ZF or MMSE) followed by symbol-by-symbol decisions.
+/// A linear detector (MR, ZF or MMSE) followed by symbol-by-symbol decisions.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Linear {
     /// The alphabet of every stream.
     pub constellation: Constellation,
-    /// ZF or MMSE.
+    /// MR, ZF or MMSE.
     pub criterion: Criterion,
 }
 
 impl Linear {
+    /// The maximum-ratio detector (matched filter).
+    pub fn mr(constellation: Constellation) -> Linear {
+        Linear { constellation, criterion: Criterion::Mr }
+    }
+
     /// The zero-forcing detector.
     pub fn zf(constellation: Constellation) -> Linear {
         Linear { constellation, criterion: Criterion::Zf }
@@ -899,6 +937,40 @@ mod tests {
     }
 
     #[test]
+    fn the_matched_filter_leaves_the_other_streams_as_interference() {
+        let mut rng = Rng::new(11);
+        let (es, s2) = (2.0, 0.3);
+        let h = channel(6, 3, &mut rng);
+        let f = filter(&h.view(), Criterion::Mr, es, s2).unwrap();
+        let g = hermitian(&h.view()).dot(&h);
+        for k in 0..3 {
+            // w_k h_k = 1 (unbiased), and the variance of the noise and interference of
+            // the estimate: σ² ‖w_k‖² + E_s Σ_{j≠k} |w_k h_j|²
+            let wk = f.w.row(k);
+            let gain = |j: usize| wk.iter().zip(h.column(j)).map(|(a, b)| a * b).sum::<C64>();
+            assert!((gain(k) - 1.0).norm() < 1e-14 && f.bias[k] == 1.0);
+            let expected = s2 * wk.iter().map(C64::norm_sqr).sum::<f64>()
+                + es * (0..3).filter(|j| *j != k).map(|j| gain(j).norm_sqr()).sum::<f64>();
+            assert!((f.var[k] - expected).abs() < 1e-12 * expected);
+            assert!(
+                (f.var[k]
+                    - (s2 * g[[k, k]].re + es * (g[[k, (k + 1) % 3]].norm_sqr() + g[[k, (k + 2) % 3]].norm_sqr()))
+                        / g[[k, k]].re.powi(2))
+                .abs()
+                    < 1e-12
+            );
+        }
+        // orthogonal streams: the matched filter is zero forcing
+        let mut q = CMat::zeros((4, 2));
+        q[[0, 0]] = C64::new(2.0, 0.0);
+        q[[1, 1]] = C64::new(0.0, 3.0);
+        let (mr, zf) =
+            (filter(&q.view(), Criterion::Mr, es, s2).unwrap(), filter(&q.view(), Criterion::Zf, es, s2).unwrap());
+        assert!(mr.w.iter().zip(zf.w.iter()).all(|(a, b)| (a - b).norm() < 1e-15));
+        assert!(mr.var.iter().zip(&zf.var).all(|(a, b)| (a - b).abs() < 1e-15));
+    }
+
+    #[test]
     fn the_single_stream_filter_is_the_matrix_filter() {
         let mut rng = Rng::new(7);
         let es = 1.0;
@@ -914,7 +986,7 @@ mod tests {
                 assert!(
                     (f.var[0]
                         - match criterion {
-                            Criterion::Zf => 0.3 * ginv[[0, 0]].re,
+                            Criterion::Mr | Criterion::Zf => 0.3 * ginv[[0, 0]].re,
                             Criterion::Mmse => {
                                 let e = 0.3 * ginv[[0, 0]].re;
                                 es * e / (es - e)
@@ -929,7 +1001,7 @@ mod tests {
         let qpsk = Constellation::psk(4).unwrap().normalized();
         let h = channel(3, 1, &mut rng);
         let y: Vec<C64> = (0..3).map(|_| rng.complex_gaussian()).collect();
-        for d in [Linear::zf(qpsk.clone()), Linear::mmse(qpsk.clone())] {
+        for d in [Linear::mr(qpsk.clone()), Linear::zf(qpsk.clone()), Linear::mmse(qpsk.clone())] {
             let f = filter(&h.view(), d.criterion, qpsk.energy(), 0.3).unwrap();
             let e = d.estimate(&h.view(), &y, 0.3).unwrap();
             assert!((e.symbols[0] - matvec(&f.w.view(), &y)[0] / f.bias[0]).norm() < 1e-14 && e.noise_var == f.var);

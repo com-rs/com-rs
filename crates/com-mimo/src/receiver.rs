@@ -44,6 +44,8 @@ use ndarray::{Array2, ArrayView2};
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DetectorKind {
+    /// Maximum ratio (matched filter).
+    Mr,
     /// Zero forcing.
     Zf,
     /// Unbiased MMSE.
@@ -67,7 +69,7 @@ pub enum DetectorKind {
 impl std::str::FromStr for DetectorKind {
     type Err = Error;
 
-    /// The detector of a name: `zf`, `mmse`, `sic` (`mmse_sic`), `zf_sic`, `ml`,
+    /// The detector of a name: `mr`, `zf`, `mmse`, `sic` (`mmse_sic`), `zf_sic`, `ml`,
     /// `sphere`, `kbest` (with [`DetectorKind::DEFAULT_PATHS`] paths), `amp` (`lama`)
     /// or `oamp` (with [`DetectorKind::DEFAULT_ITERATIONS`] iterations),
     /// case-insensitive.
@@ -97,7 +99,8 @@ impl DetectorKind {
 
     /// Every detector, K-best with [`DetectorKind::DEFAULT_PATHS`] paths and AMP and
     /// OAMP with [`DetectorKind::DEFAULT_ITERATIONS`] iterations.
-    pub const ALL: [DetectorKind; 9] = [
+    pub const ALL: [DetectorKind; 10] = [
+        DetectorKind::Mr,
         DetectorKind::Zf,
         DetectorKind::Mmse,
         DetectorKind::Sic,
@@ -121,8 +124,8 @@ impl DetectorKind {
     /// }
     /// # Ok::<(), com_core::Error>(())
     /// ```
-    pub const NAMES: [&'static str; 9] = {
-        let mut names = [""; 9];
+    pub const NAMES: [&'static str; 10] = {
+        let mut names = [""; 10];
         let mut i = 0;
         while i < names.len() {
             names[i] = DetectorKind::ALL[i].name();
@@ -135,6 +138,7 @@ impl DetectorKind {
     /// reads it.
     pub const fn name(self) -> &'static str {
         match self {
+            DetectorKind::Mr => "mr",
             DetectorKind::Zf => "zf",
             DetectorKind::Mmse => "mmse",
             DetectorKind::Sic => "sic",
@@ -194,6 +198,7 @@ impl DetectorKind {
     /// [`DetectorKind::detector`] with the alphabet `c` moved into the detector.
     fn build(self, c: Constellation) -> Result<Box<dyn MimoDetector + Send + Sync>> {
         Ok(match self {
+            DetectorKind::Mr => Box::new(Linear::mr(c)),
             DetectorKind::Zf => Box::new(Linear::zf(c)),
             DetectorKind::Mmse => Box::new(Linear::mmse(c)),
             DetectorKind::Sic => Box::new(Sic::mmse(c)),
