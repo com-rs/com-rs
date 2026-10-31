@@ -721,6 +721,16 @@
   tests: []
   badge: red
   not_covered: "the coarse-step PMD model is checked for unitarity only"
+- id: gordon2000
+  area: Optical
+  ref: "J. P. Gordon, H. Kogelnik, PMD fundamentals: Polarization mode dispersion in optical fibers, Proc. Natl. Acad. Sci. 97(9), 4541-4550, 2000"
+  module: com_channel::optical::pmd
+  tested: "the PMD vectors of eqs. (5.18)-(5.19) (to 3e-10), the mean signal delay of eq. (5.29) in the time domain (to 3e-10 of the DGD) and at the principal states (eqs. (5.30)-(5.31), +-DGD/2 within 0.015 %); the random walk of uniformly rotated sections (E|tau|^2 = sum of the section DGDs squared, ratio 0.996)"
+  tests:
+    - validation/tests/gordon2000.rs::the_pmd_of_the_sections_follows_gordon_and_kogelnik_2000
+    - validation/tests/gordon2000.rs::the_concatenation_of_sections_is_a_random_walk
+  badge: green
+  not_covered: "the second-order PMD vectors and their concatenation rules (Sec. 6), the rms pulse spreading of eq. (5.32); the DGD distribution (Maxwellian, Foschini & Poole 1991; finite number of sections, Karlsson 2001), not in references/"
 - id: musetti2018
   area: Optical
   ref: "S. Musetti, P. Serena, A. Bononi, On the accuracy of split-step Fourier simulations for wideband nonlinear optical communications, JLT 36(23), 5669-5677, 2018"

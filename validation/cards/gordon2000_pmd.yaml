@@ -1,0 +1,32 @@
+id: gordon2000_pmd
+title: The PMD vectors and mean delays of the PMD sections against Gordon and Kogelnik
+literature: gordon2000
+source:
+  kind: paper
+  reference: "J. P. Gordon, H. Kogelnik, PMD fundamentals: Polarization mode dispersion in optical fibers, Proc. Natl. Acad. Sci. 97(9), 4541-4550, 2000"
+  locator: "eqs. (5.18)-(5.19) (the input and output PMD vectors), (5.29)-(5.31) (the mean signal delay)"
+  file: fiber/2000_gordon_pmd-fundamentals_pnas.pdf
+description: >
+  A link of 50 sections drawn by comrs::channel::optical::pmd::PmdLink::with_mean_dgd
+  (mean DGD 10 ps): the Hermitian expansion of j U^† U_w (relative defect), the output
+  PMD vector against the Müller rotation of the input one (relative), the delay of the
+  centre of gravity of Gaussian pulses of 200 ps and random polarisation through
+  PmdLink::apply against the spectral mean of half the dot product of the input PMD
+  vector and Stokes vector, in units of the mean DGD (the worst of 8), and the delays of
+  pulses of 800 ps at the two principal states divided by +-DGD/2.
+run:
+  test: validation/tests/gordon2000.rs::the_pmd_of_the_sections_follows_gordon_and_kogelnik_2000
+tier: ci
+why: >
+  the relations are exact: the expansions and the rotation to rounding and the central
+  difference of the frequency derivative (1e-9), the delay of eq. (5.29) to the
+  periodic block (1e-6 of the DGD); at the principal states eq. (5.30) holds at a narrow
+  band, so the pulses of 800 ps leave a second-order PMD of about 1e-3
+findings:
+  - "the expansion of j U^† U_w is Hermitian and traceless to 3e-10 (the central difference), the output PMD vector is the Müller rotation of the input one to 3e-16, the delay of the centre of gravity of 8 pulses of random polarisation follows eq. (5.29) to 3e-10 of the mean DGD, and pulses of 800 ps at the principal states are delayed by +-DGD/2 within 0.015 %: PmdLink::apply and PmdLink::lumped_response follow the PMD formalism"
+cases:
+  - {inputs: {relation: eq_5_18_hermitian_traceless}, expected: {max: 1.0e-9}}
+  - {inputs: {relation: eq_5_19_output_vector}, expected: {max: 1.0e-9}}
+  - {inputs: {relation: eq_5_29_mean_delay}, expected: {max: 1.0e-6}}
+  - {inputs: {relation: eq_5_31_principal_state, state: slow}, expected: 1.0, tolerance: {rtol: 1.0e-3}}
+  - {inputs: {relation: eq_5_31_principal_state, state: fast}, expected: 1.0, tolerance: {rtol: 1.0e-3}}

@@ -216,7 +216,8 @@ PyPI and the command line `comrs`.
   uncoded baselines and the 64-state convolutional code against Costello & Forney 2007;
   the step rule of the Manakov solver against Fig. 7 of Musetti et al. 2018; the
   self- and cross-channel interference of the Manakov solver against the band integral of
-  the GN model (Poggiolini 2012); the scalar
+  the GN model (Poggiolini 2012); the PMD vectors, mean delays and random walk of the
+  PMD sections against Gordon & Kogelnik 2000; the scalar
   and Manakov split-step solvers against the exact two-soliton collision
   (Hirota 1973) of Sinkin et al. 2003, and the Manakov solver against the exact
   inelastic collision of two Manakov solitons of Radhakrishnan et al. 1997, and their
@@ -239,6 +240,9 @@ PyPI and the command line `comrs`.
   differentially encoded and whose points inside a quadrant are Gray-labelled (Pfau et
   al. 2009, Sec. III-A), decoded whatever multiple of $\pi/2$ the carrier recovery
   leaves.
+- `PmdLink::random` and `PmdLink::with_mean_dgd` divide out the spread of the section
+  DGDs (mean square 1.04 times the square of their mean): the mean DGD of a link was 2 %
+  above its target.
 - `com_math::nlse::StepRule::Fwm`: the step rule of Musetti, Serena & Bononi (2018),
   the first step of a span bounding the four-wave-mixing phase across the signal
   bandwidth (measured by `signal_bandwidth`), the next ones growing with the loss

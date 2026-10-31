@@ -1,0 +1,28 @@
+id: gordon2000_random_walk
+title: The PMD vector of uniformly rotated sections is a random walk
+literature: gordon2000
+source:
+  kind: paper
+  reference: "J. P. Gordon, H. Kogelnik, PMD fundamentals: Polarization mode dispersion in optical fibers, Proc. Natl. Acad. Sci. 97(9), 4541-4550, 2000"
+  locator: "Sec. 5: the DGD grows as the square root of the length, a random walk; the concatenation rule of the PMD vectors"
+  file: fiber/2000_gordon_pmd-fundamentals_pnas.pdf
+description: >
+  4000 links of 50 sections drawn by PmdLink::with_mean_dgd (mean DGD 10 ps): the mean
+  square of the DGD (the length of the PMD vector of eq. (5.18)) against the mean of the
+  sum of the squared DGDs of the sections, which uniform rotations make equal, and its
+  z-score; the mean DGD against the target of with_mean_dgd.
+run:
+  test: validation/tests/gordon2000.rs::the_concatenation_of_sections_is_a_random_walk
+tier: campaign
+duration: "0.1 s on an Apple M6 (release)"
+why: >
+  4000 links leave about 1.6 % of standard error on the mean square (a z-score within 3);
+  the mean DGD is recorded: its relation to the mean square (8 / (3 pi) for a Maxwellian
+  DGD) comes from Foschini and Poole (1991) and Karlsson (2001), not in references/
+findings:
+  - "the mean square of the DGD is 0.996 times the mean sum of the squared section DGDs (z = -0.28): the uniform rotations of Jones::random_su2 make the concatenation a random walk"
+  - "the mean DGD was 10.21 ps for a target of 10 ps: the DGD of a section, drawn as tau (1 + 0.2 g), has a mean square 1.04 tau^2, which with_mean_dgd and random did not divide out (sqrt(1.04) = 1.020); divided out, 10.01 ps"
+cases:
+  - {inputs: {quantity: mean_square_over_sum_of_squares}, expected: 1.0, tolerance: {rtol: 0.05}}
+  - {inputs: {quantity: z_score}, expected: 0.0, tolerance: {atol: 3.0}}
+  - {inputs: {quantity: mean_dgd_over_target}, expected: 1.0, tolerance: {rtol: 0.02}, note: "the mean DGD of 4000 links has 0.7 % of standard error; the target assumes a Maxwellian DGD"}

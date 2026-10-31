@@ -74,6 +74,11 @@ impl Jones {
     }
 }
 
+/// $1 + (1/5)^{2}$: the mean square of a section DGD drawn as $\bar\tau (1 + 0.2 g)$, $g$
+/// standard Gaussian, over $\bar\tau^{2}$ (it inflated the mean DGD by 2 % before it was
+/// divided out, `validation/tests/gordon2000.rs`).
+const SPREAD_POWER: f64 = 1.04;
+
 /// One birefringent section: a rotation then a differential group delay.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PmdSection {
@@ -87,8 +92,10 @@ pub struct PmdSection {
 ///
 /// [`PmdLink::random`] draws, for a PMD parameter `τ` (ps/√km), sections of length
 /// `L_c` with a uniform SU(2) rotation and a DGD `τ_k ~ N(τ̄, (τ̄/5)²)`,
-/// `τ̄ = τ √(3π/8 · L_c)`, so that the mean DGD of the link is `τ √L` (the coarse-step
-/// model of Marcuse, Menyuk and Wai, JLT 15(9), 1997).
+/// `τ̄ = τ √(3π/8 · L_c / (1 + 1/25))`, so that the mean DGD of the link is `τ √L` (the
+/// coarse-step model of Marcuse, Menyuk and Wai, JLT 15(9), 1997): the PMD vectors of
+/// uniformly rotated sections add as a random walk, `E|τ⃗|² = Σ E τ_k² = N τ̄² (1 + 1/25)`
+/// (Gordon & Kogelnik, PNAS 97(9), 2000), and a Maxwellian DGD has `⟨Δτ⟩² = 8/(3π) E|τ⃗|²`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PmdLink {
     /// The sections, span after span.
@@ -128,7 +135,7 @@ impl PmdLink {
         ensure(pmd_ps_sqrt_km >= 0.0, || format!("the PMD parameter must be non-negative, got {pmd_ps_sqrt_km}"))?;
         let sps = sections_per_span;
         let lc = fiber.span_km / sps as f64;
-        let tau_bar = pmd_ps_sqrt_km * 1e-12 * (3.0 * std::f64::consts::PI / 8.0 * lc).sqrt();
+        let tau_bar = pmd_ps_sqrt_km * 1e-12 * (3.0 * std::f64::consts::PI / 8.0 * lc / SPREAD_POWER).sqrt();
         let sections = (0..fiber.n_spans * sps)
             .map(|_| PmdSection { rotation: Jones::random_su2(rng), dgd_s: tau_bar * (1.0 + 0.2 * rng.gaussian()) })
             .collect();
@@ -136,12 +143,12 @@ impl PmdLink {
     }
 
     /// `sections` sections of unit length with a uniform SU(2) rotation and a DGD
-    /// `τ_k ~ N(τ̄, (τ̄/5)²)`, `τ̄ = ⟨DGD⟩ √(3π/(8N))`, so that the mean DGD of the
+    /// `τ_k ~ N(τ̄, (τ̄/5)²)`, `τ̄ = ⟨DGD⟩ √(3π/(8N (1 + 1/25)))`, so that the mean DGD of the
     /// concatenation is `mean_dgd_s` (the model of [`PmdLink::random`] for a given mean
     /// DGD rather than a PMD parameter).
     pub fn with_mean_dgd(mean_dgd_s: f64, sections: usize, rng: &mut Rng) -> PmdLink {
         let n = sections.max(1);
-        let tau = mean_dgd_s * (3.0 * std::f64::consts::PI / (8.0 * n as f64)).sqrt();
+        let tau = mean_dgd_s * (3.0 * std::f64::consts::PI / (8.0 * n as f64 * SPREAD_POWER)).sqrt();
         PmdLink {
             sections: (0..n)
                 .map(|_| PmdSection { rotation: Jones::random_su2(rng), dgd_s: tau * (1.0 + 0.2 * rng.gaussian()) })
