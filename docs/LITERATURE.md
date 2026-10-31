@@ -18,7 +18,7 @@ The last column lists the inconsistencies found in the documents (misprints, fig
 that contradict the text); they do not lower the badge when the corrected result is
 reproduced.
 
-Summary: 104 documents, 66 🟢, 32 🟠, 6 🔴; 58 inconsistencies found.
+Summary: 105 documents, 67 🟢, 32 🟠, 6 🔴; 58 inconsistencies found.
 
 ## Foundations
 
@@ -34,6 +34,7 @@ Summary: 104 documents, 66 🟢, 32 🟠, 6 🔴; 58 inconsistencies found.
 
 | | Document | Module | Compared | Tests | Not covered | Inconsistencies in the document |
 |---|---|---|---|---|---|---|
+| 🟢 | D. J. Costello, G. D. Forney, Channel coding: the road to channel capacity, Proc. IEEE 95(6), 2007 (arXiv cs/0611112) | `com_fec::bounds, com_fec::conv, com_mapping::theory, com_mapping::source` | Sec. II: the Shannon limits -1.59 dB and 1.76 dB (eta = 2), uncoded binary PAM at 9.6 dB for 1e-5, the 11.2 and 7.8 dB of possible gain, binary inputs below 0.2 dB (0.187 dB at rate 1/2), the (32, 6, 16) biorthogonal code at 5.8 dB; Sec. V-A: uncoded QAM at SNRnorm 8.5 dB (8.40 exact), the shaping bound 1.53 dB (Maxwell-Boltzmann 1.528 dB at 10 bits); Sec. IV-B: the 64-state code with soft Viterbi decoding, 5.42 dB of real coding gain ("on the order of 6 dB") | `validation/tests/costello2007.rs::the_limits_of_secs_ii_and_v_of_costello_2007`<br>`validation/tests/costello2007.rs::the_64_state_code_gains_about_6_db_as_in_sec_iv_of_costello_2007`<br>`crates/com-fec/src/bounds.rs::the_gaussian_limit_is_continuous_at_zero`<br>card [`costello2007_limits`](../validation/cards/costello2007_limits.yaml)<br>card [`costello2007_viterbi`](../validation/cards/costello2007_viterbi.yaml) | the codes the library does not have (Hamming and Golay codes, the NASA concatenated code of Fig. 6, lattices E8 and Leech of Fig. 8, Ungerboeck's trellis codes of Fig. 9, the original turbo code of Fig. 12) | — |
 | 🟢 | 3GPP TS 38.212 V18.5.0, NR multiplexing and channel coding | `com_fec::{crc, nr}` | the CRC polynomials of Sec. 5.1; the LDPC base graphs, lifting sizes, polar sequence and interleavers of Secs. 5.3-5.4, extracted from the standard | `crates/com-fec/src/crc.rs::ts_38_212_sec_5_1_generator_polynomials`<br>`tests/test_sionna_vectors.py::test_nr_ldpc` | segmentation, limited buffer, HARQ | — |
 | 🟢 | IEEE 802.11-2020, Figs. 17-9 and 19-11 | `com_fec::puncture` | the puncturing patterns of the rates 2/3, 3/4, 5/6 | `crates/com-fec/src/puncture.rs::yasuda_1984_table_i_free_distances_of_the_k7_punctured_codes` | the LDPC codes of Wi-Fi | — |
 | 🟠 | X.-Y. Hu, E. Eleftheriou, D. M. Arnold, Regular and irregular progressive edge-growth Tanner graphs, IT 51(1), 2005 | `com_fec::ldpc` | the girth 8 of the PEG (504, 252) code of Sec. VI; the decoders against AFF3CT on PEG matrices | `crates/com-fec/src/ldpc.rs::hu_2005_peg_504_252_has_girth_8` | Fig. 5 is shown in the gallery, not checked | — |

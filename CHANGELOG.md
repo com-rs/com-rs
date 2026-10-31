@@ -212,7 +212,8 @@ PyPI and the command line `comrs`.
   al. 2014, Sec. 3 (the EGN correction of the cross-channel interference gives 0.07 to
   0.72 dB less); the massive-MIMO uplink against Ngo, Larsson & Marzetta 2013, Figs. 1
   and 4; the RIS against Basar et al. 2019, Figs. 6 and 7; the blind phase search
-  against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I.
+  against the linewidth tolerances of Pfau, Hoffmann & Noé 2009, Table I; the limits,
+  uncoded baselines and the 64-state convolutional code against Costello & Forney 2007.
 - The Python tests compare the blocks with the recorded outputs of OptiCommPy 0.11 and
   GNPy 3.0 (`tests/oracle/`) and reproduce the classical results of the textbooks.
 - `docs/MATURITY.md` grades the evidence of every module.
@@ -231,6 +232,8 @@ PyPI and the command line `comrs`.
   differentially encoded and whose points inside a quadrant are Gray-labelled (Pfau et
   al. 2009, Sec. III-A), decoded whatever multiple of $\pi/2$ the carrier recovery
   leaves.
+- `com_fec::bounds::gaussian_limit_ebn0_db`: the Shannon limit on $E_{b}/N_{0}$ with
+  Gaussian inputs, $(2^{\eta} - 1)/\eta$, $-1.59$ dB as $\eta \to 0$.
 - The GN integral of a lossless span (distributed amplification) takes the limit $L^{2}$
   where its link function is 0/0, instead of NaN.
 

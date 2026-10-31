@@ -121,8 +121,8 @@
   name: "Finite-length bounds"
   modules: "`com_fec::bounds`"
   level: A
-  summary: "Polyanskiy, Poor & Verdú 2010 Table I; the Shannon limits of BPSK"
-  evidence: "• `crates/com-fec/src/bounds.rs`, `literature::polyanskiy_poor_verdu_2010_table_i` (Polyanskiy, Poor & Verdú, *IEEE Trans. Inf. Theory* 56(5), 2010, Table I: the normal approximation of the BSC, BEC and AWGN channels within 1 %)<br>• `tests/test_performance.py::test_shannon_limits_of_bpsk` (0.187 dB at rate 1/2, −0.495 dB at 1/3), `crates/com-fec/src/bounds.rs::capacity_limits_and_monotonicity`"
+  summary: "Polyanskiy, Poor & Verdú 2010 Table I; the Shannon limits of BPSK; Costello & Forney 2007"
+  evidence: "• `crates/com-fec/src/bounds.rs`, `literature::polyanskiy_poor_verdu_2010_table_i` (Polyanskiy, Poor & Verdú, *IEEE Trans. Inf. Theory* 56(5), 2010, Table I: the normal approximation of the BSC, BEC and AWGN channels within 1 %)<br>• `tests/test_performance.py::test_shannon_limits_of_bpsk` (0.187 dB at rate 1/2, −0.495 dB at 1/3), `crates/com-fec/src/bounds.rs::capacity_limits_and_monotonicity`<br>• `validation/tests/costello2007.rs` (Costello & Forney, *Proc. IEEE* 95(6), 2007, Secs. II and V-A: the Shannon limits with Gaussian inputs, −1.59 and 1.76 dB, the 0.19 dB of binary inputs at rate 1/2, uncoded PAM and QAM at 10⁻⁵, the shaping bound; Sec. IV-B: 5.42 dB of real coding gain for the 64-state code)"
   gaps: "• the converse and achievability bounds (RCU, DT, κβ) are not implemented; the binary-input AWGN channel is not in the paper (its dispersion is checked by quadrature only)"
 - theme: Coding and shaping
   name: "Distribution matching and probabilistic amplitude shaping"

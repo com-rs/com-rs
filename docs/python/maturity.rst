@@ -85,7 +85,7 @@ Coding and shaping
      - balanced sequences, invertible permutations
    * - Finite-length bounds
      - A
-     - Polyanskiy, Poor & Verdú 2010 Table I; the Shannon limits of BPSK
+     - Polyanskiy, Poor & Verdú 2010 Table I; the Shannon limits of BPSK; Costello & Forney 2007
    * - Distribution matching and probabilistic amplitude shaping
      - A
      - Schulte & Böcherer 2016 Fig. 2; Böcherer et al. 2015 Tables VI–X

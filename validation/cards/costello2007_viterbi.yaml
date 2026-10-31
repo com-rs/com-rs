@@ -1,0 +1,21 @@
+id: costello2007_viterbi
+title: The real coding gain of a 64-state convolutional code with Viterbi decoding
+literature: costello2007
+source:
+  kind: paper
+  reference: "D. J. Costello, G. D. Forney, Channel coding: the road to channel capacity, Proc. IEEE 95(6), 2007 (arXiv cs/0611112)"
+  locator: "Sec. IV-B: a 64-state code decoded by the Viterbi algorithm obtains a real coding gain on the order of 6 dB"
+  file: coding/2007_costello_channel-coding-road-to-capacity_procieee_arxiv.pdf
+description: >
+  The (133, 171) code of constraint length 7 (comrs::fec::conv::ConvolutionalCode::k7),
+  terminated blocks of 1000 bits, BPSK over AWGN, soft-decision Viterbi decoding; the
+  Eb/N0 at a BER of 1e-5 against uncoded binary PAM (9.59 dB).
+run:
+  test: validation/tests/costello2007.rs::the_64_state_code_gains_about_6_db_as_in_sec_iv_of_costello_2007
+tier: campaign
+duration: "2 s on an Apple M6 (release)"
+why: "\"on the order of 6 dB\" is read as 5 to 7 dB"
+findings:
+  - "the BER reaches 1e-5 at 4.17 dB: a real coding gain of 5.42 dB"
+cases:
+  - {inputs: {quantity: real_coding_gain_1e-5}, expected: {min: 5.0, max: 7.0}}

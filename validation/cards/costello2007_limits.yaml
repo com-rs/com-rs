@@ -1,0 +1,41 @@
+id: costello2007_limits
+title: The Shannon limits, uncoded baselines and shaping bound of Costello and Forney
+literature: costello2007
+source:
+  kind: paper
+  reference: "D. J. Costello, G. D. Forney, Channel coding: the road to channel capacity, Proc. IEEE 95(6), 2007 (arXiv cs/0611112)"
+  locator: "Sec. II (Fig. 1, the (32, 6, 16) biorthogonal code of Fig. 2) and Sec. V-A (uncoded QAM, Fig. 7; the shaping bound)"
+  file: coding/2007_costello_channel-coding-road-to-capacity_procieee_arxiv.pdf
+description: >
+  The Shannon limits on Eb/N0 with Gaussian inputs (comrs::fec::bounds::gaussian_limit_ebn0_db)
+  at eta -> 0 and eta = 2, the binary-input limit at rate 1/2
+  (comrs::fec::bounds::shannon_limit_ebn0_db), uncoded binary PAM at a BER of 1e-5
+  (comrs::mapping::theory::ebn0_for_ber), the union estimate of the paper for the
+  biorthogonal code, the SNR normalised by 2^eta - 1 at which uncoded 1024-QAM reaches a
+  SER of 1e-5 (comrs::mapping::theory::ser_esn0), the ultimate shaping gain pi e / 6, and
+  the gain of Maxwell-Boltzmann probabilities of entropy 10 bits on 4096-QAM over uniform
+  1024-QAM on the same grid (comrs::mapping::source::maxwell_boltzmann).
+run:
+  test: validation/tests/costello2007.rs::the_limits_of_secs_ii_and_v_of_costello_2007
+tier: ci
+tolerance: {atol: 0.05}
+why: >
+  the paper prints the values to 0.1 dB (two digits for the limits, which get 0.005);
+  the QAM value is stated for its approximation 4 Q(sqrt(3 SNRnorm)) of large
+  constellations (0.1 dB); "less than 0.2 dB" and the bound pi e / 6 are ranges
+findings:
+  - "the exact SER of 1024-QAM gives 8.40 dB; the approximation 4 Q(sqrt(3 SNRnorm)) of the paper gives 8.45 dB, printed 8.5"
+  - "Maxwell-Boltzmann probabilities of entropy 10 bits on 4096-QAM need 1.528 dB less energy than uniform 1024-QAM: within 0.005 dB of the bound pi e / 6"
+cases:
+  - {inputs: {quantity: ultimate_shannon_limit}, expected: -1.59, tolerance: {atol: 0.005}}
+  - {inputs: {quantity: shannon_limit_eta_2}, expected: 1.76, tolerance: {atol: 0.005}}
+  - {inputs: {quantity: uncoded_binary_pam_1e-5}, expected: 9.6}
+  - {inputs: {quantity: largest_real_coding_gain_1e-5}, expected: 11.2}
+  - {inputs: {quantity: gap_to_capacity_eta_2}, expected: 7.8}
+  - {inputs: {quantity: gain_eta_2_to_0}, expected: 3.35, tolerance: {atol: 0.005}}
+  - {inputs: {quantity: binary_input_cost_eta_1}, expected: {max: 0.2}}
+  - {inputs: {quantity: biorthogonal_32_6_16_1e-5}, expected: 5.8}
+  - {inputs: {quantity: biorthogonal_real_coding_gain}, expected: 3.8}
+  - {inputs: {quantity: uncoded_qam_snr_norm_1e-5}, expected: 8.5, tolerance: {atol: 0.1}}
+  - {inputs: {quantity: ultimate_shaping_gain}, expected: 1.53, tolerance: {atol: 0.005}}
+  - {inputs: {quantity: maxwell_boltzmann_gain_10_bits}, expected: {max: 1.53}}

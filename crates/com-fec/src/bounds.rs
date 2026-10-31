@@ -20,7 +20,9 @@
 //!
 //! ([`normal_approximation`]), and [`shannon_limit_ebn0_db`] the $E_{b}/N_{0}$ at which a
 //! rate-$R$ code can work at all ($n \to \infty$). With $E_{b}/N_{0}$ and the rate
-//! $R = k/n$: $\sigma^{2} = 1 / (2 R E_{b}/N_{0})$.
+//! $R = k/n$: $\sigma^{2} = 1 / (2 R E_{b}/N_{0})$. Without the binary constraint, the
+//! limit at the spectral efficiency $\eta = 2R$ is $(2^{\eta} - 1)/\eta$
+//! ([`gaussian_limit_ebn0_db`]).
 //!
 //! [`NormalApproximation`] is the same approximation for any channel of capacity $C$ and
 //! dispersion $V$, $\log_{2} M^{*}(n, \varepsilon) \approx n C - \sqrt{n V}\, Q^{-1}(\varepsilon) +
@@ -179,9 +181,37 @@ pub fn shannon_limit_ebn0_db(rate: f64) -> f64 {
     com_math::bisect(|e| biawgn_capacity(bpsk_noise_variance(e, rate)) < rate, -2.0, 20.0, 100)
 }
 
+/// The smallest $E_{b}/N_{0}$ (dB) of the AWGN channel at the spectral efficiency `eta`
+/// (bits per two dimensions) with Gaussian inputs: $E_{b}/N_{0} > (2^{\eta} - 1)/\eta$,
+/// which tends to $\ln 2$ ($-1.59$ dB, the ultimate Shannon limit) as $\eta \to 0$. A
+/// binary code of rate $R$ on BPSK has $\eta = 2R$; [`shannon_limit_ebn0_db`] is its
+/// binary-input limit, above this one.
+///
+/// # Examples
+/// ```
+/// use com_fec::bounds::{gaussian_limit_ebn0_db, shannon_limit_ebn0_db};
+/// assert!((gaussian_limit_ebn0_db(0.0) + 1.592).abs() < 1e-3);
+/// // binary inputs cost 0.19 dB at rate 1/2
+/// assert!((shannon_limit_ebn0_db(0.5) - gaussian_limit_ebn0_db(1.0) - 0.187).abs() < 0.01);
+/// ```
+pub fn gaussian_limit_ebn0_db(eta: f64) -> f64 {
+    let lin = if eta.abs() < 1e-9 { std::f64::consts::LN_2 } else { (eta.exp2() - 1.0) / eta };
+    com_math::lin2db(lin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gaussian_limit_is_continuous_at_zero() {
+        assert!((gaussian_limit_ebn0_db(1e-6) - gaussian_limit_ebn0_db(0.0)).abs() < 1e-5);
+        assert!(gaussian_limit_ebn0_db(1.0).abs() < 1e-12);
+        // the binary-input limit lies above the Gaussian one
+        for r in [0.1, 0.25, 0.5, 0.75, 0.9] {
+            assert!(shannon_limit_ebn0_db(r) > gaussian_limit_ebn0_db(2.0 * r));
+        }
+    }
 
     /// The quadrature as written before `gaussian_nodes`: the nodes scaled by hand.
     fn former_moments(noise_var: f64) -> (f64, f64) {

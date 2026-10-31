@@ -139,6 +139,17 @@
     - crates/com-mapping/src/differential.rs::pawula_rice_roberts_1982_section_iv_a
   badge: green
   not_covered: "unequal SNRs and the phase error of the reference (Secs. II-C and IV-D); digital FM (Sec. IV-B, C)"
+- id: costello2007
+  area: Coding and shaping
+  ref: "D. J. Costello, G. D. Forney, Channel coding: the road to channel capacity, Proc. IEEE 95(6), 2007 (arXiv cs/0611112)"
+  module: com_fec::bounds, com_fec::conv, com_mapping::theory, com_mapping::source
+  tested: "Sec. II: the Shannon limits -1.59 dB and 1.76 dB (eta = 2), uncoded binary PAM at 9.6 dB for 1e-5, the 11.2 and 7.8 dB of possible gain, binary inputs below 0.2 dB (0.187 dB at rate 1/2), the (32, 6, 16) biorthogonal code at 5.8 dB; Sec. V-A: uncoded QAM at SNRnorm 8.5 dB (8.40 exact), the shaping bound 1.53 dB (Maxwell-Boltzmann 1.528 dB at 10 bits); Sec. IV-B: the 64-state code with soft Viterbi decoding, 5.42 dB of real coding gain (\"on the order of 6 dB\")"
+  tests:
+    - validation/tests/costello2007.rs::the_limits_of_secs_ii_and_v_of_costello_2007
+    - validation/tests/costello2007.rs::the_64_state_code_gains_about_6_db_as_in_sec_iv_of_costello_2007
+    - crates/com-fec/src/bounds.rs::the_gaussian_limit_is_continuous_at_zero
+  badge: green
+  not_covered: "the codes the library does not have (Hamming and Golay codes, the NASA concatenated code of Fig. 6, lattices E8 and Leech of Fig. 8, Ungerboeck's trellis codes of Fig. 9, the original turbo code of Fig. 12)"
 - id: ts38212
   area: Coding and shaping
   ref: "3GPP TS 38.212 V18.5.0, NR multiplexing and channel coding"
