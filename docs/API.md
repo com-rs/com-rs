@@ -185,7 +185,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 ### `src/optical/manakov.rs`
 
 - `struct ManakovSsfm` — A dual-polarisation multi-span link (see the module).
-- `fn ManakovSsfm::new(fiber: FiberParams) -> ManakovSsfm` — The link with OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
+- `fn ManakovSsfm::new(fiber: FiberParams) -> ManakovSsfm` — The link with steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the
 - `fn ManakovSsfm::propagate(&self, u: &mut DualPol, fs: f64, rng: Option<&mut Rng>) -> Result<usize>` — Propagate both polarisations (√W) sampled at `fs`; the ASE of the EDFAs is drawn
 - `fn ManakovSsfm::dbp(&self, steps_per_span: usize, xi: f64) -> Dbp` — The dual-polarisation digital back-propagation of this link with
 
@@ -1268,7 +1268,7 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `enum StepRule` — The step size of [`ManakovSplitStep`].
 - `enum NonlinearStep` — The nonlinear step of [`ManakovSplitStep`].
 - `struct ManakovSplitStep` — The symmetric split-step solver of the Manakov equation (see the module).
-- `fn ManakovSplitStep::new(medium: Medium) -> ManakovSplitStep` — The solver of OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
+- `fn ManakovSplitStep::new(medium: Medium) -> ManakovSplitStep` — Steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the nonlinear phase
 - `fn ManakovSplitStep::run(&self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64) -> Result<usize>` — Propagate the two polarisations (√W, time domain, equal lengths) over
 - `fn ManakovSplitStep::run_with_gain( &self, x: &mut [C64], y: &mut [C64], length_km: f64, fs: f64, gain: FieldGain<'_>, ) -> Result<usize>` — [`ManakovSplitStep::run`] with a distributed gain (see
 - `fn manakov_rotation(x: &mut [C64], y: &mut [C64], k: f64)` — The nonlinear step of the Manakov equation with a phase that does not change during
@@ -2625,8 +2625,8 @@ one layer down, instead of written again (`docs/ARCHITECTURE.md`, placement).
 - `def Classify.__init__(self, *, candidates: list | Var | None = None, method: str | Var = "ml") -> None`
 - `class WdmTx(Native)` — WDM transmitter: the channel under test and independently modulated neighbours on the grid of OptiCommPy's simpleWDMTx.
 - `def WdmTx.__init__(self, *, n_channels: int | Var = 5, spacing_hz: float | Var = 50000000000.0, sps: int | Var = 8, power_dbm: float | list | Var = 0.0, kind: str | Var = "rrc", rolloff: float | Var = 0.1, n_taps: int | Var = 1025, linewidth_hz: float | Var = 0.0, channel: int | Var | None = None, mzm_scale: float | Var | None = None) -> None`
-- `class Manakov(Native)` — Dual-polarisation nonlinear propagation over the link (Manakov equation, OptiCommPy's manakovSSF), EDFAs with ASE.
-- `def Manakov.__init__(self, *, fiber: dict | Var | None = None, max_nl_phase_rad: float | Var = 0.02, step_km: float | Var | None = None, nonlinear_step: str | Var = "trapezoidal", max_iterations: int | Var = 10, tolerance: float | Var = 1e-05, amplification: str | Var = "edfa", noise: bool | Var = True) -> None`
+- `class Manakov(Native)` — Dual-polarisation nonlinear propagation over the link (Manakov equation, split step with the phase at the middle of the step or OptiCommPy's trapezoidal one), EDFAs with ASE.
+- `def Manakov.__init__(self, *, fiber: dict | Var | None = None, max_nl_phase_rad: float | Var = 0.02, step_km: float | Var | None = None, nonlinear_step: str | Var = "midpoint", max_iterations: int | Var = 10, tolerance: float | Var = 1e-05, amplification: str | Var = "edfa", noise: bool | Var = True) -> None`
 - `class Pmd(Native)` — Random rotation of the polarisations and polarisation-mode dispersion of a dual-polarisation signal, a new realisation every trial.
 - `def Pmd.__init__(self, *, mean_dgd_ps: float | Var = 0.0, sections: int | Var = 20, theta_deg: float | Var | None = None) -> None`
 - `class ManakovDbp(Native)` — Dual-polarisation digital back-propagation of the link (Manakov equation, coefficients negated).

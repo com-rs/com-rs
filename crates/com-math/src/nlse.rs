@@ -44,8 +44,10 @@
 //! P = |A_{x}|^{2} + |A_{y}|^{2},
 //! $$
 //!
-//! (the trapezoidal rule, iterated until the step converges since $P(z + h)$ depends
-//! on the step itself) and a half linear step. The step is either fixed or adapted so
+//! (the trapezoidal rule of OptiCommPy, iterated until the step converges since
+//! $P(z + h)$ depends on the step itself, [`NonlinearStep::Trapezoidal`]; by default the
+//! power at the middle of the step, [`NonlinearStep::Midpoint`], as [`SplitStep`]) and a
+//! half linear step. The step is either fixed or adapted so
 //! that the largest nonlinear phase of a step is a given rotation (the nonlinear phase
 //! rotation method of Sinkin et al., which concentrates the steps where the power is
 //! high, at the beginning of the spans).
@@ -372,15 +374,15 @@ pub enum StepRule {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum NonlinearStep {
+    /// The phase of the power at the middle of the step, after the first half of the
+    /// dispersion, as [`SplitStep`] (eq. (3) of Sinkin et al. 2003): no iteration.
+    #[default]
+    Midpoint,
     /// OptiCommPy's `manakovSSF`: the phase of the trapezoidal mean of the power at the
     /// two ends of the step, iterated until the field converges. When channels walk off
     /// within a step, the mean smooths the intensity that drives the cross-phase
     /// modulation (see [`ManakovSplitStep`]).
-    #[default]
     Trapezoidal,
-    /// The phase of the power at the middle of the step, after the first half of the
-    /// dispersion, as [`SplitStep`] (eq. (3) of Sinkin et al. 2003): no iteration.
-    Midpoint,
 }
 
 impl std::str::FromStr for NonlinearStep {
@@ -398,9 +400,9 @@ impl std::str::FromStr for NonlinearStep {
 
 /// The symmetric split-step solver of the Manakov equation (see the module).
 ///
-/// With [`NonlinearStep::Trapezoidal`] (OptiCommPy's scheme, the default) the solver is
-/// second order but its error on a collision of two solitons 800 GHz apart is 6.4 times
-/// that of [`NonlinearStep::Midpoint`] at the same steps (`validation/tests/sinkin2003.rs`),
+/// With [`NonlinearStep::Trapezoidal`] (OptiCommPy's scheme) the solver is second order
+/// but its error on a collision of two solitons 800 GHz apart is 6.4 times that of
+/// [`NonlinearStep::Midpoint`] (the default) at the same steps (`validation/tests/sinkin2003.rs`),
 /// and it underestimates the cross-channel interference of a WDM link whose channels
 /// walk off within a step.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -442,13 +444,14 @@ struct ManakovWork {
 }
 
 impl ManakovSplitStep {
-    /// The solver of OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
-    /// trapezoidal nonlinear step, at most 10 iterations, tolerance $10^{-5}$.
+    /// Steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the nonlinear phase
+    /// at the middle of the step; with [`NonlinearStep::Trapezoidal`], OptiCommPy's
+    /// iterations: at most 10, tolerance $10^{-5}$.
     pub fn new(medium: Medium) -> ManakovSplitStep {
         ManakovSplitStep {
             medium,
             rule: StepRule::NonlinearPhase(2e-2),
-            nonlinear: NonlinearStep::Trapezoidal,
+            nonlinear: NonlinearStep::Midpoint,
             max_iterations: 10,
             tolerance: 1e-5,
         }

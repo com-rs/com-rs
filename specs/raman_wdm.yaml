@@ -7,7 +7,9 @@
 # Manakov equation with the power profile of the span (the coupled equations of
 # stimulated Raman scattering, solved for the slices of the spectrum of the field at
 # the input of every span), the spontaneous Raman noise of the pump and the ASE of the
-# EDFA. The centre channel is received by an ideal coherent receiver, dispersion
+# EDFA, with fixed steps of 0.5 km: the adaptive steps of 0.02 rad of nonlinear phase
+# leave 0.4 dB of error at the highest powers with the pump (the midpoint step gives
+# too little SNR, OptiCommPy's trapezoidal step too much); 0.25 km gives the same values. The centre channel is received by an ideal coherent receiver, dispersion
 # compensation and a matched filter; frame synchronisation removes the delay and the
 # mean nonlinear phase only.
 #
@@ -29,6 +31,7 @@ link:
   - {type: source, constellation: gaussian, n_symbols: 4096, symbol_rate: 32e9, pols: 2}
   - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 8, power_dbm: $power_dbm, rolloff: 0.1}
   - type: manakov
+    step_km: 0.5
     fiber: {raman: {pumps: [{wavelength_nm: 1450, power_mw: $pump_mw, direction: counter}]}}
   - {type: wdm_rx, sps: 2}
   - cdc

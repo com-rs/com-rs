@@ -568,12 +568,13 @@ impl PyManakov {
 }
 
 /// Dual-polarisation nonlinear propagation over the link: the Manakov equation solved
-/// by the symmetric split-step method of OptiCommPy's ``manakovSSF``.
+/// by the symmetric split-step method (``nonlinear_step="trapezoidal"`` is OptiCommPy's
+/// ``manakovSSF``).
 ///
-/// Each step is a half linear step, the nonlinear phase
-/// ``(8/9) γ h (P(z) + P(z+h))/2`` (``P = |A_x|² + |A_y|²``, the trapezoidal rule,
-/// iterated until the relative change of the fields falls below ``tolerance``) and a half
-/// linear step. The step is fixed (``step_km``) or adapted so that the largest nonlinear
+/// Each step is a half linear step, the nonlinear phase ``(8/9) γ h P`` (``P = |A_x|² +
+/// |A_y|²`` at the middle of the step; with ``nonlinear_step="trapezoidal"``, OptiCommPy's
+/// ``(P(z) + P(z+h))/2``, iterated until the relative change of the fields falls below
+/// ``tolerance``) and a half linear step. The step is fixed (``step_km``) or adapted so that the largest nonlinear
 /// phase of a step is ``max_nl_phase`` (Sinkin et al. 2003). An amplifier follows every
 /// span. Polarisation-mode dispersion is neglected (see :class:`ManakovPmd`).
 ///
@@ -581,10 +582,10 @@ impl PyManakov {
 ///     fiber (FiberParams): the link.
 ///     max_nl_phase (float): largest nonlinear phase rotation per step (rad).
 ///     step_km (float, optional): a fixed step (km) instead of the adaptive one.
-///     nonlinear_step (str): ``"trapezoidal"``, the mean of the power at the two ends of
-///         a step, iterated (OptiCommPy), or ``"midpoint"``, the power at its middle (the
-///         scalar solver): the trapezoidal mean smooths the cross-phase modulation of
-///         channels that walk off within a step.
+///     nonlinear_step (str): ``"midpoint"``, the power at the middle of a step (the
+///         scalar solver), or ``"trapezoidal"``, the mean of the power at its two ends,
+///         iterated (OptiCommPy): the trapezoidal mean smooths the cross-phase
+///         modulation of channels that walk off within a step.
 ///     max_iterations (int): trapezoidal iterations per step at most.
 ///     tolerance (float): convergence tolerance of the iterations.
 ///     amplification (str): ``"edfa"``, ``"ideal"`` or ``"none"``.
@@ -615,7 +616,7 @@ impl PyManakovSsfm {
     }
 
     #[new]
-    #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, nonlinear_step = "trapezoidal", max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
+    #[pyo3(signature = (fiber, *, max_nl_phase = 2e-2, step_km = None, nonlinear_step = "midpoint", max_iterations = 10, tolerance = 1e-5, amplification = "edfa", raman = None))]
     #[allow(clippy::too_many_arguments, reason = "the settings of the solver, by keyword")]
     fn new(
         py: Python<'_>,

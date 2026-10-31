@@ -10,8 +10,8 @@
 //!
 //! # Step size in WDM
 //!
-//! The nonlinear phase of a step is the trapezoidal mean of the power at the two ends of
-//! the step. When channels walk off from each other within a step, the intensity pattern
+//! With [`NonlinearStep::Trapezoidal`] (OptiCommPy's scheme) the nonlinear phase of a step
+//! is the trapezoidal mean of the power at the two ends of the step. When channels walk off from each other within a step, the intensity pattern
 //! that drives the cross-phase modulation moves between the two ends and the mean
 //! smooths it, so the cross-channel interference comes out too small: five channels of
 //! 32 GBd spaced by 50 GHz over 500 km of lossless SMF give 0.7 dB too little NLI with
@@ -20,8 +20,13 @@
 //! 0.5 km (`validation/tests/dar2014.rs`). With the trapezoidal step, the step must keep
 //! the walk-off of the outer channels small against the symbol period; the adaptive rule
 //! of the nonlinear phase lengthens the steps at low power, where this matters most.
-//! [`NonlinearStep::Midpoint`] takes the power at the middle of the step, as the scalar
-//! solver, without iterations.
+//! [`NonlinearStep::Midpoint`], the default, takes the power at the middle of the step, as
+//! the scalar solver, without iterations: 0.17 dB from the GN model on the same link
+//! with steps of 0.5 km (`validation/cards/dar2014_manakov.yaml`). The default rule of
+//! 0.02 rad of nonlinear phase per step is not converged in every link: with the
+//! counter-pumped Raman link of `specs/raman_wdm.yaml` at 2 dBm per channel it leaves
+//! 0.4 dB of error on the SNR with either nonlinear step, where steps of 0.5 km are
+//! converged.
 //!
 //! [`ManakovSsfm::dbp`] is its digital back-propagation. [`ManakovSsfm`] neglects
 //! polarisation-mode dispersion; `pmd::ManakovPmd` adds it with a
@@ -68,8 +73,8 @@ pub struct ManakovSsfm {
     pub fiber: FiberParams,
     /// The step size.
     pub rule: StepRule,
-    /// The nonlinear step: OptiCommPy's trapezoidal mean (the default) or the power at
-    /// the middle of the step (see the module).
+    /// The nonlinear step: the power at the middle of the step (the default) or
+    /// OptiCommPy's trapezoidal mean (see the module).
     pub nonlinear: NonlinearStep,
     /// Largest number of trapezoidal iterations per step.
     pub max_iterations: usize,
@@ -83,13 +88,15 @@ pub struct ManakovSsfm {
 }
 
 impl ManakovSsfm {
-    /// The link with OptiCommPy's defaults: steps of 0.02 rad of nonlinear phase, the
-    /// trapezoidal nonlinear step, 10 iterations at most, tolerance $10^{-5}$, EDFAs.
+    /// The link with steps of 0.02 rad of nonlinear phase (OptiCommPy's default), the
+    /// nonlinear phase at the middle of the step, EDFAs; with
+    /// [`NonlinearStep::Trapezoidal`], OptiCommPy's iterations (10 at most, tolerance
+    /// $10^{-5}$).
     pub fn new(fiber: FiberParams) -> ManakovSsfm {
         ManakovSsfm {
             fiber,
             rule: StepRule::NonlinearPhase(2e-2),
-            nonlinear: NonlinearStep::Trapezoidal,
+            nonlinear: NonlinearStep::Midpoint,
             max_iterations: 10,
             tolerance: 1e-5,
             amplification: Amplification::Edfa,

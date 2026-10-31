@@ -105,7 +105,7 @@ pub(super) fn blocks() -> Vec<Extension> {
         ),
         builtin!(
             "manakov",
-            "Dual-polarisation nonlinear propagation over the link (Manakov equation, OptiCommPy's manakovSSF), EDFAs with ASE.",
+            "Dual-polarisation nonlinear propagation over the link (Manakov equation, split step with the phase at the middle of the step or OptiCommPy's trapezoidal one), EDFAs with ASE.",
             ManakovSpec,
             needs [Samples],
             gives [],
@@ -221,8 +221,8 @@ block_params! {
         fiber: Option<Mapping<FiberSpec>> [absent "spec fiber"], FIBER_DOC;
         max_nl_phase_rad: f64 [2e-2] "rad" > 0, "largest nonlinear phase rotation per step";
         step_km: Option<f64> [absent] "km" > 0, "a fixed step instead of the adaptive one";
-        nonlinear_step: String ["trapezoidal"] one_of ["trapezoidal", "midpoint"],
-            "the nonlinear phase of a step: the trapezoidal mean of the power at its ends (OptiCommPy, iterated) or the power at its middle (the scalar solver; more accurate in WDM)";
+        nonlinear_step: String ["midpoint"] one_of ["midpoint", "trapezoidal"],
+            "the nonlinear phase of a step: the power at its middle (the scalar solver) or the trapezoidal mean of the power at its ends (OptiCommPy, iterated; less accurate in WDM)";
         max_iterations: usize [10] >= 1, "trapezoidal iterations per step at most";
         tolerance: f64 [1e-5] > 0, "convergence tolerance of the iterations";
         amplifiers: AmplifierSettings [flatten], "the amplifiers after every span";

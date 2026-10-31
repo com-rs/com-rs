@@ -1,7 +1,9 @@
 # The nonlinear interference of a WDM link against the GN model (Poggiolini 2012):
 # five dual-polarisation channels at 32 GBd on a 50 GHz grid, root-raised-cosine
 # spectra (roll-off 0.1), five spans of 80 km of standard fibre with EDFAs of noise
-# figure 4.5 dB, propagated together by the Manakov equation (OptiCommPy's manakovSSF).
+# figure 4.5 dB, propagated together by the Manakov equation (the phase at the middle
+# of the step, fixed steps of 0.5 km: 0.25 km gives the same SNR, the adaptive steps of
+# 0.02 rad of nonlinear phase 0.1 to 0.2 dB less).
 # The centre channel is received by an ideal coherent receiver, dispersion
 # compensation and a matched filter; frame synchronisation removes the delay and the
 # mean nonlinear phase only (no carrier recovery, which would also remove a part of the
@@ -24,7 +26,7 @@ grid:
 link:
   - {type: source, constellation: $format, n_symbols: 4096, symbol_rate: 32e9, pols: 2}
   - {type: wdm_tx, n_channels: 5, spacing_hz: 50e9, sps: 8, power_dbm: $power_dbm, rolloff: 0.1}
-  - manakov
+  - {type: manakov, step_km: 0.5}
   - {type: wdm_rx, sps: 2}
   - cdc
   - {type: matched_filter, rolloff: 0.1}

@@ -3,7 +3,7 @@ WDM nonlinearity: the GN model and digital back-propagation
 ===========================================================
 
 Dual-polarisation channels at 32 GBd propagated together by the Manakov equation
-(:class:`comrs.ManakovSsfm`, the split-step scheme of OptiCommPy's ``manakovSSF``),
+(:class:`comrs.ManakovSsfm`, the split step with the phase at the middle of the step),
 with EDFAs of noise figure 4.5 dB after every span of 80 km of standard fibre.
 
 **The GN model.** Five channels on a 50 GHz grid over five spans: the SNR of the centre
