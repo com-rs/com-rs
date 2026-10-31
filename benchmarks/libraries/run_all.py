@@ -87,7 +87,7 @@ def run_one(python: str, mod, lib: str, threads: str, args, work: Path) -> dict:
             "process_wall_s": wall,
             "error": "\n".join(tail),
         }
-    run = json.loads(out.read_text())
+    run = json.loads(out.read_text(encoding="utf-8"))
     run.update(command=command, process_wall_s=wall)
     print(f"  {wall:.1f} s", flush=True)
     return run

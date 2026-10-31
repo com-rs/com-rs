@@ -114,6 +114,8 @@ jobs:
           python tools/gen_stubs.py --check
           python tools/gen_blocks.py --check
       - name: tests
+        env:
+          PYTHONWARNDEFAULTENCODING: "1"   # a file opened without its encoding fails
         run: |
           source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
           python -m pytest

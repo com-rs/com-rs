@@ -19,7 +19,7 @@ develop:
 # Rust and Python tests (doctests included)
 test: develop
     cargo test
-    python -m pytest
+    PYTHONWARNDEFAULTENCODING=1 python -m pytest
 
 # The statistical validation (slow): simulated curves against closed forms
 validation:

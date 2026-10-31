@@ -236,7 +236,7 @@ def test_every_fallible_binding_documents_its_exceptions():
     missing = [
         f"{path.name}: {name}"
         for path in files
-        for name, doc in fallible_bindings(path.read_text().split("\n"))
+        for name, doc in fallible_bindings(path.read_text(encoding="utf-8").split("\n"))
         if not any(re.match(r"\s*///\s*Raises:", d) for d in doc)
     ]
     assert missing == [], f"no Raises: section in {missing}"

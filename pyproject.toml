@@ -88,6 +88,10 @@ testpaths = ["tests"]
 addopts = "-q"
 # every test runs by default (CI runs them all); `-m "not slow"` leaves the long ones out
 markers = ["slow: a long test (a WDM link, Raman amplification, dual-polarisation DBP)"]
+# a text file read or written without its encoding is decoded as cp1252 on Windows: with
+# PYTHONWARNDEFAULTENCODING=1 (CI and `just test`), such a call of the package, the tests
+# or the tools fails on every system (the calls of matplotlib are left alone)
+filterwarnings = ["error::EncodingWarning:(comrs|conftest|oracle|test_|cards|_common)"]
 
 [tool.ruff]
 line-length = 100

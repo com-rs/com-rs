@@ -159,7 +159,9 @@ def cases(quick: bool) -> list[dict]:
             ref=lambda: ocr.ddpll(
                 r.reshape(-1, 1), 1 / 32e9, 0.1, tau, tau, c16.points, s.reshape(-1, 1), pil
             ),
-            ours=lambda: comrs.ddpll(r, c16, fs=32e9, kv=0.1, tau1=tau, tau2=tau, pilot_indices=pil, pilot_symbols=s[pil]),
+            ours=lambda: comrs.ddpll(
+                r, c16, fs=32e9, kv=0.1, tau1=tau, tau2=tau, pilot_indices=pil, pilot_symbols=s[pil]
+            ),
             repeats=3,
         )
     )
@@ -192,7 +194,9 @@ def cases(quick: bool) -> list[dict]:
         dict(
             name=f"adaptive equaliser (CMA, 15 taps), {s.size} symbols",
             ref=lambda: oeq.mimoAdaptEqualizer(w, pe),
-            ours=lambda: comrs.adaptive_equalizer(w, c16, algorithm="cma", n_taps=15, sps=2, mu=1e-3)[0],
+            ours=lambda: comrs.adaptive_equalizer(
+                w, c16, algorithm="cma", n_taps=15, sps=2, mu=1e-3
+            )[0],
             repeats=1,
             check=False,
         )
@@ -353,7 +357,7 @@ def main() -> None:
         "",
     ]
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(lines))
+    args.out.write_text("\n".join(lines), encoding="utf-8")
     args.out.with_suffix(".json").write_text(
         json.dumps(dict(machine=info, cases=rows, campaign=camp), indent=2)
     )
